@@ -26,7 +26,6 @@ def main() -> int:
         default=os.environ.get("RUN_CONTEXT", "manual"),
         choices=["dev", "pr", "manual"],
     )
-    _ = parser.add_argument("--score-bias", default=os.environ.get("SK_FR_SCORE_BIAS", "0"))
     _ = parser.add_argument(
         "--workspace-root",
         default=os.environ.get("WORKSPACE_ROOT", os.path.expanduser("~/sk_runtime")),
@@ -50,8 +49,6 @@ def main() -> int:
         args.bmt_id,
         "--run-context",
         args.run_context,
-        "--score-bias",
-        str(args.score_bias),
         "--workspace-root",
         args.workspace_root,
         "--human",

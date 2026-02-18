@@ -18,7 +18,6 @@ env:
   VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_BUCKET_PREFIX: ${{ vars.BMT_BUCKET_PREFIX || '' }}
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS || '' }}
-  SK_FR_SCORE_BIAS: ${{ vars.SK_FR_SCORE_BIAS || '0' }}
   BMT_TIMEOUT_SEC: ${{ vars.BMT_TIMEOUT_SEC || '2700' }}
 
 jobs:
@@ -148,7 +147,6 @@ jobs:
             "${{ matrix.project }}" \
             "${{ matrix.bmt_id }}" \
             "${{ github.event_name == 'pull_request' && 'pr' || 'dev' }}" \
-            "$SK_FR_SCORE_BIAS" \
             "$BMT_BUCKET_PREFIX"
           rc=$?
           set -e

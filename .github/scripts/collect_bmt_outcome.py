@@ -10,7 +10,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-
 VALID_STATUSES = {"pass", "warning", "fail", "timeout"}
 
 
@@ -169,7 +168,6 @@ def build_outcome(
             "aggregate_score": latest.get("aggregate_score"),
             "raw_aggregate_score": latest.get("raw_aggregate_score"),
             "delta_from_previous": latest.get("delta_from_previous"),
-            "score_bias": latest.get("score_bias"),
         }
         return outcome
     except Exception as exc:  # noqa: BLE001 - keep artifact generation robust in CI
@@ -205,11 +203,11 @@ def main() -> int:
 
     output_path = Path(args.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(outcome, indent=2) + "\n", encoding="utf-8")
+    _ = output_path.write_text(json.dumps(outcome, indent=2) + "\n", encoding="utf-8")
 
     print(
         f"BMT_OUTCOME project={outcome['project']} bmt={outcome['bmt_id']} "
-        f"status={outcome['status']} reason={outcome['reason_code']}"
+        + f"status={outcome['status']} reason={outcome['reason_code']}"
     )
     return 0
 

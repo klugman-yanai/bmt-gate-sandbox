@@ -27,11 +27,9 @@ def main() -> int:
     )
     _ = parser.add_argument(
         "--runner-path",
-        default="repo/staging/runners/sk_gcc_release/kardome_runner_dev",
+        default="repo/staging/runners/sk_gcc_release/kardome_runner",
     )
-    _ = parser.add_argument(
-        "--runner-uri", default="sk/runners/sk_gcc_release/kardome_runner_dev"
-    )
+    _ = parser.add_argument("--runner-uri", default="sk/runners/sk_gcc_release/kardome_runner")
     _ = parser.add_argument("--source", default="sandbox_manual")
     _ = parser.add_argument("--source-ref", default=os.environ.get("SOURCE_REF", ""))
     _ = parser.add_argument("--force", action="store_true")

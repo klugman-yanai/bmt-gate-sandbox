@@ -42,7 +42,7 @@ Upload runner with rotation:
 
 ```bash
 BUCKET="<bucket>" python3 ./repo/bootstrap/upload_runner.py \
-  --runner-path repo/staging/runners/sk_gcc_release/kardome_runner_dev
+  --runner-path repo/staging/runners/sk_gcc_release/kardome_runner
 ```
 
 Upload wavs:

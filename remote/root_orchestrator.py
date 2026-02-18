@@ -35,11 +35,6 @@ def parse_args() -> argparse.Namespace:
         "--run-context", choices=["dev", "pr", "manual"], default="manual"
     )
     _ = parser.add_argument(
-        "--score-bias",
-        type=float,
-        default=float(os.environ.get("SK_FR_SCORE_BIAS", "0")),
-    )
-    _ = parser.add_argument(
         "--workspace-root", default=str(Path("~/sk_runtime").expanduser())
     )
     _ = parser.add_argument("--summary-out", default="bmt_root_results.json")
@@ -141,8 +136,6 @@ def main() -> int:
         str(run_root),
         "--run-context",
         args.run_context,
-        "--score-bias",
-        str(args.score_bias),
         "--summary-out",
         str(manager_summary_path),
     ]
@@ -173,7 +166,6 @@ def main() -> int:
         "project": args.project,
         "bmt_id": args.bmt_id,
         "run_context": args.run_context,
-        "score_bias": args.score_bias,
         "workspace": str(run_root),
         "manager_exit_code": manager_exit_code,
         "passed": manager_exit_code == 0,

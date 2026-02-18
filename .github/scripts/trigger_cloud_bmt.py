@@ -25,7 +25,6 @@ def main() -> int:
     _ = parser.add_argument("project")
     _ = parser.add_argument("bmt_id")
     _ = parser.add_argument("run_context", nargs="?", default="manual")
-    _ = parser.add_argument("score_bias", nargs="?", default="0")
     _ = parser.add_argument(
         "bucket_prefix", nargs="?", default=os.environ.get("BMT_BUCKET_PREFIX", "")
     )
@@ -36,7 +35,6 @@ def main() -> int:
     project = cast(str, args.project)
     bmt_id = cast(str, args.bmt_id)
     run_context = cast(str, args.run_context)
-    score_bias = cast(str, args.score_bias)
     bucket_prefix = cast(str, args.bucket_prefix)
 
     prefix = bucket_prefix.strip("/")
@@ -77,7 +75,6 @@ def main() -> int:
             f"--project {shlex.quote(project)} "
             f"--bmt-id {shlex.quote(bmt_id)} "
             f"--run-context {shlex.quote(run_context)} "
-            f"--score-bias {shlex.quote(str(score_bias))} "
             "--workspace-root ~/sk_runtime"
         ),
     ]

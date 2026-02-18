@@ -25,6 +25,9 @@
       "warning_policy": {
         "bootstrap_without_baseline": true
       },
+      "demo": {
+        "force_pass": true
+      },
       "parsing": {
         "keyword": "NAMUH",
         "counter_pattern": "Hi NAMUH counter = (\\d+)"

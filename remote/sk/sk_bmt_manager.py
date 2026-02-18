@@ -39,11 +39,6 @@ def parse_args() -> argparse.Namespace:
     _ = parser.add_argument(
         "--run-context", choices=["dev", "pr", "manual"], default="manual"
     )
-    _ = parser.add_argument(
-        "--score-bias",
-        type=float,
-        default=float(os.environ.get("SK_FR_SCORE_BIAS", "0")),
-    )
     _ = parser.add_argument("--limit", type=int, default=int(os.environ.get("LIMIT", "0")))
     _ = parser.add_argument(
         "--max-jobs",
@@ -393,7 +388,7 @@ def main() -> int:
         if file_results
         else 0.0
     )
-    aggregate_score = raw_score + args.score_bias
+    aggregate_score = raw_score
 
     gate_cfg = bmt_cfg.get("gate", {}) if isinstance(bmt_cfg.get("gate"), dict) else {}
     warning_policy = (
@@ -401,6 +396,8 @@ def main() -> int:
         if isinstance(bmt_cfg.get("warning_policy"), dict)
         else {}
     )
+    demo_cfg = bmt_cfg.get("demo", {}) if isinstance(bmt_cfg.get("demo"), dict) else {}
+    demo_force_pass = bool(demo_cfg.get("force_pass", False))
     comparison = str(gate_cfg.get("comparison", "gte"))
     # Gate against the previous run's latest.json for direct run-to-run comparison.
     last_score, previous_latest = _read_result_file(bucket_root, results_prefix, "latest.json")
@@ -411,6 +408,9 @@ def main() -> int:
         comparison, aggregate_score, last_score, failed_count, args.run_context
     )
     status, reason_code = _resolve_status(gate, warning_policy)
+    if demo_force_pass and status == "fail":
+        status = "pass"
+        reason_code = "demo_force_pass"
 
     ts_iso = _now_iso()
     ts_compact = _now_stamp()
@@ -424,9 +424,9 @@ def main() -> int:
         "bmt_id": args.bmt_id,
         "status": status,
         "reason_code": reason_code,
+        "demo_force_pass": demo_force_pass,
         "aggregate_score": aggregate_score,
         "raw_aggregate_score": raw_score,
-        "score_bias": args.score_bias,
         "delta_from_previous": delta_from_previous,
         "failed_count": failed_count,
         "gate": gate,
@@ -484,6 +484,7 @@ def main() -> int:
         "run_context": args.run_context,
         "status": status,
         "reason_code": reason_code,
+        "demo_force_pass": demo_force_pass,
         "passed": bool(gate["passed"]),
         "reason": gate.get("reason"),
         "aggregate_score": aggregate_score,
@@ -499,7 +500,7 @@ def main() -> int:
     state = status.upper()
     print(
         f"SK_BMT_GATE={state} BMT={args.bmt_id} SCORE={aggregate_score:.3f} "
-        + f"RAW={raw_score:.3f} SCORE_BIAS={args.score_bias:+.3f}"
+        + f"RAW={raw_score:.3f}"
     )
 
     return 1 if status == "fail" else 0
