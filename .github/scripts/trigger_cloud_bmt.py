@@ -53,8 +53,9 @@ def main() -> int:
             "--format=value(name)",
         ]
     ):
-        print(f"::error::VM {vm_name} not found in zone {gcp_zone}.", file=sys.stderr)
-        return 1
+        print(
+            f"::warning::Could not pre-validate VM {vm_name} from CI identity. Proceeding to direct SSH trigger."
+        )
 
     if not run_ok(["gcloud", "storage", "ls", root_orchestrator_uri]):
         print(
