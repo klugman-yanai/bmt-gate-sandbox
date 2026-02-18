@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJson(env.BMT_MAX_PARALLEL) }}
+      max-parallel: ${{ fromJson(vars.BMT_MAX_PARALLEL || '1') }}
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
     name: 02 BMT / ${{ matrix.project }}.${{ matrix.bmt_id }}
     steps:
