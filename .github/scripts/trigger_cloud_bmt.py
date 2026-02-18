@@ -57,8 +57,9 @@ def main() -> int:
         return 1
 
     if not run_ok(["gcloud", "storage", "ls", root_orchestrator_uri]):
-        print(f"::error::Missing root orchestrator at {root_orchestrator_uri}", file=sys.stderr)
-        return 1
+        print(
+            f"::warning::Could not verify {root_orchestrator_uri} from CI identity. Continuing; VM will attempt to fetch it directly."
+        )
 
     cmd_parts = [
         "set -euo pipefail",
