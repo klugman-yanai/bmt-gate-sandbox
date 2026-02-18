@@ -28,9 +28,8 @@ def main() -> int:
     print(f"Validating bucket {bucket_uri}...")
     rc, _ = run_check(["gcloud", "storage", "ls", bucket_uri])
     if rc != 0:
-        print(
-            f"::warning::Bucket {bucket_uri} could not be listed from CI identity. Continuing; VM-side orchestration may still succeed."
-        )
+        print(f"::error::Bucket {bucket_uri} was not found or is not accessible.", file=sys.stderr)
+        return 1
 
     print(f"Validating VM {vm_name} in zone {zone}...")
     rc, _ = run_check(
@@ -47,10 +46,10 @@ def main() -> int:
     )
     if rc != 0:
         print(
-            f"::warning::VM {vm_name} could not be described from CI identity. Continuing; SSH trigger step will validate runtime access."
+            f"::error::VM {vm_name} not found in zone {zone}. Create it or update repo variable BMT_VM_NAME/GCP_ZONE.",
+            file=sys.stderr,
         )
-        print("Cloud infra validation passed (best-effort).")
-        return 0
+        return 1
 
     rc, status = run_check(
         [

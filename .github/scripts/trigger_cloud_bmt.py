@@ -53,14 +53,12 @@ def main() -> int:
             "--format=value(name)",
         ]
     ):
-        print(
-            f"::warning::Could not pre-validate VM {vm_name} from CI identity. Proceeding to direct SSH trigger."
-        )
+        print(f"::error::VM {vm_name} not found in zone {gcp_zone}.", file=sys.stderr)
+        return 1
 
     if not run_ok(["gcloud", "storage", "ls", root_orchestrator_uri]):
-        print(
-            f"::warning::Could not verify {root_orchestrator_uri} from CI identity. Continuing; VM will attempt to fetch it directly."
-        )
+        print(f"::error::Missing root orchestrator at {root_orchestrator_uri}", file=sys.stderr)
+        return 1
 
     cmd_parts = [
         "set -euo pipefail",
