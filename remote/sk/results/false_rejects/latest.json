@@ -2,6 +2,8 @@
   "timestamp": null,
   "project_id": "sk",
   "bmt_id": "false_reject_namuh",
+  "status": null,
+  "reason_code": "bootstrap",
   "aggregate_score": null,
   "raw_aggregate_score": null,
   "score_bias": 0.0,

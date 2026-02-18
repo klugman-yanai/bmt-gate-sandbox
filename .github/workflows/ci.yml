@@ -19,6 +19,7 @@ env:
   BMT_BUCKET_PREFIX: ${{ vars.BMT_BUCKET_PREFIX || '' }}
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS || '' }}
   SK_FR_SCORE_BIAS: ${{ vars.SK_FR_SCORE_BIAS || '0' }}
+  BMT_TIMEOUT_SEC: ${{ vars.BMT_TIMEOUT_SEC || '2700' }}
 
 jobs:
   prepare-matrix:
@@ -111,9 +112,11 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          version: "latest"
+          version: latest
 
       - name: Validate cloud infra
+        id: validate
+        continue-on-error: true
         run: |
           uv run \
             --with "google-cloud-storage>=2.10" \
@@ -121,10 +124,20 @@ jobs:
             --with "google-auth>=2.20" \
             ./.github/scripts/validate_cloud_infra.py "$GCS_BUCKET" "$VM_NAME" "$GCP_ZONE"
 
-      - name: Trigger cloud BMT
+      - name: Trigger cloud BMT (timed)
+        id: trigger
+        if: always()
         run: |
-          RUN_CONTEXT="${{ github.event_name == 'pull_request' && 'pr' || 'dev' }}"
-          uv run \
+          set -euo pipefail
+          if [[ "${{ steps.validate.outcome }}" != "success" ]]; then
+            echo "trigger_result=trigger_fail" >> "$GITHUB_OUTPUT"
+            echo "trigger_exit=200" >> "$GITHUB_OUTPUT"
+            echo "::error::Cloud infra validation failed."
+            exit 0
+          fi
+
+          set +e
+          timeout "${BMT_TIMEOUT_SEC}s" uv run \
             --with "google-cloud-storage>=2.10" \
             --with "google-cloud-compute>=1.14" \
             --with "google-auth>=2.20" \
@@ -134,6 +147,233 @@ jobs:
             "$GCS_BUCKET" \
             "${{ matrix.project }}" \
             "${{ matrix.bmt_id }}" \
-            "$RUN_CONTEXT" \
+            "${{ github.event_name == 'pull_request' && 'pr' || 'dev' }}" \
             "$SK_FR_SCORE_BIAS" \
             "$BMT_BUCKET_PREFIX"
+          rc=$?
+          set -e
+
+          result="trigger_fail"
+          if [[ "$rc" -eq 0 ]]; then
+            result="trigger_pass"
+          elif [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
+            result="trigger_timeout"
+          fi
+
+          echo "trigger_result=${result}" >> "$GITHUB_OUTPUT"
+          echo "trigger_exit=${rc}" >> "$GITHUB_OUTPUT"
+          echo "Trigger result: ${result} (exit=${rc})"
+
+      - name: Collect BMT outcome
+        id: collect
+        if: always()
+        run: |
+          set -euo pipefail
+          OUTCOME_PATH=".bmt_outcomes/${{ matrix.project }}.${{ matrix.bmt_id }}.json"
+          python3 ./.github/scripts/collect_bmt_outcome.py \
+            "$GCS_BUCKET" \
+            "$BMT_BUCKET_PREFIX" \
+            "${{ matrix.project }}" \
+            "${{ matrix.bmt_id }}" \
+            "${{ steps.trigger.outputs.trigger_result }}" \
+            "${{ steps.trigger.outputs.trigger_exit }}" \
+            "$OUTCOME_PATH"
+          echo "outcome_path=${OUTCOME_PATH}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload BMT outcome artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bmt-outcome-${{ matrix.project }}-${{ matrix.bmt_id }}
+          path: ${{ steps.collect.outputs.outcome_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Evaluate matrix leg
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - "${{ steps.collect.outputs.outcome_path }}" "${{ matrix.project }}" "${{ matrix.bmt_id }}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          outcome_path = Path(sys.argv[1])
+          project = sys.argv[2]
+          bmt_id = sys.argv[3]
+
+          data = json.loads(outcome_path.read_text(encoding="utf-8"))
+          status = str(data.get("status", "fail")).lower()
+          reason = str(data.get("reason_code", "unknown"))
+
+          if status == "pass":
+              print(f"::notice::{project}.{bmt_id} PASS ({reason})")
+              raise SystemExit(0)
+          if status == "warning":
+              print(f"::warning::{project}.{bmt_id} WARNING ({reason})")
+              raise SystemExit(0)
+          if status == "timeout":
+              print(f"::error::{project}.{bmt_id} TIMEOUT ({reason})")
+              raise SystemExit(1)
+          if status == "fail":
+              print(f"::error::{project}.{bmt_id} FAIL ({reason})")
+              raise SystemExit(1)
+
+          print(f"::error::{project}.{bmt_id} unknown status: {status}")
+          raise SystemExit(1)
+          PY
+
+  aggregate-report:
+    if: always()
+    needs: bmt
+    runs-on: ubuntu-22.04
+    outputs:
+      decision: ${{ steps.aggregate.outputs.decision }}
+      pass_count: ${{ steps.aggregate.outputs.pass_count }}
+      warning_count: ${{ steps.aggregate.outputs.warning_count }}
+      fail_count: ${{ steps.aggregate.outputs.fail_count }}
+      timeout_count: ${{ steps.aggregate.outputs.timeout_count }}
+      total_count: ${{ steps.aggregate.outputs.total_count }}
+    steps:
+      - name: Download matrix outcome artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bmt-outcome-*
+          path: .bmt_outcomes
+          merge-multiple: true
+
+      - name: Aggregate outcomes
+        id: aggregate
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          base = Path(".bmt_outcomes")
+          files = sorted(base.rglob("*.json")) if base.exists() else []
+
+          counts = {"pass": 0, "warning": 0, "fail": 0, "timeout": 0}
+          rows = []
+
+          for path in files:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              project = str(data.get("project", "unknown"))
+              bmt_id = str(data.get("bmt_id", "unknown"))
+              status = str(data.get("status", "fail")).lower()
+              reason = str(data.get("reason_code", "unknown"))
+              score = data.get("scores", {}).get("aggregate_score")
+              delta = data.get("scores", {}).get("delta_from_previous")
+
+              if status not in counts:
+                  status = "fail"
+                  reason = "invalid_status"
+
+              counts[status] += 1
+              rows.append(
+                  {
+                      "project": project,
+                      "bmt_id": bmt_id,
+                      "status": status,
+                      "reason": reason,
+                      "score": score,
+                      "delta": delta,
+                  }
+              )
+
+          if counts["timeout"] > 0:
+              decision = "timeout"
+          elif counts["fail"] > 0:
+              decision = "rejected"
+          elif counts["warning"] > 0:
+              decision = "accepted_with_warnings"
+          elif sum(counts.values()) > 0:
+              decision = "accepted"
+          else:
+              decision = "timeout"
+
+          summary_lines = [
+              "## BMT Matrix Outcomes",
+              "",
+              f"Final decision: **{decision}**",
+              "",
+              "| Project | BMT | Status | Reason | Aggregate Score | Delta |",
+              "|---|---|---|---|---:|---:|",
+          ]
+
+          if rows:
+              for row in sorted(rows, key=lambda item: (item["project"], item["bmt_id"])):
+                  score = "" if row["score"] is None else f"{row['score']}"
+                  delta = "" if row["delta"] is None else f"{row['delta']}"
+                  summary_lines.append(
+                      f"| {row['project']} | {row['bmt_id']} | {row['status']} | {row['reason']} | {score} | {delta} |"
+                  )
+          else:
+              summary_lines.append("| - | - | timeout | no_outcomes_found |  |  |")
+
+          summary_lines.extend(
+              [
+                  "",
+                  f"Pass: {counts['pass']}",
+                  f"Warnings: {counts['warning']}",
+                  f"Fails: {counts['fail']}",
+                  f"Timeouts: {counts['timeout']}",
+              ]
+          )
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as fh:
+                  fh.write("\n".join(summary_lines) + "\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"decision={decision}\n")
+              fh.write(f"pass_count={counts['pass']}\n")
+              fh.write(f"warning_count={counts['warning']}\n")
+              fh.write(f"fail_count={counts['fail']}\n")
+              fh.write(f"timeout_count={counts['timeout']}\n")
+              fh.write(f"total_count={sum(counts.values())}\n")
+          PY
+
+  final-gate:
+    if: always()
+    needs: aggregate-report
+    runs-on: ubuntu-22.04
+    name: final-gate
+    steps:
+      - name: Enforce final gate decision
+        run: |
+          set -euo pipefail
+          decision="${{ needs.aggregate-report.outputs.decision }}"
+          pass_count="${{ needs.aggregate-report.outputs.pass_count }}"
+          warning_count="${{ needs.aggregate-report.outputs.warning_count }}"
+          fail_count="${{ needs.aggregate-report.outputs.fail_count }}"
+          timeout_count="${{ needs.aggregate-report.outputs.timeout_count }}"
+
+          echo "Final decision: ${decision}"
+          echo "Counts -> pass=${pass_count} warning=${warning_count} fail=${fail_count} timeout=${timeout_count}"
+
+          if [[ "${decision}" == "accepted" ]]; then
+            echo "::notice::BMT accepted"
+            exit 0
+          fi
+
+          if [[ "${decision}" == "accepted_with_warnings" ]]; then
+            echo "::warning::BMT accepted with warnings"
+            exit 0
+          fi
+
+          if [[ "${decision}" == "rejected" ]]; then
+            echo "::error::BMT rejected due to failing matrix legs"
+            exit 1
+          fi
+
+          if [[ "${decision}" == "timeout" ]]; then
+            echo "::error::BMT rejected due to timeout"
+            exit 1
+          fi
+
+          echo "::error::Unknown final decision: ${decision}"
+          exit 1
