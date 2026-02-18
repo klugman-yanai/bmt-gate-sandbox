@@ -1,0 +1,33 @@
+# Build/output junk
+build/
+data/
+.bmt_runtime/
+sk_runtime/
+
+# Python
+**/__pycache__/
+*.pyc
+.venv/
+
+# Local staging (manual assets)
+repo/staging/
+
+# Generated logs/results
+*.log
+*.tmp
+*.out
+bmt_root_results.json
+
+# Tooling/editor
+compile_commands.json
+.vscode/
+.idea/
+*.swp
+*~
+
+# System
+.DS_Store
+Thumbs.db
+
+# Local credentials
+gcp-key.json

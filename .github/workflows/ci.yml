@@ -1,0 +1,139 @@
+name: Sandbox CI
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+  GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+  GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+  GCP_ZONE: ${{ vars.GCP_ZONE }}
+  VM_NAME: ${{ vars.BMT_VM_NAME }}
+  BMT_BUCKET_PREFIX: ${{ vars.BMT_BUCKET_PREFIX || '' }}
+  BMT_PROJECTS: ${{ vars.BMT_PROJECTS || '' }}
+  SK_FR_SCORE_BIAS: ${{ vars.SK_FR_SCORE_BIAS || '0' }}
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build project+BMT matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("remote")
+          projects_cfg = json.loads((root / "bmt_projects.json").read_text(encoding="utf-8")).get("projects", {})
+
+          project_filter_raw = os.environ.get("BMT_PROJECTS", "").replace(",", " ").split()
+          project_filter = set(item.strip() for item in project_filter_raw if item.strip())
+
+          include = []
+          for project_id, project_cfg in projects_cfg.items():
+              if not isinstance(project_cfg, dict):
+                  continue
+              if not bool(project_cfg.get("enabled", True)):
+                  continue
+              if project_filter and project_id not in project_filter:
+                  continue
+
+              jobs_rel = str(project_cfg.get("jobs_config", "")).strip()
+              if not jobs_rel:
+                  continue
+              jobs_path = root / jobs_rel
+              if not jobs_path.is_file():
+                  raise SystemExit(f"Missing jobs config: {jobs_path}")
+
+              jobs_cfg = json.loads(jobs_path.read_text(encoding="utf-8"))
+              for bmt_id, bmt_cfg in jobs_cfg.get("bmts", {}).items():
+                  if isinstance(bmt_cfg, dict) and bool(bmt_cfg.get("enabled", True)):
+                      include.append({"project": project_id, "bmt_id": bmt_id})
+
+          if not include:
+              raise SystemExit("No enabled project+BMT rows found for CI matrix")
+
+          matrix = json.dumps({"include": include}, separators=(",", ":"))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"matrix={matrix}\\n")
+          PY
+
+  bmt:
+    needs: prepare-matrix
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    name: BMT / ${{ matrix.project }}.${{ matrix.bmt_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Preflight config
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_ZONE VM_NAME; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "::error::Missing required workflow input: ${key}"
+              missing=1
+            fi
+          done
+          if [[ "${missing}" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: GCP Auth (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Validate cloud infra
+        run: |
+          uv run \
+            --with "google-cloud-storage>=2.10" \
+            --with "google-cloud-compute>=1.14" \
+            --with "google-auth>=2.20" \
+            ./.github/scripts/validate_cloud_infra.py "$GCS_BUCKET" "$VM_NAME" "$GCP_ZONE"
+
+      - name: Trigger cloud BMT
+        run: |
+          RUN_CONTEXT="${{ github.event_name == 'pull_request' && 'pr' || 'dev' }}"
+          uv run \
+            --with "google-cloud-storage>=2.10" \
+            --with "google-cloud-compute>=1.14" \
+            --with "google-auth>=2.20" \
+            ./.github/scripts/trigger_cloud_bmt.py \
+            "$VM_NAME" \
+            "$GCP_ZONE" \
+            "$GCS_BUCKET" \
+            "${{ matrix.project }}" \
+            "${{ matrix.bmt_id }}" \
+            "$RUN_CONTEXT" \
+            "$SK_FR_SCORE_BIAS" \
+            "$BMT_BUCKET_PREFIX"

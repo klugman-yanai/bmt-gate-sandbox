@@ -1,0 +1,17 @@
+{
+  "timestamp": null,
+  "project_id": "sk",
+  "bmt_id": "false_reject_namuh",
+  "aggregate_score": null,
+  "raw_aggregate_score": null,
+  "score_bias": 0.0,
+  "failed_count": 0,
+  "gate": {
+    "comparison": "gte",
+    "last_score": null,
+    "current_score": null,
+    "passed": null,
+    "reason": "bootstrap"
+  },
+  "file_results": []
+}

@@ -1,0 +1,28 @@
+
+[project]
+name = "dummybmt"
+version = "0.0.0"
+requires-python = ">=3.10"
+
+[tool.basedpyright]
+include = [".github/scripts", "remote", "repo"]
+exclude = ["**/.venv", "**/node_modules", "**/__pycache__"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.10"
+# The scripts parse arbitrary JSON (dict[str, Any]) and use argparse Namespace
+# whose attributes are typed Any.  The rules below fire almost entirely on
+# those legitimate patterns rather than real bugs, so suppress them.
+reportExplicitAny = false
+reportAny = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
