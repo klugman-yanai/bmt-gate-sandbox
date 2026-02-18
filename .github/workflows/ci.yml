@@ -1,4 +1,5 @@
 name: Sandbox CI
+run-name: "BMT Gate • ${{ github.event_name }} • ${{ github.ref_name }}"
 
 on:
   pull_request:
@@ -22,6 +23,7 @@ env:
 
 jobs:
   prepare-matrix:
+    name: 01 Discover Matrix
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -79,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
-    name: BMT / ${{ matrix.project }}.${{ matrix.bmt_id }}
+    name: 02 BMT / ${{ matrix.project }}.${{ matrix.bmt_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -193,6 +195,7 @@ jobs:
           set -euo pipefail
           python3 - "${{ steps.collect.outputs.outcome_path }}" "${{ matrix.project }}" "${{ matrix.bmt_id }}" <<'PY'
           import json
+          import os
           import sys
           from pathlib import Path
 
@@ -203,6 +206,22 @@ jobs:
           data = json.loads(outcome_path.read_text(encoding="utf-8"))
           status = str(data.get("status", "fail")).lower()
           reason = str(data.get("reason_code", "unknown"))
+          score = data.get("scores", {}).get("aggregate_score")
+          delta = data.get("scores", {}).get("delta_from_previous")
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as fh:
+                  fh.write("### Matrix Leg\n")
+                  fh.write("| Project.BMT | Status | Reason | Score | Delta |\n")
+                  fh.write("|---|---|---|---:|---:|\n")
+                  fh.write(
+                      f"| {project}.{bmt_id} | {status} | {reason} | "
+                      + ("" if score is None else f"{score}")
+                      + " | "
+                      + ("" if delta is None else f"{delta}")
+                      + " |\n"
+                  )
 
           if status == "pass":
               print(f"::notice::{project}.{bmt_id} PASS ({reason})")
@@ -222,6 +241,7 @@ jobs:
           PY
 
   aggregate-report:
+    name: 03 Aggregate Outcomes
     if: always()
     needs: bmt
     runs-on: ubuntu-22.04
@@ -232,6 +252,7 @@ jobs:
       fail_count: ${{ steps.aggregate.outputs.fail_count }}
       timeout_count: ${{ steps.aggregate.outputs.timeout_count }}
       total_count: ${{ steps.aggregate.outputs.total_count }}
+      blocked_legs: ${{ steps.aggregate.outputs.blocked_legs }}
     steps:
       - name: Download matrix outcome artifacts
         continue-on-error: true
@@ -255,6 +276,7 @@ jobs:
 
           counts = {"pass": 0, "warning": 0, "fail": 0, "timeout": 0}
           rows = []
+          blocked_legs = []
 
           for path in files:
               data = json.loads(path.read_text(encoding="utf-8"))
@@ -280,6 +302,8 @@ jobs:
                       "delta": delta,
                   }
               )
+              if status in {"fail", "timeout"}:
+                  blocked_legs.append(f"{project}.{bmt_id}")
 
           if counts["timeout"] > 0:
               decision = "timeout"
@@ -314,10 +338,13 @@ jobs:
           summary_lines.extend(
               [
                   "",
+                  "Execution flow: Discover Matrix -> Matrix BMT legs -> Aggregate Outcomes -> Final Gate",
+                  "",
                   f"Pass: {counts['pass']}",
                   f"Warnings: {counts['warning']}",
                   f"Fails: {counts['fail']}",
                   f"Timeouts: {counts['timeout']}",
+                  f"Blockers: {', '.join(sorted(blocked_legs)) if blocked_legs else 'none'}",
               ]
           )
 
@@ -333,13 +360,14 @@ jobs:
               fh.write(f"fail_count={counts['fail']}\n")
               fh.write(f"timeout_count={counts['timeout']}\n")
               fh.write(f"total_count={sum(counts.values())}\n")
+              fh.write(f"blocked_legs={','.join(sorted(blocked_legs))}\n")
           PY
 
   final-gate:
     if: always()
     needs: aggregate-report
     runs-on: ubuntu-22.04
-    name: final-gate
+    name: 04 Final Gate (Required)
     steps:
       - name: Enforce final gate decision
         run: |
@@ -349,9 +377,11 @@ jobs:
           warning_count="${{ needs.aggregate-report.outputs.warning_count }}"
           fail_count="${{ needs.aggregate-report.outputs.fail_count }}"
           timeout_count="${{ needs.aggregate-report.outputs.timeout_count }}"
+          blocked_legs="${{ needs.aggregate-report.outputs.blocked_legs }}"
 
           echo "Final decision: ${decision}"
           echo "Counts -> pass=${pass_count} warning=${warning_count} fail=${fail_count} timeout=${timeout_count}"
+          echo "Blocked legs: ${blocked_legs:-none}"
 
           if [[ "${decision}" == "accepted" ]]; then
             echo "::notice::BMT accepted"
@@ -364,12 +394,12 @@ jobs:
           fi
 
           if [[ "${decision}" == "rejected" ]]; then
-            echo "::error::BMT rejected due to failing matrix legs"
+            echo "::error::BMT rejected due to failing matrix legs: ${blocked_legs:-unknown}"
             exit 1
           fi
 
           if [[ "${decision}" == "timeout" ]]; then
-            echo "::error::BMT rejected due to timeout"
+            echo "::error::BMT rejected due to timeout legs: ${blocked_legs:-unknown}"
             exit 1
           fi
 
