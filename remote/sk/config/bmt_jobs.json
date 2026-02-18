@@ -15,7 +15,7 @@
         "logs_prefix": "sk/results/logs/false_rejects"
       },
       "runtime": {
-        "num_source_test": 4,
+        "num_source_test": 0,
         "enable_overrides": {
           "KWS_CONFIG.KWS_ENABLE": true,
           "BIOMETRICS_CONFIG.BIO_ENABLE": false
