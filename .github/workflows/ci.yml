@@ -1,10 +1,15 @@
 name: Sandbox CI
+run-name: "BMT Gate • ${{ github.event_name }} • ${{ github.ref_name }}"
 
 on:
   pull_request:
     branches: [dev]
   push:
     branches: [dev]
+
+concurrency:
+  group: bmt-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,9 +24,11 @@ env:
   BMT_BUCKET_PREFIX: ${{ vars.BMT_BUCKET_PREFIX || '' }}
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS || '' }}
   BMT_TIMEOUT_SEC: ${{ vars.BMT_TIMEOUT_SEC || '2700' }}
+  BMT_MAX_PARALLEL: ${{ vars.BMT_MAX_PARALLEL || '1' }}
 
 jobs:
   prepare-matrix:
+    name: 01 Discover Matrix
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -78,8 +85,9 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
+      max-parallel: ${{ fromJson(env.BMT_MAX_PARALLEL) }}
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
-    name: BMT / ${{ matrix.project }}.${{ matrix.bmt_id }}
+    name: 02 BMT / ${{ matrix.project }}.${{ matrix.bmt_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -107,40 +115,14 @@ jobs:
       - name: Setup Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          version: latest
-
-      - name: Validate cloud infra
-        id: validate
-        continue-on-error: true
-        run: |
-          uv run \
-            --with "google-cloud-storage>=2.10" \
-            --with "google-cloud-compute>=1.14" \
-            --with "google-auth>=2.20" \
-            ./.github/scripts/validate_cloud_infra.py "$GCS_BUCKET" "$VM_NAME" "$GCP_ZONE"
-
       - name: Trigger cloud BMT (timed)
         id: trigger
         if: always()
         run: |
           set -euo pipefail
-          if [[ "${{ steps.validate.outcome }}" != "success" ]]; then
-            echo "trigger_result=trigger_fail" >> "$GITHUB_OUTPUT"
-            echo "trigger_exit=200" >> "$GITHUB_OUTPUT"
-            echo "::error::Cloud infra validation failed."
-            exit 0
-          fi
 
           set +e
-          timeout "${BMT_TIMEOUT_SEC}s" uv run \
-            --with "google-cloud-storage>=2.10" \
-            --with "google-cloud-compute>=1.14" \
-            --with "google-auth>=2.20" \
-            ./.github/scripts/trigger_cloud_bmt.py \
+          timeout "${BMT_TIMEOUT_SEC}s" python3 ./.github/scripts/trigger_cloud_bmt.py \
             "$VM_NAME" \
             "$GCP_ZONE" \
             "$GCS_BUCKET" \
@@ -193,6 +175,7 @@ jobs:
           set -euo pipefail
           python3 - "${{ steps.collect.outputs.outcome_path }}" "${{ matrix.project }}" "${{ matrix.bmt_id }}" <<'PY'
           import json
+          import os
           import sys
           from pathlib import Path
 
@@ -203,6 +186,22 @@ jobs:
           data = json.loads(outcome_path.read_text(encoding="utf-8"))
           status = str(data.get("status", "fail")).lower()
           reason = str(data.get("reason_code", "unknown"))
+          score = data.get("scores", {}).get("aggregate_score")
+          delta = data.get("scores", {}).get("delta_from_previous")
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as fh:
+                  fh.write("### Matrix Leg\n")
+                  fh.write("| Project.BMT | Status | Reason | Score | Delta |\n")
+                  fh.write("|---|---|---|---:|---:|\n")
+                  fh.write(
+                      f"| {project}.{bmt_id} | {status} | {reason} | "
+                      + ("" if score is None else f"{score}")
+                      + " | "
+                      + ("" if delta is None else f"{delta}")
+                      + " |\n"
+                  )
 
           if status == "pass":
               print(f"::notice::{project}.{bmt_id} PASS ({reason})")
@@ -222,6 +221,7 @@ jobs:
           PY
 
   aggregate-report:
+    name: 03 Aggregate Outcomes
     if: always()
     needs: bmt
     runs-on: ubuntu-22.04
@@ -232,6 +232,7 @@ jobs:
       fail_count: ${{ steps.aggregate.outputs.fail_count }}
       timeout_count: ${{ steps.aggregate.outputs.timeout_count }}
       total_count: ${{ steps.aggregate.outputs.total_count }}
+      blocked_legs: ${{ steps.aggregate.outputs.blocked_legs }}
     steps:
       - name: Download matrix outcome artifacts
         continue-on-error: true
@@ -255,6 +256,7 @@ jobs:
 
           counts = {"pass": 0, "warning": 0, "fail": 0, "timeout": 0}
           rows = []
+          blocked_legs = []
 
           for path in files:
               data = json.loads(path.read_text(encoding="utf-8"))
@@ -280,6 +282,8 @@ jobs:
                       "delta": delta,
                   }
               )
+              if status in {"fail", "timeout"}:
+                  blocked_legs.append(f"{project}.{bmt_id}")
 
           if counts["timeout"] > 0:
               decision = "timeout"
@@ -314,10 +318,13 @@ jobs:
           summary_lines.extend(
               [
                   "",
+                  "Execution flow: Discover Matrix -> Matrix BMT legs -> Aggregate Outcomes -> Final Gate",
+                  "",
                   f"Pass: {counts['pass']}",
                   f"Warnings: {counts['warning']}",
                   f"Fails: {counts['fail']}",
                   f"Timeouts: {counts['timeout']}",
+                  f"Blockers: {', '.join(sorted(blocked_legs)) if blocked_legs else 'none'}",
               ]
           )
 
@@ -333,6 +340,7 @@ jobs:
               fh.write(f"fail_count={counts['fail']}\n")
               fh.write(f"timeout_count={counts['timeout']}\n")
               fh.write(f"total_count={sum(counts.values())}\n")
+              fh.write(f"blocked_legs={','.join(sorted(blocked_legs))}\n")
           PY
 
   final-gate:
@@ -349,9 +357,11 @@ jobs:
           warning_count="${{ needs.aggregate-report.outputs.warning_count }}"
           fail_count="${{ needs.aggregate-report.outputs.fail_count }}"
           timeout_count="${{ needs.aggregate-report.outputs.timeout_count }}"
+          blocked_legs="${{ needs.aggregate-report.outputs.blocked_legs }}"
 
           echo "Final decision: ${decision}"
           echo "Counts -> pass=${pass_count} warning=${warning_count} fail=${fail_count} timeout=${timeout_count}"
+          echo "Blocked legs: ${blocked_legs:-none}"
 
           if [[ "${decision}" == "accepted" ]]; then
             echo "::notice::BMT accepted"
@@ -364,12 +374,12 @@ jobs:
           fi
 
           if [[ "${decision}" == "rejected" ]]; then
-            echo "::error::BMT rejected due to failing matrix legs"
+            echo "::error::BMT rejected due to failing matrix legs: ${blocked_legs:-unknown}"
             exit 1
           fi
 
           if [[ "${decision}" == "timeout" ]]; then
-            echo "::error::BMT rejected due to timeout"
+            echo "::error::BMT rejected due to timeout legs: ${blocked_legs:-unknown}"
             exit 1
           fi
 

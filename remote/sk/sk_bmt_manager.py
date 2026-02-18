@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +26,19 @@ from typing import Any
 
 class SKManagerError(RuntimeError):
     """Raised for manager execution/config errors."""
+
+
+_FORCED_WAV_PATH_KEYS = {
+    "REF_PATH",
+    "QUIET_PATH",
+    "ZONE1_PATH",
+    "ZONE2_PATH",
+    "ZONE3_PATH",
+    "ZONE4_PATH",
+    "ZONE5_PATH",
+    "ZONE6_PATH",
+    "CALIB_BIN_PATH",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -97,13 +112,83 @@ def _gcloud_upload(src: Path, dst_uri: str) -> None:
     )
 
 
-def _gcloud_rsync(src: str, dst: Path | str) -> None:
+def _gcloud_rsync(src: str, dst: Path | str, delete: bool = False) -> None:
     dst_path = Path(dst) if not isinstance(dst, Path) else dst
     dst_path.mkdir(parents=True, exist_ok=True)
-    _ = subprocess.run(
-        ["gcloud", "storage", "rsync", "--recursive", src, str(dst_path), "--quiet"],
-        check=True,
-    )
+    cmd = ["gcloud", "storage", "rsync", "--recursive"]
+    if delete:
+        cmd.append("--delete-unmatched-destination-objects")
+    cmd.extend([src, str(dst_path), "--quiet"])
+    _ = subprocess.run(cmd, check=True)
+
+
+def _gcloud_rsync_to_gcs(src: Path | str, dst_uri: str, delete: bool = False) -> None:
+    src_path = Path(src) if not isinstance(src, Path) else src
+    cmd = ["gcloud", "storage", "rsync", "--recursive"]
+    if delete:
+        cmd.append("--delete-unmatched-destination-objects")
+    cmd.extend([str(src_path), dst_uri, "--quiet"])
+    _ = subprocess.run(cmd, check=True)
+
+
+def _gcloud_ls_json(uri: str, recursive: bool = False) -> list[dict[str, Any]]:
+    cmd = ["gcloud", "storage", "ls", "--json"]
+    if recursive:
+        cmd.append("--recursive")
+    cmd.append(uri)
+    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return []
+    out = (proc.stdout or "").strip()
+    if not out:
+        return []
+    data = json.loads(out)
+    if isinstance(data, dict):
+        return [data]
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    return []
+
+
+def _gcs_object_meta(uri: str) -> dict[str, Any] | None:
+    entries = _gcloud_ls_json(uri)
+    if not entries:
+        return None
+    entry = entries[0]
+    return {
+        "name": str(entry.get("name") or uri),
+        "generation": str(entry.get("generation") or ""),
+        "size": int(entry.get("size") or 0),
+        "updated": str(entry.get("updated") or ""),
+    }
+
+
+def _manifest_digest(entries: list[dict[str, Any]]) -> str:
+    rows: list[str] = []
+    for entry in entries:
+        name = str(entry.get("name") or "")
+        generation = str(entry.get("generation") or "")
+        size = str(entry.get("size") or "")
+        if not name:
+            continue
+        rows.append(f"{name}|{generation}|{size}")
+    rows.sort()
+    h = hashlib.sha256()
+    for row in rows:
+        h.update(row.encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise SKManagerError(f"Missing JSON file: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def _set_dotted(cfg: dict[str, Any], dotted_key: str, value: Any) -> None:
@@ -131,18 +216,48 @@ def _counter_regex(bmt_cfg: dict[str, Any]) -> re.Pattern[str]:
     return re.compile(r"Hi NAMUH counter = (\\d+)")
 
 
+def _rewrite_json_paths_for_wav(
+    cfg: dict[str, Any], wav_path: Path, output_path: Path
+) -> None:
+    wav_value = str(wav_path.resolve())
+    output_value = str(output_path.resolve())
+
+    cfg["MICS_PATH"] = wav_value
+    cfg["KARDOME_OUTPUT_PATH"] = output_value
+    if "USER_OUTPUT_PATH" in cfg:
+        cfg["USER_OUTPUT_PATH"] = output_value
+
+    for key in _FORCED_WAV_PATH_KEYS:
+        if key in cfg:
+            cfg[key] = wav_value
+
+    protected = {"MICS_PATH", "KARDOME_OUTPUT_PATH", "USER_OUTPUT_PATH"}
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in list(node.items()):
+                if isinstance(value, (dict, list)):
+                    walk(value)
+                    continue
+                if key in protected:
+                    continue
+                if isinstance(value, str) and key.endswith("_PATH"):
+                    stripped = value.strip()
+                    if not stripped or stripped.startswith("/tmp/dummy"):
+                        node[key] = wav_value
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(cfg)
+
+
 def _read_counter(log_path: Path, counter_re: re.Pattern[str]) -> int:
     text = log_path.read_text(encoding="utf-8", errors="replace")
     matches = counter_re.findall(text)
     if not matches:
         return 0
     return int(matches[-1])
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise SKManagerError(f"Missing JSON file: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _read_result_file(
@@ -237,6 +352,7 @@ def _run_one(
     num_source_test: int | None,
     enable_overrides: dict[str, Any],
     counter_re: re.Pattern[str],
+    runner_env: dict[str, str],
 ) -> dict[str, Any]:
     rel = wav_path.relative_to(inputs_root)
     output_path = outputs_dir / rel
@@ -245,10 +361,7 @@ def _run_one(
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     cfg = copy.deepcopy(template_cfg)
-    cfg["MICS_PATH"] = str(wav_path.resolve())
-    cfg["KARDOME_OUTPUT_PATH"] = str(output_path.resolve())
-    if "USER_OUTPUT_PATH" in cfg:
-        cfg["USER_OUTPUT_PATH"] = str(output_path.resolve())
+    _rewrite_json_paths_for_wav(cfg, wav_path, output_path)
     if num_source_test is not None:
         cfg["NUM_SOURCE_TEST"] = int(num_source_test)
 
@@ -263,10 +376,21 @@ def _run_one(
 
     exit_code = 1
     try:
+        runner_cmd = [str(runner_path), str(temp_path)]
+        custom_loader = runner_path.parent / "ld-linux-x86-64.so.2"
+        if custom_loader.is_file():
+            runner_cmd = [
+                str(custom_loader),
+                "--library-path",
+                str(runner_path.parent.resolve()),
+                str(runner_path),
+                str(temp_path),
+            ]
         with log_path.open("w", encoding="utf-8") as log_file:
             proc = subprocess.run(
-                [str(runner_path), str(temp_path)],
+                runner_cmd,
                 cwd=str(runtime_dir),
+                env=runner_env,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 check=False,
@@ -286,6 +410,14 @@ def _run_one(
     }
 
 
+def _mark_cache(cache_stats: dict[str, Any], key: str, hit: bool) -> None:
+    cache_stats["states"][key] = "hit" if hit else "miss"
+    if hit:
+        cache_stats["cache_hits"].append(key)
+    else:
+        cache_stats["cache_misses"].append(key)
+
+
 def main() -> int:
     args = parse_args()
     bucket_root = _bucket_root_uri(args.bucket, args.bucket_prefix)
@@ -301,47 +433,184 @@ def main() -> int:
     run_root = Path(args.workspace_root).expanduser().resolve()
     staging_dir = run_root / "staging"
     runtime_dir = run_root / "runtime"
-    inputs_dir = run_root / "inputs"
     outputs_dir = run_root / "outputs"
     logs_dir = run_root / "logs"
     results_dir = run_root / "results"
     archive_dir = run_root / "archive"
-    for d in (
-        staging_dir,
-        runtime_dir,
-        inputs_dir,
-        outputs_dir,
-        logs_dir,
-        results_dir,
-        archive_dir,
-    ):
+    for d in (staging_dir, runtime_dir, outputs_dir, logs_dir, results_dir, archive_dir):
         d.mkdir(parents=True, exist_ok=True)
 
-    runner_uri = _bucket_uri(bucket_root, str(bmt_cfg["runner"]["uri"]))
-    template_uri = _bucket_uri(bucket_root, str(bmt_cfg["template_uri"]))
     paths_cfg = bmt_cfg.get("paths", {})
+    if not isinstance(paths_cfg, dict):
+        raise SKManagerError("paths must be an object")
+
+    runner_cfg = bmt_cfg.get("runner", {})
+    if not isinstance(runner_cfg, dict):
+        raise SKManagerError("runner must be an object")
+
+    runner_uri = _bucket_uri(bucket_root, str(runner_cfg["uri"]))
+    runner_deps_prefix = str(runner_cfg.get("deps_prefix", "")).strip()
+    template_uri = _bucket_uri(bucket_root, str(bmt_cfg["template_uri"]))
     dataset_uri = _bucket_uri(bucket_root, str(paths_cfg["dataset_prefix"]))
     outputs_prefix = str(paths_cfg["outputs_prefix"]).rstrip("/")
     results_prefix = str(paths_cfg["results_prefix"]).rstrip("/")
     archive_prefix = str(paths_cfg["archive_prefix"]).rstrip("/")
+    logs_prefix = str(paths_cfg.get("logs_prefix", f"{results_prefix}/logs")).rstrip("/")
 
-    runner_path = staging_dir / Path(runner_uri).name
-    template_path = staging_dir / "input_template.json"
-    _gcloud_cp(runner_uri, runner_path)
-    _gcloud_cp(template_uri, template_path)
+    runtime_cfg = (
+        bmt_cfg.get("runtime", {}) if isinstance(bmt_cfg.get("runtime"), dict) else {}
+    )
+    cache_cfg = runtime_cfg.get("cache", {}) if isinstance(runtime_cfg.get("cache"), dict) else {}
+    cache_enabled = bool(cache_cfg.get("enabled", True))
+    cache_root = Path(str(cache_cfg.get("root", "~/sk_runtime/cache"))).expanduser().resolve()
+    dataset_ttl_sec = int(cache_cfg.get("dataset_ttl_sec", 300) or 300)
+    cache_base = cache_root / args.project_id / args.bmt_id
+    cache_meta_dir = cache_base / "meta"
+    cache_runner_dir = cache_base / "runner_bundle"
+    cache_template_path = cache_base / "input_template.json"
+    cache_dataset_dir = cache_base / "dataset"
+    cache_meta_dir.mkdir(parents=True, exist_ok=True)
+
+    cache_stats: dict[str, Any] = {"cache_hits": [], "cache_misses": [], "states": {}}
+    sync_durations_sec: dict[str, float] = {}
+
+    # Runner cache
+    runner_bundle_uri = runner_uri.rsplit("/", 1)[0].rstrip("/")
+    runner_manifest_path = cache_meta_dir / "runner_bundle_meta.json"
+    runner_manifest_entries = _gcloud_ls_json(f"{runner_bundle_uri}/", recursive=True)
+    if runner_deps_prefix:
+        deps_uri = _bucket_uri(bucket_root, runner_deps_prefix).rstrip("/") + "/"
+        runner_manifest_entries.extend(_gcloud_ls_json(deps_uri, recursive=True))
+    runner_digest = _manifest_digest(runner_manifest_entries)
+
+    runner_hit = False
+    runner_rel_name = Path(runner_uri).name
+    runner_path = cache_runner_dir / runner_rel_name
+    if cache_enabled and runner_manifest_path.is_file() and runner_path.is_file():
+        manifest = _load_json(runner_manifest_path)
+        runner_hit = str(manifest.get("digest", "")) == runner_digest
+
+    if not runner_hit:
+        t0 = time.monotonic()
+        _gcloud_rsync(f"{runner_bundle_uri}/", cache_runner_dir)
+        if runner_deps_prefix:
+            deps_uri = _bucket_uri(bucket_root, runner_deps_prefix).rstrip("/") + "/"
+            _gcloud_rsync(deps_uri, cache_runner_dir)
+        if not runner_path.is_file():
+            _gcloud_cp(runner_uri, runner_path)
+        sync_durations_sec["runner_bundle_sync"] = round(time.monotonic() - t0, 3)
+        _write_json(
+            runner_manifest_path,
+            {
+                "timestamp": _now_iso(),
+                "digest": runner_digest,
+                "runner_uri": runner_uri,
+                "runner_bundle_uri": runner_bundle_uri,
+                "deps_prefix": runner_deps_prefix,
+            },
+        )
+
+    _mark_cache(cache_stats, "runner_bundle", runner_hit)
+
+    # Template cache
+    template_meta_path = cache_meta_dir / "template_meta.json"
+    template_remote_meta = _gcs_object_meta(template_uri)
+    if template_remote_meta is None:
+        raise SKManagerError(f"Template object missing: {template_uri}")
+
+    template_hit = False
+    if cache_enabled and template_meta_path.is_file() and cache_template_path.is_file():
+        cached_meta = _load_json(template_meta_path)
+        template_hit = (
+            str(cached_meta.get("generation", "")) == str(template_remote_meta.get("generation", ""))
+            and int(cached_meta.get("size", -1)) == int(template_remote_meta.get("size", -2))
+        )
+
+    if not template_hit:
+        t0 = time.monotonic()
+        _gcloud_cp(template_uri, cache_template_path)
+        sync_durations_sec["template_sync"] = round(time.monotonic() - t0, 3)
+        _write_json(
+            template_meta_path,
+            {
+                "timestamp": _now_iso(),
+                "generation": str(template_remote_meta.get("generation", "")),
+                "size": int(template_remote_meta.get("size", 0)),
+                "template_uri": template_uri,
+            },
+        )
+
+    _mark_cache(cache_stats, "template", template_hit)
+
+    # Dataset cache (TTL based)
+    dataset_meta_path = cache_meta_dir / "dataset_meta.json"
+    dataset_hit = False
+    if cache_enabled and dataset_meta_path.is_file() and cache_dataset_dir.is_dir():
+        dataset_meta = _load_json(dataset_meta_path)
+        last_sync_epoch = float(dataset_meta.get("last_sync_epoch", 0.0) or 0.0)
+        age = time.time() - last_sync_epoch
+        dataset_hit = (
+            str(dataset_meta.get("source_uri", "")) == dataset_uri
+            and age <= float(dataset_ttl_sec)
+        )
+
+    if cache_enabled:
+        if not dataset_hit:
+            t0 = time.monotonic()
+            _gcloud_rsync(dataset_uri.rstrip("/") + "/", cache_dataset_dir)
+            sync_durations_sec["dataset_sync"] = round(time.monotonic() - t0, 3)
+            _write_json(
+                dataset_meta_path,
+                {
+                    "timestamp": _now_iso(),
+                    "source_uri": dataset_uri,
+                    "last_sync_epoch": time.time(),
+                    "dataset_ttl_sec": dataset_ttl_sec,
+                },
+            )
+        inputs_root = cache_dataset_dir
+    else:
+        # No persistent dataset cache: always sync into run workspace.
+        inputs_root = staging_dir / "inputs"
+        t0 = time.monotonic()
+        _gcloud_rsync(dataset_uri.rstrip("/") + "/", inputs_root)
+        sync_durations_sec["dataset_sync"] = round(time.monotonic() - t0, 3)
+
+    _mark_cache(cache_stats, "dataset", dataset_hit)
+
+    if not runner_path.is_file():
+        raise SKManagerError(f"Runner binary missing after sync: {runner_path}")
+    if not cache_template_path.is_file():
+        raise SKManagerError(f"Template missing after sync: {cache_template_path}")
+
     runner_path.chmod(runner_path.stat().st_mode | 0o111)
+    custom_loader = runner_path.parent / "ld-linux-x86-64.so.2"
+    if custom_loader.is_file():
+        custom_loader.chmod(custom_loader.stat().st_mode | 0o111)
 
-    _gcloud_rsync(dataset_uri, inputs_dir)
-    wav_files = sorted(inputs_dir.rglob("*.wav"))
+    runtime_env = dict(os.environ)
+    env_overrides = (
+        runtime_cfg.get("env_overrides", {})
+        if isinstance(runtime_cfg.get("env_overrides"), dict)
+        else {}
+    )
+    if not isinstance(env_overrides, dict):
+        raise SKManagerError("runtime.env_overrides must be an object")
+    for key, value in env_overrides.items():
+        runtime_env[str(key)] = str(value)
+    staged_lib_path = str(runner_path.parent.resolve())
+    existing_ld = str(runtime_env.get("LD_LIBRARY_PATH", "")).strip()
+    runtime_env["LD_LIBRARY_PATH"] = (
+        f"{staged_lib_path}:{existing_ld}" if existing_ld else staged_lib_path
+    )
+
+    wav_files = sorted(inputs_root.rglob("*.wav"))
     if args.limit > 0:
         wav_files = wav_files[: args.limit]
     if not wav_files:
         raise SKManagerError(f"No wav files found under dataset: {dataset_uri}")
 
-    template_cfg = _load_json(template_path)
-    runtime_cfg = (
-        bmt_cfg.get("runtime", {}) if isinstance(bmt_cfg.get("runtime"), dict) else {}
-    )
+    template_cfg = _load_json(cache_template_path)
     num_source_test = runtime_cfg.get("num_source_test")
     enable_overrides = runtime_cfg.get("enable_overrides", {})
     if not isinstance(enable_overrides, dict):
@@ -361,7 +630,7 @@ def main() -> int:
             pool.submit(
                 _run_one,
                 wav,
-                inputs_dir,
+                inputs_root,
                 outputs_dir,
                 logs_dir,
                 runtime_dir,
@@ -370,6 +639,7 @@ def main() -> int:
                 int(num_source_test) if num_source_test is not None else None,
                 enable_overrides,
                 counter_re,
+                runtime_env,
             ): wav
             for wav in wav_files
         }
@@ -399,7 +669,7 @@ def main() -> int:
     demo_cfg = bmt_cfg.get("demo", {}) if isinstance(bmt_cfg.get("demo"), dict) else {}
     demo_force_pass = bool(demo_cfg.get("force_pass", False))
     comparison = str(gate_cfg.get("comparison", "gte"))
-    # Gate against the previous run's latest.json for direct run-to-run comparison.
+
     last_score, previous_latest = _read_result_file(bucket_root, results_prefix, "latest.json")
     delta_from_previous = (
         (aggregate_score - last_score) if last_score is not None else None
@@ -438,44 +708,92 @@ def main() -> int:
             "dataset_uri": dataset_uri,
             "results_prefix": results_prefix,
             "archive_prefix": archive_prefix,
+            "logs_prefix": logs_prefix,
+            "outputs_prefix": outputs_prefix,
         },
+        "cache_stats": cache_stats,
+        "sync_stats": {"sync_durations_sec": sync_durations_sec},
     }
 
-    _ = latest_local.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    _write_json(latest_local, result)
     _ = shutil.copy2(latest_local, archive_local)
 
     should_update_last_passing = args.run_context == "dev" and bool(gate["passed"])
     if should_update_last_passing:
-        _ = last_passing_local.write_text(
-            json.dumps(result, indent=2) + "\n", encoding="utf-8"
-        )
+        _write_json(last_passing_local, result)
 
-    _gcloud_upload(
-        latest_local, _bucket_uri(bucket_root, f"{results_prefix}/latest.json")
-    )
+    artifact_upload_stats: dict[str, Any] = {
+        "uploaded_results": [],
+        "logs_latest_uploaded": False,
+        "logs_archive_uploaded": False,
+        "outputs_uploaded": False,
+        "durations_sec": {},
+    }
+
+    t0 = time.monotonic()
+    _gcloud_upload(latest_local, _bucket_uri(bucket_root, f"{results_prefix}/latest.json"))
+    artifact_upload_stats["durations_sec"]["results_latest_upload"] = round(time.monotonic() - t0, 3)
+    artifact_upload_stats["uploaded_results"].append("latest.json")
+
+    t0 = time.monotonic()
     _gcloud_upload(
         archive_local,
         _bucket_uri(bucket_root, f"{archive_prefix}/{archive_local.name}"),
     )
+    artifact_upload_stats["durations_sec"]["results_archive_upload"] = round(time.monotonic() - t0, 3)
+    artifact_upload_stats["uploaded_results"].append(archive_local.name)
+
     if should_update_last_passing:
+        t0 = time.monotonic()
         _gcloud_upload(
             last_passing_local,
             _bucket_uri(bucket_root, f"{results_prefix}/last_passing.json"),
         )
+        artifact_upload_stats["durations_sec"]["results_last_passing_upload"] = round(time.monotonic() - t0, 3)
+        artifact_upload_stats["uploaded_results"].append("last_passing.json")
 
-    # Upload output wav artifacts for this run to the canonical outputs prefix.
-    _ = subprocess.run(
-        [
-            "gcloud",
-            "storage",
-            "rsync",
-            "--recursive",
-            str(outputs_dir),
-            _bucket_uri(bucket_root, outputs_prefix),
-            "--quiet",
-        ],
-        check=True,
+    # Always upload logs (latest + archive)
+    t0 = time.monotonic()
+    _gcloud_rsync_to_gcs(
+        logs_dir,
+        _bucket_uri(bucket_root, f"{logs_prefix}/latest"),
+        delete=True,
     )
+    artifact_upload_stats["durations_sec"]["logs_latest_upload"] = round(time.monotonic() - t0, 3)
+    artifact_upload_stats["logs_latest_uploaded"] = True
+
+    t0 = time.monotonic()
+    _gcloud_rsync_to_gcs(
+        logs_dir,
+        _bucket_uri(bucket_root, f"{logs_prefix}/archive/{ts_compact}"),
+        delete=False,
+    )
+    artifact_upload_stats["durations_sec"]["logs_archive_upload"] = round(time.monotonic() - t0, 3)
+    artifact_upload_stats["logs_archive_uploaded"] = True
+
+    # Upload outputs only when explicitly enabled for the current context.
+    artifacts_cfg = bmt_cfg.get("artifacts", {}) if isinstance(bmt_cfg.get("artifacts"), dict) else {}
+    upload_outputs_enabled = bool(artifacts_cfg.get("upload_outputs", False))
+    upload_outputs_contexts_raw = artifacts_cfg.get("upload_outputs_contexts", ["manual"])
+    upload_outputs_contexts = {
+        str(item).strip() for item in (upload_outputs_contexts_raw if isinstance(upload_outputs_contexts_raw, list) else []) if str(item).strip()
+    }
+    context_allowed = not upload_outputs_contexts or args.run_context in upload_outputs_contexts
+    should_upload_outputs = upload_outputs_enabled and context_allowed
+
+    artifact_upload_stats["upload_outputs_enabled"] = upload_outputs_enabled
+    artifact_upload_stats["upload_outputs_contexts"] = sorted(upload_outputs_contexts)
+    artifact_upload_stats["run_context"] = args.run_context
+
+    if should_upload_outputs:
+        t0 = time.monotonic()
+        _gcloud_rsync_to_gcs(
+            outputs_dir,
+            _bucket_uri(bucket_root, outputs_prefix),
+            delete=False,
+        )
+        artifact_upload_stats["durations_sec"]["outputs_upload"] = round(time.monotonic() - t0, 3)
+        artifact_upload_stats["outputs_uploaded"] = True
 
     manager_summary = {
         "timestamp": ts_iso,
@@ -492,10 +810,11 @@ def main() -> int:
         "delta_from_previous": delta_from_previous,
         "failed_count": failed_count,
         "latest_json": str(latest_local),
+        "cache_stats": cache_stats,
+        "sync_stats": {"sync_durations_sec": sync_durations_sec},
+        "artifact_upload_stats": artifact_upload_stats,
     }
-    _ = Path(args.summary_out).write_text(
-        json.dumps(manager_summary, indent=2) + "\n", encoding="utf-8"
-    )
+    _write_json(Path(args.summary_out), manager_summary)
 
     state = status.upper()
     print(
