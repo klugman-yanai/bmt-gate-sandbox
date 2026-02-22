@@ -112,7 +112,7 @@ jobs:
 
           chmod +x "$RUNNER_DIR/kardome_runner" 2>/dev/null || true
 
-          uv run --with click python ./.github/scripts/ci_driver.py upload-runner \
+          uv run python ./.github/scripts/ci_driver.py upload-runner \
             --bucket "$GCS_BUCKET" \
             --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
             --runner-dir "$RUNNER_DIR" \
@@ -147,7 +147,7 @@ jobs:
       - name: Build BMT matrix
         id: matrix
         run: |
-          matrix_json=$(uv run --with click python ./.github/scripts/ci_driver.py matrix \
+          matrix_json=$(uv run python ./.github/scripts/ci_driver.py matrix \
             --config-root remote \
             --project-filter "${BMT_PROJECTS:-}")
           echo "matrix_json=$matrix_json" >>"$GITHUB_OUTPUT"
@@ -190,7 +190,7 @@ jobs:
         id: trigger
         run: |
           set -euo pipefail
-          uv run --with click python ./.github/scripts/ci_driver.py trigger \
+          uv run python ./.github/scripts/ci_driver.py trigger \
             --config-root remote \
             --bucket "$GCS_BUCKET" \
             --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
@@ -198,7 +198,7 @@ jobs:
             --run-context dev
 
       - name: Start BMT VM
-        run: uv run --with click python ./.github/scripts/ci_driver.py start-vm
+        run: uv run python ./.github/scripts/ci_driver.py start-vm
 
       - name: Post pending commit status
         run: |
