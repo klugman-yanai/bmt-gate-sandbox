@@ -1,0 +1,82 @@
+###############################################################################
+# 1. GLOBAL DEFAULTS
+###############################################################################
+# Handle everything as text and normalize to LF in the repo.
+* text=auto eol=lf
+
+###############################################################################
+# 2. PROGRAMMING LANGUAGES (FORCED LF)
+###############################################################################
+# Python: Prevents issues with docstrings and cross-platform execution.
+*.py           text eol=lf
+*.pyi          text eol=lf
+*.pyw          text eol=lf
+
+# C / C++: Prevents compiler warnings and keeps header guards consistent.
+*.c            text eol=lf
+*.h            text eol=lf
+*.cpp          text eol=lf
+*.hpp          text eol=lf
+*.cc           text eol=lf
+*.hh           text eol=lf
+*.cxx          text eol=lf
+*.hxx          text eol=lf
+
+###############################################################################
+# 3. SHELL & SCRIPTING (THE "BORDER CONTROL")
+###############################################################################
+# Linux/WSL Scripts: MUST be LF or they throw "\r: command not found".
+*.sh           text eol=lf
+*.bash         text eol=lf
+*.zsh          text eol=lf
+
+# Windows Scripts: MUST be CRLF for native Windows host compatibility.
+# Uses character classes to handle case-sensitivity (e.g., .BAT vs .bat).
+*.[bB][aA][tT]  text eol=crlf
+*.[cC][mM][dD]  text eol=crlf
+*.[pP][sS]1      text eol=crlf
+*.[pP][sS][mM]1  text eol=crlf
+
+###############################################################################
+# 4. BUILD SYSTEMS & CONFIGURATION
+###############################################################################
+Makefile       text eol=lf
+*.cmake        text eol=lf
+CMakeLists.txt text eol=lf
+*.toml         text eol=lf
+*.yaml         text eol=lf
+*.yml          text eol=lf
+*.json         text eol=lf
+*.md           text eol=lf
+*.txt          text eol=lf
+.gitignore     text eol=lf
+.editorconfig  text eol=lf
+
+###############################################################################
+# 5. BINARIES & COMPILED ASSETS (STRICT PROTECTION)
+###############################################################################
+# Explicitly mark as binary to prevent Git from attempting any normalization.
+*.a            binary
+*.o            binary
+*.so           binary
+*.ko           binary
+*.exe          binary
+*.dll          binary
+*.lib          binary
+*.pyc          binary
+*.pyo          binary
+*.pyd          binary
+
+# Common data formats
+*.pdf          binary
+*.zip          binary
+*.gz           binary
+*.7z           binary
+*.tar          binary
+
+###############################################################################
+# 6. GIT ARCHIVE EXCLUSIONS
+###############################################################################
+# Keep production archives clean of repository metadata.
+.gitattributes export-ignore
+.gitignore    export-ignore
