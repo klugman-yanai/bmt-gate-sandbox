@@ -4,7 +4,7 @@
   "KARDOME_OUTPUT_PATH": "/tmp/dummy/kardome_output.wav",
   "USER_OUTPUT_PATH": "/tmp/dummy/user_output.wav",
   "CALIB_BIN_PATH": "/tmp/dummy/calib.bin",
-  "NUM_SOURCE_TEST": 4,
+  "NUM_SOURCE_TEST": 0,
   "QUIET_PATH": "/tmp/dummy/quiet.wav",
   "ZONE1_PATH": "/tmp/dummy/zone1.wav",
   "ZONE2_PATH": "/tmp/dummy/zone2.wav",
