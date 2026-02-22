@@ -67,3 +67,4 @@ BUCKET="<bucket>" python3 devtools/validate_bucket_contract.py --require-runner
 - Runtime workspace default is `~/sk_runtime` (or per CLAUDE.md).
 - Result files are written under snapshot prefixes; the watcher updates the canonical `current.json` pointer after all legs complete (see **ARCHITECTURE.md**).
 - See **CLAUDE.md** for time/clocks, linting, config files, result paths, and GCP env vars.
+- Test-environment note: docs-only commits may be used to trigger workflow checks.
