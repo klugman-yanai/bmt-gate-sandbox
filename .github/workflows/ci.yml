@@ -42,9 +42,10 @@ jobs:
 
       - name: Build project+BMT matrix
         id: matrix
-        run: uv run --with click python ./.github/scripts/ci_driver.py matrix \
-          --config-root remote \
-          --project-filter "${BMT_PROJECTS:-}"
+        run: |
+          uv run --with click python ./.github/scripts/ci_driver.py matrix \
+            --config-root remote \
+            --project-filter "${BMT_PROJECTS:-}"
 
   trigger-legs:
     name: 02 Trigger All Legs
