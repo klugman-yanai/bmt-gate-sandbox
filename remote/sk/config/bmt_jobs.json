@@ -3,20 +3,28 @@
     "false_reject_namuh": {
       "enabled": true,
       "runner": {
-        "uri": "sk/runners/sk_gcc_release/kardome_runner"
+        "uri": "sk/runners/sk_gcc_release/kardome_runner",
+        "project_lib_prefix": "sk/runners/sk_gcc_release",
+        "deps_prefix": "common/lib"
       },
       "template_uri": "sk/config/input_template.json",
       "paths": {
         "dataset_prefix": "sk/inputs/false_rejects",
         "outputs_prefix": "sk/outputs/false_rejects",
         "results_prefix": "sk/results/false_rejects",
-        "archive_prefix": "sk/results/archive"
+        "logs_prefix": "sk/results/logs/false_rejects"
       },
       "runtime": {
-        "num_source_test": 4,
+        "num_source_test": 0,
+        "runner_timeout_sec": 120,
         "enable_overrides": {
           "KWS_CONFIG.KWS_ENABLE": true,
           "BIOMETRICS_CONFIG.BIO_ENABLE": false
+        },
+        "cache": {
+          "enabled": true,
+          "root": "~/sk_runtime/cache",
+          "dataset_ttl_sec": 300
         }
       },
       "gate": {
@@ -26,7 +34,13 @@
         "bootstrap_without_baseline": true
       },
       "demo": {
-        "force_pass": true
+        "force_pass": false
+      },
+      "artifacts": {
+        "upload_outputs": false,
+        "upload_outputs_contexts": [
+          "manual"
+        ]
       },
       "parsing": {
         "keyword": "NAMUH",

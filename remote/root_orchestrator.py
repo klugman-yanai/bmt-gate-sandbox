@@ -8,13 +8,28 @@ The manager script is downloaded from bucket storage at runtime.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_SCRIPT_DIR = Path(__file__).parent
+sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
+from gcs import (  # type: ignore[import-not-found]  # noqa: E402
+    bucket_root_uri,
+    bucket_uri,
+    gcloud_cp,
+    gcloud_upload,
+    load_json,
+    normalize_prefix,
+    now_iso,
+    now_stamp,
+)
 
 
 class OrchestratorError(RuntimeError):
@@ -22,82 +37,58 @@ class OrchestratorError(RuntimeError):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run one project+BMT manager from bucket"
-    )
+    parser = argparse.ArgumentParser(description="Run one project+BMT manager from bucket")
     _ = parser.add_argument("--bucket", required=True)
-    _ = parser.add_argument(
-        "--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", "")
-    )
+    _ = parser.add_argument("--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
     _ = parser.add_argument("--project", required=True)
     _ = parser.add_argument("--bmt-id", required=True)
-    _ = parser.add_argument(
-        "--run-context", choices=["dev", "pr", "manual"], default="manual"
-    )
-    _ = parser.add_argument(
-        "--workspace-root", default=str(Path("~/sk_runtime").expanduser())
-    )
+    _ = parser.add_argument("--run-context", choices=["dev", "pr", "manual"], default="manual")
+    _ = parser.add_argument("--run-id", default="")
+    _ = parser.add_argument("--workspace-root", default=str(Path("~/sk_runtime").expanduser()))
     _ = parser.add_argument("--summary-out", default="bmt_root_results.json")
     _ = parser.add_argument("--human", action="store_true")
     return parser.parse_args()
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _prune_workspace(workspace_root: Path, max_age_days: int = 3, keep_recent: int = 5) -> None:
+    """Prune old run_* workspace directories.
 
+    Keeps the ``keep_recent`` most recently modified run_* directories regardless of age,
+    then removes any remaining run_* directories older than ``max_age_days`` days.
+    """
+    cutoff = datetime.now(timezone.utc).timestamp() - (max_age_days * 86400)
+    run_dirs: list[tuple[float, Path]] = []
+    for candidate in workspace_root.rglob("run_*"):
+        if candidate.is_dir():
+            with contextlib.suppress(OSError):
+                run_dirs.append((candidate.stat().st_mtime, candidate))
 
-def _now_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def _normalize_prefix(prefix: str) -> str:
-    return prefix.strip("/")
-
-
-def _bucket_root_uri(bucket: str, prefix: str) -> str:
-    prefix = _normalize_prefix(prefix)
-    if prefix:
-        return f"gs://{bucket}/{prefix}"
-    return f"gs://{bucket}"
-
-
-def _bucket_uri(bucket_root: str, path_or_uri: str) -> str:
-    if path_or_uri.startswith("gs://"):
-        return path_or_uri
-    return f"{bucket_root}/{path_or_uri.lstrip('/')}"
-
-
-def _gcloud_cp(src: str, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    _ = subprocess.run(["gcloud", "storage", "cp", src, str(dst), "--quiet"], check=True)
-
-
-def _gcloud_upload(src: Path, dst: str) -> None:
-    _ = subprocess.run(["gcloud", "storage", "cp", str(src), dst, "--quiet"], check=True)
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise OrchestratorError(f"Missing JSON file: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    # Sort newest-first; keep the first `keep_recent`, prune old ones beyond that.
+    run_dirs.sort(key=lambda x: x[0], reverse=True)
+    for idx, (mtime, d) in enumerate(run_dirs):
+        if idx < keep_recent:
+            continue
+        if mtime < cutoff:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def main() -> int:
     args = parse_args()
-    bucket_root = _bucket_root_uri(args.bucket, args.bucket_prefix)
+    run_id = args.run_id.strip()
+    if args.run_context in {"dev", "pr"} and not run_id:
+        raise OrchestratorError("--run-id is required for dev/pr runs")
+    bucket_root = bucket_root_uri(args.bucket, args.bucket_prefix)
 
     workspace_root = Path(args.workspace_root).expanduser().resolve()
-    run_root = (
-        workspace_root
-        / args.project
-        / args.bmt_id
-        / f"run_{_now_stamp()}_{os.getpid()}"
-    )
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    _prune_workspace(workspace_root)
+
+    run_root = workspace_root / args.project / args.bmt_id / f"run_{now_stamp()}_{os.getpid()}"
     run_root.mkdir(parents=True, exist_ok=True)
 
     projects_json_path = run_root / "bmt_projects.json"
-    _gcloud_cp(_bucket_uri(bucket_root, "bmt_projects.json"), projects_json_path)
-    projects_cfg = _load_json(projects_json_path).get("projects", {})
+    gcloud_cp(bucket_uri(bucket_root, "bmt_projects.json"), projects_json_path)
+    projects_cfg = load_json(projects_json_path).get("projects", {})
 
     project_cfg = projects_cfg.get(args.project)
     if not isinstance(project_cfg, dict):
@@ -108,14 +99,12 @@ def main() -> int:
     manager_rel = str(project_cfg.get("manager_script", "")).strip()
     jobs_rel = str(project_cfg.get("jobs_config", "")).strip()
     if not manager_rel or not jobs_rel:
-        raise OrchestratorError(
-            f"Project '{args.project}' must define manager_script and jobs_config"
-        )
+        raise OrchestratorError(f"Project '{args.project}' must define manager_script and jobs_config")
 
     local_manager = run_root / manager_rel
     local_jobs = run_root / jobs_rel
-    _gcloud_cp(_bucket_uri(bucket_root, manager_rel), local_manager)
-    _gcloud_cp(_bucket_uri(bucket_root, jobs_rel), local_jobs)
+    gcloud_cp(bucket_uri(bucket_root, manager_rel), local_manager)
+    gcloud_cp(bucket_uri(bucket_root, jobs_rel), local_jobs)
     local_manager.chmod(local_manager.stat().st_mode | 0o111)
 
     manager_summary_path = run_root / "manager_summary.json"
@@ -125,7 +114,7 @@ def main() -> int:
         "--bucket",
         args.bucket,
         "--bucket-prefix",
-        _normalize_prefix(args.bucket_prefix),
+        normalize_prefix(args.bucket_prefix),
         "--project-id",
         args.project,
         "--bmt-id",
@@ -136,6 +125,8 @@ def main() -> int:
         str(run_root),
         "--run-context",
         args.run_context,
+        "--run-id",
+        run_id,
         "--summary-out",
         str(manager_summary_path),
     ]
@@ -147,38 +138,31 @@ def main() -> int:
 
     manager_summary: dict[str, Any] | None = None
     if manager_summary_path.is_file():
-        manager_summary = _load_json(manager_summary_path)
-    manager_status = (
-        manager_summary.get("status")
-        if isinstance(manager_summary, dict)
-        else None
-    )
-    manager_reason_code = (
-        manager_summary.get("reason_code")
-        if isinstance(manager_summary, dict)
-        else None
-    )
+        manager_summary = load_json(manager_summary_path)
+    manager_status = manager_summary.get("status") if isinstance(manager_summary, dict) else None
+    manager_reason_code = manager_summary.get("reason_code") if isinstance(manager_summary, dict) else None
+    manager_verdict_uri = manager_summary.get("ci_verdict_uri") if isinstance(manager_summary, dict) else None
 
     root_summary = {
-        "timestamp": _now_iso(),
+        "timestamp": now_iso(),
         "bucket": args.bucket,
-        "bucket_prefix": _normalize_prefix(args.bucket_prefix),
+        "bucket_prefix": normalize_prefix(args.bucket_prefix),
         "project": args.project,
         "bmt_id": args.bmt_id,
         "run_context": args.run_context,
+        "run_id": run_id,
         "workspace": str(run_root),
         "manager_exit_code": manager_exit_code,
         "passed": manager_exit_code == 0,
         "manager_status": manager_status,
         "manager_reason_code": manager_reason_code,
+        "manager_verdict_uri": manager_verdict_uri,
         "manager_summary": manager_summary,
     }
 
     summary_local = run_root / args.summary_out
-    summary_local.write_text(
-        json.dumps(root_summary, indent=2) + "\n", encoding="utf-8"
-    )
-    _gcloud_upload(summary_local, _bucket_uri(bucket_root, "bmt_root_results.json"))
+    summary_local.write_text(json.dumps(root_summary, indent=2) + "\n", encoding="utf-8")
+    gcloud_upload(summary_local, bucket_uri(bucket_root, "bmt_root_results.json"))
 
     if args.human:
         print(json.dumps(root_summary, indent=2))

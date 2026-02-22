@@ -1,0 +1,60 @@
+# .cursorignore — exclude from Cursor index/context
+# Same pattern syntax as .gitignore (relative to repo root).
+
+# -----------------------------------------------------------------------------
+# Sane defaults (common across projects)
+# -----------------------------------------------------------------------------
+
+# Python
+.venv/
+venv/
+**/__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+
+# Node (if any tooling uses it)
+node_modules/
+
+# Build and caches
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE/editor (keep rules; ignore local state)
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# -----------------------------------------------------------------------------
+# Project-specific (bmt-gcloud)
+# -----------------------------------------------------------------------------
+
+# Not committed: WAV datasets and local run workspaces (see CLAUDE.md)
+data/
+sk_runtime/
+.bmt_runtime/
+
+# Secrets and credentials
+secrets/
+gcp-key.json
+*.pem
+
+# Runner binaries and heavy deps (present locally, not for context)
+remote/sk/runners/lib/
+
+# Generated results and logs (frequently changing; canonical paths in CLAUDE.md)
+remote/sk/results/
+*.log
+bmt_root_results.json
+
+# Optional: reduce noise from Cursor's own plans/state (uncomment if desired)
+# .cursor/plans/

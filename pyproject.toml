@@ -1,28 +1,40 @@
 
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "dummybmt"
-version = "0.0.0"
+name = "bmt-cloud-dev"
+version = "0.1.0"
 requires-python = ">=3.10"
+dependencies = ["click>=8.0"]
+
+[project.optional-dependencies]
+# For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
+vm = ["PyJWT>=2.0", "cryptography>=41.0"]
+
+[tool.setuptools.packages.find]
+# ci/ lives at .github/scripts/ci/ — tell setuptools to look there.
+where = [".github/scripts"]
+
+# Ruff: configured in ruff.toml (line-length 120, py310, select/ignore, per-file-ignores).
 
 [tool.basedpyright]
-include = [".github/scripts", "remote", "repo"]
-exclude = ["**/.venv", "**/node_modules", "**/__pycache__"]
+include = ["."]
+exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime", "local_batch", "secrets"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.10"
-# The scripts parse arbitrary JSON (dict[str, Any]) and use argparse Namespace
-# whose attributes are typed Any.  The rules below fire almost entirely on
-# those legitimate patterns rather than real bugs, so suppress them.
+extraPaths = [".github/scripts"]
+# Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
 reportExplicitAny = false
 reportAny = false
 reportUnknownMemberType = false
 reportUnknownVariableType = false
 reportUnknownArgumentType = false
 
-[tool.ruff]
-line-length = 120
-target-version = "py310"
-exclude = [".venv"]
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
 
-[tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "BLE", "SIM", "RUF"]

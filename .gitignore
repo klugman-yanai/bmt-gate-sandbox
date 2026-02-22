@@ -1,13 +1,15 @@
 # Build/output junk
 build/
 data/
-.bmt_runtime/
+local_batch/
 sk_runtime/
+secrets/
 
 # Python
 **/__pycache__/
 *.pyc
 .venv/
+*.egg-info/
 
 # Local staging (manual assets)
 repo/staging/
@@ -29,5 +31,6 @@ compile_commands.json
 .DS_Store
 Thumbs.db
 
-# Local credentials
+# Local credentials and env (copy .env.example to .env)
 gcp-key.json
+.env
