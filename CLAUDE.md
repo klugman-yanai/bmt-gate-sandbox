@@ -227,6 +227,12 @@ gh variable set BMT_DESCRIPTION_PENDING "BMT running (test)..."
 
 For **local** use (e.g. `remote/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), use the same vars or rely on `gcloud config` for project/zone.
 
+### CI workflow (trigger BMT from CI)
+
+| Secret | Purpose |
+| ------ | ------- |
+| `GH_WORKFLOW_DISPATCH_TOKEN` | PAT with **Actions: read and write**. Used by the CI workflow to trigger the BMT workflow via `workflow_dispatch` (default `GITHUB_TOKEN` cannot trigger other workflows). Add in Settings → Secrets and variables → Actions → Secrets. |
+
 ### VM-side (for trigger-and-stop gating)
 
 | Variable | Purpose |
