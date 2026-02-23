@@ -122,6 +122,16 @@ def test_run_trigger_uri_with_prefix():
     assert uri == "gs://b/pfx/triggers/runs/123456.json"
 
 
+def test_run_handshake_uri():
+    uri = models.run_handshake_uri("gs://b", "", "123456")
+    assert uri == "gs://b/triggers/acks/123456.json"
+
+
+def test_run_handshake_uri_with_prefix():
+    uri = models.run_handshake_uri("gs://b", "pfx", "123456")
+    assert uri == "gs://b/pfx/triggers/acks/123456.json"
+
+
 # ── CloudVerdict.from_payload ─────────────────────────────────────────────────
 
 

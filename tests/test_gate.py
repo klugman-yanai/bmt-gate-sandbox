@@ -7,6 +7,7 @@ import sys
 batch = importlib.import_module("run_sk_bmt_batch")
 compute_gate = batch.compute_gate
 resolve_status = batch.resolve_status
+effective_gate_comparison = batch._effective_gate_comparison
 
 
 # ── compute_gate ──────────────────────────────────────────────────────────────
@@ -58,6 +59,14 @@ def test_lte_fails_when_higher():
     gate = compute_gate("lte", current_score=6.0, previous_score=5.0, failed_count=0)
     assert gate["passed"] is False
     assert gate["reason"] == "score_above_last"
+
+
+def test_false_reject_forces_gte_comparison():
+    assert effective_gate_comparison("false_reject_namuh", "lte") == "gte"
+
+
+def test_non_false_reject_keeps_lte_comparison():
+    assert effective_gate_comparison("false_accept_namuh", "lte") == "lte"
 
 
 # ── resolve_status ────────────────────────────────────────────────────────────

@@ -22,24 +22,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_SCRIPT_DIR = Path(__file__).parent
-sys.path.insert(0, str(_SCRIPT_DIR.parent / "lib"))
-from gcs import (  # type: ignore[import-not-found]  # noqa: E402
-    bucket_root_uri,
-    bucket_uri,
-    gcloud_cp,
-    gcloud_ls_json,
-    gcloud_rsync,
-    gcloud_rsync_to_gcs,
-    gcloud_upload,
-    gcs_exists,
-    gcs_object_meta,
-    load_json,
-    now_iso,
-    now_stamp,
-    write_json,
-)
-
 
 class SKManagerError(RuntimeError):
     """Raised for manager execution/config errors."""
@@ -79,6 +61,100 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _now_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _normalize_prefix(prefix: str) -> str:
+    return prefix.strip("/")
+
+
+def _bucket_root_uri(bucket: str, prefix: str) -> str:
+    p = _normalize_prefix(prefix)
+    return f"gs://{bucket}/{p}" if p else f"gs://{bucket}"
+
+
+def _bucket_uri(bucket_root: str, path_or_uri: str) -> str:
+    if path_or_uri.startswith("gs://"):
+        return path_or_uri
+    return f"{bucket_root}/{path_or_uri.lstrip('/')}"
+
+
+def _gcs_exists(uri: str) -> bool:
+    proc = subprocess.run(
+        ["gcloud", "storage", "ls", uri],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def _gcloud_cp(src: str, dst: Path | str) -> None:
+    dst_path = Path(dst) if not isinstance(dst, Path) else dst
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    _ = subprocess.run(["gcloud", "storage", "cp", src, str(dst_path), "--quiet"], check=True)
+
+
+def _gcloud_upload(src: Path, dst_uri: str) -> None:
+    _ = subprocess.run(["gcloud", "storage", "cp", str(src), dst_uri, "--quiet"], check=True)
+
+
+def _gcloud_rsync(src: str, dst: Path | str, delete: bool = False) -> None:
+    dst_path = Path(dst) if not isinstance(dst, Path) else dst
+    dst_path.mkdir(parents=True, exist_ok=True)
+    cmd = ["gcloud", "storage", "rsync", "--recursive"]
+    if delete:
+        cmd.append("--delete-unmatched-destination-objects")
+    cmd.extend([src, str(dst_path), "--quiet"])
+    _ = subprocess.run(cmd, check=True)
+
+
+def _gcloud_rsync_to_gcs(src: Path | str, dst_uri: str, delete: bool = False) -> None:
+    src_path = Path(src) if not isinstance(src, Path) else src
+    cmd = ["gcloud", "storage", "rsync", "--recursive"]
+    if delete:
+        cmd.append("--delete-unmatched-destination-objects")
+    cmd.extend([str(src_path), dst_uri, "--quiet"])
+    _ = subprocess.run(cmd, check=True)
+
+
+def _gcloud_ls_json(uri: str, recursive: bool = False) -> list[dict[str, Any]]:
+    cmd = ["gcloud", "storage", "ls", "--json"]
+    if recursive:
+        cmd.append("--recursive")
+    cmd.append(uri)
+    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return []
+    out = (proc.stdout or "").strip()
+    if not out:
+        return []
+    data = json.loads(out)
+    if isinstance(data, dict):
+        return [data]
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    return []
+
+
+def _gcs_object_meta(uri: str) -> dict[str, Any] | None:
+    entries = _gcloud_ls_json(uri)
+    if not entries:
+        return None
+    entry = entries[0]
+    return {
+        "name": str(entry.get("name") or uri),
+        "generation": str(entry.get("generation") or ""),
+        "size": int(entry.get("size") or 0),
+        "updated": str(entry.get("updated") or ""),
+    }
+
+
 def _manifest_digest(entries: list[dict[str, Any]]) -> str:
     rows: list[str] = []
     for entry in entries:
@@ -94,6 +170,17 @@ def _manifest_digest(entries: list[dict[str, Any]]) -> str:
         h.update(row.encode("utf-8"))
         h.update(b"\n")
     return h.hexdigest()
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise SKManagerError(f"Missing JSON file: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def _set_dotted(cfg: dict[str, Any], dotted_key: str, value: Any) -> None:
@@ -165,13 +252,13 @@ def _read_counter(log_path: Path, counter_re: re.Pattern[str]) -> int:
 
 def _resolve_last_passing_run_id(bucket_root: str, results_prefix: str) -> str | None:
     """Read current.json from GCS; return last_passing run_id or None if missing/invalid."""
-    uri = bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/current.json")
-    if not gcs_exists(uri):
+    uri = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/current.json")
+    if not _gcs_exists(uri):
         return None
     with tempfile.TemporaryDirectory(prefix="sk_pointer_") as tmp_dir:
         local_path = Path(tmp_dir) / "current.json"
-        gcloud_cp(uri, local_path)
-        data = load_json(local_path)
+        _gcloud_cp(uri, local_path)
+        data = _load_json(local_path)
     run_id = data.get("last_passing")
     return str(run_id).strip() if run_id else None
 
@@ -179,15 +266,23 @@ def _resolve_last_passing_run_id(bucket_root: str, results_prefix: str) -> str |
 def _read_result_file(
     bucket_root: str, results_prefix: str, filename: str
 ) -> tuple[float | None, dict[str, Any] | None]:
-    uri = bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/{filename}")
-    if not gcs_exists(uri):
+    uri = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/{filename}")
+    if not _gcs_exists(uri):
         return None, None
     with tempfile.TemporaryDirectory(prefix="sk_result_file_") as tmp_dir:
         local_path = Path(tmp_dir) / filename
-        gcloud_cp(uri, local_path)
-        data = load_json(local_path)
+        _gcloud_cp(uri, local_path)
+        data = _load_json(local_path)
         score = data.get("aggregate_score")
         return (float(score), data) if score is not None else (None, data)
+
+
+def _effective_gate_comparison(bmt_id: str, comparison: str) -> str:
+    """Normalize comparison and enforce false-reject semantics."""
+    normalized = comparison.strip().lower()
+    if bmt_id.startswith("false_reject") and normalized == "lte":
+        return "gte"
+    return normalized
 
 
 def _gate_result(
@@ -339,10 +434,10 @@ def _mark_cache(cache_stats: dict[str, Any], key: str, hit: bool) -> None:
 def main() -> int:
     args = parse_args()
     run_id = args.run_id.strip()
-    started_at = now_iso()
-    bucket_root = bucket_root_uri(args.bucket, args.bucket_prefix)
+    started_at = _now_iso()
+    bucket_root = _bucket_root_uri(args.bucket, args.bucket_prefix)
 
-    jobs_cfg = load_json(Path(args.jobs_config))
+    jobs_cfg = _load_json(Path(args.jobs_config))
     bmts = jobs_cfg.get("bmts", {})
     bmt_cfg = bmts.get(args.bmt_id)
     if not isinstance(bmt_cfg, dict):
@@ -368,11 +463,10 @@ def main() -> int:
     if not isinstance(runner_cfg, dict):
         raise SKManagerError("runner must be an object")
 
-    runner_uri = bucket_uri(bucket_root, str(runner_cfg["uri"]))
-    runner_project_lib_prefix = str(runner_cfg.get("project_lib_prefix", "")).strip()
+    runner_uri = _bucket_uri(bucket_root, str(runner_cfg["uri"]))
     runner_deps_prefix = str(runner_cfg.get("deps_prefix", "")).strip()
-    template_uri = bucket_uri(bucket_root, str(bmt_cfg["template_uri"]))
-    dataset_uri = bucket_uri(bucket_root, str(paths_cfg["dataset_prefix"]))
+    template_uri = _bucket_uri(bucket_root, str(bmt_cfg["template_uri"]))
+    dataset_uri = _bucket_uri(bucket_root, str(paths_cfg["dataset_prefix"]))
     outputs_prefix = str(paths_cfg["outputs_prefix"]).rstrip("/")
     results_prefix = str(paths_cfg["results_prefix"]).rstrip("/")
     logs_prefix = str(paths_cfg.get("logs_prefix", f"{results_prefix}/logs")).rstrip("/")
@@ -386,7 +480,6 @@ def main() -> int:
     cache_base = cache_root / args.project_id / args.bmt_id
     cache_meta_dir = cache_base / "meta"
     cache_runner_dir = cache_base / "runner_bundle"
-    cache_common_lib_dir = cache_base / "common_lib"
     cache_template_path = cache_base / "input_template.json"
     cache_dataset_dir = cache_base / "dataset"
     cache_meta_dir.mkdir(parents=True, exist_ok=True)
@@ -397,43 +490,35 @@ def main() -> int:
     # Runner cache
     runner_bundle_uri = runner_uri.rsplit("/", 1)[0].rstrip("/")
     runner_manifest_path = cache_meta_dir / "runner_bundle_meta.json"
-    runner_manifest_entries = gcloud_ls_json(f"{runner_bundle_uri}/", recursive=True)
-    if runner_project_lib_prefix:
-        project_lib_uri = bucket_uri(bucket_root, runner_project_lib_prefix).rstrip("/") + "/"
-        runner_manifest_entries.extend(gcloud_ls_json(project_lib_uri, recursive=True))
+    runner_manifest_entries = _gcloud_ls_json(f"{runner_bundle_uri}/", recursive=True)
     if runner_deps_prefix:
-        deps_uri = bucket_uri(bucket_root, runner_deps_prefix).rstrip("/") + "/"
-        runner_manifest_entries.extend(gcloud_ls_json(deps_uri, recursive=True))
+        deps_uri = _bucket_uri(bucket_root, runner_deps_prefix).rstrip("/") + "/"
+        runner_manifest_entries.extend(_gcloud_ls_json(deps_uri, recursive=True))
     runner_digest = _manifest_digest(runner_manifest_entries)
 
     runner_hit = False
     runner_rel_name = Path(runner_uri).name
     runner_path = cache_runner_dir / runner_rel_name
     if cache_enabled and runner_manifest_path.is_file() and runner_path.is_file():
-        manifest = load_json(runner_manifest_path)
+        manifest = _load_json(runner_manifest_path)
         runner_hit = str(manifest.get("digest", "")) == runner_digest
 
     if not runner_hit:
         t0 = time.monotonic()
-        gcloud_rsync(f"{runner_bundle_uri}/", cache_runner_dir)
-        if runner_project_lib_prefix:
-            project_lib_uri = bucket_uri(bucket_root, runner_project_lib_prefix).rstrip("/") + "/"
-            gcloud_rsync(project_lib_uri, cache_runner_dir)
+        _gcloud_rsync(f"{runner_bundle_uri}/", cache_runner_dir)
         if runner_deps_prefix:
-            deps_uri = bucket_uri(bucket_root, runner_deps_prefix).rstrip("/") + "/"
-            cache_common_lib_dir.mkdir(parents=True, exist_ok=True)
-            gcloud_rsync(deps_uri, cache_common_lib_dir)
+            deps_uri = _bucket_uri(bucket_root, runner_deps_prefix).rstrip("/") + "/"
+            _gcloud_rsync(deps_uri, cache_runner_dir)
         if not runner_path.is_file():
-            gcloud_cp(runner_uri, runner_path)
+            _gcloud_cp(runner_uri, runner_path)
         sync_durations_sec["runner_bundle_sync"] = round(time.monotonic() - t0, 3)
-        write_json(
+        _write_json(
             runner_manifest_path,
             {
-                "timestamp": now_iso(),
+                "timestamp": _now_iso(),
                 "digest": runner_digest,
                 "runner_uri": runner_uri,
                 "runner_bundle_uri": runner_bundle_uri,
-                "project_lib_prefix": runner_project_lib_prefix,
                 "deps_prefix": runner_deps_prefix,
             },
         )
@@ -452,25 +537,25 @@ def main() -> int:
 
     # Template cache
     template_meta_path = cache_meta_dir / "template_meta.json"
-    template_remote_meta = gcs_object_meta(template_uri)
+    template_remote_meta = _gcs_object_meta(template_uri)
     if template_remote_meta is None:
         raise SKManagerError(f"Template object missing: {template_uri}")
 
     template_hit = False
     if cache_enabled and template_meta_path.is_file() and cache_template_path.is_file():
-        cached_meta = load_json(template_meta_path)
+        cached_meta = _load_json(template_meta_path)
         template_hit = str(cached_meta.get("generation", "")) == str(
             template_remote_meta.get("generation", "")
         ) and int(cached_meta.get("size", -1)) == int(template_remote_meta.get("size", -2))
 
     if not template_hit:
         t0 = time.monotonic()
-        gcloud_cp(template_uri, cache_template_path)
+        _gcloud_cp(template_uri, cache_template_path)
         sync_durations_sec["template_sync"] = round(time.monotonic() - t0, 3)
-        write_json(
+        _write_json(
             template_meta_path,
             {
-                "timestamp": now_iso(),
+                "timestamp": _now_iso(),
                 "generation": str(template_remote_meta.get("generation", "")),
                 "size": int(template_remote_meta.get("size", 0)),
                 "template_uri": template_uri,
@@ -483,7 +568,7 @@ def main() -> int:
     dataset_meta_path = cache_meta_dir / "dataset_meta.json"
     dataset_hit = False
     if cache_enabled and dataset_meta_path.is_file() and cache_dataset_dir.is_dir():
-        dataset_meta = load_json(dataset_meta_path)
+        dataset_meta = _load_json(dataset_meta_path)
         last_sync_epoch = float(dataset_meta.get("last_sync_epoch", 0.0) or 0.0)
         age = datetime.now(timezone.utc).timestamp() - last_sync_epoch
         dataset_hit = str(dataset_meta.get("source_uri", "")) == dataset_uri and age <= float(dataset_ttl_sec)
@@ -491,12 +576,12 @@ def main() -> int:
     if cache_enabled:
         if not dataset_hit:
             t0 = time.monotonic()
-            gcloud_rsync(dataset_uri.rstrip("/") + "/", cache_dataset_dir)
+            _gcloud_rsync(dataset_uri.rstrip("/") + "/", cache_dataset_dir)
             sync_durations_sec["dataset_sync"] = round(time.monotonic() - t0, 3)
-            write_json(
+            _write_json(
                 dataset_meta_path,
                 {
-                    "timestamp": now_iso(),
+                    "timestamp": _now_iso(),
                     "source_uri": dataset_uri,
                     "last_sync_epoch": datetime.now(timezone.utc).timestamp(),
                     "dataset_ttl_sec": dataset_ttl_sec,
@@ -507,7 +592,7 @@ def main() -> int:
         # No persistent dataset cache: always sync into run workspace.
         inputs_root = staging_dir / "inputs"
         t0 = time.monotonic()
-        gcloud_rsync(dataset_uri.rstrip("/") + "/", inputs_root)
+        _gcloud_rsync(dataset_uri.rstrip("/") + "/", inputs_root)
         sync_durations_sec["dataset_sync"] = round(time.monotonic() - t0, 3)
 
     _mark_cache(cache_stats, "dataset", dataset_hit)
@@ -529,13 +614,8 @@ def main() -> int:
     for key, value in env_overrides.items():
         runtime_env[str(key)] = str(value)
     staged_lib_path = str(runner_path.parent.resolve())
-    ld_parts = [staged_lib_path]
-    if runner_deps_prefix and cache_common_lib_dir.is_dir():
-        ld_parts.append(str(cache_common_lib_dir.resolve()))
     existing_ld = str(runtime_env.get("LD_LIBRARY_PATH", "")).strip()
-    if existing_ld:
-        ld_parts.append(existing_ld)
-    runtime_env["LD_LIBRARY_PATH"] = ":".join(ld_parts)
+    runtime_env["LD_LIBRARY_PATH"] = f"{staged_lib_path}:{existing_ld}" if existing_ld else staged_lib_path
 
     wav_files = sorted(inputs_root.rglob("*.wav"))
     if args.limit > 0:
@@ -543,7 +623,7 @@ def main() -> int:
     if not wav_files:
         raise SKManagerError(f"No wav files found under dataset: {dataset_uri}")
 
-    template_cfg = load_json(cache_template_path)
+    template_cfg = _load_json(cache_template_path)
     num_source_test = runtime_cfg.get("num_source_test")
     enable_overrides = runtime_cfg.get("enable_overrides", {})
     if not isinstance(enable_overrides, dict):
@@ -592,7 +672,7 @@ def main() -> int:
     warning_policy = bmt_cfg.get("warning_policy", {}) if isinstance(bmt_cfg.get("warning_policy"), dict) else {}
     demo_cfg = bmt_cfg.get("demo", {}) if isinstance(bmt_cfg.get("demo"), dict) else {}
     demo_force_pass = bool(demo_cfg.get("force_pass", False))
-    comparison = str(gate_cfg.get("comparison", "gte"))
+    comparison = _effective_gate_comparison(args.bmt_id, str(gate_cfg.get("comparison", "gte")))
 
     # Baseline from pointer-resolved snapshot (current.json -> last_passing -> latest.json).
     last_passing_run_id = _resolve_last_passing_run_id(bucket_root, results_prefix)
@@ -609,8 +689,8 @@ def main() -> int:
         status = "pass"
         reason_code = "demo_force_pass"
 
-    ts_iso = now_iso()
-    ts_compact = now_stamp()
+    ts_iso = _now_iso()
+    ts_compact = _now_stamp()
     snapshot_id = run_id or f"local_{ts_compact}"
     snapshot_prefix = f"{results_prefix}/snapshots/{snapshot_id}"
     latest_local = results_dir / "latest.json"
@@ -641,7 +721,7 @@ def main() -> int:
         "sync_stats": {"sync_durations_sec": sync_durations_sec},
     }
 
-    write_json(latest_local, result)
+    _write_json(latest_local, result)
 
     artifact_upload_stats: dict[str, Any] = {
         "uploaded_results": [],
@@ -652,13 +732,13 @@ def main() -> int:
 
     # Upload all results under snapshot prefix (no canonical writes).
     t0 = time.monotonic()
-    gcloud_upload(latest_local, bucket_uri(bucket_root, f"{snapshot_prefix}/latest.json"))
+    _gcloud_upload(latest_local, _bucket_uri(bucket_root, f"{snapshot_prefix}/latest.json"))
     artifact_upload_stats["durations_sec"]["results_latest_upload"] = round(time.monotonic() - t0, 3)
     artifact_upload_stats["uploaded_results"].append("latest.json")
 
     ci_verdict_uri = ""
     if run_id:
-        finished_at = now_iso()
+        finished_at = _now_iso()
         ci_verdict: dict[str, Any] = {
             "run_id": run_id,
             "project_id": args.project_id,
@@ -677,23 +757,23 @@ def main() -> int:
                 "finished_at": finished_at,
             },
             "artifacts": {
-                "latest_json_uri": bucket_uri(bucket_root, f"{snapshot_prefix}/latest.json"),
-                "logs_uri": bucket_uri(bucket_root, f"{snapshot_prefix}/logs"),
+                "latest_json_uri": _bucket_uri(bucket_root, f"{snapshot_prefix}/latest.json"),
+                "logs_uri": _bucket_uri(bucket_root, f"{snapshot_prefix}/logs"),
             },
         }
         verdict_local = results_dir / "ci_verdicts" / f"{run_id}.json"
-        write_json(verdict_local, ci_verdict)
-        ci_verdict_uri = bucket_uri(bucket_root, f"{snapshot_prefix}/ci_verdict.json")
+        _write_json(verdict_local, ci_verdict)
+        ci_verdict_uri = _bucket_uri(bucket_root, f"{snapshot_prefix}/ci_verdict.json")
         t0 = time.monotonic()
-        gcloud_upload(verdict_local, ci_verdict_uri)
+        _gcloud_upload(verdict_local, ci_verdict_uri)
         artifact_upload_stats["durations_sec"]["ci_verdict_upload"] = round(time.monotonic() - t0, 3)
         artifact_upload_stats["uploaded_results"].append("ci_verdict.json")
 
     # Upload logs under snapshot prefix only.
     t0 = time.monotonic()
-    gcloud_rsync_to_gcs(
+    _gcloud_rsync_to_gcs(
         logs_dir,
-        bucket_uri(bucket_root, f"{snapshot_prefix}/logs"),
+        _bucket_uri(bucket_root, f"{snapshot_prefix}/logs"),
         delete=True,
     )
     artifact_upload_stats["durations_sec"]["logs_upload"] = round(time.monotonic() - t0, 3)
@@ -717,9 +797,9 @@ def main() -> int:
 
     if should_upload_outputs:
         t0 = time.monotonic()
-        gcloud_rsync_to_gcs(
+        _gcloud_rsync_to_gcs(
             outputs_dir,
-            bucket_uri(bucket_root, outputs_prefix),
+            _bucket_uri(bucket_root, outputs_prefix),
             delete=False,
         )
         artifact_upload_stats["durations_sec"]["outputs_upload"] = round(time.monotonic() - t0, 3)
@@ -746,7 +826,7 @@ def main() -> int:
         "sync_stats": {"sync_durations_sec": sync_durations_sec},
         "artifact_upload_stats": artifact_upload_stats,
     }
-    write_json(Path(args.summary_out), manager_summary)
+    _write_json(Path(args.summary_out), manager_summary)
 
     state = status.upper()
     print(f"SK_BMT_GATE={state} BMT={args.bmt_id} SCORE={aggregate_score:.3f} " + f"RAW={raw_score:.3f}")
