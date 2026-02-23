@@ -130,12 +130,8 @@ def test_json_validation_would_catch_invalid_json() -> None:
         matrix_line = next((line for line in content.split("\n") if line.startswith("matrix=")), None)
         matrix_json = matrix_line.split("=", 1)[1]
 
-        # This should fail because JSON is invalid
-        try:
-            json.loads(matrix_json)
-            pytest.fail("Should have raised JSONDecodeError")
-        except json.JSONDecodeError:
-            raise  # Expected - re-raise to make xfail work
+        # This should fail because JSON is invalid.
+        json.loads(matrix_json)
 
     finally:
         if github_output.exists():
@@ -144,9 +140,18 @@ def test_json_validation_would_catch_invalid_json() -> None:
 
 def test_negative_tests_run_and_verify_xfails() -> None:
     """Meta-test: Verify that all xfail tests actually fail as expected."""
-    # Run the negative tests and verify they all xfail
+    # Run only the xfail cases (exclude this meta-test to avoid subprocess recursion).
     result = subprocess.run(
-        ["python", "-m", "pytest", "tests/test_ci_commands_negative.py", "-v", "--tb=no"],
+        [
+            "python",
+            "-m",
+            "pytest",
+            "tests/test_ci_commands_negative.py",
+            "-k",
+            "not test_negative_tests_run_and_verify_xfails",
+            "-v",
+            "--tb=no",
+        ],
         capture_output=True,
         text=True,
         check=False,

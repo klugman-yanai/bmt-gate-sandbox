@@ -61,6 +61,12 @@ def upload_json(uri: str, payload: dict[str, Any]) -> None:
             raise GcloudError(f"Failed to upload {uri}: {err}")
 
 
+def gcs_exists(uri: str) -> bool:
+    """Return True when an object exists."""
+    rc, _ = run_capture(["gcloud", "storage", "ls", uri])
+    return rc == 0
+
+
 def vm_start(project: str, zone: str, instance_name: str) -> None:
     """Start a stopped Compute Engine instance. Raises GcloudError on failure."""
     cmd = [
@@ -79,9 +85,81 @@ def vm_start(project: str, zone: str, instance_name: str) -> None:
         raise GcloudError(f"Failed to start VM {instance_name}: {err}")
 
 
-def vm_add_metadata(project: str, zone: str, instance_name: str, metadata: dict[str, str]) -> None:
-    """Set custom metadata keys on a Compute Engine instance."""
-    metadata_items = ",".join(f"{k}={v}" for k, v in metadata.items())
+def vm_describe(project: str, zone: str, instance_name: str) -> dict[str, Any]:
+    """Describe a Compute Engine instance as JSON."""
+    cmd = [
+        "gcloud",
+        "compute",
+        "instances",
+        "describe",
+        instance_name,
+        "--zone",
+        zone,
+        "--project",
+        project,
+        "--format=json",
+    ]
+    rc, out = run_capture(cmd)
+    if rc != 0:
+        raise GcloudError(f"Failed to describe VM {instance_name}: {out}")
+    try:
+        payload = json.loads(out)
+    except json.JSONDecodeError as exc:
+        raise GcloudError(f"Invalid JSON while describing VM {instance_name}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise GcloudError(f"Invalid VM describe payload for {instance_name}: expected object")
+    return payload
+
+
+def vm_serial_output(project: str, zone: str, instance_name: str) -> str:
+    """Fetch serial output text for a VM."""
+    cmd = [
+        "gcloud",
+        "compute",
+        "instances",
+        "get-serial-port-output",
+        instance_name,
+        "--zone",
+        zone,
+        "--project",
+        project,
+    ]
+    rc, out = run_capture(cmd)
+    if rc != 0:
+        raise GcloudError(f"Failed to get serial output for {instance_name}: {out}")
+    return out
+
+
+def vm_serial_output_retry(
+    project: str,
+    zone: str,
+    instance_name: str,
+    *,
+    attempts: int = 4,
+    base_delay_sec: float = 2.0,
+) -> str:
+    """Fetch serial output with retry for startup races."""
+    last_error: str | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return vm_serial_output(project, zone, instance_name)
+        except GcloudError as exc:
+            last_error = str(exc)
+            if attempt >= attempts:
+                break
+            time.sleep(base_delay_sec * (2 ** (attempt - 1)))
+    raise GcloudError(last_error or f"Failed to get serial output for {instance_name}")
+
+
+def vm_add_metadata(
+    project: str,
+    zone: str,
+    instance_name: str,
+    metadata: dict[str, str],
+    *,
+    metadata_files: dict[str, Path] | None = None,
+) -> None:
+    """Set custom metadata keys and optional metadata-from-file values on a Compute Engine instance."""
     cmd = [
         "gcloud",
         "compute",
@@ -92,9 +170,15 @@ def vm_add_metadata(project: str, zone: str, instance_name: str, metadata: dict[
         zone,
         "--project",
         project,
-        "--metadata",
-        metadata_items,
     ]
+    if metadata:
+        metadata_items = ",".join(f"{k}={v}" for k, v in metadata.items())
+        cmd.extend(["--metadata", metadata_items])
+    if metadata_files:
+        metadata_file_items = ",".join(f"{k}={v}" for k, v in metadata_files.items())
+        cmd.extend(["--metadata-from-file", metadata_file_items])
+    if not metadata and not metadata_files:
+        raise GcloudError(f"No metadata provided for {instance_name}")
     rc, err = run_capture(cmd)
     if rc != 0:
         raise GcloudError(f"Failed to update VM metadata for {instance_name}: {err}")

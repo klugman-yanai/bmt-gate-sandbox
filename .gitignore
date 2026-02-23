@@ -21,10 +21,10 @@ repo/staging/
 bmt_root_results.json
 
 # VM/BMT runtime artifacts (bucket sync + handshake staging)
-remote/sk/inputs/
-remote/sk/outputs/
-remote/sk/results/archive/
-remote/triggers/
+remote/runtime/triggers/
+remote/runtime/**/inputs/**/*.wav
+remote/runtime/**/outputs/
+remote/runtime/**/results/
 resources/
 
 # Tooling/editor

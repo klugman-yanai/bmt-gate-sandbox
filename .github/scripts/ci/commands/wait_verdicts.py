@@ -261,7 +261,7 @@ def _aggregate(
 
 @click.command("wait")
 @click.option("--manifest", required=True, help="JSON manifest from trigger step")
-@click.option("--config-root", default="remote", show_default=True, type=click.Path(path_type=Path))
+@click.option("--config-root", default="remote/code", show_default=True, type=click.Path(path_type=Path))
 @click.option("--bucket", required=True, envvar="GCS_BUCKET")
 @click.option("--bucket-prefix", default="", envvar="BMT_BUCKET_PREFIX")
 @click.option("--timeout-sec", required=True, type=int)
@@ -282,7 +282,9 @@ def command(
     if not github_output:
         raise RuntimeError("GITHUB_OUTPUT is required")
 
-    bucket_root = models.bucket_root_uri(bucket, bucket_prefix)
+    parent = models.parent_prefix(bucket_prefix)
+    runtime_prefix = models.runtime_prefix(parent)
+    bucket_root = models.runtime_bucket_root_uri(bucket, parent)
     legs = _parse_manifest(manifest, config_root, bucket_root)
     if not legs:
         raise RuntimeError("Empty manifest — nothing to wait for")
@@ -293,7 +295,7 @@ def command(
     print(f"Waiting for {len(pending)} verdict(s), timeout={timeout_sec}s, poll={poll_interval_sec}s")
 
     collected = _poll_and_collect(
-        pending, prefix_groups, bucket_root, bucket, bucket_prefix, deadline, poll_interval_sec, len(legs)
+        pending, prefix_groups, bucket_root, bucket, runtime_prefix, deadline, poll_interval_sec, len(legs)
     )
 
     decision, counts, rows, blocked_legs, blocked_reasons = _aggregate(collected)

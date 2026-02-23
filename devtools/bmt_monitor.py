@@ -17,8 +17,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from whenever import Instant
-
 import click
 from rich.console import Console
 from rich.layout import Layout
@@ -26,6 +24,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from whenever import Instant
 
 # Reuse existing helpers for GCS polling
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / ".github" / "scripts"))
@@ -53,6 +52,8 @@ class MonitorState:
     run_id: str
     repository: str
     bucket: str
+    bucket_prefix_parent: str
+    runtime_prefix: str
     vm_name: str
     zone: str
     config_root: Path
@@ -109,6 +110,20 @@ def run_text_cmd(cmd: list[str]) -> str | None:
         return result.stdout.strip()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
+
+
+def _normalize_prefix(prefix: str) -> str:
+    return (prefix or "").strip("/")
+
+
+def _runtime_prefix(parent_prefix: str) -> str:
+    parent = _normalize_prefix(parent_prefix)
+    return f"{parent}/runtime" if parent else "runtime"
+
+
+def _runtime_root(state: MonitorState) -> str:
+    runtime = _normalize_prefix(state.runtime_prefix)
+    return f"gs://{state.bucket}/{runtime}" if runtime else f"gs://{state.bucket}"
 
 
 def poll_workflow(run_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -284,14 +299,14 @@ def poll_all(state: MonitorState) -> None:
         state.vm_state = poll_vm_state(state.vm_name, state.zone)
 
         # VM execution status (heartbeat and progress)
-        status_uri = f"gs://{state.bucket}/triggers/status/{state.run_id}.json"
+        status_uri = f"{_runtime_root(state)}/triggers/status/{state.run_id}.json"
         vm_status = poll_gcs_json(status_uri)
         if vm_status:
             state.vm_status_data = vm_status
             state.last_heartbeat = vm_status.get("last_heartbeat")
 
         # GCS trigger
-        trigger_uri = f"gs://{state.bucket}/triggers/runs/{state.run_id}.json"
+        trigger_uri = f"{_runtime_root(state)}/triggers/runs/{state.run_id}.json"
         trigger_data = poll_gcs_json(trigger_uri)
         if trigger_data:
             state.trigger_data = trigger_data
@@ -313,7 +328,7 @@ def poll_all(state: MonitorState) -> None:
                 state.legs_total = len(state.legs)
 
         # GCS handshake
-        handshake_uri = f"gs://{state.bucket}/triggers/acks/{state.run_id}.json"
+        handshake_uri = f"{_runtime_root(state)}/triggers/acks/{state.run_id}.json"
         handshake_data = poll_gcs_json(handshake_uri)
         if handshake_data:
             state.handshake_data = handshake_data
@@ -326,7 +341,7 @@ def poll_all(state: MonitorState) -> None:
         for leg in state.legs:
             try:
                 results_prefix = resolve_results_prefix(state.config_root, leg.project, leg.bmt_id)
-                verdict_uri = f"gs://{state.bucket}/{results_prefix}/snapshots/{leg.run_id}/ci_verdict.json"
+                verdict_uri = f"{_runtime_root(state)}/{results_prefix}/snapshots/{leg.run_id}/ci_verdict.json"
                 verdict = poll_gcs_json(verdict_uri)
                 if verdict:
                     # Mark when verdict was first detected
@@ -354,15 +369,15 @@ def poll_all(state: MonitorState) -> None:
 
 
 def _gcs_trigger_uri(state: MonitorState) -> str:
-    return f"gs://{state.bucket}/triggers/runs/{state.run_id}.json"
+    return f"{_runtime_root(state)}/triggers/runs/{state.run_id}.json"
 
 
 def _gcs_ack_uri(state: MonitorState) -> str:
-    return f"gs://{state.bucket}/triggers/acks/{state.run_id}.json"
+    return f"{_runtime_root(state)}/triggers/acks/{state.run_id}.json"
 
 
 def _gcs_status_uri(state: MonitorState) -> str:
-    return f"gs://{state.bucket}/triggers/status/{state.run_id}.json"
+    return f"{_runtime_root(state)}/triggers/status/{state.run_id}.json"
 
 
 def render_gcs_vm_debug(state: MonitorState) -> Panel:
@@ -677,6 +692,12 @@ def auto_detect_run_id() -> str | None:
     help="GCS bucket name (default: train-kws-202311-bmt-gate)",
 )
 @click.option(
+    "--bucket-prefix",
+    envvar="BMT_BUCKET_PREFIX",
+    default="",
+    help="Parent bucket prefix (runtime path is derived as <parent>/runtime).",
+)
+@click.option(
     "--vm-name",
     envvar="BMT_VM_NAME",
     default="bmt-performance-gate",
@@ -688,7 +709,7 @@ def auto_detect_run_id() -> str | None:
     default="europe-west4-a",
     help="GCP zone (default: europe-west4-a)",
 )
-@click.option("--config-root", default="remote", help="Config root (default: remote)")
+@click.option("--config-root", default="remote/code", help="Config root (default: remote/code)")
 @click.option("--interval", default=5, type=int, help="Poll interval in seconds")
 def main(
     run_id: str | None,
@@ -696,6 +717,7 @@ def main(
     prod: bool,
     repo: str | None,
     bucket: str,
+    bucket_prefix: str,
     vm_name: str,
     zone: str,
     config_root: str,
@@ -732,6 +754,8 @@ def main(
         run_id=run_id,
         repository=repository,
         bucket=bucket,
+        bucket_prefix_parent=_normalize_prefix(bucket_prefix),
+        runtime_prefix=_runtime_prefix(bucket_prefix),
         vm_name=vm_name,
         zone=zone,
         config_root=config_path,

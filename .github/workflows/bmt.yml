@@ -25,7 +25,8 @@ on:
 concurrency:
   group: bmt-${{ github.event.inputs.head_sha }}
 
-# Minimum needed: checkout, GCP WIF, post status, download-artifact, PR comment on failure. Check Runs are created by the VM only.
+# Minimum needed: checkout, GCP WIF, post status, download-artifact
+# PR comment on failure. Check Runs are created by the VM only.
 permissions:
   contents: read
   id-token: write
@@ -60,12 +61,13 @@ jobs:
       pr_number: ${{ steps.ctx.outputs.pr_number }}
     steps:
       - id: ctx
-        run: |
-          echo "run_id=${{ github.event.inputs.ci_run_id }}" >>"$GITHUB_OUTPUT"
-          echo "head_sha=${{ github.event.inputs.head_sha }}" >>"$GITHUB_OUTPUT"
-          echo "head_branch=${{ github.event.inputs.head_branch }}" >>"$GITHUB_OUTPUT"
-          echo "head_event=${{ github.event.inputs.head_event }}" >>"$GITHUB_OUTPUT"
-          echo "pr_number=${{ github.event.inputs.pr_number }}" >>"$GITHUB_OUTPUT"
+        env:
+          DISPATCH_CI_RUN_ID: ${{ github.event.inputs.ci_run_id }}
+          DISPATCH_HEAD_SHA: ${{ github.event.inputs.head_sha }}
+          DISPATCH_HEAD_BRANCH: ${{ github.event.inputs.head_branch }}
+          DISPATCH_HEAD_EVENT: ${{ github.event.inputs.head_event }}
+          DISPATCH_PR_NUMBER: ${{ github.event.inputs.pr_number }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh emit-bmt-context
 
   # ─────────────────── 00 Guard ───────────────────
   guard:
@@ -74,21 +76,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Validate required configuration variables
-        run: |
-          set -euo pipefail
-          REQUIRED=(GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT GCP_ZONE BMT_VM_NAME)
-          MISSING=()
-          for name in "${REQUIRED[@]}"; do
-            value="${!name:-}"
-            if [ -z "$value" ]; then
-              MISSING+=("$name")
-            fi
-          done
-          if [ "${#MISSING[@]}" -gt 0 ]; then
-            echo "::error::Missing required repo vars: ${MISSING[*]}"
-            exit 1
-          fi
-          echo "Proceeding with BMT"
+        run: bash .github/scripts/workflows/bmt_workflow.sh validate-required-vars
 
   # ─────────────────── 01 Matrix: which BMTs requested (from presets; filtered by BMT_PROJECTS) ───────────────────
   extract-bmt-presets:
@@ -105,28 +93,7 @@ jobs:
 
       - name: Parse gcc_Release presets (filtered by BMT_PROJECTS; default all release runners)
         id: parse
-        run: |
-          ALLOWED_RAW="${BMT_PROJECTS:-all release runners}"
-          ALLOWED_NORM=$(echo "$ALLOWED_RAW" | tr '[:upper:]' '[:lower:]' | xargs)
-          if [ -z "$ALLOWED_NORM" ] || [ "$ALLOWED_NORM" = "all" ] || [ "$ALLOWED_NORM" = "*" ] || [ "$ALLOWED_NORM" = "all release runners" ] || [ "$ALLOWED_NORM" = "all-release-runners" ] || [ "$ALLOWED_NORM" = "all_release_runners" ]; then
-            ALLOWED_JSON='null'
-          else
-            ALLOWED_JSON=$(echo "$ALLOWED_RAW" | jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | ascii_downcase) | map(select(length>0))')
-          fi
-          runner_matrix=$(jq -c --argjson allowed "$ALLOWED_JSON" '
-            { include:
-              [ .configurePresets[]
-                | select(.name | test("_gcc_Release$"))
-                | select(.name | test("xtensa|hexagon") | not)
-                | (.name | sub("_gcc_Release$"; "") | ascii_downcase) as $proj
-                | select($allowed == null or ($allowed | index($proj)))
-                | { configure: .name,
-                    preset: (.name | ascii_downcase),
-                    project: $proj,
-                    binary_dir: (.binaryDir | sub("\\$\\{sourceDir\\}/"; "")) }
-              ] }' CMakePresets.json)
-          echo "runner_matrix=$runner_matrix" >>"$GITHUB_OUTPUT"
-          echo "::notice::Runner matrix (BMT_PROJECTS=${ALLOWED_RAW}): $runner_matrix"
+        run: bash .github/scripts/workflows/bmt_workflow.sh parse-release-runner-matrix
 
   # ─────────────────── 02 GCP auth + runners pushed to GCS (from build artifacts) ───────────────────
   # On artifact download or upload failure we warn and continue; only successfully uploaded runners are used for the trigger.
@@ -156,9 +123,10 @@ jobs:
 
       - name: Warn and skip if artifact missing
         if: steps.download.outcome == 'failure'
-        run: |
-          echo "::warning::Runner upload skipped for ${{ matrix.project }} (${{ matrix.preset }}): artifact not found or download failed. BMT will continue with other runners."
-          echo "upload_ok=false" >>"$GITHUB_OUTPUT"
+        env:
+          PROJECT: ${{ matrix.project }}
+          PRESET: ${{ matrix.preset }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh warn-artifact-missing
 
       - name: GCP Auth (WIF)
         if: steps.download.outcome == 'success'
@@ -180,42 +148,26 @@ jobs:
       - name: Upload runner to GCS
         if: steps.download.outcome == 'success'
         id: upload
-        run: |
-          set -euo pipefail
-          # CI upload-artifact uses LCA of paths as artifact root, so we get artifact/Runners and artifact/Kardome
-          RUNNER_DIR="artifact/Runners"
-          LIB_DIR="artifact/Kardome"
-
-          LIB_ARG=""
-          if [ -d "$LIB_DIR" ]; then
-            LIB_ARG="--lib-dir $LIB_DIR"
-          fi
-
-          chmod +x "$RUNNER_DIR/kardome_runner" 2>/dev/null || true
-
-          uv run python ./.github/scripts/ci_driver.py upload-runner \
-            --bucket "$GCS_BUCKET" \
-            --bucket-prefix "$BMT_BUCKET_PREFIX" \
-            --runner-dir "$RUNNER_DIR" \
-            $LIB_ARG \
-            --project "${{ matrix.project }}" \
-            --preset "${{ matrix.preset }}" \
-            --source-ref "${{ needs.bmt-context.outputs.head_sha }}"
+        env:
+          PROJECT: ${{ matrix.project }}
+          PRESET: ${{ matrix.preset }}
+          SOURCE_REF: ${{ needs.bmt-context.outputs.head_sha }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh upload-runner-to-gcs
         continue-on-error: true
 
       - name: Warn if GCS upload failed
         if: steps.download.outcome == 'success' && steps.upload.outcome == 'failure'
-        run: |
-          echo "::warning::Runner upload failed for ${{ matrix.project }} (${{ matrix.preset }}). BMT will continue with other runners."
+        env:
+          PROJECT: ${{ matrix.project }}
+          PRESET: ${{ matrix.preset }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh warn-upload-failed
 
       - name: Record uploaded project (marker for send-run-payload)
         if: steps.download.outcome == 'success' && steps.upload.outcome == 'success'
-        run: |
-          BKT="${GCS_BUCKET}"
-          PREF="${BMT_BUCKET_PREFIX}"
-          ROOT="gs://${BKT}"
-          [ -n "$PREF" ] && ROOT="${ROOT}/${PREF}"
-          echo '{}' | gcloud storage cp - "${ROOT}/_workflow/uploaded/${{ github.run_id }}/${{ matrix.project }}.json"
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          PROJECT: ${{ matrix.project }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh record-uploaded-project-marker
 
   # ─────────────────── Resolve which runners were uploaded (for trigger filtering) ───────────────────
   resolve-uploaded-projects:
@@ -236,17 +188,9 @@ jobs:
 
       - name: List uploaded project markers
         id: list
-        run: |
-          ROOT="gs://${GCS_BUCKET}"
-          [ -n "${BMT_BUCKET_PREFIX}" ] && ROOT="${ROOT}/${BMT_BUCKET_PREFIX}"
-          PREFIX="${ROOT}/_workflow/uploaded/${{ github.run_id }}/"
-          if gcloud storage ls "$PREFIX" 2>/dev/null | grep -q '\.json$'; then
-            gcloud storage ls "$PREFIX" 2>/dev/null | sed 's|.*/||;s|\.json$||' | jq -Rsc 'split("\n") | map(select(length>0)) | sort' > accepted.txt
-          else
-            echo '[]' > accepted.txt
-          fi
-          echo "accepted_projects=$(cat accepted.txt)" >>"$GITHUB_OUTPUT"
-          echo "::notice::Runners uploaded for projects: $(cat accepted.txt)"
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh resolve-uploaded-projects
 
   # ─────────────────── 03 Handshake begin (trigger written to GCS) ───────────────────
   send-run-payload:
@@ -255,6 +199,8 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       has_legs: ${{ steps.filter.outputs.has_legs }}
+      restart_vm: ${{ steps.preflight.outputs.restart_vm || 'false' }}
+      stale_cleanup_count: ${{ steps.preflight.outputs.stale_cleanup_count || '0' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -277,7 +223,7 @@ jobs:
 
       - name: Build BMT matrix
         id: matrix
-        run: uv run python ./.github/scripts/ci_driver.py matrix --config-root remote --project-filter "${BMT_PROJECTS:-}"
+        run: uv run python ./.github/scripts/ci_driver.py matrix --config-root remote/code --project-filter "${BMT_PROJECTS:-}"
 
       - name: Filter matrix to supported runners only
         id: filter
@@ -285,83 +231,31 @@ jobs:
           RUNNER_MATRIX: ${{ needs.extract-bmt-presets.outputs.runner-matrix }}
           FULL_MATRIX: ${{ steps.matrix.outputs.matrix }}
           ACCEPTED_PROJECTS: ${{ needs.resolve-uploaded-projects.outputs.accepted_projects }}
-        run: |
-          set -euo pipefail
-          echo "$RUNNER_MATRIX" > /tmp/runner_matrix.json
-          echo "$FULL_MATRIX" > /tmp/full.json
-          echo "$ACCEPTED_PROJECTS" > /tmp/accepted.json
-
-          REQUESTED=$(jq -c '[.include[].project] | unique | sort' /tmp/runner_matrix.json)
-          SUPPORTED=$(jq -c '[.include[].project] | unique | sort' /tmp/full.json)
-          UNSUPPORTED=$(jq -cn --argjson requested "$REQUESTED" --argjson supported "$SUPPORTED" '$requested - $supported')
-          for proj in $(echo "$UNSUPPORTED" | jq -r '.[]'); do
-            echo "::warning::Project '$proj' has no BMT config in this repo; no BMT leg will run for it."
-          done
-
-          FILTERED=$(jq -c --slurpfile acc /tmp/accepted.json '.include = [.include[] | select(.project as $p | $acc[0] | index($p))]' /tmp/full.json)
-          echo "matrix<<EOMATRIX" >>"$GITHUB_OUTPUT"
-          echo "$FILTERED" >>"$GITHUB_OUTPUT"
-          echo "EOMATRIX" >>"$GITHUB_OUTPUT"
-          SUPPORTED_LEGS=$(echo "$FULL_MATRIX" | jq '.include | length')
-          LEGS=$(echo "$FILTERED" | jq '.include | length')
-          if [ "$SUPPORTED_LEGS" -eq 0 ]; then
-            echo "has_legs=false" >>"$GITHUB_OUTPUT"
-            echo "::warning::No supported BMT projects in requested runner set; skipping BMT trigger/VM run."
-            exit 0
-          fi
-          if [ "$LEGS" -eq 0 ]; then
-            echo "::error::Supported BMT projects exist, but no supported runner upload succeeded; cannot trigger BMT."
-            exit 1
-          fi
-          echo "has_legs=true" >>"$GITHUB_OUTPUT"
-          echo "::notice::Triggering BMT for $LEGS leg(s) (supported runners only)."
+        run: bash .github/scripts/workflows/bmt_workflow.sh filter-supported-matrix
 
       - name: Show BMT matrix handshake
         env:
           RUNNER_MATRIX: ${{ needs.extract-bmt-presets.outputs.runner-matrix }}
           ACCEPTED: ${{ needs.resolve-uploaded-projects.outputs.accepted_projects }}
           FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
-        run: |
-          set -euo pipefail
-          echo "$RUNNER_MATRIX" > /tmp/runner_matrix.json
-          echo "$FILTERED_MATRIX" > /tmp/filtered_matrix.json
-          REQUESTED=$(jq -c '[.include[].project] | unique | sort' /tmp/runner_matrix.json)
-          BMT_LEGS=$(jq -c '[.include[].project] | unique | sort' /tmp/filtered_matrix.json)
+        run: bash .github/scripts/workflows/bmt_workflow.sh summarize-matrix-handshake
 
-          echo "## BMT Matrix Handshake" >>"$GITHUB_STEP_SUMMARY"
-          echo "" >>"$GITHUB_STEP_SUMMARY"
-          echo "| Project | Runner uploaded | BMT leg | Status |" >>"$GITHUB_STEP_SUMMARY"
-          echo "|---------|----------------|--------|--------|" >>"$GITHUB_STEP_SUMMARY"
-          for proj in $(echo "$REQUESTED" | jq -r '.[]'); do
-            UP=$(echo "$ACCEPTED" | jq -e --arg p "$proj" 'index($p)' >/dev/null && echo "✓" || echo "⚠ skipped")
-            LEG=$(echo "$BMT_LEGS" | jq -e --arg p "$proj" 'index($p)' >/dev/null && echo "✓" || echo "-")
-            if [ "$LEG" = "✓" ]; then
-              echo "| $proj | $UP | $LEG | Will run |" >>"$GITHUB_STEP_SUMMARY"
-            else
-              echo "| $proj | $UP | $LEG | $([ "$UP" = "⚠ skipped" ] && echo "Upload failed/warning" || echo "No BMT config") |" >>"$GITHUB_STEP_SUMMARY"
-            fi
-          done
-          echo "" >>"$GITHUB_STEP_SUMMARY"
-          echo "**Runners uploaded (supported):** $(echo "$ACCEPTED" | jq 'length')" >>"$GITHUB_STEP_SUMMARY"
-          echo "**BMT legs to run:** $(echo "$BMT_LEGS" | jq 'length')" >>"$GITHUB_STEP_SUMMARY"
+      - name: Preflight runtime trigger queue (stale cleanup)
+        id: preflight
+        if: steps.filter.outputs.has_legs == 'true'
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh preflight-trigger-queue
 
       - name: Write run trigger to GCS
         id: trigger
         if: steps.filter.outputs.has_legs == 'true'
-        run: |
-          set -euo pipefail
-          PR_ARGS=""
-          if [ "${{ needs.bmt-context.outputs.head_event }}" = "pull_request" ] && [ -n "${{ needs.bmt-context.outputs.pr_number }}" ]; then
-            PR_ARGS="--pr-number ${{ needs.bmt-context.outputs.pr_number }}"
-          fi
-
-          uv run python ./.github/scripts/ci_driver.py trigger \
-            --config-root remote \
-            --bucket "$GCS_BUCKET" \
-            --bucket-prefix "$BMT_BUCKET_PREFIX" \
-            --matrix-json '${{ steps.filter.outputs.matrix }}' \
-            --run-context "${{ needs.bmt-context.outputs.head_event == 'pull_request' && 'pr' || 'dev' }}" \
-            $PR_ARGS
+        env:
+          FILTERED_MATRIX_JSON: ${{ steps.filter.outputs.matrix }}
+          RUN_CONTEXT: ${{ needs.bmt-context.outputs.head_event == 'pull_request' && 'pr' || 'dev' }}
+          HEAD_EVENT: ${{ needs.bmt-context.outputs.head_event }}
+          PR_NUMBER: ${{ needs.bmt-context.outputs.pr_number }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh write-run-trigger
 
   # ─────────────────── 04 VM woken up ───────────────────
   start-vm:
@@ -389,6 +283,12 @@ jobs:
 
       - name: Sync VM metadata from workflow config
         run: uv run python ./.github/scripts/ci_driver.py sync-vm-metadata
+
+      - name: Force clean VM restart after stale-trigger cleanup
+        if: needs.send-run-payload.outputs.restart_vm == 'true'
+        env:
+          STALE_CLEANUP_COUNT: ${{ needs.send-run-payload.outputs.stale_cleanup_count }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh force-clean-vm-restart
 
       - name: Start BMT VM
         run: uv run python ./.github/scripts/ci_driver.py start-vm
@@ -420,85 +320,35 @@ jobs:
           python-version: "3.12"
 
       - name: How to check VM behavior
-        run: |
-          TIMEOUT="${BMT_HANDSHAKE_TIMEOUT_SEC:-180}"
-          ACK_URI="gs://${GCS_BUCKET}/${BMT_BUCKET_PREFIX:+$BMT_BUCKET_PREFIX/}triggers/acks/${{ github.run_id }}.json"
-          TRIGGER_URI="gs://${GCS_BUCKET}/${BMT_BUCKET_PREFIX:+$BMT_BUCKET_PREFIX/}triggers/runs/${{ github.run_id }}.json"
-          echo "## VM handshake timeout: ${TIMEOUT}s (set repo var BMT_HANDSHAKE_TIMEOUT_SEC to override)" >>"$GITHUB_STEP_SUMMARY"
-          echo "" >>"$GITHUB_STEP_SUMMARY"
-          echo "### Check VM / GCS while waiting" >>"$GITHUB_STEP_SUMMARY"
-          echo "- **Trigger file** (VM reads this): \`$TRIGGER_URI\`" >>"$GITHUB_STEP_SUMMARY"
-          echo "- **Ack file** (VM writes this when ready): \`$ACK_URI\`" >>"$GITHUB_STEP_SUMMARY"
-          echo "- **GCS:** \`gcloud storage cat \"$ACK_URI\"\` (after VM writes ack)" >>"$GITHUB_STEP_SUMMARY"
-          echo "- **VM serial output:** \`gcloud compute instances get-serial-port-output $BMT_VM_NAME --zone=$GCP_ZONE\`" >>"$GITHUB_STEP_SUMMARY"
-          echo "- **Local TUI monitor:** \`just monitor --run-id ${{ github.run_id }}\` or \`uv run python devtools/bmt_monitor.py --run-id ${{ github.run_id }} --bucket $GCS_BUCKET\`" >>"$GITHUB_STEP_SUMMARY"
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          RESTART_VM: ${{ needs.send-run-payload.outputs.restart_vm }}
+          STALE_CLEANUP_COUNT: ${{ needs.send-run-payload.outputs.stale_cleanup_count }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh show-handshake-guidance
 
       - name: Wait for VM handshake ack
         id: handshake
-        run: |
-          set -euo pipefail
-          TIMEOUT="${BMT_HANDSHAKE_TIMEOUT_SEC:-180}"
-          uv run python ./.github/scripts/ci_driver.py wait-handshake \
-            --bucket "$GCS_BUCKET" \
-            --bucket-prefix "$BMT_BUCKET_PREFIX" \
-            --workflow-run-id "${{ github.run_id }}" \
-            --timeout-sec "$TIMEOUT" \
-            --poll-interval-sec 5
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          RESTART_VM: ${{ needs.send-run-payload.outputs.restart_vm }}
+          STALE_CLEANUP_COUNT: ${{ needs.send-run-payload.outputs.stale_cleanup_count }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh wait-handshake
 
       - name: Handshake timeout diagnostics
         if: ${{ failure() && steps.handshake.outcome == 'failure' }}
-        run: |
-          set +e
-          ROOT="gs://${GCS_BUCKET}"
-          [ -n "${BMT_BUCKET_PREFIX}" ] && ROOT="${ROOT}/${BMT_BUCKET_PREFIX}"
-          TRIGGER_URI="${ROOT}/triggers/runs/${{ github.run_id }}.json"
-          ACK_URI="${ROOT}/triggers/acks/${{ github.run_id }}.json"
-
-          echo "::group::GCS trigger/ack diagnostics"
-          echo "Trigger URI: $TRIGGER_URI"
-          echo "Ack URI: $ACK_URI"
-          gcloud storage ls "$TRIGGER_URI" 2>/dev/null || true
-          gcloud storage ls "$ACK_URI" 2>/dev/null || true
-          echo "--- trigger payload (first 120 lines) ---"
-          gcloud storage cat "$TRIGGER_URI" 2>/dev/null | sed -n '1,120p' || true
-          echo "--- ack payload (first 120 lines) ---"
-          gcloud storage cat "$ACK_URI" 2>/dev/null | sed -n '1,120p' || true
-          echo "::endgroup::"
-
-          echo "::group::VM instance diagnostics"
-          gcloud compute instances describe "$BMT_VM_NAME" \
-            --zone "$GCP_ZONE" \
-            --project "$GCP_PROJECT" \
-            --format='yaml(name,status,lastStartTimestamp,lastStopTimestamp,metadata.items)' 2>/dev/null || true
-          echo "::endgroup::"
-
-          echo "::group::VM serial output tail"
-          gcloud compute instances get-serial-port-output "$BMT_VM_NAME" \
-            --zone "$GCP_ZONE" \
-            --project "$GCP_PROJECT" 2>/dev/null | tail -n 200 || true
-          echo "::endgroup::"
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh handshake-timeout-diagnostics
 
       - name: Show VM handshake summary
-        run: |
-          set -euo pipefail
-          ACK_PAYLOAD='${{ steps.handshake.outputs.handshake_payload }}'
-          echo "## VM Handshake Response" >>"$GITHUB_STEP_SUMMARY"
-          echo "" >>"$GITHUB_STEP_SUMMARY"
-          echo "- Ack URI: \`${{ steps.handshake.outputs.handshake_uri }}\`" >>"$GITHUB_STEP_SUMMARY"
-          echo "- Requested legs: **${{ steps.handshake.outputs.handshake_requested_leg_count }}**" >>"$GITHUB_STEP_SUMMARY"
-          echo "- Accepted legs: **${{ steps.handshake.outputs.handshake_accepted_leg_count }}**" >>"$GITHUB_STEP_SUMMARY"
-          echo "" >>"$GITHUB_STEP_SUMMARY"
-          echo "| Project | BMT ID | Run ID |" >>"$GITHUB_STEP_SUMMARY"
-          echo "|---------|--------|--------|" >>"$GITHUB_STEP_SUMMARY"
-          echo "$ACK_PAYLOAD" | jq -r '.accepted_legs[] | "| \(.project) | \(.bmt_id) | \(.run_id) |"' >>"$GITHUB_STEP_SUMMARY"
-          if echo "$ACK_PAYLOAD" | jq -e '.rejected_legs | length > 0' >/dev/null; then
-            echo "" >>"$GITHUB_STEP_SUMMARY"
-            echo "### Rejected Legs" >>"$GITHUB_STEP_SUMMARY"
-            echo "" >>"$GITHUB_STEP_SUMMARY"
-            echo "| Index | Reason |" >>"$GITHUB_STEP_SUMMARY"
-            echo "|-------|--------|" >>"$GITHUB_STEP_SUMMARY"
-            echo "$ACK_PAYLOAD" | jq -r '.rejected_legs[] | "| \(.index) | \(.reason) |"' >>"$GITHUB_STEP_SUMMARY"
-          fi
+        env:
+          ACK_PAYLOAD: ${{ steps.handshake.outputs.handshake_payload }}
+          HANDSHAKE_URI: ${{ steps.handshake.outputs.handshake_uri }}
+          HANDSHAKE_REQUESTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_requested_leg_count }}
+          HANDSHAKE_ACCEPTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_accepted_leg_count }}
+          RESTART_VM: ${{ needs.send-run-payload.outputs.restart_vm }}
+          STALE_CLEANUP_COUNT: ${{ needs.send-run-payload.outputs.stale_cleanup_count }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh show-handshake-summary
 
   # ─────────────────── 06 Pending VM response → End workflow ───────────────────
   post-pending-status:
@@ -508,15 +358,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Post pending commit status
-        run: |
-          STATUS_CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
-          STATUS_DESC="${BMT_DESCRIPTION_PENDING:-BMT running on VM; status will update when complete.}"
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ needs.bmt-context.outputs.head_sha }}" \
-            -d "$(jq -n --arg c "$STATUS_CONTEXT" --arg d "$STATUS_DESC" '{state:"pending",context:$c,description:$d}')"
+        env:
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.bmt-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-pending-status
 
   # ─────────────────── Early pending: show BMT started before handshake ───────────────────
   post-started-pending:
@@ -526,14 +372,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Post pending (BMT started)
-        run: |
-          STATUS_CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ needs.bmt-context.outputs.head_sha }}" \
-            -d "$(jq -n --arg c "$STATUS_CONTEXT" --arg d "BMT started; waiting for VM handshake…" '{state:"pending",context:$c,description:$d}')"
+        env:
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.bmt-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-started-pending
 
   # ─────────────────── No supported legs: post success skip status ───────────────────
   post-skipped-status:
@@ -543,16 +386,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Post success commit status (no supported BMT legs)
-        run: |
-          STATUS_CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
-          REASON="No supported BMT projects in requested set; no BMT legs were run."
-          REASON="${REASON:0:140}"
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ needs.bmt-context.outputs.head_sha }}" \
-            -d "$(jq -n --arg c "$STATUS_CONTEXT" --arg d "$REASON" '{state:"success",context:$c,description:$d}')"
+        env:
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.bmt-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-skipped-success-status
 
   # ─────────────────── On workflow failure: post failure status so PR is not stuck pending ───────────────────
   post-failure-status:
@@ -571,70 +409,30 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Post failure commit status
-        run: |
-          STATUS_CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
-          REASON="BMT workflow failed. Check Actions logs."
-          if [ "${{ needs.vm-handshake.result }}" = "failure" ]; then
-            REASON="VM handshake timeout. Actions logs; local: just gcs-trigger ${{ github.run_id }} just vm-serial"
-          fi
-          # GitHub status description max 140 chars
-          REASON="${REASON:0:140}"
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ needs.bmt-context.outputs.head_sha }}" \
-            -d "$(jq -n --arg c "$STATUS_CONTEXT" --arg d "$REASON" '{state:"failure",context:$c,description:$d}')"
+        env:
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.bmt-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VM_HANDSHAKE_RESULT: ${{ needs.vm-handshake.result }}
+          RUN_ID: ${{ github.run_id }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-failure-status
 
       - name: Post PR comment (did not run)
         if: needs.bmt-context.outputs.pr_number != ''
-        run: |
-          if [ "${{ needs.vm-handshake.result }}" = "failure" ]; then
-            BODY=$'## BMT result: Did not run\n\nThe test run did not complete because the test machine did not respond in time. For details, open the **Actions** tab and look at the failed workflow run.'
-          else
-            BODY=$'## BMT result: Did not run\n\nThe test run did not complete. For details, open the **Actions** tab and look at the failed workflow run.'
-          fi
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ needs.bmt-context.outputs.pr_number }}/comments" \
-            -d "$(jq -n --arg body "$BODY" '{body:$body}')"
+        env:
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.bmt-context.outputs.pr_number }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VM_HANDSHAKE_RESULT: ${{ needs.vm-handshake.result }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-failure-pr-comment
 
       - name: Cleanup failed run trigger artifacts (best effort)
-        run: |
-          set +e
-          RID="${{ github.run_id }}"
-          ROOT="gs://${GCS_BUCKET}"
-          [ -n "${BMT_BUCKET_PREFIX}" ] && ROOT="${ROOT}/${BMT_BUCKET_PREFIX}"
-          BASE_ROOT="gs://${GCS_BUCKET}"
-
-          RUN_URI="${ROOT}/triggers/runs/${RID}.json"
-          ACK_URI="${ROOT}/triggers/acks/${RID}.json"
-          STATUS_URI_PREFIXED="${ROOT}/triggers/status/${RID}.json"
-          STATUS_URI_BASE="${BASE_ROOT}/triggers/status/${RID}.json"
-
-          for uri in "$RUN_URI" "$ACK_URI" "$STATUS_URI_PREFIXED" "$STATUS_URI_BASE"; do
-            gcloud storage rm "$uri" >/dev/null 2>&1 || true
-          done
-
-          echo "::group::Trigger family counts after cleanup"
-          for prefix_uri in \
-            "${ROOT}/triggers/runs/" \
-            "${ROOT}/triggers/acks/" \
-            "${ROOT}/triggers/status/" \
-            "${BASE_ROOT}/triggers/status/"; do
-            count=$(gcloud storage ls "$prefix_uri" 2>/dev/null | wc -l | tr -d ' ')
-            echo "${prefix_uri} ${count:-0}"
-          done
-          echo "::endgroup::"
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh cleanup-failed-trigger-artifacts
 
       - name: Stop VM after workflow failure (best effort)
-        run: |
-          set +e
-          gcloud compute instances stop "$BMT_VM_NAME" \
-            --zone "$GCP_ZONE" \
-            --project "$GCP_PROJECT" >/dev/null 2>&1 || true
+        run: bash .github/scripts/workflows/bmt_workflow.sh stop-vm-best-effort
 
   # ─────────────────── When bmt-context (or earlier) failed: post failure using workflow_dispatch inputs ───────────────────
   post-failure-status-no-context:
@@ -644,26 +442,16 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Post failure commit status
-        run: |
-          # Use workflow_dispatch input when set (CI always passes it); else default branch SHA so dev is never left without a status
-          HEAD_SHA="${{ github.event.inputs.head_sha || github.sha }}"
-          STATUS_CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
-          REASON="BMT workflow failed before context. Check Actions logs."
-          REASON="${REASON:0:140}"
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${HEAD_SHA}" \
-            -d "$(jq -n --arg c "$STATUS_CONTEXT" --arg d "$REASON" '{state:"failure",context:$c,description:$d}')"
+        env:
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.inputs.head_sha || github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-no-context-failure-status
 
       - name: Post PR comment (did not run)
         if: needs.bmt-context.outputs.pr_number != ''
-        run: |
-          BODY=$'## BMT result: Did not run\n\nThe test workflow failed before tests could start. For details, open the **Actions** tab for this run.'
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ needs.bmt-context.outputs.pr_number }}/comments" \
-            -d "$(jq -n --arg body "$BODY" '{body:$body}')"
+        env:
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.bmt-context.outputs.pr_number }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-no-context-pr-comment

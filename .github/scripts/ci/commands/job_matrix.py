@@ -9,7 +9,7 @@ from ci import config
 
 
 @click.command("matrix")
-@click.option("--config-root", default="remote", show_default=True)
+@click.option("--config-root", default="remote/code", show_default=True)
 @click.option("--project-filter", default="", envvar="BMT_PROJECTS")
 @click.option("--output-key", default="matrix", show_default=True)
 @click.option("--github-output", envvar="GITHUB_OUTPUT")

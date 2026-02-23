@@ -36,24 +36,7 @@ jobs:
 
       - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
         id: parse
-        run: |
-          ALLOWED_RAW="${BMT_PROJECTS:-all release runners}"
-          ALLOWED_NORM=$(echo "$ALLOWED_RAW" | tr '[:upper:]' '[:lower:]' | xargs)
-          if [ -z "$ALLOWED_NORM" ] || [ "$ALLOWED_NORM" = "all" ] || [ "$ALLOWED_NORM" = "*" ] || [ "$ALLOWED_NORM" = "all release runners" ] || [ "$ALLOWED_NORM" = "all-release-runners" ] || [ "$ALLOWED_NORM" = "all_release_runners" ]; then
-            ALLOWED_JSON='null'
-          else
-            ALLOWED_JSON=$(echo "$ALLOWED_RAW" | jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | ascii_downcase) | map(select(length>0))')
-          fi
-          presets=$(jq -c --argjson allowed "$ALLOWED_JSON" '
-            [ .configurePresets[]
-              | select(.name | test("_gcc_Release$"))
-              | select(.name | test("xtensa|hexagon") | not)
-              | (.name | sub("_gcc_Release$"; "") | ascii_downcase) as $proj
-              | select($allowed == null or ($allowed | index($proj)))
-              | { configure: .name, build: (.name + "-build"), short: .name }
-            ] | unique_by(.configure)' CMakePresets.json)
-          echo "presets=$presets" >>"$GITHUB_OUTPUT"
-          echo "::notice::Building one job per project (BMT_PROJECTS=${ALLOWED_RAW}): $presets"
+        run: bash .github/scripts/workflows/ci_workflow.sh parse-presets
 
   # ─────────────────────── 2) build every preset ────────────────────────
   build:
@@ -100,31 +83,9 @@ jobs:
 
       - name: Build ( ${{ matrix.short }} )
         continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
-        run: |
-          set -euo pipefail
-          # Production: CMake builds runners at build/<Project>/gcc_Release/Runners/kardome_runner.
-          # Dummy: use real runner from build/ if present (local/dev), else copy from committed remote/sk/runners/
-          # so the artifact matches production layout and BMT can verify checksum/behavior.
-          cfg="${{ matrix.configure }}"
-          if [[ "$cfg" == *"_gcc_Release"* ]] && [[ "$cfg" != *"xtensa"* ]] && [[ "$cfg" != *"hexagon"* ]]; then
-            binary_dir=$(jq -r --arg name "$cfg" '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json | sed 's|\${sourceDir}|.|')
-            project=$(echo "$cfg" | sed 's/_gcc_Release$//' | tr '[:upper:]' '[:lower:]')
-            mkdir -p "$binary_dir/Runners" "$binary_dir/Kardome"
-            if [ -f "$binary_dir/Runners/kardome_runner" ]; then
-              echo "Using existing runner from $binary_dir/Runners (build/ layout)"
-            elif [ -f "remote/sk/runners/sk_gcc_release/kardome_runner" ] && [ "$project" = "sk" ]; then
-              cp -v remote/sk/runners/sk_gcc_release/kardome_runner "$binary_dir/Runners/"
-              [ -f "remote/sk/runners/lib/libKardome.so" ] && cp -v remote/sk/runners/lib/libKardome.so "$binary_dir/Kardome/" || true
-              chmod +x "$binary_dir/Runners/kardome_runner"
-              echo "Using real runner from remote/sk/runners/ (production-like artifact)"
-            else
-              echo "::warning::No real runner for $project; creating placeholder for path-only test"
-              touch "$binary_dir/Runners/kardome_runner" "$binary_dir/Kardome/libKardome.so"
-              chmod +x "$binary_dir/Runners/kardome_runner"
-            fi
-          else
-            true
-          fi
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: bash .github/scripts/workflows/ci_workflow.sh stage-release-runner
 
       - name: Soft check (Xtensa/Hexagon)
         if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
@@ -137,17 +98,9 @@ jobs:
       - name: Compute preset info
         id: preset-info
         if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
-        run: |
-          set -euo pipefail
-          preset=$(echo "${{ matrix.configure }}" | tr '[:upper:]' '[:lower:]')
-          project=$(echo "${{ matrix.configure }}" | sed 's/_gcc_Release$//' | tr '[:upper:]' '[:lower:]')
-          binary_dir=$(jq -r --arg name "${{ matrix.configure }}" \
-            '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json \
-            | sed 's|\${sourceDir}|.|')
-          echo "preset=$preset" >>"$GITHUB_OUTPUT"
-          echo "project=$project" >>"$GITHUB_OUTPUT"
-          echo "runners_dir=${binary_dir}/Runners" >>"$GITHUB_OUTPUT"
-          echo "lib_dir=${binary_dir}/Kardome" >>"$GITHUB_OUTPUT"
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: bash .github/scripts/workflows/ci_workflow.sh compute-preset-info
 
       - name: Upload runner artifact
         if: steps.preset-info.outcome == 'success'
@@ -188,61 +141,33 @@ jobs:
 
       - name: Resolve head ref and event
         id: head
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "head_sha=${{ github.event.pull_request.head.sha }}" >>"$GITHUB_OUTPUT"
-            echo "head_branch=${{ github.event.pull_request.head.ref }}" >>"$GITHUB_OUTPUT"
-            echo "head_event=pull_request" >>"$GITHUB_OUTPUT"
-            echo "pr_number=${{ github.event.pull_request.number }}" >>"$GITHUB_OUTPUT"
-          else
-            echo "head_sha=${{ github.sha }}" >>"$GITHUB_OUTPUT"
-            echo "head_branch=${{ github.ref_name }}" >>"$GITHUB_OUTPUT"
-            echo "head_event=push" >>"$GITHUB_OUTPUT"
-            echo "pr_number=" >>"$GITHUB_OUTPUT"
-          fi
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEFAULT_HEAD_SHA: ${{ github.sha }}
+          DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
+        run: bash .github/scripts/workflows/ci_workflow.sh resolve-head-context
 
       - name: Trigger BMT workflow
-        run: |
-          REF="refs/heads/${{ steps.head.outputs.head_branch }}"
-          URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/bmt.yml/dispatches"
-          BODY=$(jq -n \
-            --arg ref "$REF" \
-            --arg run_id "${{ github.run_id }}" \
-            --arg head_sha "${{ steps.head.outputs.head_sha }}" \
-            --arg head_branch "${{ steps.head.outputs.head_branch }}" \
-            --arg head_event "${{ steps.head.outputs.head_event }}" \
-            --arg pr_number "${{ steps.head.outputs.pr_number }}" \
-            '{ref: $ref, inputs: {ci_run_id: $run_id, head_sha: $head_sha, head_branch: $head_branch, head_event: $head_event, pr_number: $pr_number}}')
-          HTTP=$(curl -sS -w '%{http_code}' -o /tmp/dispatch_resp -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ steps.app-token.outputs.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$URL" -d "$BODY")
-          if [ "$HTTP" != "204" ]; then
-            echo "Workflow dispatch returned HTTP $HTTP. Response:"
-            cat /tmp/dispatch_resp
-            exit 1
-          fi
+        env:
+          REPOSITORY: ${{ github.repository }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          CI_RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ steps.head.outputs.head_sha }}
+          HEAD_BRANCH: ${{ steps.head.outputs.head_branch }}
+          HEAD_EVENT: ${{ steps.head.outputs.head_event }}
+          PR_NUMBER: ${{ steps.head.outputs.pr_number }}
+        run: bash .github/scripts/workflows/ci_workflow.sh dispatch-bmt
 
       - name: Post BMT failure status (Trigger BMT failed)
         if: failure()
         env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
           BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
-        run: |
-          HEAD_SHA="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
-          CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${HEAD_SHA}" \
-            -d "$(jq -n --arg c "$CONTEXT" --arg d "Trigger BMT failed. Check Actions logs." '{state:"failure",context:$c,description:$d}')"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BODY=$'## BMT result: Did not run\n\nThe test run could not be started. For details, open the **Actions** tab for this PR.'
-            curl -sS -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${{ github.token }}" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-              -d "$(jq -n --arg body "$BODY" '{body:$body}')"
-          fi
+        run: bash .github/scripts/workflows/ci_workflow.sh post-trigger-failure-status

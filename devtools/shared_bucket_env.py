@@ -30,6 +30,45 @@ def bucket_root_uri(bucket: str, prefix: str) -> str:
     return f"gs://{bucket}/{p}" if p else f"gs://{bucket}"
 
 
+def normalize_prefix(prefix: str) -> str:
+    """Canonical slash-normalized prefix."""
+    return (prefix or "").strip("/")
+
+
+def parent_prefix(prefix: str) -> str:
+    """Canonical parent namespace from BMT_BUCKET_PREFIX."""
+    return normalize_prefix(prefix)
+
+
+def child_prefix(parent: str, leaf: str) -> str:
+    """Join parent and leaf namespace."""
+    parent_norm = parent_prefix(parent)
+    leaf_norm = normalize_prefix(leaf)
+    if not leaf_norm:
+        return parent_norm
+    return f"{parent_norm}/{leaf_norm}" if parent_norm else leaf_norm
+
+
+def code_prefix(parent: str) -> str:
+    """Derived code namespace."""
+    return child_prefix(parent, "code")
+
+
+def runtime_prefix(parent: str) -> str:
+    """Derived runtime namespace."""
+    return child_prefix(parent, "runtime")
+
+
+def code_bucket_root_uri(bucket: str, parent: str) -> str:
+    """Code bucket root URI under parent prefix."""
+    return bucket_root_uri(bucket, code_prefix(parent))
+
+
+def runtime_bucket_root_uri(bucket: str, parent: str) -> str:
+    """Runtime bucket root URI under parent prefix."""
+    return bucket_root_uri(bucket, runtime_prefix(parent))
+
+
 bucket_option = click.option(
     "--bucket",
     default=get_bucket_from_env,

@@ -102,6 +102,28 @@ def test_bucket_root_uri_strips_slashes():
     assert models.bucket_root_uri("my-bucket", "/some/prefix/") == "gs://my-bucket/some/prefix"
 
 
+def test_derived_code_runtime_prefix_without_parent():
+    assert models.parent_prefix("") == ""
+    assert models.code_prefix("") == "code"
+    assert models.runtime_prefix("") == "runtime"
+
+
+def test_derived_code_runtime_prefix_with_parent():
+    assert models.parent_prefix("/team/env/") == "team/env"
+    assert models.code_prefix("team/env") == "team/env/code"
+    assert models.runtime_prefix("team/env") == "team/env/runtime"
+
+
+def test_runtime_bucket_root_uri():
+    assert models.runtime_bucket_root_uri("my-bucket", "") == "gs://my-bucket/runtime"
+    assert models.runtime_bucket_root_uri("my-bucket", "pfx") == "gs://my-bucket/pfx/runtime"
+
+
+def test_code_bucket_root_uri():
+    assert models.code_bucket_root_uri("my-bucket", "") == "gs://my-bucket/code"
+    assert models.code_bucket_root_uri("my-bucket", "pfx") == "gs://my-bucket/pfx/code"
+
+
 def test_snapshot_verdict_uri():
     uri = models.snapshot_verdict_uri("gs://b", "sk/results/false_rejects", "run-abc")
     assert uri == "gs://b/sk/results/false_rejects/snapshots/run-abc/ci_verdict.json"
@@ -113,23 +135,28 @@ def test_current_pointer_uri():
 
 
 def test_run_trigger_uri():
-    uri = models.run_trigger_uri("gs://b", "", "123456")
-    assert uri == "gs://b/triggers/runs/123456.json"
+    uri = models.run_trigger_uri("gs://b/runtime", "123456")
+    assert uri == "gs://b/runtime/triggers/runs/123456.json"
 
 
 def test_run_trigger_uri_with_prefix():
-    uri = models.run_trigger_uri("gs://b", "pfx", "123456")
-    assert uri == "gs://b/pfx/triggers/runs/123456.json"
+    uri = models.run_trigger_uri("gs://b/team/runtime", "123456")
+    assert uri == "gs://b/team/runtime/triggers/runs/123456.json"
 
 
 def test_run_handshake_uri():
-    uri = models.run_handshake_uri("gs://b", "", "123456")
-    assert uri == "gs://b/triggers/acks/123456.json"
+    uri = models.run_handshake_uri("gs://b/runtime", "123456")
+    assert uri == "gs://b/runtime/triggers/acks/123456.json"
 
 
 def test_run_handshake_uri_with_prefix():
-    uri = models.run_handshake_uri("gs://b", "pfx", "123456")
-    assert uri == "gs://b/pfx/triggers/acks/123456.json"
+    uri = models.run_handshake_uri("gs://b/team/runtime", "123456")
+    assert uri == "gs://b/team/runtime/triggers/acks/123456.json"
+
+
+def test_run_status_uri():
+    uri = models.run_status_uri("gs://b/runtime", "123456")
+    assert uri == "gs://b/runtime/triggers/status/123456.json"
 
 
 # ── CloudVerdict.from_payload ─────────────────────────────────────────────────

@@ -12,7 +12,7 @@ import click
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, bucket_root_uri
+from shared_bucket_env import bucket_option, bucket_prefix_option, normalize_prefix, runtime_bucket_root_uri
 
 
 @click.command()
@@ -30,7 +30,8 @@ def main(bucket: str, bucket_prefix: str, source_dir: str, dest_prefix: str) -> 
         click.echo(f"::error::Source wav directory not found: {source}", err=True)
         return 1
 
-    root = bucket_root_uri(bucket, bucket_prefix)
+    parent = normalize_prefix(bucket_prefix)
+    root = runtime_bucket_root_uri(bucket, parent)
     dest = f"{root}/{dest_prefix.lstrip('/')}"
 
     click.echo(f"Syncing wavs {source}/ -> {dest}/")

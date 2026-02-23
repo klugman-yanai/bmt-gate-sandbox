@@ -5,10 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Ensure remote/ is on path so we can import vm_watcher
+# Ensure remote/code is on path so we can import vm_watcher
 _ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "remote") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "remote"))
+if str(_ROOT / "remote" / "code") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "remote" / "code"))
 
 import vm_watcher as watcher  # type: ignore[import-not-found]  # noqa: E402
 
@@ -122,15 +122,14 @@ def test_cleanup_workflow_artifacts_targets_prefixed_and_base_status(monkeypatch
     monkeypatch.setattr(watcher, "_trim_trigger_family", _capture)
 
     watcher._cleanup_workflow_artifacts(
-        bucket="my-bucket",
-        bucket_prefix="my-prefix",
+        runtime_bucket_root="gs://my-bucket/my-prefix/runtime",
         keep_workflow_ids={"222"},
     )
 
     prefixes = {c[0] for c in calls}
-    assert "gs://my-bucket/my-prefix/triggers/acks/" in prefixes
-    assert "gs://my-bucket/my-prefix/triggers/status/" in prefixes
-    assert "gs://my-bucket/triggers/status/" in prefixes
+    assert "gs://my-bucket/my-prefix/runtime/triggers/acks/" in prefixes
+    assert "gs://my-bucket/my-prefix/runtime/triggers/status/" in prefixes
+    assert len(prefixes) == 2
     assert all(c[1] == {"222"} for c in calls)
     assert all(c[2] == watcher._KEEP_RECENT_WORKFLOW_FILES for c in calls)
 
