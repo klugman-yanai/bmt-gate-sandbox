@@ -20,6 +20,7 @@ permissions:
   id-token: write
   statuses: write
   actions: read
+  checks: write
 
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}

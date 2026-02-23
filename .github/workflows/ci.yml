@@ -1,14 +1,14 @@
-# Dummy "CI" workflow: represents resources/core-main-workflow.yml for this repo only.
-# Does not run the real build (not compatible with this repo). Uploads placeholder runner
-# artifacts so the BMT workflow can run (runners are already in GCS; BMT just needs
-# artifact names to exist). Replace this with the real build workflow in prod.
+# Dummy "CI" workflow: mirrors job/step structure of resources/core-main-workflow.yml (test run)
+# (which cannot be modified). Does not run the real build. Uploads placeholder runner
+# artifacts so the BMT workflow (runs sequentially after this) can run. In production,
+# replace this file with the real build workflow.
 name: CI
 
 on:
   workflow_dispatch:
   push:
     branches: [dev]
-  pull_request:
+  pull_request_target:
     branches: [dev]
 
 defaults:
@@ -16,57 +16,127 @@ defaults:
     shell: bash
 
 jobs:
-  # ─────────────────────── 1) Extract preset list (same shape as core-main-workflow) ───────────────────────
+  # ─────────────────────── 1) extract preset list ───────────────────────
   extract-presets:
-    name: Extract presets
     runs-on: ubuntu-latest
     outputs:
-      runner-matrix: ${{ steps.parse.outputs.runner_matrix }}
+      presets: ${{ steps.parse.outputs.presets }}
     steps:
-      - name: Checkout
+      - name: Checkout source for preset parsing
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head_sha        || github.sha }}
           fetch-depth: 1
 
-      - name: Parse gcc_Release presets (dummy – for BMT artifact names only)
+      - name: Parse CMakePresets.json
         id: parse
         run: |
-          runner_matrix=$(jq -c '{include:
-            [ .configurePresets[]
-              | select(.name | test("_gcc_Release$"))
-              | select(.name | test("xtensa|hexagon") | not)
-              | { configure: .name,
-                  preset: (.name | ascii_downcase),
-                  project: (.name | sub("_gcc_Release$"; "") | ascii_downcase),
-                  binary_dir: (.binaryDir | sub("\\$\\{sourceDir\\}/"; "")) }
-            ]}' CMakePresets.json)
-          echo "runner_matrix=$runner_matrix" >>"$GITHUB_OUTPUT"
-          echo "::notice::Dummy CI runner matrix: $runner_matrix"
+          presets=$(jq -c '
+            [ .buildPresets[]
+              | { build: .name
+                , configure: .configurePreset
+                , short: (.name | sub("-build$"; "")) }
+            ]' CMakePresets.json)
+          echo "presets=$presets" >>"$GITHUB_OUTPUT"
 
-  # ─────────────────────── 2) Dummy build (represents all build jobs in core-main-workflow) ───────────────────────
+  # ─────────────────────── 2) build every preset ────────────────────────
   build:
-    name: Dummy build ${{ matrix.project }}
     needs: extract-presets
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.extract-presets.outputs.runner-matrix) }}
-    steps:
-      - name: Dummy build step (no real compile)
-        run: echo "Dummy build for ${{ matrix.preset }} — runners already in GCS"
+      matrix:
+        include: ${{ fromJson(needs.extract-presets.outputs.presets) }}
 
-      - name: Upload placeholder runner artifact (for BMT workflow)
+    env:
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+
+    steps:
+      - name: Checkout source to build
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head_sha        || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Disk space (before)
+        run: df -h
+
+      - name: Free disk space on runner
+        run: "true"
+
+      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
+        run: "true"
+
+      - name: Install CMake 3.29.3
+        run: "true"
+
+      - name: Install MinGW (64-bit)
+        if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
+        run: "true"
+
+      - name: Configure ( ${{ matrix.configure }} )
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: "true"
+
+      - name: Build ( ${{ matrix.short }} )
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
         run: |
           set -euo pipefail
-          BD="${{ matrix.binary_dir }}"
-          mkdir -p "staging/$BD/Runners" "staging/$BD/Kardome"
-          touch "staging/$BD/Runners/kardome_runner"
-          touch "staging/$BD/Kardome/libKardome.so"
-          chmod +x "staging/$BD/Runners/kardome_runner"
+          # In the real workflow the build produces runners at build/<Project>/gcc_Release/Runners/kardome_runner.
+          # For the dummy we create the same layout so "Upload runner artifact" can upload from those paths.
+          cfg="${{ matrix.configure }}"
+          if [[ "$cfg" == *"_gcc_Release"* ]] && [[ "$cfg" != *"xtensa"* ]] && [[ "$cfg" != *"hexagon"* ]]; then
+            binary_dir=$(jq -r --arg name "$cfg" '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json | sed 's|\${sourceDir}|.|')
+            mkdir -p "$binary_dir/Runners" "$binary_dir/Kardome"
+            touch "$binary_dir/Runners/kardome_runner" "$binary_dir/Kardome/libKardome.so"
+            chmod +x "$binary_dir/Runners/kardome_runner"
+          else
+            true
+          fi
 
-      - name: Upload artifact
+      - name: Soft check (Xtensa/Hexagon)
+        if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: "true"
+
+      - name: Strict check (non-embedded)
+        if: ${{ ! (contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon')) }}
+        run: "true"
+
+      - name: Compute preset info
+        id: preset-info
+        if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
+        run: |
+          set -euo pipefail
+          preset=$(echo "${{ matrix.configure }}" | tr '[:upper:]' '[:lower:]')
+          project=$(echo "${{ matrix.configure }}" | sed 's/_gcc_Release$//' | tr '[:upper:]' '[:lower:]')
+          binary_dir=$(jq -r --arg name "${{ matrix.configure }}" \
+            '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json \
+            | sed 's|\${sourceDir}|.|')
+          echo "preset=$preset" >>"$GITHUB_OUTPUT"
+          echo "project=$project" >>"$GITHUB_OUTPUT"
+          echo "runners_dir=${binary_dir}/Runners" >>"$GITHUB_OUTPUT"
+          echo "lib_dir=${binary_dir}/Kardome" >>"$GITHUB_OUTPUT"
+
+      - name: Upload runner artifact
+        if: steps.preset-info.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: runner-${{ matrix.preset }}
-          path: staging
+          name: runner-${{ steps.preset-info.outputs.preset }}
+          path: |
+            ${{ steps.preset-info.outputs.runners_dir }}/kardome_runner
+            ${{ steps.preset-info.outputs.lib_dir }}/libKardome.so
           retention-days: 1
+          if-no-files-found: warn
+
+      - name: Disk space (after)
+        if: always()
+        run: "true"
+
+      - name: Cleanup heavy dirs
+        if: always()
+        run: "true"
