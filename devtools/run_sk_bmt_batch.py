@@ -27,7 +27,7 @@ from typing import Any
 _script_dir = Path(__file__).resolve().parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
-from time_utils import now_iso, now_stamp
+from shared_time_utils import now_iso, now_stamp
 
 PRINT_LOCK = threading.Lock()
 DEFAULT_COUNTER_PATTERN = r"Hi NAMUH counter = (\d+)"

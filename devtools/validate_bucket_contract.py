@@ -3,16 +3,16 @@
 
 from __future__ import annotations
 
-import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
 
+import click
+
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from bucket_env import bucket_root_uri, get_bucket_from_env
+from shared_bucket_env import bucket_option, bucket_prefix_option, bucket_root_uri
 
 REQUIRED_STATIC = [
     "root_orchestrator.py",
@@ -40,51 +40,49 @@ def exists(uri: str) -> bool:
     )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    _ = parser.add_argument("--bucket", default=get_bucket_from_env())
-    _ = parser.add_argument("--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
-    _ = parser.add_argument(
-        "--require-runner",
-        action="store_true",
-        help="Also require canonical runner binary object to exist.",
-    )
-    args = parser.parse_args()
-
-    if not args.bucket:
-        print("::error::Set BUCKET (or GCS_BUCKET)", file=sys.stderr)
+@click.command()
+@bucket_option
+@bucket_prefix_option
+@click.option(
+    "--require-runner",
+    is_flag=True,
+    help="Also require canonical runner binary object to exist.",
+)
+def main(bucket: str, bucket_prefix: str, require_runner: bool) -> int:
+    if not bucket:
+        click.echo("::error::Set BUCKET (or GCS_BUCKET)", err=True)
         return 1
 
-    root = bucket_root_uri(args.bucket, args.bucket_prefix)
+    root = bucket_root_uri(bucket, bucket_prefix)
 
     missing = False
     for rel in REQUIRED_STATIC:
         uri = f"{root}/{rel}"
         if exists(uri):
-            print(f"FOUND {uri}")
+            click.echo(f"FOUND {uri}")
         else:
-            print(f"::error::Missing required object: {uri}")
+            click.echo(f"::error::Missing required object: {uri}", err=True)
             missing = True
 
-    if args.require_runner:
+    if require_runner:
         runner_uri = f"{root}/sk/runners/sk_gcc_release/kardome_runner"
         if exists(runner_uri):
-            print(f"FOUND {runner_uri}")
+            click.echo(f"FOUND {runner_uri}")
         else:
-            print(f"::error::Missing required object: {runner_uri}")
+            click.echo(f"::error::Missing required object: {runner_uri}", err=True)
             missing = True
 
     sandbox_uri = f"{root}/_sandbox"
     if exists(sandbox_uri):
-        print(f"::error::Legacy _sandbox prefix exists under {sandbox_uri}")
+        click.echo(f"::error::Legacy _sandbox prefix exists under {sandbox_uri}", err=True)
         missing = True
     else:
-        print(f"OK no _sandbox prefix under {root}")
+        click.echo(f"OK no _sandbox prefix under {root}")
 
     if missing:
         return 1
 
-    print("Bucket contract validation passed")
+    click.echo("Bucket contract validation passed")
     return 0
 
 

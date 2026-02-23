@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import subprocess
@@ -12,51 +11,67 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+import click
+
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from bucket_env import bucket_root_uri, get_bucket_from_env
+from shared_bucket_env import bucket_option, bucket_prefix_option, bucket_root_uri
 
 
 def run(cmd: list[str], capture: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=False, text=True, capture_output=capture)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    _ = parser.add_argument("--bucket", default=get_bucket_from_env())
-    _ = parser.add_argument("--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
-    _ = parser.add_argument(
-        "--runner-path",
-        default="repo/staging/runners/sk_gcc_release/kardome_runner",
-    )
-    _ = parser.add_argument("--runner-uri", default="sk/runners/sk_gcc_release/kardome_runner")
-    _ = parser.add_argument("--source", default="sandbox_manual")
-    _ = parser.add_argument("--source-ref", default=os.environ.get("SOURCE_REF", ""))
-    _ = parser.add_argument("--force", action="store_true")
-    args = parser.parse_args()
-
-    if not args.bucket:
-        print("::error::Set BUCKET (or GCS_BUCKET)", file=sys.stderr)
+@click.command()
+@bucket_option
+@bucket_prefix_option
+@click.option(
+    "--runner-path",
+    default="repo/staging/runners/sk_gcc_release/kardome_runner",
+    help="Local path to runner binary",
+)
+@click.option(
+    "--runner-uri",
+    default="sk/runners/sk_gcc_release/kardome_runner",
+    help="Destination URI path in bucket",
+)
+@click.option("--source", default="sandbox_manual", help="Source label for metadata")
+@click.option(
+    "--source-ref",
+    default=os.environ.get("SOURCE_REF", ""),
+    help="Source ref (defaults to git HEAD)",
+)
+@click.option("--force", is_flag=True, help="Force upload even if size matches")
+def main(
+    bucket: str,
+    bucket_prefix: str,
+    runner_path: str,
+    runner_uri: str,
+    source: str,
+    source_ref: str,
+    force: bool,
+) -> int:
+    if not bucket:
+        click.echo("::error::Set BUCKET (or GCS_BUCKET)", err=True)
         return 1
 
-    runner_path = Path(args.runner_path)
-    if not runner_path.is_file():
-        print(f"::error::Runner file not found: {runner_path}", file=sys.stderr)
+    runner = Path(runner_path)
+    if not runner.is_file():
+        click.echo(f"::error::Runner file not found: {runner}", err=True)
         return 1
 
-    source_ref = args.source_ref
     if not source_ref:
         proc = run(["git", "rev-parse", "--short", "HEAD"], capture=True)
         source_ref = proc.stdout.strip() if proc.returncode == 0 else "unknown"
 
-    bucket_root = bucket_root_uri(args.bucket, args.bucket_prefix)
-    runner_uri = args.runner_uri.lstrip("/")
-    canonical_uri = f"{bucket_root}/{runner_uri}"
+    bucket_root = bucket_root_uri(bucket, bucket_prefix)
+    runner_uri_clean = runner_uri.lstrip("/")
+    canonical_uri = f"{bucket_root}/{runner_uri_clean}"
     previous_uri = f"{canonical_uri}.previous"
-    meta_uri = f"{bucket_root}/{Path(runner_uri).parent.as_posix()}/runner_latest_meta.json"
+    meta_uri = f"{bucket_root}/{Path(runner_uri_clean).parent.as_posix()}/runner_latest_meta.json"
 
-    local_size = runner_path.stat().st_size
+    local_size = runner.stat().st_size
 
     remote_exists = run(["gcloud", "storage", "ls", canonical_uri]).returncode == 0
     remote_size = None
@@ -70,23 +85,23 @@ def main() -> int:
                         remote_size = int(value)
                     break
 
-    if (not args.force) and remote_exists and remote_size is not None and remote_size == local_size:
-        print(f"Runner appears unchanged (size={local_size}); skipping upload. Use --force to override.")
+    if (not force) and remote_exists and remote_size is not None and remote_size == local_size:
+        click.echo(f"Runner appears unchanged (size={local_size}); skipping upload. Use --force to override.")
         return 0
 
     if remote_exists:
         cp_prev = run(["gcloud", "storage", "cp", canonical_uri, previous_uri, "--quiet"])
         if cp_prev.returncode != 0:
             return cp_prev.returncode
-        print(f"Rotated previous runner to {previous_uri}")
+        click.echo(f"Rotated previous runner to {previous_uri}")
 
-    cp_new = run(["gcloud", "storage", "cp", str(runner_path), canonical_uri, "--quiet"])
+    cp_new = run(["gcloud", "storage", "cp", str(runner), canonical_uri, "--quiet"])
     if cp_new.returncode != 0:
         return cp_new.returncode
 
     meta = {
         "uploaded_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source": args.source,
+        "source": source,
         "source_ref": source_ref,
         "size_bytes": local_size,
         "bucket_path": canonical_uri,
@@ -104,7 +119,7 @@ def main() -> int:
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    print(f"Uploaded runner to {canonical_uri}")
+    click.echo(f"Uploaded runner to {canonical_uri}")
     return 0
 
 
