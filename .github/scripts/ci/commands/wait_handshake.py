@@ -39,17 +39,25 @@ def command(
 
     bucket_root = models.bucket_root_uri(bucket, bucket_prefix)
     ack_uri = models.run_handshake_uri(bucket_root, bucket_prefix, workflow_run_id)
+    trigger_uri = models.run_trigger_uri(bucket_root, bucket_prefix, workflow_run_id)
 
-    print(f"Waiting for VM handshake ack at {ack_uri}")
+    print(f"Waiting for VM handshake ack at {ack_uri} (timeout={timeout_sec}s, poll every {poll_interval_sec}s)")
+    print(f"Trigger file (VM reads this): {trigger_uri}")
     deadline = time.monotonic() + timeout_sec
     payload: dict[str, Any] | None = None
     last_error: str | None = None
+    last_progress = 0.0
 
     while time.monotonic() < deadline:
+        elapsed = time.monotonic() - (deadline - timeout_sec)
         payload, error = gcloud_cli.download_json(ack_uri)
         if payload is not None:
             break
         last_error = error
+        if elapsed - last_progress >= 15:
+            remaining = int(deadline - time.monotonic())
+            print(f"  ... waiting {int(elapsed)}s / {timeout_sec}s timeout (remaining ~{remaining}s)")
+            last_progress = elapsed
         remaining = deadline - time.monotonic()
         if remaining > 0:
             time.sleep(min(poll_interval_sec, remaining))
