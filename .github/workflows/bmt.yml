@@ -105,12 +105,14 @@ jobs:
           echo "::notice::Runner matrix (BMT_PROJECTS=${ALLOWED}): $runner_matrix"
 
   # ─────────────────── 02 GCP auth + runners pushed to GCS (from build artifacts) ───────────────────
+  # On artifact download or upload failure we warn and continue; only successfully uploaded runners are used for the trigger.
   upload-runners:
     name: 02 Auth & Runners ${{ matrix.project }}
     needs: [extract-bmt-presets, bmt-context]
     runs-on: ubuntu-22.04
+    continue-on-error: true
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix: ${{ fromJson(needs.extract-bmt-presets.outputs.runner-matrix) }}
     steps:
       - name: Checkout
@@ -125,23 +127,33 @@ jobs:
           path: artifact
           run-id: ${{ needs.bmt-context.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        id: download
+
+      - name: Warn and skip if artifact missing
+        if: steps.download.outcome == 'failure'
+        run: |
+          echo "::warning::Runner upload skipped for ${{ matrix.project }} (${{ matrix.preset }}): artifact not found or download failed. BMT will continue with other runners."
+          echo "upload_ok=false" >>"$GITHUB_OUTPUT"
 
       - name: GCP Auth (WIF)
+        if: steps.download.outcome == 'success'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
 
       - name: Setup Cloud SDK
+        if: steps.download.outcome == 'success'
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Gcloud auth status
-        run: gcloud auth list
-
       - name: Install uv
+        if: steps.download.outcome == 'success'
         uses: astral-sh/setup-uv@v4
 
       - name: Upload runner to GCS
+        if: steps.download.outcome == 'success'
+        id: upload
         run: |
           set -euo pipefail
           RUNNER_DIR="artifact/${{ matrix.binary_dir }}/Runners"
@@ -162,11 +174,57 @@ jobs:
             --project "${{ matrix.project }}" \
             --preset "${{ matrix.preset }}" \
             --source-ref "${{ needs.bmt-context.outputs.head_sha }}"
+        continue-on-error: true
+
+      - name: Warn if GCS upload failed
+        if: steps.download.outcome == 'success' && steps.upload.outcome == 'failure'
+        run: |
+          echo "::warning::Runner upload failed for ${{ matrix.project }} (${{ matrix.preset }}). BMT will continue with other runners."
+
+      - name: Record uploaded project (marker for send-run-payload)
+        if: steps.download.outcome == 'success' && steps.upload.outcome == 'success'
+        run: |
+          BKT="${GCS_BUCKET}"
+          PREF="${BMT_BUCKET_PREFIX:-}"
+          ROOT="gs://${BKT}"
+          [ -n "$PREF" ] && ROOT="${ROOT}/${PREF}"
+          echo '{}' | gcloud storage cp - "${ROOT}/_workflow/uploaded/${{ github.run_id }}/${{ matrix.project }}.json"
+
+  # ─────────────────── Resolve which runners were uploaded (for trigger filtering) ───────────────────
+  resolve-uploaded-projects:
+    name: 02b Resolve uploaded runners
+    needs: [upload-runners, bmt-context]
+    runs-on: ubuntu-22.04
+    outputs:
+      accepted_projects: ${{ steps.list.outputs.accepted_projects }}
+    steps:
+      - name: GCP Auth (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: List uploaded project markers
+        id: list
+        run: |
+          ROOT="gs://${GCS_BUCKET}"
+          [ -n "${BMT_BUCKET_PREFIX:-}" ] && ROOT="${ROOT}/${BMT_BUCKET_PREFIX}"
+          PREFIX="${ROOT}/_workflow/uploaded/${{ github.run_id }}/"
+          if gcloud storage ls "$PREFIX" 2>/dev/null | grep -q '\.json$'; then
+            gcloud storage ls "$PREFIX" 2>/dev/null | sed 's|.*/||;s|\.json$||' | jq -Rsc 'split("\n") | map(select(length>0)) | sort' > accepted.txt
+          else
+            echo '[]' > accepted.txt
+          fi
+          echo "accepted_projects=$(cat accepted.txt)" >>"$GITHUB_OUTPUT"
+          echo "::notice::Runners uploaded for projects: $(cat accepted.txt)"
 
   # ─────────────────── 03 Handshake begin (trigger written to GCS) ───────────────────
   send-run-payload:
     name: 03 Handshake begin (trigger to GCS)
-    needs: [upload-runners, extract-bmt-presets, bmt-context]
+    needs: [upload-runners, extract-bmt-presets, bmt-context, resolve-uploaded-projects]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -190,36 +248,54 @@ jobs:
         id: matrix
         run: uv run python ./.github/scripts/ci_driver.py matrix --config-root remote --project-filter "${BMT_PROJECTS:-}"
 
-      - name: Show BMT matrix handshake
+      - name: Filter matrix to supported runners only
+        id: filter
+        env:
+          FULL_MATRIX: ${{ steps.matrix.outputs.matrix }}
+          ACCEPTED_PROJECTS: ${{ needs.resolve-uploaded-projects.outputs.accepted_projects }}
         run: |
           set -euo pipefail
+          echo "$FULL_MATRIX" > /tmp/full.json
+          echo "$ACCEPTED_PROJECTS" > /tmp/accepted.json
+          FILTERED=$(jq -c --slurpfile acc /tmp/accepted.json '.include = [.include[] | select(.project as $p | $acc[0] | index($p))]' /tmp/full.json)
+          echo "matrix<<EOMATRIX" >>"$GITHUB_OUTPUT"
+          echo "$FILTERED" >>"$GITHUB_OUTPUT"
+          echo "EOMATRIX" >>"$GITHUB_OUTPUT"
+          LEGS=$(echo "$FILTERED" | jq '.include | length')
+          if [ "$LEGS" -eq 0 ]; then
+            echo "::error::No runners were uploaded successfully; cannot trigger BMT."
+            exit 1
+          fi
+          echo "::notice::Triggering BMT for $LEGS leg(s) (supported runners only)."
 
-          ALL_RUNNERS=$(jq -c '[.include[].project] | unique | sort' <<'EOF'
-          ${{ needs.extract-bmt-presets.outputs.runner-matrix }}
-          EOF
-          )
-
-          BMT_PROJECTS=$(jq -c '[.include[].project] | unique | sort' <<'EOF'
-          ${{ steps.matrix.outputs.matrix }}
-          EOF
-          )
+      - name: Show BMT matrix handshake
+        env:
+          RUNNER_MATRIX: ${{ needs.extract-bmt-presets.outputs.runner-matrix }}
+          ACCEPTED: ${{ needs.resolve-uploaded-projects.outputs.accepted_projects }}
+          FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          echo "$RUNNER_MATRIX" > /tmp/runner_matrix.json
+          echo "$FILTERED_MATRIX" > /tmp/filtered_matrix.json
+          REQUESTED=$(jq -c '[.include[].project] | unique | sort' /tmp/runner_matrix.json)
+          BMT_LEGS=$(jq -c '[.include[].project] | unique | sort' /tmp/filtered_matrix.json)
 
           echo "## BMT Matrix Handshake" >>"$GITHUB_STEP_SUMMARY"
           echo "" >>"$GITHUB_STEP_SUMMARY"
-          echo "| Project | Runners Uploaded | BMT Enabled | Status |" >>"$GITHUB_STEP_SUMMARY"
-          echo "|---------|------------------|-------------|--------|" >>"$GITHUB_STEP_SUMMARY"
-
-          echo "$ALL_RUNNERS" | jq -r '.[]' | while read -r proj; do
-            if echo "$BMT_PROJECTS" | jq -e --arg p "$proj" 'index($p)' >/dev/null; then
-              echo "| $proj | ✓ | ✓ | Will run |" >>"$GITHUB_STEP_SUMMARY"
+          echo "| Project | Runner uploaded | BMT leg | Status |" >>"$GITHUB_STEP_SUMMARY"
+          echo "|---------|----------------|--------|--------|" >>"$GITHUB_STEP_SUMMARY"
+          for proj in $(echo "$REQUESTED" | jq -r '.[]'); do
+            UP=$(echo "$ACCEPTED" | jq -e --arg p "$proj" 'index($p)' >/dev/null && echo "✓" || echo "⚠ skipped")
+            LEG=$(echo "$BMT_LEGS" | jq -e --arg p "$proj" 'index($p)' >/dev/null && echo "✓" || echo "-")
+            if [ "$LEG" = "✓" ]; then
+              echo "| $proj | $UP | $LEG | Will run |" >>"$GITHUB_STEP_SUMMARY"
             else
-              echo "| $proj | ✓ | - | Skipped (no BMT config) |" >>"$GITHUB_STEP_SUMMARY"
+              echo "| $proj | $UP | $LEG | $([ "$UP" = "⚠ skipped" ] && echo "Upload failed/warning" || echo "No BMT config") |" >>"$GITHUB_STEP_SUMMARY"
             fi
           done
-
           echo "" >>"$GITHUB_STEP_SUMMARY"
-          echo "**Total runners uploaded:** $(echo "$ALL_RUNNERS" | jq 'length')" >>"$GITHUB_STEP_SUMMARY"
-          echo "**BMT legs to run:** $(echo "$BMT_PROJECTS" | jq 'length')" >>"$GITHUB_STEP_SUMMARY"
+          echo "**Runners uploaded (supported):** $(echo "$ACCEPTED" | jq 'length')" >>"$GITHUB_STEP_SUMMARY"
+          echo "**BMT legs to run:** $(echo "$BMT_LEGS" | jq 'length')" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Write run trigger to GCS
         id: trigger
@@ -234,7 +310,7 @@ jobs:
             --config-root remote \
             --bucket "$GCS_BUCKET" \
             --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
-            --matrix-json '${{ steps.matrix.outputs.matrix }}' \
+            --matrix-json '${{ steps.filter.outputs.matrix }}' \
             --run-context "${{ needs.bmt-context.outputs.head_event == 'pull_request' && 'pr' || 'dev' }}" \
             $PR_ARGS
 
