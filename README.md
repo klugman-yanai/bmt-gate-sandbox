@@ -1,37 +1,72 @@
 # bmt-cloud-dev
 
-Where BMT logic is planned and you interface with the GCP VM/bucket: author config/scripts, test locally, push via devtools; the CI workflow here is copied to production manually.
+Development repo for the BMT cloud pipeline. This repo owns the BMT workflow, VM watcher/orchestrator logic, and bucket contract used by GitHub Actions.
 
-<!-- Test PR for live monitor verification -->
+## What Lives Here
 
-## Purpose
+1. VM and bucket-side runtime code in `remote/`.
+2. GitHub workflows in `.github/workflows/` (`ci.yml` and `bmt.yml`).
+3. CI command entrypoints in `.github/scripts/ci_driver.py` and `ci/commands/`.
+4. Local devtools for sync/upload/validation in `devtools/`.
 
-This repo holds:
+`remote/` is synchronized to `gs://<bucket>/` (optionally under `BMT_BUCKET_PREFIX`).
 
-1. Bucket mirror and VM-side scripts (`remote/`).
-2. Thin CI: matrix discovery and trigger (GCS); VM runs BMT and reports status to GitHub (trigger-and-stop, no blocking workflow).
-3. Local runner and devtools for sync/upload/validation.
+## Workflow Topology
 
-## Canonical layout
+This repo uses two workflows:
 
-- **Workflow:** `.github/workflows/ci.yml`; `.github/scripts/ci_driver.py` and `ci/` (matrix, trigger, start-vm, wait, gate; adapters, models, config).
-- **VM:** `remote/vm_watcher.py` (trigger loop, orchestration driver, aggregation, promotion); `remote/root_orchestrator.py` (one leg: run per-project manager); `remote/sk/bmt_manager.py` (SK project: run runner per WAV, gate, upload results).
-- **Local/dev:** `devtools/` (run_sk_bmt_batch, sync_remote_to_bucket, upload_runner, upload_wavs, validate_bucket_contract).
-- **Config/data:** `remote/bmt_projects.json`, `remote/sk/config/` (bmt_jobs.json, input_template.json), `remote/sk/results/` (current.json pointer + snapshots per run_id).
+1. `ci.yml`:
+Build-oriented workflow, intentionally lightweight in this repo. It mirrors `resources/core-main-workflow.yml` structure, creates runner artifacts for selected projects, and dispatches `bmt.yml`.
+2. `bmt.yml`:
+BMT control-plane workflow. It uploads runners to GCS, writes the VM run trigger, starts the VM, waits for handshake ack, posts pending status, and exits.
 
-`remote/` maps directly to `gs://<bucket>/`. See **ARCHITECTURE.md** for architecture and a full description of client-side and VM-side scripts; **CLAUDE.md** for config, linting, and env vars.
+`ci.yml` triggers `bmt.yml` via `workflow_dispatch` and passes `ci_run_id`, `head_sha`, `head_branch`, `head_event`, and optional `pr_number`.
 
-## CI flow (trigger-and-stop)
+## `bmt.yml` End-To-End Flow
 
-1. **Discover Matrix** — `ci_driver.py matrix` builds project+BMT matrix.
-2. **Trigger** — `ci_driver.py trigger` writes **one** run trigger to GCS (`triggers/runs/<workflow_run_id>.json`) with all legs, then the workflow posts a "pending" commit status and **ends** (no long-running wait job).
-3. **VM** — `vm_watcher.py` on the VM polls GCS for run triggers (or a Pub/Sub puller receives the same payload), runs `root_orchestrator.py` for each leg, reads verdicts from manager summaries, updates each leg's **current.json** pointer and cleans stale snapshots, then posts **commit status** (success/failure) to GitHub. Merge is gated by requiring the "BMT Gate" status check to pass.
+1. Resolve context from dispatch inputs (`bmt-context`).
+2. Parse `CMakePresets.json` for non-embedded `*_gcc_Release` presets filtered by `BMT_PROJECTS` (`extract-bmt-presets`).
+3. Download runner artifacts from the CI run and upload successful ones to GCS (`upload-runners` + `ci_driver.py upload-runner`).
+4. Resolve uploaded projects from marker files (`resolve-uploaded-projects`).
+5. Build project/BMT matrix from `remote/bmt_projects.json` and per-project jobs config (`ci_driver.py matrix`), then filter to uploaded projects.
+6. Write one run trigger payload (`ci_driver.py trigger`) to `triggers/runs/<workflow_run_id>.json`.
+7. Start VM (`ci_driver.py start-vm`).
+8. Wait for VM handshake ack (`ci_driver.py wait-handshake`) at `triggers/acks/<workflow_run_id>.json`.
+9. Post pending commit status (`BMT_STATUS_CONTEXT`, default `BMT Gate`) and finish.
 
-This saves GitHub Actions runner minutes; the VM does the work and reports back. Set `GITHUB_STATUS_TOKEN` on the VM (PAT with `repo:status`). Require status check "BMT Gate" in branch protection.
+The workflow intentionally does not wait for final verdicts. Final pass/fail is posted by the VM.
 
-## Local usage
+## VM Runtime Behavior
 
-Run a local BMT batch (config-driven, no cloud VM):
+`remote/vm_watcher.py` is the VM control loop:
+
+1. Polls `triggers/runs/` for run payloads.
+2. Resolves GitHub auth per repository via `remote/lib/github_auth.py` and `remote/config/github_repos.json`.
+3. Writes handshake ack to `triggers/acks/<workflow_run_id>.json`.
+4. Initializes live progress status at `gs://<bucket>/triggers/status/<workflow_run_id>.json` and updates heartbeat every 15s.
+5. Creates/updates GitHub Check Run and posts pending commit status.
+6. Downloads `root_orchestrator.py` from bucket root and runs one leg per trigger entry.
+7. `remote/root_orchestrator.py` downloads project config + manager and executes the manager for one `(project, bmt_id, run_id)`.
+8. `remote/sk/bmt_manager.py` runs the runner over WAV inputs, evaluates gate vs baseline (`current.json -> last_passing`), uploads snapshot artifacts (`latest.json`, `ci_verdict.json`, logs), and writes `manager_summary.json`.
+9. After all legs, watcher updates each `current.json` pointer (`latest`, `last_passing`) and deletes stale snapshots not referenced by either pointer.
+10. Watcher posts final commit status (`success` or `failure`), completes the Check Run, removes the trigger file, and exits if started with `--exit-after-run`.
+
+`remote/bootstrap/startup_example.sh` runs watcher with `--exit-after-run` and then stops the VM instance.
+
+## GCS Contract (Current)
+
+Use `<bucket-root> = gs://<bucket>[/<BMT_BUCKET_PREFIX>]`.
+
+- `<bucket-root>/triggers/runs/<workflow_run_id>.json`: CI-to-VM trigger payload.
+- `<bucket-root>/triggers/acks/<workflow_run_id>.json`: VM handshake response.
+- `gs://<bucket>/triggers/status/<workflow_run_id>.json`: live VM progress file.
+- `<bucket-root>/<project>/runners/<preset>/...`: uploaded runner bundle from `bmt.yml`.
+- `<bucket-root>/<results_prefix>/snapshots/<run_id>/...`: per-run artifacts from manager.
+- `<bucket-root>/<results_prefix>/current.json`: canonical pointer maintained by watcher.
+
+## Local Usage
+
+Run local SK BMT batch (no cloud VM):
 
 ```bash
 python3 devtools/run_sk_bmt_batch.py \
@@ -42,7 +77,7 @@ python3 devtools/run_sk_bmt_batch.py \
   --workers 4
 ```
 
-Devtools (bucket sync, runner/wav upload, contract validation):
+Bucket tools:
 
 ```bash
 BUCKET="<bucket>" python3 devtools/sync_remote_to_bucket.py
@@ -51,22 +86,9 @@ BUCKET="<bucket>" python3 devtools/upload_wavs.py --source-dir <dir>
 BUCKET="<bucket>" python3 devtools/validate_bucket_contract.py [--require-runner]
 ```
 
-## Full reseed (destructive)
-
-Clear bucket and reseed from `remote/`:
-
-```bash
-gcloud storage rm --recursive "gs://<bucket>/**"
-BUCKET="<bucket>" python3 devtools/sync_remote_to_bucket.py --delete
-BUCKET="<bucket>" python3 devtools/upload_runner.py --runner-path <binary>
-BUCKET="<bucket>" python3 devtools/upload_wavs.py --source-dir <wav_root>
-BUCKET="<bucket>" python3 devtools/validate_bucket_contract.py --require-runner
-```
-
 ## Notes
 
-- WAV payload and runner binaries are not committed.
-- Runtime workspace default is `~/sk_runtime` (or per CLAUDE.md).
-- Result files are written under snapshot prefixes; the watcher updates the canonical `current.json` pointer after all legs complete (see **ARCHITECTURE.md**).
-- See **CLAUDE.md** for time/clocks, linting, config files, result paths, and GCP env vars.
-- Test-environment note: docs-only commits may be used to trigger workflow checks.
+- `ci.yml` in this repo is a development mirror with simplified build steps; `resources/core-main-workflow.yml` tracks the upstream build structure it mirrors.
+- Require the status context configured by `BMT_STATUS_CONTEXT` (default `BMT Gate`) in branch protection.
+- `ci_driver.py wait` and `ci_driver.py gate` are retained for manual/local validation flows, not used in `bmt.yml`.
+- See `remote/bootstrap/README.md` for VM bootstrap/auth setup and `ARCHITECTURE.md` for deeper architecture context.
