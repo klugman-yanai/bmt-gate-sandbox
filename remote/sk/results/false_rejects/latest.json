@@ -1,18 +1,29 @@
 {
-  "timestamp": null,
+  "timestamp": "2026-02-18T12:43:18Z",
   "project_id": "sk",
   "bmt_id": "false_reject_namuh",
-  "status": null,
-  "reason_code": "bootstrap",
-  "aggregate_score": null,
-  "raw_aggregate_score": null,
+  "run_context": "manual",
+  "status": "warning",
+  "reason_code": "bootstrap_without_baseline",
+  "aggregate_score": 0.0,
+  "raw_aggregate_score": 0.0,
   "failed_count": 0,
   "gate": {
     "comparison": "gte",
     "last_score": null,
-    "current_score": null,
-    "passed": null,
-    "reason": "bootstrap"
+    "current_score": 0.0,
+    "passed": true,
+    "reason": "bootstrap_no_previous_result"
   },
-  "file_results": []
+  "file_results": [
+    {
+      "file": "SK_WuW_A_0_D_2.6_H_70_S_45_T_Music_N_45_E_up.wav",
+      "exit_code": 0,
+      "namuh_count": 0,
+      "status": "ok",
+      "log": "/home/yanai/sandbox/DummyBMT/remote/sk/results/logs/false_rejects/latest/SK_WuW_A_0_D_2.6_H_70_S_45_T_Music_N_45_E_up.wav.log",
+      "output": "/home/yanai/sandbox/DummyBMT/remote/sk/outputs/false_rejects/SK_WuW_A_0_D_2.6_H_70_S_45_T_Music_N_45_E_up.wav",
+      "error": ""
+    }
+  ]
 }

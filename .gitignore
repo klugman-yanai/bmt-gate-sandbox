@@ -1,13 +1,15 @@
 # Build/output junk
 build/
 data/
-.bmt_runtime/
+local_batch/
 sk_runtime/
+secrets/
 
 # Python
 **/__pycache__/
 *.pyc
 .venv/
+*.egg-info/
 
 # Local staging (manual assets)
 repo/staging/
@@ -17,6 +19,13 @@ repo/staging/
 *.tmp
 *.out
 bmt_root_results.json
+
+# VM/BMT runtime artifacts (bucket sync + handshake staging)
+remote/sk/inputs/
+remote/sk/outputs/
+remote/sk/results/archive/
+remote/triggers/
+resources/
 
 # Tooling/editor
 compile_commands.json
@@ -29,5 +38,6 @@ compile_commands.json
 .DS_Store
 Thumbs.db
 
-# Local credentials
+# Local credentials and env (copy .env.example to .env)
 gcp-key.json
+.env
