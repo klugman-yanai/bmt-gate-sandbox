@@ -435,7 +435,30 @@ def main() -> int:
     args = parse_args()
     run_id = args.run_id.strip()
     started_at = _now_iso()
+    start_timestamp = time.time()
     bucket_root = _bucket_root_uri(args.bucket, args.bucket_prefix)
+
+    # Check if progress tracking is enabled
+    enable_progress = (
+        os.environ.get("BMT_STATUS_BUCKET")
+        and os.environ.get("BMT_STATUS_RUN_ID")
+        and os.environ.get("BMT_STATUS_LEG_INDEX") is not None
+    )
+    if enable_progress:
+        # Import progress tracking modules
+        sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+        try:
+            import status_file  # type: ignore[import-not-found]
+            progress_bucket = os.environ["BMT_STATUS_BUCKET"]
+            progress_run_id = os.environ["BMT_STATUS_RUN_ID"]
+            progress_leg_index = int(os.environ["BMT_STATUS_LEG_INDEX"])
+        except (ImportError, ValueError, KeyError):
+            enable_progress = False
+    else:
+        status_file = None  # type: ignore[assignment]
+        progress_bucket = None
+        progress_run_id = None
+        progress_leg_index = None
 
     jobs_cfg = _load_json(Path(args.jobs_config))
     bmts = jobs_cfg.get("bmts", {})
@@ -638,6 +661,7 @@ def main() -> int:
     if args.human:
         print(f"Running {args.project_id}.{args.bmt_id} on {total} wav files")
 
+    setup_end_timestamp = time.time()
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(
@@ -663,6 +687,16 @@ def main() -> int:
             if args.human:
                 print(f"[{idx}/{total}] {result['file']} count={result['namuh_count']} exit={result['exit_code']}")
 
+            # Update progress in status file
+            if enable_progress and status_file:
+                try:
+                    status_file.update_leg_progress(
+                        progress_bucket, progress_run_id, progress_leg_index, files_completed=idx, files_total=total
+                    )
+                except Exception:
+                    pass  # Don't fail run if status update fails
+
+    execution_end_timestamp = time.time()
     file_results.sort(key=lambda item: item["file"])
     failed_count = sum(1 for item in file_results if int(item["exit_code"]) != 0)
     raw_score = sum(int(item["namuh_count"]) for item in file_results) / len(file_results) if file_results else 0.0
@@ -805,6 +839,13 @@ def main() -> int:
         artifact_upload_stats["durations_sec"]["outputs_upload"] = round(time.monotonic() - t0, 3)
         artifact_upload_stats["outputs_uploaded"] = True
 
+    # Calculate orchestration timing
+    completed_at = _now_iso()
+    total_duration_sec = int(time.time() - start_timestamp)
+    setup_sec = int(setup_end_timestamp - start_timestamp)
+    execution_sec = int(execution_end_timestamp - setup_end_timestamp)
+    upload_sec = total_duration_sec - setup_sec - execution_sec
+
     manager_summary = {
         "timestamp": ts_iso,
         "project_id": args.project_id,
@@ -825,6 +866,16 @@ def main() -> int:
         "cache_stats": cache_stats,
         "sync_stats": {"sync_durations_sec": sync_durations_sec},
         "artifact_upload_stats": artifact_upload_stats,
+        "orchestration_timing": {
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_sec": total_duration_sec,
+            "stages": {
+                "setup_sec": setup_sec,
+                "execution_sec": execution_sec,
+                "upload_sec": upload_sec,
+            },
+        },
     }
     _write_json(Path(args.summary_out), manager_summary)
 
