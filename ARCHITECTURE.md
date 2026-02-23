@@ -13,9 +13,9 @@ Current source-of-truth behavior is implemented in:
 
 Some sections in this file describe planned refactors. When in doubt, trust the files above.
 
-**Current overview (implemented):** `ci.yml` builds and dispatches `bmt.yml`; `bmt.yml` uploads runners, writes one run trigger to GCS, starts VM, waits for handshake ack, posts pending status, and exits. The VM watcher processes all legs, updates pointers, posts final GitHub status/check run, and deletes the trigger.
+**Current overview (implemented):** `ci.yml` builds and dispatches `bmt.yml`; `bmt.yml` uploads runners, writes one run trigger to GCS, starts VM, waits for handshake ack, posts pending status, and exits. The VM watcher processes all legs, updates pointers, posts final GitHub status/check run, and deletes the trigger. For who posts which status when and how gaps (e.g. Trigger BMT failure, VM exception) are closed, see **docs/communication-flow.md**.
 
-**Dummy CI and artifacts:** The repo’s `ci.yml` is a dummy that mirrors `resources/core-main-workflow.yml` (one job per project, filtered by `BMT_PROJECTS`; default `sk`). It uses the real `kardome_runner` from `build/` when present, or from `remote/sk/runners/sk_gcc_release/` otherwise, so the artifact layout and content match production. GitHub Actions artifacts are **per workflow run**; they do not carry to another run. The BMT workflow receives the CI run’s `run_id` and downloads those artifacts by `run-id` so it can upload the same runner bundles to GCS.
+**Dummy CI and artifacts:** The repo’s `ci.yml` is a dummy that mirrors `resources/core-main-workflow.yml` (one job per project, filtered by `BMT_PROJECTS`; default `all release runners`). It uses the real `kardome_runner` from `build/` when present, or from `remote/sk/runners/sk_gcc_release/` otherwise, so the artifact layout and content match production. GitHub Actions artifacts are **per workflow run**; they do not carry to another run. The BMT workflow receives the CI run’s `run_id` and downloads those artifacts by `run-id` so it can upload the same runner bundles to GCS.
 
 ---
 
@@ -30,8 +30,9 @@ Some sections in this file describe planned refactors. When in doubt, trust the 
 │                                                                             │
 │  1. upload-runners → Upload CI runner artifacts to GCS                      │
 │  2. trigger        → Write one run trigger JSON to GCS                      │
-│  3. start-vm       → Start the BMT VM (gcloud compute instances start)      │
-│  4. handshake      → Wait for VM ack + post pending status                  │
+│  3. sync-metadata  → Push bucket/prefix into VM metadata                     │
+│  4. start-vm       → Start the BMT VM (gcloud compute instances start)      │
+│  5. handshake      → Wait for VM ack + post pending status                  │
 │  5. EXIT           → Workflow completes, VM continues independently         │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -63,6 +64,14 @@ GitHub Actions hands off quickly. Long-running BMT execution happens on VM, not 
 
 Managers write per-run snapshots under `snapshots/<run_id>/`. Watcher updates canonical `current.json` pointers (`latest`, `last_passing`) after leg completion and prunes stale snapshots.
 
+### Key Principle: Strict retention (current + previous only)
+
+There is no quarantine tier. Runtime cleanup is hard-delete:
+
+- Snapshots not referenced by `current.json.latest` or `current.json.last_passing` are deleted.
+- Workflow metadata families (`triggers/acks`, `triggers/status`) are trimmed to recent entries.
+- VM local `run_*` directories are pruned to current + previous per project/BMT.
+
 ### Key Principle: Current Implementation Is CLI-First
 
 Current code uses:
@@ -84,14 +93,15 @@ These run on **GitHub Actions** during the workflow. Entrypoint: `ci_driver.py` 
 | **ci_driver.py** | Thin CLI; registers subcommands from the `ci` package. Invoked as `uv run python .github/scripts/ci_driver.py <command>`. |
 | **ci/commands/job_matrix.py** | `matrix` — Reads `bmt_projects.json` and per-project jobs config, builds the list of (project, bmt_id) legs. Outputs JSON matrix for the trigger step. |
 | **ci/commands/run_trigger.py** | `trigger` — Builds the run payload (workflow_run_id, repository, sha, legs with project, bmt_id, run_id, triggered_at), writes one JSON file to GCS `triggers/runs/<workflow_run_id>.json`. VM resolves results_prefix and verdict path from config and manager summary. |
-| **ci/commands/start_vm.py** | `start-vm` — Starts the GCP Compute Engine VM via `gcloud compute instances start`. Reads GCP_SA_EMAIL, GCP_ZONE, BMT_VM_NAME from env; derives project from SA email. |
+| **ci/commands/sync_vm_metadata.py** | `sync-vm-metadata` — Updates VM metadata keys (`GCS_BUCKET`, `BMT_BUCKET_PREFIX`) from workflow env so bucket/prefix drift does not require manual VM bootstrap reruns. |
+| **ci/commands/start_vm.py** | `start-vm` — Starts the GCP Compute Engine VM via `gcloud compute instances start`. Requires canonical env vars: `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`. |
 | **ci/commands/wait_verdicts.py** | `wait` — Polls GCS for `current.json` pointer per leg; when pointer.latest matches run_id, downloads verdict from `snapshots/{run_id}/ci_verdict.json`. Aggregates outcomes. For manual/local use; not used by the workflow. |
 | **ci/commands/verdict_gate.py** | `gate` — Enforces pass/fail from aggregated verdicts; for manual use. |
 | **ci/config.py** | Loads project registry and jobs config; builds matrix; resolves `results_prefix` per project/bmt. |
 | **ci/models.py** | Constants (status, reason codes), URI helpers (snapshot_verdict_uri, current_pointer_uri, run_trigger_uri), decision logic, data classes (CloudVerdict, LegOutcome, AggregateRow). |
 | **ci/adapters/gcloud_cli.py** | All GCP interaction used by CI commands: GCS upload/download and VM start. Uses `gcloud` subprocess (SDK migration is future work). |
 
-`bmt.yml` currently runs matrix + trigger + start-vm + handshake, then exits after posting pending status. It does not call `wait` or `gate`.
+`bmt.yml` currently runs matrix + trigger + sync-vm-metadata + start-vm + handshake, then exits after posting pending status. It does not call `wait` or `gate`.
 
 ---
 
@@ -101,7 +111,7 @@ These run **on the BMT VM** (started by the workflow). Code lives under `remote/
 
 | Script | Role |
 | ------| ---- |
-| **vm_watcher.py** | Main loop: polls GCS `triggers/runs/`. For each trigger: writes handshake ack, starts progress heartbeat file, downloads `root_orchestrator.py` from bucket, runs orchestrator **once per leg**, reads manager summaries, updates each leg `current.json` pointer and cleans stale snapshots, posts final commit status to GitHub, updates Check Run, and deletes trigger file. Optional `--exit-after-run` to exit after one run (VM then stops itself). Uses stdlib + `gcloud` CLI plus `requests` for Check Run API calls. |
+| **vm_watcher.py** | Main loop: polls GCS `triggers/runs/`. For each trigger: writes handshake ack, starts progress heartbeat file, downloads `root_orchestrator.py` from bucket, runs orchestrator **once per leg**, reads manager summaries, updates each leg `current.json` pointer and cleans stale snapshots, posts final commit status to GitHub, updates Check Run, and deletes trigger file. It also trims trigger metadata families and legacy history prefixes, and prunes local run directories to current + previous only. Optional `--exit-after-run` to exit after one run (VM then stops itself). Uses stdlib + `gcloud` CLI plus `requests` for Check Run API calls. |
 | **root_orchestrator.py** | **Per leg:** Downloads `bmt_projects.json` and the project’s jobs config and manager script from the bucket. Validates project is enabled, invokes the **per-project manager** (e.g. `bmt_manager.py`) with bucket, project, bmt_id, run_id, run_context, Collects manager exit code and summary; writes root summary to GCS. Does not aggregate across legs (the watcher does that). |
 | **Per-project BMT managers** (one **bmt_manager.py** per project, e.g. `sk/bmt_manager.py`) | **Per project:** Loads the BMT job config (runner URI, template, dataset, gate, etc.), caches runner bundle and template from GCS, syncs or uses cached dataset. For each WAV in the dataset: builds a runner config from the template, runs the **runner binary** (e.g. `kardome_runner`) in a thread pool, parses output (e.g. NAMUH counter), aggregates scores. Evaluates gate vs baseline from `current.json` pointer (last_passing snapshot). Writes all outputs under `{results_prefix}/snapshots/{run_id}/` (latest.json, ci_verdict.json, logs). Returns exit code and summary path to the orchestrator. |
 
@@ -180,15 +190,16 @@ New `lib/` directory will be created under `remote/lib/` in the repo (not at rep
 Only runners, triggers, and results live in GCS:
 
 ```
-gs://bucket/
+gs://bucket[/prefix]/
 ├── runners/                       # PUSHED by CI per build
 │   └── sk_gcc_release/
 │       ├── kardome_runner
 │       └── runner_latest_meta.json
 │
-├── triggers/                      # WRITTEN by CI, READ+DELETE by VM
-│   └── runs/
-│       └── {workflow_run_id}.json
+├── triggers/
+│   ├── runs/{workflow_run_id}.json        # WRITTEN by CI; deleted after processing
+│   ├── acks/{workflow_run_id}.json        # WRITTEN by VM; trimmed to recent
+│   └── status/{workflow_run_id}.json      # WRITTEN by VM; trimmed to recent
 │
 └── sk/results/false_rejects/      # Per (project, bmt_id): pointer + snapshots
     ├── current.json               # Pointer (latest run_id, last_passing run_id)
@@ -205,6 +216,13 @@ The manager writes **only** under `{results_prefix}/snapshots/{run_id}/`. The **
 
 - **Goals:** No canonical writes during execution; atomic promotion (one file write); no promotion on cancel/supersede; trigger-agnostic (same flow for GCS or Pub/Sub).
 - **Contract:** (1) Manager reads baseline by resolving `current.json` → last_passing → `snapshots/{run_id}/latest.json`. (2) Manager writes all outputs under `snapshots/{run_id}/`. (3) After all legs, watcher updates `current.json` and deletes stale snapshots. (4) Check Run / PR comment must run **after** the watcher updates `current.json`; they must read from pointer-resolved snapshot paths or in-memory aggregation.
+
+### Retention contract
+
+- Keep only snapshot directories referenced by `current.json.latest` and `current.json.last_passing`.
+- Keep only recent workflow metadata in `triggers/acks` and `triggers/status`.
+- Remove consumed run trigger objects in `triggers/runs`.
+- Keep only two local `run_*` directories per project/BMT on the VM.
 
 ### Trigger sources: GCS and Pub/Sub
 
@@ -251,7 +269,14 @@ The VM resolves `results_prefix` from config and verdict location from manager s
 
 ## Configuration Files
 
-All environment-specific values (`GCS_BUCKET`, `GCP_ZONE`, `BMT_VM_NAME`, `GITHUB_STATUS_TOKEN`, GitHub App secret names; optional `GCP_PROJECT`, `BMT_BUCKET_PREFIX`) come from environment variables or systemd unit config. There is no `vm_config` file — VM paths are constants in code (`/opt/bmt/...`), and watcher settings are CLI args.
+Environment variables are defined declaratively in `config/env_contract.json` (required/optional vars, defaults, and consistency checks). `config/repo_vars.toml` is optional and acts as an override file; omitted canonical vars inherit current GitHub repo values first, then contract defaults (`devtools/gh_repo_vars.py`). Canonical names are enforced (no alias vars such as `VM_NAME`/`BUCKET`, no derived `GCP_PROJECT`). Runtime values still come from environment variables, GitHub repo variables, and VM metadata; there is no separate `vm_config` runtime file. VM paths remain constants in code (`/opt/bmt/...`), and watcher settings are CLI args.
+
+## Test vs Production Delta
+
+Expected primary differences when moving this test setup to production:
+
+- GitHub App credentials and repo mapping (`APP_*` secrets, `remote/config/github_repos.json`)
+- Status context label used for branch protection (`BMT_STATUS_CONTEXT`)
 
 ### 1. `bmt_projects.json` (Project Registry, occasionally edited)
 
@@ -648,19 +673,19 @@ Uses `gcloud compute scp --recurse` on the entire `remote/` tree rather than ind
 #!/bin/bash
 set -euo pipefail
 
-VM_NAME=${1:-bmt-vm}
+BMT_VM_NAME=${1:-bmt-vm}
 ZONE=${2:-europe-west4-a}
 BMT_ROOT="/opt/bmt"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "Syncing BMT to VM: $VM_NAME (zone: $ZONE)"
+echo "Syncing BMT to VM: $BMT_VM_NAME (zone: $ZONE)"
 
 # Upload the entire remote/ tree to a staging area on the VM
 gcloud compute scp --recurse --zone="$ZONE" \
-  "$REPO_ROOT/remote/" "$VM_NAME:/tmp/bmt_staging/"
+  "$REPO_ROOT/remote/" "$BMT_VM_NAME:/tmp/bmt_staging/"
 
 # Run a remote script to arrange files into /opt/bmt/ layout
-gcloud compute ssh "$VM_NAME" --zone="$ZONE" -- bash -s <<'REMOTE'
+gcloud compute ssh "$BMT_VM_NAME" --zone="$ZONE" -- bash -s <<'REMOTE'
 set -euo pipefail
 BMT_ROOT="/opt/bmt"
 STAGING="/tmp/bmt_staging"
@@ -693,7 +718,7 @@ echo "VM layout synced to $BMT_ROOT"
 REMOTE
 
 # Install Python deps on VM
-gcloud compute ssh "$VM_NAME" --zone="$ZONE" -- \
+gcloud compute ssh "$BMT_VM_NAME" --zone="$ZONE" -- \
   "uv pip install google-cloud-storage google-cloud-secret-manager PyGithub PyJWT pydantic tabulate"
 
 echo "Sync complete."

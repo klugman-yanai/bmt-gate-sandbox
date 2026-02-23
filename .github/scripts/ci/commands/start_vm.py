@@ -9,30 +9,19 @@ import click
 from ci.adapters import gcloud_cli
 
 
-def _project_from_sa_email(sa_email: str) -> str | None:
-    """Derive GCP project ID from service account email (e.g. x@PROJECT.iam.gserviceaccount.com)."""
-    sa_email = (sa_email or "").strip()
-    if "@" not in sa_email:
-        return None
-    domain = sa_email.split("@", 1)[1]
-    if domain.endswith(".iam.gserviceaccount.com"):
-        return domain.removesuffix(".iam.gserviceaccount.com") or None
-    return None
+def _required_env(name: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise RuntimeError(f"Set {name}.")
+    return value
 
 
 @click.command("start-vm")
 def command() -> None:
-    """Start the BMT VM (reads GCP_PROJECT or GCP_SA_EMAIL, GCP_ZONE, BMT_VM_NAME from env)."""
-    project = (os.environ.get("GCP_PROJECT") or "").strip()
-    if not project:
-        project = _project_from_sa_email(os.environ.get("GCP_SA_EMAIL") or "") or ""
-    zone = (os.environ.get("GCP_ZONE") or "").strip()
-    instance_name = (os.environ.get("BMT_VM_NAME") or os.environ.get("VM_NAME") or "").strip()
-    if not project or not zone or not instance_name:
-        raise RuntimeError(
-            "Set GCP_ZONE and BMT_VM_NAME (or VM_NAME). "
-            "Set GCP_PROJECT or GCP_SA_EMAIL (project is derived from SA email if unset)."
-        )
+    """Start the BMT VM (reads GCP_PROJECT, GCP_ZONE, BMT_VM_NAME from env)."""
+    project = _required_env("GCP_PROJECT")
+    zone = _required_env("GCP_ZONE")
+    instance_name = _required_env("BMT_VM_NAME")
     try:
         gcloud_cli.vm_start(project, zone, instance_name)
     except gcloud_cli.GcloudError as exc:

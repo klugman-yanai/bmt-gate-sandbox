@@ -1,13 +1,13 @@
-"""Tests for compute_gate and resolve_status in run_sk_bmt_batch.py."""
+"""Tests for gate/status helpers in devtools/bmt_run_local.py."""
 
 import importlib
 import sys
 
-# run_sk_bmt_batch lives in devtools/; conftest.py adds devtools to sys.path.
-batch = importlib.import_module("run_sk_bmt_batch")
+# bmt_run_local lives in devtools/; conftest.py adds devtools to sys.path.
+batch = importlib.import_module("bmt_run_local")
 compute_gate = batch.compute_gate
 resolve_status = batch.resolve_status
-effective_gate_comparison = batch._effective_gate_comparison
+effective_gate_comparison = batch.effective_gate_comparison
 
 
 # ── compute_gate ──────────────────────────────────────────────────────────────

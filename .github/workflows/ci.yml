@@ -1,6 +1,6 @@
 # Dummy "CI" workflow: mirrors job/step structure of resources/core-main-workflow.yml
 # (which cannot be modified). Runs on push or PR to dev; BMT runs after this completes.
-# Dummy builds one job per project (filtered by BMT_PROJECTS; default "sk" for test env).
+# Dummy builds one job per project (filtered by BMT_PROJECTS; default "all release runners").
 # Artifacts are per workflow run; they do not "carry" to another run. The BMT workflow
 # is triggered with this run's run_id and downloads these artifacts by run-id (see bmt.yml).
 name: CI
@@ -17,7 +17,7 @@ defaults:
     shell: bash
 
 env:
-  # One build job per project; default "sk" for test env. Set repo var BMT_PROJECTS to override.
+  # One build job per project; default "all release runners". Set repo var BMT_PROJECTS to override.
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
 
 jobs:
@@ -37,18 +37,23 @@ jobs:
       - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
         id: parse
         run: |
-          ALLOWED="${BMT_PROJECTS:-sk}"
-          ALLOWED_JSON=$(echo "$ALLOWED" | jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | ascii_downcase)')
+          ALLOWED_RAW="${BMT_PROJECTS:-all release runners}"
+          ALLOWED_NORM=$(echo "$ALLOWED_RAW" | tr '[:upper:]' '[:lower:]' | xargs)
+          if [ -z "$ALLOWED_NORM" ] || [ "$ALLOWED_NORM" = "all" ] || [ "$ALLOWED_NORM" = "*" ] || [ "$ALLOWED_NORM" = "all release runners" ] || [ "$ALLOWED_NORM" = "all-release-runners" ] || [ "$ALLOWED_NORM" = "all_release_runners" ]; then
+            ALLOWED_JSON='null'
+          else
+            ALLOWED_JSON=$(echo "$ALLOWED_RAW" | jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | ascii_downcase) | map(select(length>0))')
+          fi
           presets=$(jq -c --argjson allowed "$ALLOWED_JSON" '
             [ .configurePresets[]
               | select(.name | test("_gcc_Release$"))
               | select(.name | test("xtensa|hexagon") | not)
               | (.name | sub("_gcc_Release$"; "") | ascii_downcase) as $proj
-              | select($allowed | index($proj))
+              | select($allowed == null or ($allowed | index($proj)))
               | { configure: .name, build: (.name + "-build"), short: .name }
             ] | unique_by(.configure)' CMakePresets.json)
           echo "presets=$presets" >>"$GITHUB_OUTPUT"
-          echo "::notice::Building one job per project (BMT_PROJECTS=${ALLOWED}): $presets"
+          echo "::notice::Building one job per project (BMT_PROJECTS=${ALLOWED_RAW}): $presets"
 
   # ─────────────────────── 2) build every preset ────────────────────────
   build:
@@ -169,6 +174,9 @@ jobs:
     needs: build
     if: success()
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+      issues: write
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -214,4 +222,27 @@ jobs:
             echo "Workflow dispatch returned HTTP $HTTP. Response:"
             cat /tmp/dispatch_resp
             exit 1
+          fi
+
+      - name: Post BMT failure status (Trigger BMT failed)
+        if: failure()
+        env:
+          BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+        run: |
+          HEAD_SHA="${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/${HEAD_SHA}" \
+            -d "$(jq -n --arg c "$CONTEXT" --arg d "Trigger BMT failed. Check Actions logs." '{state:"failure",context:$c,description:$d}')"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BODY=$'## BMT result: Did not run\n\nThe test run could not be started. For details, open the **Actions** tab for this PR.'
+            curl -sS -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -d "$(jq -n --arg body "$BODY" '{body:$body}')"
           fi

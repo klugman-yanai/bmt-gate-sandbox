@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +14,8 @@ import click
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
+
+from shared_env_contract import default_contract_path, list_context_vars, load_env_contract
 
 
 def cmd_exists(name: str) -> bool:
@@ -49,11 +50,6 @@ def gcloud_config(name: str) -> str | None:
     return val if val and not val.startswith("(unset)") else None
 
 
-def project_from_sa(sa_email: str) -> str | None:
-    match = re.search(r"@([^.]+)\.iam\.gserviceaccount\.com", sa_email)
-    return match.group(1) if match else None
-
-
 def print_env_var(name: str, val: str | None, default: str | None = None) -> None:
     if val:
         click.echo(f"  {name}={val}")
@@ -66,37 +62,43 @@ def print_env_var(name: str, val: str | None, default: str | None = None) -> Non
         click.echo(f"  {name}=(unset)")
 
 
-def print_github_section() -> None:
+def _contract_defaults(contract: dict[str, object]) -> dict[str, str]:
+    defaults_raw = contract.get("defaults", {})
+    if not isinstance(defaults_raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in defaults_raw.items()}
+
+
+def print_github_section(contract: dict[str, object]) -> None:
     header = (
         "GitHub (gh) — used by: ci.yml, start_vm, run_trigger, job_matrix, wait; "
         "VM bootstrap scripts. Unset = CI uses default below."
     )
     click.echo(header)
+    click.echo(f"  contract: {default_contract_path()}")
 
     if not cmd_exists("gh"):
         click.echo("  (gh not available; run 'gh auth login' in repo to list GitHub vars)")
         return
 
-    for name in ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_ZONE", "BMT_VM_NAME"]:
+    required_vars = list_context_vars(contract, "github_repo_vars", "required")
+    if not required_vars:
+        required_vars = ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_PROJECT", "GCP_ZONE", "BMT_VM_NAME"]
+    for name in required_vars:
         print_env_var(name, gh_var(name))
 
-    sa_email = gh_var("GCP_SA_EMAIL")
-    proj_val = gh_var("GCP_PROJECT")
-    if proj_val:
-        click.echo(f"  GCP_PROJECT={proj_val}")
-    elif sa_email and (proj := project_from_sa(sa_email)):
-        click.echo(f"  GCP_PROJECT={proj} (default, from SA)")
-    else:
-        click.echo("  GCP_PROJECT=(unset)")
-
-    print_env_var("BMT_BUCKET_PREFIX", gh_var("BMT_BUCKET_PREFIX"), default="")
-    print_env_var("BMT_PROJECTS", gh_var("BMT_PROJECTS"), default="")
-    print_env_var("BMT_STATUS_CONTEXT", None, default="BMT Gate")
-    print_env_var(
-        "BMT_DESCRIPTION_PENDING",
-        None,
-        default="BMT running on VM; status will update when complete.",
-    )
+    defaults = _contract_defaults(contract)
+    optional_vars = list_context_vars(contract, "github_repo_vars", "optional")
+    if not optional_vars:
+        optional_vars = [
+            "BMT_BUCKET_PREFIX",
+            "BMT_PROJECTS",
+            "BMT_STATUS_CONTEXT",
+            "BMT_DESCRIPTION_PENDING",
+            "BMT_HANDSHAKE_TIMEOUT_SEC",
+        ]
+    for name in optional_vars:
+        print_env_var(name, gh_var(name), default=defaults.get(name))
 
     if gh_secret_exists("GITHUB_STATUS_TOKEN") or gh_var("GITHUB_STATUS_TOKEN"):
         click.echo("  GITHUB_STATUS_TOKEN=*** (repo)")
@@ -107,7 +109,7 @@ def print_github_section() -> None:
 def print_gcloud_section() -> None:
     click.echo(
         "\ngcloud — used by: audit_vm_and_bucket, ssh_install, setup_vm_startup; "
-        "start_vm uses gh vars, falls back to gcloud project."
+        "tools require explicit canonical vars."
     )
     if not cmd_exists("gcloud"):
         click.echo("  (gcloud not available)")
@@ -119,10 +121,7 @@ def print_gcloud_section() -> None:
 
 
 def get_vm_project() -> str | None:
-    vm_project = gh_var("GCP_PROJECT")
-    if not vm_project and (sa_email := gh_var("GCP_SA_EMAIL")):
-        vm_project = project_from_sa(sa_email)
-    return vm_project or gcloud_config("project")
+    return gh_var("GCP_PROJECT")
 
 
 def print_vm_section() -> None:
@@ -137,7 +136,7 @@ def print_vm_section() -> None:
     vm_name = gh_var("BMT_VM_NAME")
 
     if not vm_project or not vm_zone or not vm_name:
-        click.echo("  (need GCP_PROJECT/GCP_SA_EMAIL, GCP_ZONE, BMT_VM_NAME from gh to connect)")
+        click.echo("  (need GCP_PROJECT, GCP_ZONE, BMT_VM_NAME from gh to connect)")
         return
 
     result = subprocess.run(
@@ -188,33 +187,28 @@ def print_vm_section() -> None:
 def print_local_section() -> None:
     click.echo(
         "\nLocal env — used by: sync_remote, upload_*, validate_bucket_contract, "
-        "run-manager-gcs (BUCKET or GCS_BUCKET)."
+        "run-manager-gcs (canonical: GCS_BUCKET)."
     )
-    bucket = os.environ.get("BUCKET")
     gcs_bucket = os.environ.get("GCS_BUCKET")
     prefix = os.environ.get("BMT_BUCKET_PREFIX")
 
-    print_env_var("BUCKET", bucket or None)
     print_env_var("GCS_BUCKET", gcs_bucket or None)
     print_env_var("BMT_BUCKET_PREFIX", prefix or None)
 
-    eff_bucket = bucket or gcs_bucket
-    if eff_bucket:
-        click.echo(f"  effective bucket (devtools use this): {eff_bucket}")
+    if gcs_bucket:
+        click.echo(f"  effective bucket (devtools use this): {gcs_bucket}")
         return
 
-    if cmd_exists("gh") and (gh_bucket := gh_var("GCS_BUCKET")):
-        click.echo(
-            f"  effective bucket: (none in shell); GitHub GCS_BUCKET={gh_bucket} "
-            "— export GCS_BUCKET to use for devtools"
-        )
-    else:
-        click.echo("  effective bucket: (none — set BUCKET or GCS_BUCKET)")
+    click.echo("  effective bucket: (none — set GCS_BUCKET)")
 
 
 @click.command()
 def main() -> int:
-    print_github_section()
+    try:
+        contract = load_env_contract()
+    except (OSError, ValueError, json.JSONDecodeError):
+        contract = {}
+    print_github_section(contract)
     print_gcloud_section()
     print_vm_section()
     print_local_section()

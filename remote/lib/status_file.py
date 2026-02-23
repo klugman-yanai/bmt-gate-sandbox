@@ -10,14 +10,14 @@ The status file provides live progress tracking during BMT execution:
 import json
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 
 def _now_iso() -> str:
     """Return current UTC timestamp in ISO format."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _gcs_path(bucket: str, run_id: str) -> str:

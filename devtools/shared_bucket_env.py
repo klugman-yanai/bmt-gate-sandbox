@@ -15,8 +15,13 @@ import click
 
 
 def get_bucket_from_env() -> str:
-    """Bucket name from BUCKET or GCS_BUCKET (empty if unset)."""
-    return os.environ.get("BUCKET") or os.environ.get("GCS_BUCKET", "")
+    """Bucket name from canonical GCS_BUCKET env var."""
+    return (os.environ.get("GCS_BUCKET") or "").strip()
+
+
+def get_bucket_prefix_from_env() -> str:
+    """Optional bucket prefix from canonical BMT_BUCKET_PREFIX env var."""
+    return (os.environ.get("BMT_BUCKET_PREFIX") or "").strip()
 
 
 def bucket_root_uri(bucket: str, prefix: str) -> str:
@@ -27,11 +32,12 @@ def bucket_root_uri(bucket: str, prefix: str) -> str:
 
 bucket_option = click.option(
     "--bucket",
-    default=get_bucket_from_env(),
-    help="GCS bucket name (default: BUCKET or GCS_BUCKET env)",
+    default=get_bucket_from_env,
+    callback=lambda _ctx, _param, value: value or get_bucket_from_env(),
+    help="GCS bucket name (default: GCS_BUCKET env)",
 )
 bucket_prefix_option = click.option(
     "--bucket-prefix",
-    default=os.environ.get("BMT_BUCKET_PREFIX", ""),
+    default=get_bucket_prefix_from_env,
     help="Optional prefix path within bucket",
 )

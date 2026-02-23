@@ -19,7 +19,32 @@ Use a single, consistent approach for time so timestamps and durations stay corr
 | **Sleep / backoff** | `time.sleep()` | For retries and polling intervals. |
 | **Non-UTC display or scheduling** | `zoneinfo` (stdlib in 3.9+) | Use when you need a specific timezone; otherwise stick to UTC. |
 
-Avoid `time.time()` for new code; use `datetime.now(timezone.utc).timestamp()` so the timezone is explicit. `devtools/time_utils.py` is used only by the local runner (`devtools/run_sk_bmt_batch.py`); CI and `remote/` use small in-file helpers so they stay self-contained when copied to the bucket.
+Avoid `time.time()` for new code; use `datetime.now(timezone.utc).timestamp()` so the timezone is explicit. `devtools/shared_time_utils.py` is used only by the local runner (`devtools/bmt_run_local.py`); CI and `remote/` use small in-file helpers so they stay self-contained when copied to the bucket.
+
+## devtools Structure
+
+Scripts organized by category prefix:
+
+| Prefix | Category | Description |
+| ------ | -------- | ----------- |
+| `shared_*` | Shared libraries | Not executed directly; imported by other scripts |
+| `bucket_*` | GCS operations | Sync, upload, validate bucket contents |
+| `bmt_*` | BMT execution | Local batch runner, live monitor |
+| `gh_*` | GitHub/debug | Env inspection, app permissions |
+
+**Files:**
+- `shared_bucket_env.py` — Bucket URI helpers, click options for `--bucket`/`--bucket-prefix`
+- `shared_time_utils.py` — UTC timestamp helpers (`now_iso`, `now_stamp`, `utc_epoch`)
+- `bucket_sync_remote.py` — Sync `remote/` to GCS
+- `bucket_upload_runner.py` — Upload runner binary with rotation
+- `bucket_upload_wavs.py` — Upload wav datasets
+- `bucket_validate_contract.py` — Validate required bucket objects
+- `bmt_run_local.py` — Local batch runner (no GCS/VM)
+- `bmt_monitor.py` — Live TUI dashboard for workflow/VM/GCS status
+- `gh_show_env.py` — Show env vars used by CI, VM, and devtools
+- `gh_app_perms.py` — Fetch GitHub App permissions via JWT
+
+All scripts use `click` for CLI parsing. Run `just` to see available recipes.
 
 ## Linting and Type Checking
 
@@ -29,7 +54,7 @@ Run from repo root (config in [pyproject.toml](pyproject.toml) excludes `.venv`,
 # Install the ci package and its dependencies (required before linting/running)
 uv pip install -e .
 
-# Lint (ruff — line length 120, Python 3.10 target)
+# Lint (ruff — line length 120, Python 3.12 target)
 ruff check .
 
 # Format check
@@ -56,7 +81,7 @@ These cover: pointer resolution and path construction in the manager (`tests/sk/
 Runs the **local** batch runner (different code path from the VM manager); useful for runner/config/score logic only:
 
 ```bash
-python3 devtools/run_sk_bmt_batch.py \
+python3 devtools/bmt_run_local.py \
   --bmt-id false_reject_namuh \
   --jobs-config remote/sk/config/bmt_jobs.json \
   --runner remote/sk/runners/kardome_runner \
@@ -105,7 +130,7 @@ To exercise the **manager** (snapshot writes, pointer read for baseline) and opt
 ### Run a local BMT batch (config-driven, no cloud VM needed)
 
 ```bash
-python3 devtools/run_sk_bmt_batch.py \
+python3 devtools/bmt_run_local.py \
   --bmt-id false_reject_namuh \
   --jobs-config remote/sk/config/bmt_jobs.json \
   --runner remote/sk/runners/kardome_runner \
@@ -115,23 +140,23 @@ python3 devtools/run_sk_bmt_batch.py \
 
 ### Devtools (bucket sync, runner/wav upload, contract validation)
 
-Bucket and prefix are read from `BUCKET` (or `GCS_BUCKET`) and `BMT_BUCKET_PREFIX`; shared helpers live in `devtools/bucket_env.py`. From repo root you can run `just sync-remote` (set BUCKET or GCS_BUCKET) to sync `remote/` to the bucket, and `just show-env` to print the env var names used by CI, VM, and local devtools.
+Bucket and prefix are read from canonical `GCS_BUCKET` and `BMT_BUCKET_PREFIX`; shared helpers live in `devtools/shared_bucket_env.py`. From repo root you can run `just sync-remote` (set `GCS_BUCKET`) to sync `remote/` to the bucket, and `just show-env` to print the env var names used by CI, VM, and local devtools.
 
 ```bash
-BUCKET="<bucket>" python3 devtools/sync_remote_to_bucket.py
-BUCKET="<bucket>" python3 devtools/upload_runner.py --runner-path <path>
-BUCKET="<bucket>" python3 devtools/upload_wavs.py --source-dir <dir>
-BUCKET="<bucket>" python3 devtools/validate_bucket_contract.py [--require-runner]
+GCS_BUCKET="<bucket>" python3 devtools/bucket_sync_remote.py
+GCS_BUCKET="<bucket>" python3 devtools/bucket_upload_runner.py --runner-path <path>
+GCS_BUCKET="<bucket>" python3 devtools/bucket_upload_wavs.py --source-dir <dir>
+GCS_BUCKET="<bucket>" python3 devtools/bucket_validate_contract.py [--require-runner]
 ```
 
 ### Full reseed (destructive)
 
 ```bash
 gcloud storage rm --recursive "gs://<bucket>/**"
-BUCKET="<bucket>" python3 devtools/sync_remote_to_bucket.py --delete
-BUCKET="<bucket>" python3 devtools/upload_runner.py --runner-path <binary>
-BUCKET="<bucket>" python3 devtools/upload_wavs.py --source-dir <wav_root>
-BUCKET="<bucket>" python3 devtools/validate_bucket_contract.py --require-runner
+GCS_BUCKET="<bucket>" python3 devtools/bucket_sync_remote.py --delete
+GCS_BUCKET="<bucket>" python3 devtools/bucket_upload_runner.py --runner-path <binary>
+GCS_BUCKET="<bucket>" python3 devtools/bucket_upload_wavs.py --source-dir <wav_root>
+GCS_BUCKET="<bucket>" python3 devtools/bucket_validate_contract.py --require-runner
 ```
 
 ## Architecture
@@ -160,7 +185,7 @@ Python package co-located with `ci_driver.py` at `.github/scripts/`. `ci_driver.
 | `ci/adapters/gcloud_cli.py` | All `gcloud`/`subprocess` calls and GCS (e.g. `run_capture_retry` for upload/download/list) |
 | `ci/commands/job_matrix.py` | `matrix` subcommand |
 | `ci/commands/run_trigger.py` | `trigger` subcommand — writes one run trigger to GCS (all legs; VM reports status to GitHub) |
-| `ci/commands/start_vm.py` | `start-vm` subcommand — starts the BMT VM (GCP_SA_EMAIL, GCP_ZONE, BMT_VM_NAME from env; project derived from SA email) |
+| `ci/commands/start_vm.py` | `start-vm` subcommand — starts the BMT VM (requires `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`) |
 | `ci/commands/wait_verdicts.py` | `wait` subcommand — polls GCS for verdicts, aggregates (for manual/local use; not used by workflow) |
 | `ci/commands/verdict_gate.py` | `gate` subcommand — enforces final pass/fail |
 
@@ -184,7 +209,7 @@ See **ARCHITECTURE.md** for the full client-side and VM-side script reference.
 
 Each (project, bmt_id) has a **canonical pointer** at `{results_prefix}/current.json`. The manager never writes to the pointer; it writes all outputs under `{results_prefix}/snapshots/{run_id}/` (latest.json, ci_verdict.json, logs). After all legs complete, the watcher updates `current.json` (latest + last_passing run_ids) and deletes snapshots not referenced by the pointer. The gate reads baseline by resolving the pointer to the last-passing snapshot.
 
-**Check Run and PR comment** implementations must run **after** the watcher updates `current.json` (after all legs complete). They must read result data from the pointer-resolved snapshot path or from in-memory aggregation; they must not assume any file exists at the bare `results_prefix/` root other than `current.json`.
+**Check Run and PR comment** implementations must run **after** the watcher updates `current.json` (after all legs complete). They must read result data from the pointer-resolved snapshot path or from in-memory aggregation; they must not assume any file exists at the bare `results_prefix/` root other than `current.json`. **The author of the PR/merge request must never be left in the dark:** every outcome (success, failure, timeout, crash) must produce a clear commit status (and where applicable Check Run) with an actionable description; see `docs/communication-flow.md`.
 
 ### Key Result Paths
 
@@ -219,13 +244,14 @@ gh variable set BMT_DESCRIPTION_PENDING "BMT running (test)..."
 | -------- | ------- |
 | `GCS_BUCKET` | GCS bucket name |
 | `GCP_WIF_PROVIDER` | Workload Identity Federation provider |
-| `GCP_SA_EMAIL` | Service account email (GCP project for start-vm is derived from this) |
+| `GCP_SA_EMAIL` | Service account email for WIF auth |
+| `GCP_PROJECT` | GCP project ID for VM operations |
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
 
-**Optional** (leave unset for defaults): `GCP_PROJECT` (derived from `GCP_SA_EMAIL`), `BMT_BUCKET_PREFIX` (empty), `BMT_PROJECTS` (empty = all). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection), `BMT_DESCRIPTION_PENDING` (default: "BMT running on VM; status will update when complete."). Optional `BMT_DESCRIPTION_SUCCESS` / `BMT_DESCRIPTION_FAILURE` for VM payload.
+**Optional** (leave unset for defaults): `BMT_BUCKET_PREFIX` (empty), `BMT_PROJECTS` (`all release runners`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection), `BMT_DESCRIPTION_PENDING` (default: "BMT running on VM; status will update when complete.").
 
-For **local** use (e.g. `remote/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), use the same vars or rely on `gcloud config` for project/zone.
+For **local** use (e.g. `remote/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 
 ### CI workflow (trigger BMT from CI)
 

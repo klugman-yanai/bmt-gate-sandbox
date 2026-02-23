@@ -77,3 +77,24 @@ def vm_start(project: str, zone: str, instance_name: str) -> None:
     rc, err = run_capture(cmd)
     if rc != 0:
         raise GcloudError(f"Failed to start VM {instance_name}: {err}")
+
+
+def vm_add_metadata(project: str, zone: str, instance_name: str, metadata: dict[str, str]) -> None:
+    """Set custom metadata keys on a Compute Engine instance."""
+    metadata_items = ",".join(f"{k}={v}" for k, v in metadata.items())
+    cmd = [
+        "gcloud",
+        "compute",
+        "instances",
+        "add-metadata",
+        instance_name,
+        "--zone",
+        zone,
+        "--project",
+        project,
+        "--metadata",
+        metadata_items,
+    ]
+    rc, err = run_capture(cmd)
+    if rc != 0:
+        raise GcloudError(f"Failed to update VM metadata for {instance_name}: {err}")

@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -53,7 +53,7 @@ def main(
     force: bool,
 ) -> int:
     if not bucket:
-        click.echo("::error::Set BUCKET (or GCS_BUCKET)", err=True)
+        click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
 
     runner = Path(runner_path)
@@ -100,7 +100,7 @@ def main(
         return cp_new.returncode
 
     meta = {
-        "uploaded_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "uploaded_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": source,
         "source_ref": source_ref,
         "size_bytes": local_size,

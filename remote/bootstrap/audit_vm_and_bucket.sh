@@ -1,31 +1,23 @@
 #!/usr/bin/env bash
-# Audit VM filesystem and GCS bucket layout; report bloat. All config from env (GitHub vars or gcloud).
-# Requires: GCP_ZONE, VM_NAME (or BMT_VM_NAME), GCS_BUCKET; and GCP_PROJECT or GCP_SA_EMAIL.
+# Audit VM filesystem and GCS bucket layout; report bloat. Config from canonical env vars.
+# Requires: GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, GCS_BUCKET.
 # Optional: BMT_BUCKET_PREFIX, BMT_REPO_ROOT (default /opt/bmt).
 #
 # Usage: set vars then run ./remote/bootstrap/audit_vm_and_bucket.sh
-#   export GCP_ZONE=europe-west4-a VM_NAME=... GCS_BUCKET=... GCP_SA_EMAIL=...
+#   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=... GCS_BUCKET=...
 #   ./remote/bootstrap/audit_vm_and_bucket.sh
 
 set -euo pipefail
 
-VM_NAME="${VM_NAME:-${BMT_VM_NAME:-}}"
+GCP_PROJECT="${GCP_PROJECT:-}"
+BMT_VM_NAME="${BMT_VM_NAME:-}"
 GCP_ZONE="${GCP_ZONE:-}"
 GCS_BUCKET="${GCS_BUCKET:-}"
 BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-}"
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
 
-# Derive GCP_PROJECT from GCP_SA_EMAIL (e.g. x@PROJECT.iam.gserviceaccount.com) when unset
-if [[ -z "${GCP_PROJECT:-}" && -n "${GCP_SA_EMAIL:-}" ]]; then
-  if [[ "${GCP_SA_EMAIL}" =~ @(.+)\.iam\.gserviceaccount\.com ]]; then
-    GCP_PROJECT="${BASH_REMATCH[1]}"
-  fi
-fi
-GCP_PROJECT="${GCP_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-
-if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$VM_NAME" || -z "$GCS_BUCKET" ]]; then
-  echo "Set GCP_ZONE, VM_NAME (or BMT_VM_NAME), GCS_BUCKET, and GCP_PROJECT or GCP_SA_EMAIL." >&2
-  echo "These should come from GitHub vars or your environment." >&2
+if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$BMT_VM_NAME" || -z "$GCS_BUCKET" ]]; then
+  echo "Set GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, and GCS_BUCKET." >&2
   exit 1
 fi
 
@@ -35,7 +27,7 @@ if [[ -n "${BMT_BUCKET_PREFIX}" ]]; then
 fi
 
 echo "=== VM filesystem audit (gcloud compute ssh) ==="
-gcloud compute ssh "$VM_NAME" \
+gcloud compute ssh "$BMT_VM_NAME" \
   --zone="$GCP_ZONE" \
   --project="$GCP_PROJECT" \
   -- \

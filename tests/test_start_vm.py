@@ -1,21 +1,22 @@
-"""Tests for .github/scripts/ci/commands/start_vm.py — project derivation from SA email."""
+"""Tests for .github/scripts/ci/commands/start_vm.py env resolution."""
 
 import pytest
 
-from ci.commands.start_vm import _project_from_sa_email
+from ci.commands.start_vm import _required_env
 
 
-def test_project_from_sa_email_standard():
-    assert _project_from_sa_email("bmt-runner@train-kws-202311.iam.gserviceaccount.com") == "train-kws-202311"
-    assert _project_from_sa_email("my-sa@my-project.iam.gserviceaccount.com") == "my-project"
+def test_required_env_returns_trimmed_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BMT_VM_NAME", "  bmt-performance-gate  ")
+    assert _required_env("BMT_VM_NAME") == "bmt-performance-gate"
 
 
-def test_project_from_sa_email_whitespace():
-    assert _project_from_sa_email("  bmt@proj.iam.gserviceaccount.com  ") == "proj"
+def test_required_env_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GCP_PROJECT", raising=False)
+    with pytest.raises(RuntimeError, match="Set GCP_PROJECT"):
+        _required_env("GCP_PROJECT")
 
 
-def test_project_from_sa_email_invalid_returns_none():
-    assert _project_from_sa_email("") is None
-    assert _project_from_sa_email("no-at-sign") is None
-    assert _project_from_sa_email("user@gmail.com") is None
-    assert _project_from_sa_email("x@other.domain.com") is None
+def test_required_env_raises_when_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GCP_ZONE", "   ")
+    with pytest.raises(RuntimeError, match="Set GCP_ZONE"):
+        _required_env("GCP_ZONE")

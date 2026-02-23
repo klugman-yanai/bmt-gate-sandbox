@@ -50,7 +50,7 @@ def exists(uri: str) -> bool:
 )
 def main(bucket: str, bucket_prefix: str, require_runner: bool) -> int:
     if not bucket:
-        click.echo("::error::Set BUCKET (or GCS_BUCKET)", err=True)
+        click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
 
     root = bucket_root_uri(bucket, bucket_prefix)

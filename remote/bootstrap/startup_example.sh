@@ -81,19 +81,31 @@ if [[ -n "${GITHUB_STATUS_TOKEN:-}" ]]; then
   echo "✓ PAT token available as fallback"
 fi
 
-# 3. Run watcher once with uv-managed Python (exit-after-run: process one trigger then exit so we can stop the VM)
-#    VM service account needs roles/compute.instanceAdmin.v1 (or compute.instances.stop) to stop self.
+# 3. Run watcher once with uv-managed Python and always attempt self-stop afterwards.
+#    This prevents stale RUNNING VMs after failed runs/startup errors.
+WATCHER_EXIT=0
 if (cd "$BMT_REPO_ROOT" && uv run python remote/vm_watcher.py \
   --bucket "$GCS_BUCKET" \
   --bucket-prefix "$BMT_BUCKET_PREFIX" \
   --workspace-root "$BMT_WORKSPACE_ROOT" \
   --exit-after-run); then
-  INSTANCE=$(curl -sS -H "Metadata-Flavor: Google" \
-    "http://metadata.google.internal/computeMetadata/v1/instance/name")
-  ZONE=$(curl -sS -H "Metadata-Flavor: Google" \
-    "http://metadata.google.internal/computeMetadata/v1/instance/zone" | sed 's|.*/||')
-  PROJECT=$(curl -sS -H "Metadata-Flavor: Google" \
-    "http://metadata.google.internal/computeMetadata/v1/project/project-id")
+  WATCHER_EXIT=0
+else
+  WATCHER_EXIT=$?
+  echo "Watcher exited with non-zero status: ${WATCHER_EXIT}"
+fi
+
+INSTANCE=$(curl -sS -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/name" || true)
+ZONE=$(curl -sS -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/zone" | sed 's|.*/||' || true)
+PROJECT=$(curl -sS -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/project/project-id" || true)
+if [[ -n "$INSTANCE" && -n "$ZONE" && -n "$PROJECT" ]]; then
   echo "Stopping VM $INSTANCE (zone=$ZONE project=$PROJECT)."
   gcloud compute instances stop "$INSTANCE" --zone "$ZONE" --project "$PROJECT" || true
+else
+  echo "Warning: Could not resolve instance metadata for self-stop." >&2
 fi
+
+exit "$WATCHER_EXIT"
