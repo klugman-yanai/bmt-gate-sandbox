@@ -20,6 +20,13 @@ repo/staging/
 *.out
 bmt_root_results.json
 
+# VM/BMT runtime artifacts (bucket sync + handshake staging)
+remote/sk/inputs/
+remote/sk/outputs/
+remote/sk/results/archive/
+remote/triggers/
+resources/
+
 # Tooling/editor
 compile_commands.json
 .vscode/
