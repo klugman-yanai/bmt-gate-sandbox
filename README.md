@@ -2,6 +2,8 @@
 
 Where BMT logic is planned and you interface with the GCP VM/bucket: author config/scripts, test locally, push via devtools; the CI workflow here is copied to production manually.
 
+<!-- Test PR for live monitor verification -->
+
 ## Purpose
 
 This repo holds:
