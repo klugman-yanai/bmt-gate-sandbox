@@ -156,8 +156,9 @@ jobs:
         id: upload
         run: |
           set -euo pipefail
-          RUNNER_DIR="artifact/${{ matrix.binary_dir }}/Runners"
-          LIB_DIR="artifact/${{ matrix.binary_dir }}/Kardome"
+          # CI upload-artifact uses LCA of paths as artifact root, so we get artifact/Runners and artifact/Kardome
+          RUNNER_DIR="artifact/Runners"
+          LIB_DIR="artifact/Kardome"
 
           LIB_ARG=""
           if [ -d "$LIB_DIR" ]; then
