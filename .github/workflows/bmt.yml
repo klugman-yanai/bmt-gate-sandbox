@@ -1,15 +1,12 @@
-# Single BMT workflow: runs after the build workflow ("CI") succeeds.
-# Downloads runner artifacts from that run, pushes to GCS, triggers VM, handshake, posts pending.
-# For prod: add this alongside the main build workflow (e.g. resources/core-main-workflow.yml);
-# the build workflow must upload runner artifacts so this workflow can push them.
+# BMT workflow: runs after the CI workflow (dummy or real build) completes successfully.
+# Same workflow name "CI" as resources/core-main-workflow.yml so BMT runs after either.
 name: BMT
 run-name: "BMT • ${{ github.event.workflow_run.head_branch }} • ${{ github.event.workflow_run.head_sha }}"
 
 on:
   workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    # No branch filter - allows PRs targeting dev to trigger BMT
+    workflows: [ "CI" ]
+    types: [ completed ]
 
 concurrency:
   group: bmt-${{ github.event.workflow_run.head_sha }}
