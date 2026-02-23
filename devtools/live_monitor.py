@@ -203,14 +203,13 @@ def _format_duration_sec(seconds: int) -> str:
     """Format duration from seconds."""
     if seconds < 60:
         return f"{seconds}s"
-    elif seconds < 3600:
+    if seconds < 3600:
         mins = seconds // 60
         secs = seconds % 60
         return f"{mins}m {secs}s"
-    else:
-        hours = seconds // 3600
-        mins = (seconds % 3600) // 60
-        return f"{hours}h {mins}m"
+    hours = seconds // 3600
+    mins = (seconds % 3600) // 60
+    return f"{hours}h {mins}m"
 
 
 def poll_all(state: MonitorState) -> None:

@@ -1,11 +1,6 @@
 # Dummy "CI" workflow: mirrors job/step structure of resources/core-main-workflow.yml
 # (which cannot be modified). Runs on push or PR to dev; BMT runs after this completes.
-#
-# Why previous runs worked: GitHub runs the workflow from the *merge commit* (base + head).
-# So for a PR (e.g. test-monitor-pr → dev), the workflow file used is the one in that
-# merge; since the PR branch changed .github/workflows/ci.yml, that version runs. So
-# the workflow runs from the PR head branch. Push to dev uses the workflow on dev.
-# Main is irrelevant.
+# Dummy builds one job per project (filtered by BMT_PROJECTS; default "sk" for test env).
 name: CI
 
 on:
@@ -19,8 +14,12 @@ defaults:
   run:
     shell: bash
 
+env:
+  # One build job per project; default "sk" for test env. Set repo var BMT_PROJECTS to override.
+  BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
+
 jobs:
-  # ─────────────────────── 1) extract preset list ───────────────────────
+  # ─────────────────────── 1) one preset per project (gcc_Release only; filtered) ───────────────────────
   extract-presets:
     runs-on: ubuntu-latest
     outputs:
@@ -33,16 +32,21 @@ jobs:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head_sha || github.sha }}
           fetch-depth: 1
 
-      - name: Parse CMakePresets.json
+      - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
         id: parse
         run: |
-          presets=$(jq -c '
-            [ .buildPresets[]
-              | { build: .name
-                , configure: .configurePreset
-                , short: (.name | sub("-build$"; "")) }
-            ]' CMakePresets.json)
+          ALLOWED="${BMT_PROJECTS:-sk}"
+          ALLOWED_JSON=$(echo "$ALLOWED" | jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | ascii_downcase)')
+          presets=$(jq -c --argjson allowed "$ALLOWED_JSON" '
+            [ .configurePresets[]
+              | select(.name | test("_gcc_Release$"))
+              | select(.name | test("xtensa|hexagon") | not)
+              | (.name | sub("_gcc_Release$"; "") | ascii_downcase) as $proj
+              | select($allowed | index($proj))
+              | { configure: .name, build: (.name + "-build"), short: .name }
+            ] | unique_by(.configure)' CMakePresets.json)
           echo "presets=$presets" >>"$GITHUB_OUTPUT"
+          echo "::notice::Building one job per project (BMT_PROJECTS=${ALLOWED}): $presets"
 
   # ─────────────────────── 2) build every preset ────────────────────────
   build:

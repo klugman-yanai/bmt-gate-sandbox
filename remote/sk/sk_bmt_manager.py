@@ -602,7 +602,7 @@ def main() -> int:
     state = status.upper()
     print(
         f"SK_BMT_GATE={state} BMT={args.bmt_id} SCORE={aggregate_score:.3f} "
-        + f"RAW={raw_score:.3f}"
+         f"RAW={raw_score:.3f}"
     )
 
     return 1 if status == "fail" else 0

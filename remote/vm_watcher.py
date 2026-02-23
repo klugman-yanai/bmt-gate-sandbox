@@ -30,8 +30,8 @@ from typing import Any
 _SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 import github_auth  # type: ignore[import-not-found]  # noqa: E402
-import status_file  # type: ignore[import-not-found]  # noqa: E402
 import github_checks  # type: ignore[import-not-found]  # noqa: E402
+import status_file  # type: ignore[import-not-found]  # noqa: E402
 
 _shutdown = False
 
@@ -513,7 +513,7 @@ def _process_run_trigger(
         daemon=True,
     )
     heartbeat_thread.start()
-    print(f"  Started heartbeat thread")
+    print("  Started heartbeat thread")
 
     # Create GitHub Check Run
     check_run_id: int | None = None
@@ -662,7 +662,7 @@ def _process_run_trigger(
     # Stop heartbeat thread
     stop_heartbeat.set()
     heartbeat_thread.join(timeout=5)
-    print(f"  Stopped heartbeat thread")
+    print("  Stopped heartbeat thread")
 
     # Finalize status file
     try:
@@ -672,7 +672,7 @@ def _process_run_trigger(
             final_status["last_heartbeat"] = _now_iso()
             final_status["elapsed_sec"] = int(time.time() - start_timestamp)
             status_file.write_status(bucket, run_id, final_status)
-            print(f"  Finalized status file")
+            print("  Finalized status file")
     except Exception as exc:
         print(f"  Warning: Failed to finalize status file: {exc}")
 
