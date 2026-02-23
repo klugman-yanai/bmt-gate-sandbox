@@ -26,8 +26,8 @@ run-local-bmt bmt_id="false_reject_namuh" project_id="sk" dataset_root="":
     [ -z "$DS_ROOT" ] && DS_ROOT="data/{{project_id}}/inputs/{{bmt_id}}"
     uv run python devtools/bmt_run_local.py \
       --bmt-id {{bmt_id}} \
-      --jobs-config remote/{{project_id}}/config/bmt_jobs.json \
-      --runner remote/{{project_id}}/runners/kardome_runner \
+      --jobs-config remote/code/{{project_id}}/config/bmt_jobs.json \
+      --runner remote/runtime/{{project_id}}/runners/kardome_runner \
       --dataset-root "$DS_ROOT" \
       --workers 4
 
@@ -36,12 +36,12 @@ run-manager-gcs bucket run_id="test-local" project_id="sk" bmt_id="false_reject_
     #!/usr/bin/env -S bash -eu
     GCS_BUCKET_ARG="{{bucket}}"
     RUN_ID="{{run_id}}"
-    uv run python remote/{{project_id}}/bmt_manager.py \
+    uv run python remote/code/{{project_id}}/bmt_manager.py \
       --bucket "$GCS_BUCKET_ARG" \
       --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
       --project-id {{project_id}} \
       --bmt-id {{bmt_id}} \
-      --jobs-config remote/{{project_id}}/config/bmt_jobs.json \
+      --jobs-config remote/code/{{project_id}}/config/bmt_jobs.json \
       --workspace-root ./local_batch \
       --run-context dev \
       --run-id "$RUN_ID" \
@@ -57,18 +57,34 @@ monitor *args:
 # GCS Bucket Operations
 # =============================================================================
 
-# Sync remote/ to GCS (bucket from GCS_BUCKET env).
-# Runtime-generated paths are excluded by default (triggers/inputs/outputs/results).
+# Sync canonical code mirror (remote/code) to GCS code namespace.
 sync-remote:
     uv run python devtools/bucket_sync_remote.py
 
-# Sync remote/ to GCS with --delete (full mirror; removes bucket objects not in local remote/)
+# Sync canonical code mirror with --delete (full mirror under code namespace).
 sync-remote-delete:
     uv run python devtools/bucket_sync_remote.py --delete
 
-# Sync remote/ including runtime-generated paths (for rare debugging only)
+# Sync code mirror including runtime/generated patterns (debug only).
 sync-remote-runtime:
     uv run python devtools/bucket_sync_remote.py --include-runtime-artifacts
+
+# Verify local code + runtime mirrors match bucket manifests
+verify-sync:
+    uv run python devtools/bucket_verify_remote_sync.py
+    uv run python devtools/bucket_verify_runtime_seed_sync.py
+
+# Verify only runtime seed sync state against runtime manifest.
+verify-runtime-sync:
+    uv run python devtools/bucket_verify_runtime_seed_sync.py
+
+# Sync runtime seed mirror (remote/runtime) to runtime namespace.
+sync-runtime-seed:
+    uv run python devtools/bucket_sync_runtime_seed.py
+
+# Validate canonical remote layout policy (remote/ as 1:1 bucket mirror).
+validate-layout:
+    uv run python devtools/remote_layout_policy.py
 
 # Upload runner binary to bucket (bucket from GCS_BUCKET env)
 upload-runner:
@@ -115,9 +131,13 @@ gh-app-perms *args:
 gcs-trigger run_id:
     #!/usr/bin/env -S bash -eu
     GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET}"
-    PREFIX="${BMT_BUCKET_PREFIX:-}"
+    PARENT="${BMT_BUCKET_PREFIX:-}"
+    PARENT="${PARENT#/}"
+    PARENT="${PARENT%/}"
     RID="{{run_id}}"
-    ROOT="gs://$GCS_BUCKET"; [ -n "$PREFIX" ] && ROOT="$ROOT/$PREFIX"
+    RUNTIME_PREFIX="runtime"
+    [ -n "$PARENT" ] && RUNTIME_PREFIX="$PARENT/runtime"
+    ROOT="gs://$GCS_BUCKET/$RUNTIME_PREFIX"
     echo "=== Trigger (workflow wrote this) ==="
     gcloud storage cat "$ROOT/triggers/runs/$RID.json" 2>/dev/null || echo "(not found or failed)"
     echo ""

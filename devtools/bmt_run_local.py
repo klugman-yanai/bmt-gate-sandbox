@@ -1,9 +1,9 @@
 #!/usr/bin/env -S uv run --script
 """Local SK batch runner (config-first).
 
-Reads BMT behavior from remote/sk/config/bmt_jobs.json and runs kardome_runner
-once per wav by creating a transient JSON from the configured template.
-CLI flags act as explicit overrides.
+Reads BMT behavior from remote/code/sk/config/bmt_jobs.json and runs
+kardome_runner once per wav by creating a transient JSON from the configured
+template. CLI flags act as explicit overrides.
 """
 
 from __future__ import annotations
@@ -66,11 +66,13 @@ class ResolvedConfig:
 
 @dataclass
 class RunOptions:
-    jobs_config: str = "remote/sk/config/bmt_jobs.json"
+    jobs_config: str = "remote/code/sk/config/bmt_jobs.json"
     bmt_id: str = "false_reject_namuh"
     project_id: str = "sk"
     run_context: str = "manual"
-    sk_root: str = "remote/sk"
+    code_root: str = "remote/code"
+    runtime_root: str = "remote/runtime"
+    sk_root: str = ""
     results_subdir: str = "false_rejects"
     runner: str = ""
     template: str = ""
@@ -137,7 +139,7 @@ def effective_gate_comparison(bmt_id: str, comparison: str) -> str:
     return normalized
 
 
-def resolve_local_path(path_or_contract: str, sk_root: Path) -> Path:
+def resolve_local_path(path_or_contract: str, code_root: Path, runtime_root: Path) -> Path:
     raw = str(path_or_contract).strip()
     if not raw:
         raise ValueError("Empty path is not allowed")
@@ -147,13 +149,22 @@ def resolve_local_path(path_or_contract: str, sk_root: Path) -> Path:
     p = Path(raw).expanduser()
     if p.is_absolute():
         return p.resolve()
+    if raw.startswith("sk/config/"):
+        return (code_root / raw).resolve()
     if raw.startswith("sk/"):
-        return (sk_root.parent / raw).resolve()
+        return (runtime_root / raw).resolve()
     return (Path.cwd() / p).resolve()
 
 
 def resolve_config(opts: RunOptions) -> ResolvedConfig:
-    sk_root = Path(opts.sk_root).expanduser().resolve()
+    if opts.sk_root.strip():
+        # Legacy single-root contract where code and runtime lived under one parent.
+        legacy_parent = Path(opts.sk_root).expanduser().resolve().parent
+        code_root = legacy_parent
+        runtime_root = legacy_parent
+    else:
+        code_root = Path(opts.code_root).expanduser().resolve()
+        runtime_root = Path(opts.runtime_root).expanduser().resolve()
     jobs_config_path = Path(opts.jobs_config).expanduser().resolve()
     jobs_cfg = load_json(jobs_config_path)
 
@@ -200,17 +211,17 @@ def resolve_config(opts: RunOptions) -> ResolvedConfig:
     results_raw = get_path(paths_cfg, "results_prefix") or f"sk/results/{opts.results_subdir}"
     archive_raw = get_path(paths_cfg, "archive_prefix") or "sk/results/archive"
 
-    runner_path = resolve_local_path(runner_raw, sk_root)
-    template_path = resolve_local_path(template_raw, sk_root)
-    dataset_root = resolve_local_path(dataset_raw, sk_root)
-    output_root = resolve_local_path(output_raw, sk_root)
-    results_dir = resolve_local_path(results_raw, sk_root)
-    archive_dir = resolve_local_path(archive_raw, sk_root)
+    runner_path = resolve_local_path(runner_raw, code_root, runtime_root)
+    template_path = resolve_local_path(template_raw, code_root, runtime_root)
+    dataset_root = resolve_local_path(dataset_raw, code_root, runtime_root)
+    output_root = resolve_local_path(output_raw, code_root, runtime_root)
+    results_dir = resolve_local_path(results_raw, code_root, runtime_root)
+    archive_dir = resolve_local_path(archive_raw, code_root, runtime_root)
 
     if opts.log_root.strip():
-        log_root = resolve_local_path(opts.log_root, sk_root)
+        log_root = resolve_local_path(opts.log_root, code_root, runtime_root)
     elif logs_contract := get_path(paths_cfg, "logs_prefix"):
-        logs_base = resolve_local_path(logs_contract, sk_root)
+        logs_base = resolve_local_path(logs_contract, code_root, runtime_root)
         log_root = logs_base if logs_base.name == "latest" else logs_base / "latest"
     else:
         log_root = results_dir.parent / "logs" / results_dir.name / "latest"
@@ -496,11 +507,21 @@ def write_results(
 
 
 @click.command()
-@click.option("--jobs-config", default="remote/sk/config/bmt_jobs.json", help="BMT jobs config JSON path")
+@click.option("--jobs-config", default="remote/code/sk/config/bmt_jobs.json", help="BMT jobs config JSON path")
 @click.option("--bmt-id", default="false_reject_namuh", help="BMT id under bmts.<bmt_id> in jobs config")
 @click.option("--project-id", default="sk", help="Project id for result metadata")
 @click.option("--run-context", type=click.Choice(["manual", "dev", "pr"]), default="manual", help="Run context")
-@click.option("--sk-root", default="remote/sk", help="SK root folder for resolving sk/... paths")
+@click.option("--code-root", default="remote/code", help="Code root for sk/config/... contract paths")
+@click.option(
+    "--runtime-root",
+    default="remote/runtime",
+    help="Runtime root for sk/runners, sk/inputs, sk/outputs, and sk/results contract paths",
+)
+@click.option(
+    "--sk-root",
+    default="",
+    help="Legacy unified SK root override (e.g. remote/sk); when set, ignores --code-root/--runtime-root",
+)
 @click.option("--results-subdir", default="false_rejects", help="Fallback subdir when config paths are missing")
 @click.option("--runner", default="", help="Runner path override")
 @click.option("--template", default="", help="Template path override")
@@ -519,7 +540,14 @@ def main(**kwargs) -> int:
     opts = RunOptions(**kwargs)
 
     run_root = Path(opts.run_root).expanduser().resolve()
-    sk_root = Path(opts.sk_root).expanduser().resolve()
+    if opts.sk_root.strip():
+        runtime_sk_root = Path(opts.sk_root).expanduser().resolve()
+        code_root = runtime_sk_root.parent
+        runtime_root = runtime_sk_root.parent
+    else:
+        code_root = Path(opts.code_root).expanduser().resolve()
+        runtime_root = Path(opts.runtime_root).expanduser().resolve()
+        runtime_sk_root = runtime_root / "sk"
     cfg = resolve_config(opts)
 
     if not cfg.runner_path.is_file():
@@ -552,7 +580,9 @@ def main(**kwargs) -> int:
     ts_print(f"Runner: {cfg.runner_path}")
     ts_print(f"Template: {cfg.template_path}")
     ts_print(f"Dataset root: {cfg.dataset_root}")
-    ts_print(f"SK root: {sk_root}")
+    ts_print(f"Code root: {code_root}")
+    ts_print(f"Runtime root: {runtime_root}")
+    ts_print(f"SK runtime root: {runtime_sk_root}")
     ts_print(f"Wav files: {len(wav_files)}")
     ts_print(f"Workers: {workers}")
 
@@ -596,7 +626,7 @@ def main(**kwargs) -> int:
     gate = compute_gate(cfg.comparison, float(avg), previous_score, failed_count, opts.run_context)
     status, reason_code = resolve_status(gate, cfg.warning_policy)
 
-    write_results(cfg, opts, results, sk_root, run_root, avg, status, reason_code, gate)
+    write_results(cfg, opts, results, runtime_sk_root, run_root, avg, status, reason_code, gate)
 
     ok_count = len(results) - failed_count
     ts_print("")

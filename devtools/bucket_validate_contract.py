@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate required objects and ensure legacy _sandbox is absent."""
+"""Validate code/runtime bucket contract for manual sync deployments."""
 
 from __future__ import annotations
 
@@ -12,19 +12,30 @@ import click
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, bucket_root_uri
+from shared_bucket_env import (
+    bucket_option,
+    bucket_prefix_option,
+    code_bucket_root_uri,
+    normalize_prefix,
+    runtime_bucket_root_uri,
+)
 
-REQUIRED_STATIC = [
+REQUIRED_CODE = [
     "root_orchestrator.py",
     "bmt_projects.json",
-    "bmt_root_results.json",
+    "pyproject.toml",
     "sk/bmt_manager.py",
     "sk/config/bmt_jobs.json",
     "sk/config/input_template.json",
-    "sk/runners/sk_gcc_release/runner_latest_meta.json",
-    "sk/results/false_rejects/latest.json",
-    "sk/results/false_rejects/last_passing.json",
-    "sk/results/sk_bmt_results.json",
+    "uv.lock",
+    "_tools/uv/linux-x86_64/uv",
+    "_tools/uv/linux-x86_64/uv.sha256",
+    "bootstrap/ensure_uv.sh",
+    "bootstrap/startup_wrapper.sh",
+]
+
+REQUIRED_RUNTIME = [
+    "sk/results/false_rejects/current.json",
 ]
 
 
@@ -40,44 +51,79 @@ def exists(uri: str) -> bool:
     )
 
 
+def has_snapshot_leaf(runtime_root: str, results_prefix: str, leaf_name: str) -> bool:
+    uri = f"{runtime_root}/{results_prefix.rstrip('/')}/snapshots/*/{leaf_name}"
+    proc = subprocess.run(
+        ["gcloud", "storage", "ls", uri],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0 and bool((proc.stdout or "").strip())
+
+
 @click.command()
 @bucket_option
 @bucket_prefix_option
 @click.option(
     "--require-runner",
     is_flag=True,
-    help="Also require canonical runner binary object to exist.",
+    help="Also require canonical runner binary object to exist in runtime namespace.",
 )
 def main(bucket: str, bucket_prefix: str, require_runner: bool) -> int:
     if not bucket:
         click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
 
-    root = bucket_root_uri(bucket, bucket_prefix)
-
+    parent = normalize_prefix(bucket_prefix)
+    code_root = code_bucket_root_uri(bucket, parent)
+    runtime_root = runtime_bucket_root_uri(bucket, parent)
     missing = False
-    for rel in REQUIRED_STATIC:
-        uri = f"{root}/{rel}"
+
+    click.echo(f"Validating code root: {code_root}")
+    for rel in REQUIRED_CODE:
+        uri = f"{code_root}/{rel}"
         if exists(uri):
             click.echo(f"FOUND {uri}")
         else:
-            click.echo(f"::error::Missing required object: {uri}", err=True)
+            click.echo(f"::error::Missing required code object: {uri}", err=True)
             missing = True
 
+    click.echo(f"Validating runtime root: {runtime_root}")
+    for rel in REQUIRED_RUNTIME:
+        uri = f"{runtime_root}/{rel}"
+        if exists(uri):
+            click.echo(f"FOUND {uri}")
+        else:
+            click.echo(f"::error::Missing required runtime object: {uri}", err=True)
+            missing = True
+
+    results_prefix = "sk/results/false_rejects"
+    if has_snapshot_leaf(runtime_root, results_prefix, "latest.json"):
+        click.echo(f"FOUND snapshot latest.json under {runtime_root}/{results_prefix}/snapshots/")
+    else:
+        click.echo(
+            f"::error::Missing canonical snapshot latest.json under {runtime_root}/{results_prefix}/snapshots/",
+            err=True,
+        )
+        missing = True
+
+    if has_snapshot_leaf(runtime_root, results_prefix, "ci_verdict.json"):
+        click.echo(f"FOUND snapshot ci_verdict.json under {runtime_root}/{results_prefix}/snapshots/")
+    else:
+        click.echo(
+            f"::error::Missing canonical snapshot ci_verdict.json under {runtime_root}/{results_prefix}/snapshots/",
+            err=True,
+        )
+        missing = True
+
     if require_runner:
-        runner_uri = f"{root}/sk/runners/sk_gcc_release/kardome_runner"
+        runner_uri = f"{runtime_root}/sk/runners/sk_gcc_release/kardome_runner"
         if exists(runner_uri):
             click.echo(f"FOUND {runner_uri}")
         else:
             click.echo(f"::error::Missing required object: {runner_uri}", err=True)
             missing = True
-
-    sandbox_uri = f"{root}/_sandbox"
-    if exists(sandbox_uri):
-        click.echo(f"::error::Legacy _sandbox prefix exists under {sandbox_uri}", err=True)
-        missing = True
-    else:
-        click.echo(f"OK no _sandbox prefix under {root}")
 
     if missing:
         return 1

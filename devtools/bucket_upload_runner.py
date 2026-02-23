@@ -16,7 +16,7 @@ import click
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, bucket_root_uri
+from shared_bucket_env import bucket_option, bucket_prefix_option, normalize_prefix, runtime_bucket_root_uri
 
 
 def run(cmd: list[str], capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -65,7 +65,8 @@ def main(
         proc = run(["git", "rev-parse", "--short", "HEAD"], capture=True)
         source_ref = proc.stdout.strip() if proc.returncode == 0 else "unknown"
 
-    bucket_root = bucket_root_uri(bucket, bucket_prefix)
+    parent = normalize_prefix(bucket_prefix)
+    bucket_root = runtime_bucket_root_uri(bucket, parent)
     runner_uri_clean = runner_uri.lstrip("/")
     canonical_uri = f"{bucket_root}/{runner_uri_clean}"
     previous_uri = f"{canonical_uri}.previous"
