@@ -1,16 +1,29 @@
-# BMT workflow: runs after the CI workflow (dummy or real build) completes successfully.
-# Same workflow name "CI" as resources/core-main-workflow.yml so BMT runs after either.
+# BMT workflow: runs after CI (dummy or real build). Triggered by CI via workflow_dispatch.
 name: BMT
-run-name: "BMT • ${{ github.event.workflow_run.head_branch }} • ${{ github.event.workflow_run.head_sha }}"
+run-name: "BMT • ${{ github.event.inputs.head_branch }} • ${{ github.event.inputs.head_sha }}"
 
 on:
-  workflow_run:
-    workflows: [ "CI" ]
-    types: [ completed ]
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: "CI workflow run ID (for artifact download)"
+        required: true
+      head_sha:
+        description: "Head commit SHA"
+        required: true
+      head_branch:
+        description: "Head branch name"
+        required: true
+      head_event:
+        description: "Event that triggered CI (pull_request or push)"
+        required: false
+        default: "push"
+      pr_number:
+        description: "PR number (if head_event is pull_request)"
+        required: false
 
 concurrency:
-  group: bmt-${{ github.event.workflow_run.head_sha }}
-  cancel-in-progress: true
+  group: bmt-${{ github.event.inputs.head_sha }}
 
 permissions:
   contents: read
@@ -30,24 +43,37 @@ env:
   PYTHONPATH: .github/scripts
 
 jobs:
-  # ─────────────────── 00 Gate on build success ───────────────────
+  # ─────────────────── Resolve context (from workflow_dispatch inputs) ───────────────────
+  bmt-context:
+    name: Resolve context
+    runs-on: ubuntu-22.04
+    outputs:
+      run_id: ${{ steps.ctx.outputs.run_id }}
+      head_sha: ${{ steps.ctx.outputs.head_sha }}
+      head_branch: ${{ steps.ctx.outputs.head_branch }}
+      head_event: ${{ steps.ctx.outputs.head_event }}
+      pr_number: ${{ steps.ctx.outputs.pr_number }}
+    steps:
+      - id: ctx
+        run: |
+          echo "run_id=${{ github.event.inputs.ci_run_id }}" >>"$GITHUB_OUTPUT"
+          echo "head_sha=${{ github.event.inputs.head_sha }}" >>"$GITHUB_OUTPUT"
+          echo "head_branch=${{ github.event.inputs.head_branch }}" >>"$GITHUB_OUTPUT"
+          echo "head_event=${{ github.event.inputs.head_event }}" >>"$GITHUB_OUTPUT"
+          echo "pr_number=${{ github.event.inputs.pr_number }}" >>"$GITHUB_OUTPUT"
+
+  # ─────────────────── 00 Guard ───────────────────
   guard:
     name: 00 Guard
+    needs: bmt-context
     runs-on: ubuntu-22.04
-    if: |
-      github.event.workflow_run.conclusion == 'success' && (
-        github.event.workflow_run.head_branch == 'dev' ||
-        (github.event.workflow_run.event == 'pull_request' &&
-         github.event.workflow_run.pull_requests != null &&
-         github.event.workflow_run.pull_requests[0].base.ref == 'dev')
-      )
     steps:
-      - run: echo "Build succeeded (dev branch or PR to dev) — proceeding with BMT"
+      - run: echo "Proceeding with BMT"
 
   # ─────────────────── 01 Matrix: which BMTs requested (from presets) ───────────────────
   extract-bmt-presets:
     name: 01 Matrix (BMTs requested)
-    needs: guard
+    needs: [guard, bmt-context]
     runs-on: ubuntu-22.04
     outputs:
       runner-matrix: ${{ steps.parse.outputs.runner_matrix }}
@@ -55,7 +81,7 @@ jobs:
       - name: Checkout (source branch)
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
 
       - name: Parse gcc_Release presets
         id: parse
@@ -75,7 +101,7 @@ jobs:
   # ─────────────────── 02 GCP auth + runners pushed to GCS (from build artifacts) ───────────────────
   upload-runners:
     name: 02 Auth & Runners ${{ matrix.project }}
-    needs: extract-bmt-presets
+    needs: [extract-bmt-presets, bmt-context]
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -84,14 +110,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
 
       - name: Download runner artifact
         uses: actions/download-artifact@v4
         with:
           name: runner-${{ matrix.preset }}
           path: artifact
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.bmt-context.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: GCP Auth (WIF)
@@ -129,18 +155,18 @@ jobs:
             $LIB_ARG \
             --project "${{ matrix.project }}" \
             --preset "${{ matrix.preset }}" \
-            --source-ref "${{ github.event.workflow_run.head_sha }}"
+            --source-ref "${{ needs.bmt-context.outputs.head_sha }}"
 
   # ─────────────────── 03 Handshake begin (trigger written to GCS) ───────────────────
   send-run-payload:
     name: 03 Handshake begin (trigger to GCS)
-    needs: [upload-runners, extract-bmt-presets]
+    needs: [upload-runners, extract-bmt-presets, bmt-context]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
 
       - name: GCP Auth (WIF)
         uses: google-github-actions/auth@v2
@@ -194,11 +220,8 @@ jobs:
         run: |
           set -euo pipefail
           PR_ARGS=""
-          if [ "${{ github.event.workflow_run.event }}" = "pull_request" ] && [ "${{ github.event.workflow_run.pull_requests != null }}" = "true" ]; then
-            PR_NUM="${{ github.event.workflow_run.pull_requests[0].number }}"
-            if [ -n "$PR_NUM" ]; then
-              PR_ARGS="--pr-number $PR_NUM"
-            fi
+          if [ "${{ needs.bmt-context.outputs.head_event }}" = "pull_request" ] && [ -n "${{ needs.bmt-context.outputs.pr_number }}" ]; then
+            PR_ARGS="--pr-number ${{ needs.bmt-context.outputs.pr_number }}"
           fi
 
           uv run python ./.github/scripts/ci_driver.py trigger \
@@ -206,19 +229,19 @@ jobs:
             --bucket "$GCS_BUCKET" \
             --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
             --matrix-json '${{ steps.matrix.outputs.matrix }}' \
-            --run-context "${{ github.event.workflow_run.event == 'pull_request' && 'pr' || 'dev' }}" \
+            --run-context "${{ needs.bmt-context.outputs.head_event == 'pull_request' && 'pr' || 'dev' }}" \
             $PR_ARGS
 
   # ─────────────────── 04 VM woken up ───────────────────
   start-vm:
     name: 04 VM woken up
-    needs: send-run-payload
+    needs: [send-run-payload, bmt-context]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
 
       - name: GCP Auth (WIF)
         uses: google-github-actions/auth@v2
@@ -238,13 +261,13 @@ jobs:
   # ─────────────────── 05 Matrix: accepted vs unsupported (VM handshake response) ───────────────────
   vm-handshake:
     name: 05 Matrix accepted vs unsupported
-    needs: [send-run-payload, start-vm]
+    needs: [send-run-payload, start-vm, bmt-context]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
 
       - name: GCP Auth (WIF)
         uses: google-github-actions/auth@v2
@@ -294,7 +317,7 @@ jobs:
   # ─────────────────── 06 Pending VM response → End workflow ───────────────────
   post-pending-status:
     name: 06 Pending VM response
-    needs: vm-handshake
+    needs: [vm-handshake, bmt-context]
     runs-on: ubuntu-22.04
     steps:
       - name: Post pending commit status
@@ -305,5 +328,5 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ github.token }}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.event.workflow_run.head_sha }}" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ needs.bmt-context.outputs.head_sha }}" \
             -d "$(jq -n --arg c "$STATUS_CONTEXT" --arg d "$STATUS_DESC" '{state:"pending",context:$c,description:$d}')"

@@ -62,6 +62,8 @@ class MonitorState:
 
     # VM
     vm_state: str | None = None  # RUNNING, TERMINATED, STAGING, etc.
+    vm_status_data: dict[str, Any] | None = None  # Live status from status file
+    last_heartbeat: str | None = None  # Last heartbeat timestamp
 
     # GCS trigger & handshake
     trigger_data: dict[str, Any] | None = None
@@ -185,6 +187,32 @@ def format_duration(start_iso: str | None, end_iso: str | None = None) -> str:
         return "—"
 
 
+def _format_heartbeat_age(heartbeat_iso: str | None) -> int | None:
+    """Calculate age of heartbeat in seconds. Returns None if invalid."""
+    if not heartbeat_iso:
+        return None
+    try:
+        heartbeat = datetime.fromisoformat(heartbeat_iso.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        return int((now - heartbeat).total_seconds())
+    except (ValueError, AttributeError):
+        return None
+
+
+def _format_duration_sec(seconds: int) -> str:
+    """Format duration from seconds."""
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        mins = seconds // 60
+        secs = seconds % 60
+        return f"{mins}m {secs}s"
+    else:
+        hours = seconds // 3600
+        mins = (seconds % 3600) // 60
+        return f"{hours}h {mins}m"
+
+
 def poll_all(state: MonitorState) -> None:
     """Poll all data sources and update state."""
     try:
@@ -234,6 +262,13 @@ def poll_all(state: MonitorState) -> None:
 
         # VM
         state.vm_state = poll_vm_state(state.vm_name, state.zone)
+
+        # VM execution status (heartbeat and progress)
+        status_uri = f"gs://{state.bucket}/triggers/status/{state.run_id}.json"
+        vm_status = poll_gcs_json(status_uri)
+        if vm_status:
+            state.vm_status_data = vm_status
+            state.last_heartbeat = vm_status.get("last_heartbeat")
 
         # GCS trigger
         trigger_uri = f"gs://{state.bucket}/triggers/runs/{state.run_id}.json"
@@ -362,6 +397,35 @@ def render_vm(state: MonitorState) -> Panel:
     lines.append(
         f"State: [{vm_style}]{state.vm_state or '?'}[/{vm_style}]   Name: {state.vm_name}   Zone: {state.zone}"
     )
+
+    # Heartbeat and live progress
+    if state.vm_status_data:
+        heartbeat_age = _format_heartbeat_age(state.last_heartbeat)
+        if heartbeat_age is not None:
+            if heartbeat_age < 30:
+                lines.append(f"Heartbeat: {heartbeat_age}s ago ✓")
+            elif heartbeat_age < 60:
+                lines.append(f"[yellow]Heartbeat: {heartbeat_age}s ago[/yellow]")
+            else:
+                lines.append(f"[red]Heartbeat: {heartbeat_age}s ago (stale!)[/red]")
+
+        current = state.vm_status_data.get("current_leg")
+        if current:
+            files_completed = current.get("files_completed", 0)
+            files_total = current.get("files_total")
+            if files_total:
+                progress_pct = int((files_completed / files_total) * 100) if files_total > 0 else 0
+                lines.append(
+                    f"Current: {current['project']}/{current['bmt_id']} "
+                    f"({files_completed}/{files_total} files, {progress_pct}%)"
+                )
+
+        eta_sec = state.vm_status_data.get("eta_sec")
+        elapsed_sec = state.vm_status_data.get("elapsed_sec", 0)
+        if eta_sec is not None:
+            lines.append(f"ETA: ~{_format_duration_sec(eta_sec)}  Elapsed: {_format_duration_sec(elapsed_sec)}")
+        elif elapsed_sec:
+            lines.append(f"Elapsed: {_format_duration_sec(elapsed_sec)}")
 
     # Execution pipeline stages
     lines.append("")

@@ -33,6 +33,8 @@ def parse_args() -> argparse.Namespace:
     _ = parser.add_argument("--workspace-root", default=str(Path("~/sk_runtime").expanduser()))
     _ = parser.add_argument("--summary-out", default="bmt_root_results.json")
     _ = parser.add_argument("--human", action="store_true")
+    _ = parser.add_argument("--leg-index", type=int, help="Index of this leg in the workflow (for progress tracking)")
+    _ = parser.add_argument("--workflow-run-id", help="Workflow run ID (for progress tracking)")
     return parser.parse_args()
 
 
@@ -164,7 +166,14 @@ def main() -> int:
         if args.human:
             command.append("--human")
 
-        proc = subprocess.run(command, check=False)
+        # Set up env vars for manager progress tracking
+        env = os.environ.copy()
+        if args.leg_index is not None and args.workflow_run_id:
+            env["BMT_STATUS_BUCKET"] = args.bucket
+            env["BMT_STATUS_RUN_ID"] = str(args.workflow_run_id)
+            env["BMT_STATUS_LEG_INDEX"] = str(args.leg_index)
+
+        proc = subprocess.run(command, check=False, env=env)
         manager_exit_code = proc.returncode
 
         manager_summary: dict[str, Any] | None = None
