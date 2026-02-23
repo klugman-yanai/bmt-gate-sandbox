@@ -51,7 +51,7 @@ Watcher auth resolution is repository-aware:
 | `ssh_install.sh` | Run `install_deps.sh` remotely over `gcloud compute ssh`. |
 | `setup_vm_startup.sh` | Set VM metadata and startup-script (`startup_wrapper.sh`). |
 | `startup_wrapper.sh` | Minimal metadata reader that execs `startup_example.sh`. |
-| `startup_example.sh` | Fetch secrets, run watcher, stop VM on success. |
+| `startup_example.sh` | Fetch secrets, run watcher, then always attempt VM self-stop (success or failure). |
 | `audit_vm_and_bucket.sh` | Audit VM files and bucket trigger/results layout. |
 | `bmt-watcher.service.example` | Example systemd unit using startup script. |
 
@@ -62,18 +62,24 @@ Watcher auth resolution is repository-aware:
 3. Install deps once:
 `./remote/bootstrap/install_deps.sh /opt/bmt`.
 4. Configure startup metadata from laptop:
-set `GCP_ZONE`, `VM_NAME` or `BMT_VM_NAME`, `GCS_BUCKET`, and `GCP_PROJECT` or `GCP_SA_EMAIL`, then run:
+set `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`, then run:
 `./remote/bootstrap/setup_vm_startup.sh`.
 5. On next boot, VM runs watcher for one trigger and then stops itself.
 
+Note: `bmt.yml` now syncs `GCS_BUCKET` and `BMT_BUCKET_PREFIX` metadata automatically before VM start, so bucket/prefix changes in repo vars do not require rerunning bootstrap. Rerun bootstrap only when startup script or repo path metadata changes.
+Canonical naming is strictly enforced: use `BMT_VM_NAME` and explicit `GCP_PROJECT` (no `VM_NAME` alias and no derived project fallback).
+
 ## Configuration Variables
+
+Canonical variable contract lives at `config/env_contract.json`.
+Repo variable overrides may live in `config/repo_vars.toml` (optional; sync with `just repo-vars-apply`).
 
 Required:
 
 - `GCS_BUCKET`
+- `GCP_PROJECT`
 - `GCP_ZONE`
-- `VM_NAME` or `BMT_VM_NAME`
-- `GCP_PROJECT` or `GCP_SA_EMAIL` (project derived from SA email when omitted)
+- `BMT_VM_NAME`
 
 Optional:
 

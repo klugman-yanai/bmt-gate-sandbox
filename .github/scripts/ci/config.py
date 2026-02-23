@@ -30,6 +30,9 @@ def read_json_object(path: Path) -> dict[str, Any]:
 
 
 def _parse_filter(raw: str) -> set[str]:
+    normalized = " ".join(raw.strip().lower().split())
+    if not normalized or normalized in {"all", "*", "all release runners", "all-release-runners", "all_release_runners"}:
+        return set()
     return {item.strip() for item in raw.replace(",", " ").split() if item.strip()}
 
 

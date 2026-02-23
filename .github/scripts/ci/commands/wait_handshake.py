@@ -55,7 +55,7 @@ def command(
             break
         last_error = error
         if elapsed - last_progress >= 15:
-            remaining = int(deadline - time.monotonic())
+            remaining = max(0, int(deadline - time.monotonic()))
             print(f"  ... waiting {int(elapsed)}s / {timeout_sec}s timeout (remaining ~{remaining}s)")
             last_progress = elapsed
         remaining = deadline - time.monotonic()

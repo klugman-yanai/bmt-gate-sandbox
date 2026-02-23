@@ -6,27 +6,32 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bmt-cloud-dev"
 version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = ["click>=8.0", "rich>=13.0", "requests>=2.31.0"]
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.0",
+    "rich>=13.0",
+    "requests>=2.31.0",
+    "whenever>=0.9.5",
+]
 
 [project.optional-dependencies]
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
 vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 # For live BMT monitor TUI (install with: pip install -e ".[monitor]")
-monitor = ["rich>=13.0"]
+monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 [tool.setuptools.packages.find]
 # ci/ lives at .github/scripts/ci/ — tell setuptools to look there.
 where = [".github/scripts"]
 
-# Ruff: configured in ruff.toml (line-length 120, py310, select/ignore, per-file-ignores).
+# Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
 
 [tool.basedpyright]
 include = ["."]
 exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime", "local_batch", "secrets"]
 venvPath = "."
 venv = ".venv"
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 extraPaths = [".github/scripts"]
 # Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
 reportExplicitAny = false

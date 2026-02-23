@@ -7,96 +7,121 @@ This file is the canonical location for Mermaid diagrams used by BMT docs.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as Developer
-    participant CI as GitHub Actions: ci.yml
-    participant BMT as GitHub Actions: bmt.yml
-    participant GCS as GCS Bucket
-    participant VM as VM: vm_watcher.py
-    participant GH as GitHub Status/Checks
+    participant Dev as Developer
+    participant CI as GitHub Actions ci.yml
+    participant BMT as GitHub Actions bmt.yml
+    participant GCS as GCS
+    participant VM as VM vm_watcher.py
+    participant GH as GitHub API
 
-    U->>CI: push / pull_request on dev
-    CI->>CI: Build matrix + runner artifacts
-    CI->>BMT: workflow_dispatch(ci_run_id, head_sha, ...)
+    Dev->>CI: push or pull_request on dev
+    CI->>CI: build and upload runner artifacts
+    CI->>BMT: workflow_dispatch with ci_run_id and head sha
 
-    BMT->>GCS: Upload runner bundle(s)
-    BMT->>GCS: Write triggers/runs/workflow_run_id.json
-    BMT->>VM: Start VM instance
+    BMT->>GCS: upload runner bundle to project/runners/preset
+    BMT->>GCS: write triggers/runs/workflow_run_id.json
+    BMT->>VM: start VM instance
+    BMT->>GCS: wait for triggers/acks/workflow_run_id.json
+    BMT->>GH: post pending commit status
+    BMT-->>Dev: workflow ends
 
-    VM->>GCS: Poll and read run trigger
-    VM->>GCS: Write triggers/acks/workflow_run_id.json
-    BMT->>GCS: Wait/read ack
-    BMT->>GH: Post pending commit status
-    BMT-->>U: Workflow ends (non-blocking)
+    VM->>GCS: startup sweep trim triggers/acks and triggers/status
+    VM->>VM: startup sweep prune local run dirs
+    VM->>GCS: poll and read run trigger
+    VM->>GCS: write triggers/acks/workflow_run_id.json
+    VM->>GCS: write triggers/status/workflow_run_id.json
+    VM->>GH: create check run and post pending
 
-    VM->>GH: Create Check Run (in_progress)
-    loop per leg (project,bmt_id,run_id)
-        VM->>VM: root_orchestrator.py
-        VM->>VM: project bmt_manager.py
-        VM->>GCS: Write snapshots/run_id/*
-        VM->>GH: Update Check Run progress
+    loop one leg per project and bmt_id
+        VM->>VM: run root_orchestrator.py
+        VM->>VM: run project bmt_manager.py
+        VM->>GCS: write snapshots/run_id/latest.json
+        VM->>GCS: write snapshots/run_id/ci_verdict.json
+        VM->>GH: update check run progress
     end
 
-    VM->>GCS: Update current.json pointers
-    VM->>GCS: Cleanup stale snapshots
-    VM->>GH: Post final commit status + complete Check Run
-    VM->>GCS: Delete trigger file
-    VM->>VM: Exit if --exit-after-run
+    VM->>GCS: update current.json latest and last_passing
+    VM->>GCS: delete snapshots not in latest or last_passing
+    VM->>GCS: delete legacy results archive and logs prefixes
+    VM->>GH: complete check run and post final status
+    VM->>GCS: delete triggers/runs/workflow_run_id.json
+    VM->>GCS: trim triggers/acks and triggers/status to recent
+    VM->>VM: prune local run dirs to current and previous
+    VM->>VM: exit when exit_after_run is enabled
 ```
 
 ## VM Processing Flow
 
 ```mermaid
 flowchart TD
-    A[Start vm_watcher.py] --> B[Poll triggers/runs/*.json]
-    B --> C{Trigger found?}
-    C -- No --> B
-    C -- Yes --> D[Download run payload]
-    D --> E[Resolve GitHub auth for repository]
-    E --> F[Write handshake ack to triggers/acks]
-    F --> G[Initialize triggers/status file + heartbeat thread]
-    G --> H[Create GitHub Check Run + post pending status]
-    H --> I[Download root_orchestrator.py from bucket]
-    I --> J{For each leg}
-    J --> K[Run root_orchestrator.py]
-    K --> L[Run project manager bmt_manager.py]
-    L --> M[Manager uploads snapshot artifacts + ci_verdict]
-    M --> N[Watcher reads manager_summary + updates progress]
-    N --> J
-    J --> O[Aggregate leg outcomes]
-    O --> P[Update current.json latest/last_passing]
-    P --> Q[Delete stale snapshots]
-    Q --> R[Finalize status file + complete Check Run]
-    R --> S[Post final commit status]
-    S --> T[Delete run trigger]
-    T --> U{"exit_after_run flag set?"}
-    U -- Yes --> V["Exit: startup script stops VM"]
-    U -- No --> B
+    A[Watcher starts] --> B[Startup cleanup]
+    B --> C[Trim triggers/acks and triggers/status]
+    C --> D[Prune local run dirs]
+    D --> E[Scan triggers/runs]
+    E --> F{Trigger found}
+    F -->|No| E
+    F -->|Yes| G[Download run payload]
+    G --> H{Payload valid and has legs}
+    H -->|No| I[Delete trigger file]
+    I --> E
+    H -->|Yes| J[Write handshake ack and status]
+    J --> K[Start heartbeat thread]
+    K --> L[Download root_orchestrator.py]
+    L --> M{Download ok}
+    M -->|No| N[Post failure status]
+    M -->|Yes| O[Run each leg via orchestrator]
+    O --> P[Update progress and check run]
+    P --> Q{More legs}
+    Q -->|Yes| O
+    Q -->|No| R[Aggregate outcome]
+    R --> S[Finalize status and check run]
+    S --> T[Update current.json latest and last_passing]
+    T --> U[Delete stale snapshots]
+    U --> V[Delete legacy results history prefixes]
+    V --> W[Post final commit status]
+    N --> X[Finally block cleanup]
+    W --> X
+    X --> Y[Stop heartbeat thread]
+    Y --> Z[Delete trigger file]
+    Z --> AA[Trim triggers/acks and triggers/status]
+    AA --> AB[Prune local run dirs]
+    AB --> AC{exit_after_run enabled}
+    AC -->|Yes| AD[Exit watcher]
+    AC -->|No| E
 ```
 
 ## GCS Object Lifecycle
 
 ```mermaid
 flowchart LR
-    subgraph ControlPlane[Control-plane objects]
+    subgraph BuildAndTrigger[Build and trigger objects]
+      RUNNER["project/runners/preset/*"]
       TRIG["triggers/runs/workflow_run_id.json"]
       ACK["triggers/acks/workflow_run_id.json"]
       STAT["triggers/status/workflow_run_id.json"]
+      META["acks and status keep recent only"]
     end
 
-    subgraph Runners[Runner bundles]
-      RUNNER["project/runners/preset/*"]
-    end
-
-    subgraph Results[Result objects per BMT]
-      SNAP["snapshots/run_id/latest.json + ci_verdict.json + logs/*"]
-      PTR["current.json (latest + last_passing)"]
-      CLEAN["stale snapshots removed"]
+    subgraph PerBmtResults[Per results_prefix objects]
+      SNAP["snapshots/run_id/latest.json"]
+      VERDICT["snapshots/run_id/ci_verdict.json"]
+      LOGS["snapshots/run_id/logs/*"]
+      PTR["current.json latest and last_passing"]
+      GC["keep only latest and last_passing snapshots"]
+      LEGACY["legacy results archive and logs deleted"]
     end
 
     RUNNER --> TRIG
     TRIG --> ACK
     TRIG --> STAT
+    ACK --> META
+    STAT --> META
     TRIG --> SNAP
+    TRIG --> VERDICT
+    TRIG --> LOGS
     SNAP --> PTR
-    PTR --> CLEAN
+    VERDICT --> PTR
+    LOGS --> PTR
+    PTR --> GC
+    PTR --> LEGACY
 ```

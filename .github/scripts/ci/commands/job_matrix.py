@@ -22,7 +22,7 @@ def command(
     """Build matrix JSON from remote config."""
     matrix = config.build_matrix(Path(config_root), project_filter)
     if not matrix["include"]:
-        raise RuntimeError("No enabled project+BMT rows found for CI matrix")
+        print("::warning::No supported project+BMT rows found for requested project filter.")
     if not github_output:
         raise RuntimeError("GITHUB_OUTPUT is required")
     with Path(github_output).open("a", encoding="utf-8") as fh:

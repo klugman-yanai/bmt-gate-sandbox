@@ -13,16 +13,18 @@ import argparse
 import contextlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,9 +33,12 @@ _SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 import github_auth  # type: ignore[import-not-found]  # noqa: E402
 import github_checks  # type: ignore[import-not-found]  # noqa: E402
+import github_pr_comment  # type: ignore[import-not-found]  # noqa: E402
 import status_file  # type: ignore[import-not-found]  # noqa: E402
 
 _shutdown = False
+_KEEP_RECENT_WORKFLOW_FILES = 2
+_KEEP_RECENT_LOCAL_RUNS = 2
 
 
 def _handle_signal(signum: int, _frame: Any) -> None:
@@ -57,7 +62,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _normalize_prefix(prefix: str) -> str:
@@ -259,6 +264,146 @@ def _latest_run_root(workspace_root: Path, project: str, bmt_id: str) -> Path | 
     return run_dirs[0] if run_dirs else None
 
 
+def _prune_run_dirs(run_parent: Path, keep_recent: int = _KEEP_RECENT_LOCAL_RUNS) -> None:
+    """Keep only the newest ``keep_recent`` run_* directories under one parent."""
+    if not run_parent.is_dir():
+        return
+    keep_recent = max(keep_recent, 1)
+    run_dirs: list[tuple[float, Path]] = []
+    for candidate in run_parent.iterdir():
+        if not candidate.is_dir() or not candidate.name.startswith("run_"):
+            continue
+        try:
+            run_dirs.append((candidate.stat().st_mtime, candidate))
+        except OSError:
+            continue
+    run_dirs.sort(key=lambda item: item[0], reverse=True)
+    for _, stale_dir in run_dirs[keep_recent:]:
+        shutil.rmtree(stale_dir, ignore_errors=True)
+
+
+def _prune_workspace_runs(workspace_root: Path, keep_recent_per_bmt: int = _KEEP_RECENT_LOCAL_RUNS) -> None:
+    """Prune local workspace so each project/BMT keeps only current + previous run."""
+    _prune_run_dirs(workspace_root, keep_recent=keep_recent_per_bmt)
+    for project_dir in workspace_root.iterdir():
+        if not project_dir.is_dir():
+            continue
+        for bmt_dir in project_dir.iterdir():
+            if bmt_dir.is_dir():
+                _prune_run_dirs(bmt_dir, keep_recent=keep_recent_per_bmt)
+
+
+def _run_id_from_json_uri(uri: str) -> str | None:
+    """Extract run ID from a trailing `<run_id>.json` object URI."""
+    name = uri.rsplit("/", 1)[-1]
+    if not name.endswith(".json"):
+        return None
+    run_id = name[:-5].strip()
+    return run_id or None
+
+
+def _workflow_run_sort_key(run_id: str) -> tuple[int, int | str]:
+    """Sort run IDs newest-first by numeric value when possible, else lexicographically."""
+    rid = run_id.strip()
+    if rid.isdigit():
+        return (1, int(rid))
+    return (0, rid)
+
+
+def _trim_trigger_family(
+    family_prefix_uri: str,
+    *,
+    keep_ids: set[str],
+    keep_recent: int = _KEEP_RECENT_WORKFLOW_FILES,
+) -> None:
+    """Prune stale JSON objects in one trigger family and keep only recent + explicit IDs."""
+    object_uris = [uri for uri in _gcloud_ls(family_prefix_uri) if uri.endswith(".json")]
+    entries: list[tuple[str, str]] = []
+    for uri in object_uris:
+        run_id = _run_id_from_json_uri(uri)
+        if run_id is None:
+            continue
+        entries.append((run_id, uri))
+    if not entries:
+        return
+
+    normalized_keep = {rid.strip() for rid in keep_ids if rid and rid.strip()}
+    sorted_entries = sorted(entries, key=lambda item: _workflow_run_sort_key(item[0]), reverse=True)
+    recent_ids: list[str] = []
+    for run_id, _ in sorted_entries:
+        if run_id not in recent_ids:
+            recent_ids.append(run_id)
+        if len(recent_ids) >= max(keep_recent, 0):
+            break
+    retained_ids = normalized_keep.union(recent_ids)
+
+    deleted = 0
+    failed = 0
+    for run_id, uri in entries:
+        if run_id in retained_ids:
+            continue
+        if _gcloud_rm(uri):
+            deleted += 1
+        else:
+            failed += 1
+    if deleted or failed:
+        kept = len(entries) - deleted
+        print(
+            f"  Trimmed {family_prefix_uri}: kept={kept} deleted={deleted} failed={failed} "
+            f"(retain recent={max(keep_recent, 0)} + explicit={len(normalized_keep)})"
+        )
+
+
+def _cleanup_workflow_artifacts(
+    *,
+    bucket: str,
+    bucket_prefix: str,
+    keep_workflow_ids: set[str],
+) -> None:
+    """Keep workflow metadata families bounded to current + previous entries."""
+    bucket_name = (bucket or "").strip()
+    if not bucket_name:
+        return
+
+    prefixed_root = _bucket_root_uri(bucket_name, bucket_prefix)
+    base_root = _bucket_root_uri(bucket_name, "")
+    families = [
+        _bucket_uri(prefixed_root, "triggers/acks/"),
+        _bucket_uri(prefixed_root, "triggers/status/"),
+        _bucket_uri(base_root, "triggers/status/"),
+    ]
+    seen: set[str] = set()
+    for family_uri in families:
+        if family_uri in seen:
+            continue
+        seen.add(family_uri)
+        _trim_trigger_family(
+            family_uri,
+            keep_ids=keep_workflow_ids,
+            keep_recent=_KEEP_RECENT_WORKFLOW_FILES,
+        )
+
+
+def _cleanup_legacy_result_history(bucket_root: str, results_prefix: str) -> None:
+    """Delete legacy run-history prefixes no longer used by pointer/snapshot flow."""
+    clean_prefix = results_prefix.strip("/")
+    if not clean_prefix or "/results/" not in clean_prefix:
+        return
+
+    before_results, _, bmt_suffix = clean_prefix.partition("/results/")
+    if not bmt_suffix:
+        return
+    base = f"{before_results}/results" if before_results else "results"
+    legacy_prefixes = [
+        f"{base}/archive",
+        f"{base}/logs/{bmt_suffix}",
+    ]
+    for rel in legacy_prefixes:
+        legacy_uri = _bucket_uri(bucket_root, rel)
+        if _gcloud_rm(legacy_uri, recursive=True):
+            print(f"  Removed legacy history prefix: {legacy_uri}")
+
+
 def _load_manager_summary(run_root: Path | None) -> dict[str, Any] | None:
     """Load manager_summary.json from a run root; return None if missing or invalid."""
     if run_root is None:
@@ -289,6 +434,29 @@ def _results_prefix_from_ci_verdict_uri(bucket_root: str, ci_verdict_uri: str) -
     return rel or None
 
 
+def _progress_description(legs: list[dict[str, Any]], elapsed_sec: int) -> str:
+    """Build short commit-status description for PR (max 140 chars) so devs see progress in the browser."""
+    total = len(legs)
+    completed = sum(1 for leg in legs if leg.get("status") not in ("pending", "running"))
+    pass_n = sum(1 for leg in legs if leg.get("status") == "pass")
+    fail_n = sum(1 for leg in legs if leg.get("status") == "fail")
+    running_n = sum(1 for leg in legs if leg.get("status") == "running")
+    elapsed_str = f"{elapsed_sec // 60}m" if elapsed_sec >= 60 else f"{elapsed_sec}s"
+    # Prefer one-line summary that fits; fall back to compact counts
+    summary_parts = []
+    if pass_n:
+        summary_parts.append(f"{pass_n} pass")
+    if fail_n:
+        summary_parts.append(f"{fail_n} fail")
+    if running_n:
+        summary_parts.append(f"{running_n} running")
+    if completed < total and not running_n:
+        summary_parts.append(f"{total - completed} pending")
+    line = ", ".join(summary_parts) if summary_parts else "running"
+    desc = f"BMT: {completed}/{total} legs · {line} — {elapsed_str}"
+    return desc[:140]
+
+
 def _aggregate_verdicts_from_summaries(summaries: list[dict[str, Any] | None]) -> tuple[str, str]:
     """Compute (state, description) from manager summaries. state: success|failure."""
     pass_count = 0
@@ -306,6 +474,38 @@ def _aggregate_verdicts_from_summaries(summaries: list[dict[str, Any] | None]) -
     if fail_count == 0:
         return "success", f"BMT: {pass_count}/{total} passed"
     return "failure", f"BMT: {fail_count}/{total} failed, {pass_count} passed"
+
+
+def _format_bmt_comment(result: str, summary_line: str, details_line: str) -> str:
+    """Build PR comment body: heading + summary + details line."""
+    return f"## BMT result: {result}\n\n{summary_line}\n\n{details_line}"
+
+
+def _human_readable_bmt_label(bmt_id: str) -> str:
+    """Turn bmt_id (e.g. false_reject_namuh) into display text (e.g. False Rejects)."""
+    if not bmt_id or bmt_id == "?":
+        return bmt_id or "?"
+    return bmt_id.replace("_", " ").strip().title()
+
+
+def _failed_legs_display(summaries: list[dict[str, Any] | None]) -> str:
+    """List failed project · BMT in human-readable form for PR comment."""
+    parts: list[str] = []
+    for summary in summaries or []:
+        if summary is None:
+            continue
+        status = (summary.get("status") or "").strip().lower()
+        if status in ("pass", "warning"):
+            continue
+        project = (summary.get("project_id") or summary.get("project") or "?").strip()
+        if project and project != "?":
+            project = project.upper() if len(project) <= 3 else project.title()
+        bmt_id = (summary.get("bmt_id") or "?").strip()
+        bmt_label = _human_readable_bmt_label(bmt_id) if bmt_id != "?" else "?"
+        parts.append(f"**{project} · {bmt_label}**")
+    if not parts:
+        return "One or more test suites did not pass."
+    return "Failed: " + "; ".join(parts)
 
 
 def _heartbeat_loop(bucket: str, run_id: str, stop_event: threading.Event) -> None:
@@ -394,6 +594,7 @@ def _update_pointer_and_cleanup(
         delete_prefix = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/snapshots/{run_id_to_delete}")
         if _gcloud_rm(delete_prefix, recursive=True):
             print(f"  Cleaned snapshot {run_id_to_delete}")
+    _cleanup_legacy_result_history(bucket_root, results_prefix)
 
 
 def _process_run_trigger(
@@ -418,6 +619,12 @@ def _process_run_trigger(
     description_pending = (
         run_payload.get("description_pending") or ""
     ).strip() or "BMT running on VM; status will update when complete."
+
+    pr_number: int | None = None
+    pr_raw = run_payload.get("pull_request_number")
+    if pr_raw is not None:
+        with contextlib.suppress(TypeError, ValueError):
+            pr_number = int(pr_raw)
 
     # Resolve GitHub token for this specific repository
     github_token = github_token_resolver(repository) if repository else None
@@ -498,7 +705,9 @@ def _process_run_trigger(
         "last_run_duration_sec": None,
         "errors": [],
     }
-    bucket = run_payload.get("bucket", "")
+    bucket = str(run_payload.get("bucket", "")).strip()
+    bucket_prefix = (run_payload.get("bucket_prefix") or "").strip()
+    workflow_run_id_str = str(workflow_run_id)
     try:
         status_file.write_status(bucket, run_id, initial_status)
         print(f"  Initialized status file for run {run_id}")
@@ -547,170 +756,247 @@ def _process_run_trigger(
         )
 
     try:
-        orchestrator_path = _download_orchestrator(bucket_root, workspace_root)
-    except subprocess.CalledProcessError as exc:
-        print(f"  Failed to download orchestrator: {exc}")
-        if repository and sha and github_token:
-            _post_commit_status(
-                repository,
-                sha,
-                "failure",
-                "BMT VM: failed to download orchestrator",
-                None,
-                github_token,
-                context=status_context,
-            )
-        _gcloud_rm(run_trigger_uri)
-        return
-
-    bucket_prefix = (run_payload.get("bucket_prefix") or "").strip()
-    leg_summaries: list[dict[str, Any] | None] = []
-    start_timestamp = time.time()
-
-    for idx, leg in enumerate(legs):
-        if not isinstance(leg, dict):
-            leg_summaries.append(None)
-            continue
-
-        # Update status: mark leg as running
         try:
-            current_status = status_file.read_status(bucket, run_id)
-            if current_status:
-                current_status["legs"][idx]["status"] = "running"
-                current_status["legs"][idx]["started_at"] = _now_iso()
-                current_status["current_leg"] = current_status["legs"][idx].copy()
-                current_status["elapsed_sec"] = int(time.time() - start_timestamp)
-                status_file.write_status(bucket, run_id, current_status)
-        except Exception as exc:
-            print(f"  Warning: Failed to update status for leg {idx}: {exc}")
+            orchestrator_path = _download_orchestrator(bucket_root, workspace_root)
+        except subprocess.CalledProcessError as exc:
+            print(f"  Failed to download orchestrator: {exc}")
+            if repository and sha and github_token:
+                _post_commit_status(
+                    repository,
+                    sha,
+                    "failure",
+                    "BMT VM: failed to download orchestrator",
+                    None,
+                    github_token,
+                    context=status_context,
+                )
+                if pr_number is not None:
+                    body = _format_bmt_comment(
+                        "Did not run",
+                        "The test runner could not start.",
+                        "For details, open the **Checks** tab on this PR.",
+                    )
+                    github_pr_comment.post_pr_comment(github_token, repository, pr_number, body)
+            return
 
-        trigger = {
-            "bucket": bucket,
-            "bucket_prefix": bucket_prefix,
-            "project": leg.get("project", "?"),
-            "bmt_id": leg.get("bmt_id", "?"),
-            "run_context": run_context,
-            "run_id": leg.get("run_id", "?"),
-            "leg_index": idx,
-            "workflow_run_id": workflow_run_id,
-        }
-        leg_start_time = time.time()
-        exit_code = _run_orchestrator(orchestrator_path, trigger, workspace_root)
-        leg_duration = int(time.time() - leg_start_time)
-        state = "PASS" if exit_code == 0 else "FAIL"
-        print(f"  Leg {idx + 1}/{len(legs)} {trigger['project']}.{trigger['bmt_id']} -> {state}")
-        run_root = _latest_run_root(workspace_root, trigger["project"], trigger["bmt_id"])
-        summary = _load_manager_summary(run_root)
-        leg_summaries.append(summary)
+        leg_summaries: list[dict[str, Any] | None] = []
+        start_timestamp = time.time()
 
-        # Update status: mark leg as complete
         try:
-            current_status = status_file.read_status(bucket, run_id)
-            if current_status:
-                leg_status = "pass" if exit_code == 0 else "fail"
-                current_status["legs"][idx]["status"] = leg_status
-                current_status["legs"][idx]["completed_at"] = _now_iso()
-                current_status["legs"][idx]["duration_sec"] = leg_duration
+            for idx, leg in enumerate(legs):
+                if not isinstance(leg, dict):
+                    leg_summaries.append(None)
+                    continue
 
-                # Get files info from manager summary if available
-                if summary:
-                    bmt_results = summary.get("bmt_results", {})
-                    results = bmt_results.get("results", [])
-                    current_status["legs"][idx]["files_total"] = len(results)
-                    current_status["legs"][idx]["files_completed"] = len(results)
+                # Update status: mark leg as running
+                try:
+                    current_status = status_file.read_status(bucket, run_id)
+                    if current_status:
+                        current_status["legs"][idx]["status"] = "running"
+                        current_status["legs"][idx]["started_at"] = _now_iso()
+                        current_status["current_leg"] = current_status["legs"][idx].copy()
+                        current_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                        status_file.write_status(bucket, run_id, current_status)
+                except Exception as exc:
+                    print(f"  Warning: Failed to update status for leg {idx}: {exc}")
 
-                    # Get orchestration timing for ETA
-                    orchestration_timing = summary.get("orchestration_timing", {})
-                    if "duration_sec" in orchestration_timing:
-                        current_status["legs"][idx]["duration_sec"] = orchestration_timing["duration_sec"]
+                trigger = {
+                    "bucket": bucket,
+                    "bucket_prefix": bucket_prefix,
+                    "project": leg.get("project", "?"),
+                    "bmt_id": leg.get("bmt_id", "?"),
+                    "run_context": run_context,
+                    "run_id": leg.get("run_id", "?"),
+                    "leg_index": idx,
+                    "workflow_run_id": workflow_run_id,
+                }
+                leg_start_time = time.time()
+                exit_code = _run_orchestrator(orchestrator_path, trigger, workspace_root)
+                leg_duration = int(time.time() - leg_start_time)
+                state = "PASS" if exit_code == 0 else "FAIL"
+                print(f"  Leg {idx + 1}/{len(legs)} {trigger['project']}.{trigger['bmt_id']} -> {state}")
+                run_root = _latest_run_root(workspace_root, trigger["project"], trigger["bmt_id"])
+                summary = _load_manager_summary(run_root)
+                leg_summaries.append(summary)
 
-                current_status["legs_completed"] = idx + 1
-                current_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                # Update status: mark leg as complete
+                try:
+                    current_status = status_file.read_status(bucket, run_id)
+                    if current_status:
+                        leg_status = "pass" if exit_code == 0 else "fail"
+                        current_status["legs"][idx]["status"] = leg_status
+                        current_status["legs"][idx]["completed_at"] = _now_iso()
+                        current_status["legs"][idx]["duration_sec"] = leg_duration
 
-                # Update current_leg to next leg or None
-                if idx + 1 < len(legs):
-                    current_status["current_leg"] = current_status["legs"][idx + 1].copy()
+                        # Get files info from manager summary if available
+                        if summary:
+                            bmt_results = summary.get("bmt_results", {})
+                            results = bmt_results.get("results", [])
+                            current_status["legs"][idx]["files_total"] = len(results)
+                            current_status["legs"][idx]["files_completed"] = len(results)
+
+                            # Get orchestration timing for ETA
+                            orchestration_timing = summary.get("orchestration_timing", {})
+                            if "duration_sec" in orchestration_timing:
+                                current_status["legs"][idx]["duration_sec"] = orchestration_timing["duration_sec"]
+
+                        current_status["legs_completed"] = idx + 1
+                        current_status["elapsed_sec"] = int(time.time() - start_timestamp)
+
+                        # Update current_leg to next leg or None
+                        if idx + 1 < len(legs):
+                            current_status["current_leg"] = current_status["legs"][idx + 1].copy()
+                        else:
+                            current_status["current_leg"] = None
+
+                        status_file.write_status(bucket, run_id, current_status)
+
+                        # Update Check Run with progress (what devs see in GitHub browser)
+                        if check_run_id and repository and sha and github_token:
+                            try:
+                                github_checks.update_check_run(
+                                    github_token,
+                                    repository,
+                                    check_run_id,
+                                    output={
+                                        "title": f"BMT Progress: {idx + 1}/{len(legs)} legs complete",
+                                        "summary": github_checks.render_progress_markdown(
+                                            current_status["legs"],
+                                            elapsed_sec=current_status["elapsed_sec"],
+                                            eta_sec=current_status.get("eta_sec"),
+                                        ),
+                                    },
+                                )
+                            except Exception as exc:
+                                print(f"  Warning: Failed to update Check Run: {exc}")
+                        # Update commit status description so PR status line shows progress
+                        if repository and sha and github_token:
+                            desc = _progress_description(
+                                current_status["legs"],
+                                current_status["elapsed_sec"],
+                            )
+                            _post_commit_status(
+                                repository,
+                                sha,
+                                "pending",
+                                desc,
+                                None,
+                                github_token,
+                                context=status_context,
+                            )
+                except Exception as exc:
+                    print(f"  Warning: Failed to update status after leg {idx}: {exc}")
+
+            state, description = _aggregate_verdicts_from_summaries(leg_summaries)
+            print(f"  Aggregate: {state} — {description}")
+
+            # Finalize status file
+            try:
+                final_status = status_file.read_status(bucket, run_id)
+                if final_status:
+                    final_status["vm_state"] = "completed"
+                    final_status["last_heartbeat"] = _now_iso()
+                    final_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                    status_file.write_status(bucket, run_id, final_status)
+                    print("  Finalized status file")
+            except Exception as exc:
+                print(f"  Warning: Failed to finalize status file: {exc}")
+
+            # Complete GitHub Check Run
+            if check_run_id and repository and sha and github_token:
+                try:
+                    conclusion = "success" if state == "success" else "failure"
+                    github_checks.update_check_run(
+                        github_token,
+                        repository,
+                        check_run_id,
+                        status="completed",
+                        conclusion=conclusion,
+                        output={
+                            "title": f"BMT Complete: {state.upper()}",
+                            "summary": github_checks.render_results_table(leg_summaries, {
+                                "state": "PASS" if state == "success" else "FAIL",
+                                "decision": state,
+                                "reasons": [],
+                            }),
+                        },
+                    )
+                    print(f"  Completed Check Run: {conclusion}")
+                except Exception as exc:
+                    print(f"  Warning: Failed to complete Check Run: {exc}")
+
+            for summary in leg_summaries:
+                if summary is not None:
+                    _update_pointer_and_cleanup(bucket_root, summary)
+
+            if repository and sha and github_token:
+                if _post_commit_status(repository, sha, state, description, None, github_token, context=status_context):
+                    print(f"  Posted commit status: {state}")
                 else:
-                    current_status["current_leg"] = None
-
-                status_file.write_status(bucket, run_id, current_status)
-
-                # Update Check Run with progress
-                if check_run_id and repository and sha and github_token:
+                    print("  Could not post commit status (check GITHUB_STATUS_TOKEN)")
+                if pr_number is not None:
+                    details = "For details, open the **Checks** tab on this PR."
+                    if state == "success":
+                        body = _format_bmt_comment("Success", "All tests passed.", details)
+                    else:
+                        body = _format_bmt_comment("Failed", _failed_legs_display(leg_summaries), details)
+                    if github_pr_comment.post_pr_comment(github_token, repository, pr_number, body):
+                        print("  Posted PR comment")
+                    else:
+                        print("  Could not post PR comment (non-fatal)")
+        except Exception as exc:
+            print(f"  Error during BMT run: {exc}")
+            traceback.print_exc()
+            if repository and sha and github_token:
+                _post_commit_status(
+                    repository,
+                    sha,
+                    "failure",
+                    f"BMT VM error: {exc!s}"[:140],
+                    None,
+                    github_token,
+                    context=status_context,
+                )
+                if check_run_id is not None:
                     try:
                         github_checks.update_check_run(
                             github_token,
                             repository,
                             check_run_id,
+                            status="completed",
+                            conclusion="failure",
                             output={
-                                "title": f"BMT Progress: {idx + 1}/{len(legs)} legs complete",
-                                "summary": github_checks.render_progress_markdown(
-                                    current_status["legs"],
-                                    elapsed_sec=current_status["elapsed_sec"],
-                                    eta_sec=current_status.get("eta_sec"),
-                                ),
+                                "title": "BMT VM Error",
+                                "summary": f"Unhandled error: {exc!s}",
                             },
                         )
-                    except Exception as exc:
-                        print(f"  Warning: Failed to update Check Run: {exc}")
-        except Exception as exc:
-            print(f"  Warning: Failed to update status after leg {idx}: {exc}")
-
-    state, description = _aggregate_verdicts_from_summaries(leg_summaries)
-    print(f"  Aggregate: {state} — {description}")
-
-    # Stop heartbeat thread
-    stop_heartbeat.set()
-    heartbeat_thread.join(timeout=5)
-    print("  Stopped heartbeat thread")
-
-    # Finalize status file
-    try:
-        final_status = status_file.read_status(bucket, run_id)
-        if final_status:
-            final_status["vm_state"] = "completed"
-            final_status["last_heartbeat"] = _now_iso()
-            final_status["elapsed_sec"] = int(time.time() - start_timestamp)
-            status_file.write_status(bucket, run_id, final_status)
-            print("  Finalized status file")
+                    except Exception as update_exc:
+                        print(f"  Warning: Failed to complete Check Run on error: {update_exc}")
+                if pr_number is not None:
+                    body = _format_bmt_comment(
+                        "Failed",
+                        "The test runner encountered an error.",
+                        "For details, open the **Checks** tab on this PR.",
+                    )
+                    if github_pr_comment.post_pr_comment(github_token, repository, pr_number, body):
+                        print("  Posted PR comment")
+                    else:
+                        print("  Could not post PR comment (non-fatal)")
+            return
     except Exception as exc:
-        print(f"  Warning: Failed to finalize status file: {exc}")
-
-    # Complete GitHub Check Run
-    if check_run_id and repository and sha and github_token:
-        try:
-            conclusion = "success" if state == "success" else "failure"
-            github_checks.update_check_run(
-                github_token,
-                repository,
-                check_run_id,
-                status="completed",
-                conclusion=conclusion,
-                output={
-                    "title": f"BMT Complete: {state.upper()}",
-                    "summary": github_checks.render_results_table(leg_summaries, {
-                        "state": "PASS" if state == "success" else "FAIL",
-                        "decision": state,
-                        "reasons": [],
-                    }),
-                },
-            )
-            print(f"  Completed Check Run: {conclusion}")
-        except Exception as exc:
-            print(f"  Warning: Failed to complete Check Run: {exc}")
-
-    for summary in leg_summaries:
-        if summary is not None:
-            _update_pointer_and_cleanup(bucket_root, summary)
-
-    if repository and sha and github_token:
-        if _post_commit_status(repository, sha, state, description, None, github_token, context=status_context):
-            print(f"  Posted commit status: {state}")
-        else:
-            print("  Could not post commit status (check GITHUB_STATUS_TOKEN)")
-
-    _gcloud_rm(run_trigger_uri)
-    print(f"  Run {workflow_run_id} complete")
+        print(f"  Warning: post-run finalization failed: {exc}")
+    finally:
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=5)
+        print("  Stopped heartbeat thread")
+        _gcloud_rm(run_trigger_uri)
+        _cleanup_workflow_artifacts(
+            bucket=bucket,
+            bucket_prefix=bucket_prefix,
+            keep_workflow_ids={workflow_run_id_str},
+        )
+        _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)
+        print(f"  Run {workflow_run_id} complete")
 
 
 def main() -> int:
@@ -729,6 +1015,14 @@ def main() -> int:
 
     # Use GitHub App auth module for per-repository token resolution
     github_token_resolver = github_auth.resolve_auth_for_repository
+
+    # Startup sweep: enforce bounded retention even after prior failed runs.
+    _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)
+    _cleanup_workflow_artifacts(
+        bucket=args.bucket,
+        bucket_prefix=args.bucket_prefix,
+        keep_workflow_ids=set(),
+    )
 
     while not _shutdown:
         run_trigger_uris = _discover_run_triggers(bucket_root, prefix)

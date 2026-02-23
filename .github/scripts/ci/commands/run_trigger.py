@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import click
 
@@ -17,7 +17,7 @@ DEFAULT_DESCRIPTION_FAILURE = "BMT failed"
 
 
 def _default_run_id(project: str, bmt_id: str) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    now = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     sha = os.environ.get("GITHUB_SHA", "")[:12]
@@ -60,7 +60,7 @@ def command(
 
     normalized_prefix = models.normalize_prefix(bucket_prefix)
     bucket_root = models.bucket_root_uri(bucket, normalized_prefix)
-    triggered_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    triggered_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     sha = os.environ.get("GITHUB_SHA", "")
     ref = os.environ.get("GITHUB_REF", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")

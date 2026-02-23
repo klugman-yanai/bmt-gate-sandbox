@@ -1,0 +1,6 @@
+version = 1
+description = "Optional declarative overrides for GitHub repo vars."
+
+[variables]
+# Repo-specific status context; production may use a different context name.
+BMT_STATUS_CONTEXT = "final-gate"

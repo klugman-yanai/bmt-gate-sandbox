@@ -140,6 +140,76 @@ def test_matrix_command_with_filter() -> None:
             github_output.unlink()
 
 
+def test_matrix_command_with_all_release_runners_filter() -> None:
+    """'all release runners' filter should behave like wildcard (all supported projects)."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
+        github_output = Path(tmp.name)
+
+    try:
+        result = subprocess.run(
+            [
+                "python",
+                ".github/scripts/ci_driver.py",
+                "matrix",
+                "--config-root",
+                "remote",
+                "--project-filter",
+                "all release runners",
+                "--github-output",
+                str(github_output),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        content = github_output.read_text()
+        matrix_line = next((line for line in content.split("\n") if line.startswith("matrix=")), None)
+        assert matrix_line is not None
+        matrix = json.loads(matrix_line.split("=", 1)[1])
+        projects = {entry["project"] for entry in matrix["include"]}
+        assert "sk" in projects
+    finally:
+        if github_output.exists():
+            github_output.unlink()
+
+
+def test_matrix_command_with_unsupported_filter_is_non_fatal() -> None:
+    """Unsupported project filter should return empty matrix with a warning, not fail."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
+        github_output = Path(tmp.name)
+
+    try:
+        result = subprocess.run(
+            [
+                "python",
+                ".github/scripts/ci_driver.py",
+                "matrix",
+                "--config-root",
+                "remote",
+                "--project-filter",
+                "does-not-exist",
+                "--github-output",
+                str(github_output),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "No supported project+BMT rows found" in result.stdout
+        content = github_output.read_text()
+        matrix_line = next((line for line in content.split("\n") if line.startswith("matrix=")), None)
+        assert matrix_line is not None
+        matrix = json.loads(matrix_line.split("=", 1)[1])
+        assert matrix["include"] == []
+    finally:
+        if github_output.exists():
+            github_output.unlink()
+
+
 def test_upload_runner_command_help() -> None:
     """Test that upload-runner command is registered and shows help."""
     result = subprocess.run(
@@ -182,6 +252,18 @@ def test_start_vm_command_help() -> None:
 
     assert result.returncode == 0
     # start-vm reads from env vars, so just check it runs
+
+
+def test_sync_vm_metadata_command_help() -> None:
+    """Test that sync-vm-metadata command is registered and shows help."""
+    result = subprocess.run(
+        ["python", ".github/scripts/ci_driver.py", "sync-vm-metadata", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
 
 
 def test_wait_command_help() -> None:
@@ -287,7 +369,16 @@ def test_all_commands_are_registered() -> None:
     )
 
     # CRITICAL: All commands must be present
-    expected_commands = ["matrix", "trigger", "start-vm", "upload-runner", "wait-handshake", "wait", "gate"]
+    expected_commands = [
+        "matrix",
+        "trigger",
+        "sync-vm-metadata",
+        "start-vm",
+        "upload-runner",
+        "wait-handshake",
+        "wait",
+        "gate",
+    ]
     for cmd in expected_commands:
         assert cmd in result.stdout, f"Command '{cmd}' not registered in CLI"
 

@@ -22,7 +22,7 @@ from shared_bucket_env import bucket_option, bucket_prefix_option, bucket_root_u
 @click.option("--dest-prefix", default="sk/inputs/false_rejects", help="Destination prefix in bucket")
 def main(bucket: str, bucket_prefix: str, source_dir: str, dest_prefix: str) -> int:
     if not bucket:
-        click.echo("::error::Set BUCKET (or GCS_BUCKET)", err=True)
+        click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
 
     source = Path(source_dir)

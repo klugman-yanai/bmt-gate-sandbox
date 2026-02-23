@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Live BMT Monitor — TUI dashboard for workflow/VM/GCS/status polling."""
+"""Live BMT Monitor — VM/GCS and GitHub Actions.
+
+Prioritizes VM/GCS state (trigger, ack, status file). When the workflow fails at
+'Wait for VM handshake ack', this is the best way to debug live: see whether
+the trigger was written, whether the VM wrote the ack, and use the suggested
+commands (just gcs-trigger RUN_ID, just vm-serial) to inspect further.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +14,10 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from whenever import Instant
 
 import click
 from rich.console import Console
@@ -177,25 +184,39 @@ def format_duration(start_iso: str | None, end_iso: str | None = None) -> str:
     """Format duration from ISO timestamps."""
     if not start_iso:
         return "—"
-    try:
-        start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(end_iso.replace("Z", "+00:00")) if end_iso else datetime.now(timezone.utc)
-        delta = int((end - start).total_seconds())
-        mins, secs = divmod(delta, 60)
-        return f"{mins:02d}:{secs:02d}"
-    except (ValueError, AttributeError):
+    start = _parse_iso(start_iso)
+    if start is None:
         return "—"
+    end = _parse_iso(end_iso) if end_iso else Instant.now()
+    if end is None:
+        end = Instant.now()
+    try:
+        delta_sec = int((end - start).in_seconds())
+        mins, secs = divmod(delta_sec, 60)
+        return f"{mins:02d}:{secs:02d}"
+    except (ValueError, TypeError):
+        return "—"
+
+
+def _parse_iso(s: str) -> Instant | None:
+    """Parse ISO8601-ish string to Instant. Returns None on failure."""
+    try:
+        normalized = s.strip().replace("Z", "+00:00")
+        return Instant.parse_iso(normalized)
+    except (ValueError, TypeError):
+        return None
 
 
 def _format_heartbeat_age(heartbeat_iso: str | None) -> int | None:
     """Calculate age of heartbeat in seconds. Returns None if invalid."""
     if not heartbeat_iso:
         return None
+    heartbeat = _parse_iso(heartbeat_iso)
+    if heartbeat is None:
+        return None
     try:
-        heartbeat = datetime.fromisoformat(heartbeat_iso.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
-        return int((now - heartbeat).total_seconds())
-    except (ValueError, AttributeError):
+        return int((Instant.now() - heartbeat).in_seconds())
+    except (ValueError, TypeError):
         return None
 
 
@@ -245,7 +266,7 @@ def poll_all(state: MonitorState) -> None:
 
         # If still waiting for a run, skip polling
         if state.run_id == "waiting":
-            state.last_poll = datetime.now(timezone.utc).strftime("%H:%M:%S")
+            state.last_poll = Instant.now().format_iso(sep=" ").split()[1].split(".")[0].replace("Z", "")
             return
 
         # Workflow
@@ -297,8 +318,8 @@ def poll_all(state: MonitorState) -> None:
         if handshake_data:
             state.handshake_data = handshake_data
             # Capture handshake timestamp if not already captured
-            if not state.handshake_timestamp and "acknowledged_at" in handshake_data:
-                state.handshake_timestamp = handshake_data["acknowledged_at"]
+            if not state.handshake_timestamp:
+                state.handshake_timestamp = handshake_data.get("received_at") or handshake_data.get("acknowledged_at")
 
         # Per-leg verdicts
         completed = 0
@@ -310,12 +331,12 @@ def poll_all(state: MonitorState) -> None:
                 if verdict:
                     # Mark when verdict was first detected
                     if not leg.verdict_detected_at:
-                        leg.verdict_detected_at = datetime.now(timezone.utc).strftime("%H:%M:%S")
+                        leg.verdict_detected_at = Instant.now().format_iso(sep=" ").split()[1].split(".")[0].replace("Z", "")
                     leg.verdict_data = verdict
                     leg.status = verdict.get("status", "unknown")
                     leg.score = str(verdict.get("current_score")) if verdict.get("current_score") else None
                     completed += 1
-            except Exception:  # noqa: S110, PERF203
+            except Exception:  # noqa: S110
                 pass  # Gracefully skip legs with missing config or GCS files
         state.legs_completed = completed
 
@@ -325,11 +346,75 @@ def poll_all(state: MonitorState) -> None:
             state.commit_status_state = cs_state
             state.commit_status_description = cs_desc
 
-        state.last_poll = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        state.last_poll = Instant.now().format_iso(sep=" ").split()[1].split(".")[0].replace("Z", "")
         state.error = None
 
     except Exception as exc:
         state.error = f"Poll error: {exc}"
+
+
+def _gcs_trigger_uri(state: MonitorState) -> str:
+    return f"gs://{state.bucket}/triggers/runs/{state.run_id}.json"
+
+
+def _gcs_ack_uri(state: MonitorState) -> str:
+    return f"gs://{state.bucket}/triggers/acks/{state.run_id}.json"
+
+
+def _gcs_status_uri(state: MonitorState) -> str:
+    return f"gs://{state.bucket}/triggers/status/{state.run_id}.json"
+
+
+def render_gcs_vm_debug(state: MonitorState) -> Panel:
+    """Render GCS/VM debug panel (trigger, ack, status). Shown first for handshake debugging."""
+    if state.run_id == "waiting":
+        return Panel(
+            "[dim]Waiting for run ID...[/dim]",
+            title="GCS / VM Debug (most important for handshake failures)",
+            border_style="red",
+        )
+
+    lines = []
+    trigger_uri = _gcs_trigger_uri(state)
+    ack_uri = _gcs_ack_uri(state)
+    status_uri = _gcs_status_uri(state)
+
+    # Trigger (workflow writes this)
+    if state.trigger_data:
+        ts = state.trigger_timestamp or state.trigger_data.get("triggered_at", "?")
+        lines.append(f"  [green]✓[/green] Trigger  [dim]{trigger_uri}[/dim]")
+        lines.append(f"         written at {ts}")
+    else:
+        lines.append(f"  [red]✗[/red] Trigger  [dim]{trigger_uri}[/dim]")
+        lines.append("         [red]NOT FOUND[/red] — workflow may not have written it yet")
+
+    # Ack (VM must write this; if missing, handshake step times out)
+    lines.append("")
+    if state.handshake_data:
+        ts = state.handshake_timestamp or state.handshake_data.get("received_at") or state.handshake_data.get("acknowledged_at", "?")
+        legs = len(state.handshake_data.get("accepted_legs", []))
+        lines.append(f"  [green]✓[/green] Ack      [dim]{ack_uri}[/dim]")
+        lines.append(f"         acknowledged at {ts}  ({legs} legs)")
+    else:
+        lines.append(f"  [red]✗[/red] Ack      [dim]{ack_uri}[/dim]")
+        lines.append("         [red]NOT FOUND[/red] — VM has not written ack (handshake step will time out)")
+        lines.append("")
+        lines.append("  [yellow]Debug:[/yellow]  just gcs-trigger " + state.run_id)
+        lines.append("           just vm-serial   # VM boot + watcher logs")
+
+    # Status file (VM heartbeat)
+    lines.append("")
+    if state.vm_status_data:
+        hb = state.last_heartbeat or "?"
+        lines.append(f"  [green]✓[/green] Status   [dim]{status_uri}[/dim]  last_heartbeat: {hb}")
+    else:
+        lines.append(f"  [dim]◌[/dim] Status   [dim]{status_uri}[/dim]  (no file yet)")
+
+    return Panel(
+        "\n".join(lines),
+        title="GCS / VM Debug (most important for handshake failures)",
+        border_style="red",
+    )
 
 
 def render_header(state: MonitorState) -> Panel:
@@ -443,12 +528,12 @@ def render_vm(state: MonitorState) -> Panel:
         leg_count = len(state.handshake_data.get("legs", []))
         # Calculate time from trigger to handshake
         if state.trigger_timestamp and state.handshake_timestamp:
-            try:
-                t1 = datetime.fromisoformat(state.trigger_timestamp.replace("Z", "+00:00"))
-                t2 = datetime.fromisoformat(state.handshake_timestamp.replace("Z", "+00:00"))
-                delta = int((t2 - t1).total_seconds())
+            t1 = _parse_iso(state.trigger_timestamp)
+            t2 = _parse_iso(state.handshake_timestamp)
+            if t1 is not None and t2 is not None:
+                delta = int((t2 - t1).in_seconds())
                 lines.append(f"  ✓ VM acknowledged at {ack_time} ({delta}s pickup time, {leg_count} legs)")
-            except (ValueError, AttributeError):
+            else:
                 lines.append(f"  ✓ VM acknowledged at {ack_time} ({leg_count} legs)")
         else:
             lines.append(f"  ✓ VM acknowledged at {ack_time} ({leg_count} legs)")
@@ -540,13 +625,14 @@ def render_footer(state: MonitorState, interval: int) -> str:
 
 
 def render(state: MonitorState, interval: int) -> Layout:
-    """Build complete layout for Live."""
+    """Build complete layout for Live. VM/GCS debug first for handshake failure debugging."""
     layout = Layout()
     layout.split_column(
         Layout(render_header(state), size=5),
-        Layout(render_pipeline(state), size=12),
-        Layout(render_vm(state), size=10),  # Expanded for execution pipeline
-        Layout(render_legs(state), size=10),
+        Layout(render_gcs_vm_debug(state), size=14),  # First: trigger/ack/status + debug hints
+        Layout(render_vm(state), size=10),
+        Layout(render_pipeline(state), size=10),  # GitHub Actions jobs
+        Layout(render_legs(state), size=8),
         Layout(render_commit_status(state), size=3),
         Layout(Text(render_footer(state, interval)), size=1),
     )
