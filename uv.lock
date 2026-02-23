@@ -23,6 +23,8 @@ vm = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cryptography" },
+    { name = "pyjwt" },
     { name = "pytest" },
 ]
 
@@ -38,7 +40,11 @@ requires-dist = [
 provides-extras = ["vm", "monitor"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.0.2" }]
+dev = [
+    { name = "cryptography", specifier = ">=46.0.5" },
+    { name = "pyjwt", specifier = ">=2.11.0" },
+    { name = "pytest", specifier = ">=9.0.2" },
+]
 
 [[package]]
 name = "certifi"
