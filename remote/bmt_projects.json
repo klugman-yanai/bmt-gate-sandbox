@@ -2,7 +2,7 @@
   "projects": {
     "sk": {
       "enabled": true,
-      "manager_script": "sk/sk_bmt_manager.py",
+      "manager_script": "sk/bmt_manager.py",
       "jobs_config": "sk/config/bmt_jobs.json"
     }
   }
