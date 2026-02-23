@@ -1,6 +1,8 @@
 # Dummy "CI" workflow: mirrors job/step structure of resources/core-main-workflow.yml
 # (which cannot be modified). Runs on push or PR to dev; BMT runs after this completes.
 # Dummy builds one job per project (filtered by BMT_PROJECTS; default "sk" for test env).
+# Artifacts are per workflow run; they do not "carry" to another run. The BMT workflow
+# is triggered with this run's run_id and downloads these artifacts by run-id (see bmt.yml).
 name: CI
 
 on:
@@ -95,14 +97,26 @@ jobs:
         continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
         run: |
           set -euo pipefail
-          # In the real workflow the build produces runners at build/<Project>/gcc_Release/Runners/kardome_runner.
-          # For the dummy we create the same layout so "Upload runner artifact" can upload from those paths.
+          # Production: CMake builds runners at build/<Project>/gcc_Release/Runners/kardome_runner.
+          # Dummy: use real runner from build/ if present (local/dev), else copy from committed remote/sk/runners/
+          # so the artifact matches production layout and BMT can verify checksum/behavior.
           cfg="${{ matrix.configure }}"
           if [[ "$cfg" == *"_gcc_Release"* ]] && [[ "$cfg" != *"xtensa"* ]] && [[ "$cfg" != *"hexagon"* ]]; then
             binary_dir=$(jq -r --arg name "$cfg" '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json | sed 's|\${sourceDir}|.|')
+            project=$(echo "$cfg" | sed 's/_gcc_Release$//' | tr '[:upper:]' '[:lower:]')
             mkdir -p "$binary_dir/Runners" "$binary_dir/Kardome"
-            touch "$binary_dir/Runners/kardome_runner" "$binary_dir/Kardome/libKardome.so"
-            chmod +x "$binary_dir/Runners/kardome_runner"
+            if [ -f "$binary_dir/Runners/kardome_runner" ]; then
+              echo "Using existing runner from $binary_dir/Runners (build/ layout)"
+            elif [ -f "remote/sk/runners/sk_gcc_release/kardome_runner" ] && [ "$project" = "sk" ]; then
+              cp -v remote/sk/runners/sk_gcc_release/kardome_runner "$binary_dir/Runners/"
+              [ -f "remote/sk/runners/lib/libKardome.so" ] && cp -v remote/sk/runners/lib/libKardome.so "$binary_dir/Kardome/" || true
+              chmod +x "$binary_dir/Runners/kardome_runner"
+              echo "Using real runner from remote/sk/runners/ (production-like artifact)"
+            else
+              echo "::warning::No real runner for $project; creating placeholder for path-only test"
+              touch "$binary_dir/Runners/kardome_runner" "$binary_dir/Kardome/libKardome.so"
+              chmod +x "$binary_dir/Runners/kardome_runner"
+            fi
           else
             true
           fi
