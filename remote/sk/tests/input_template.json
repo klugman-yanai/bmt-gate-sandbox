@@ -1,0 +1,217 @@
+{
+  "REF_PATH": "/tmp/dummy/ref.wav",
+  "MICS_PATH": "/tmp/dummy/mics.wav",
+  "KARDOME_OUTPUT_PATH": "/tmp/dummy/kardome_output.wav",
+  "USER_OUTPUT_PATH": "/tmp/dummy/user_output.wav",
+  "CALIB_BIN_PATH": "/tmp/dummy/calib.bin",
+  "NUM_SOURCE_TEST": 4,
+  "QUIET_PATH": "/tmp/dummy/quiet.wav",
+  "ZONE1_PATH": "/tmp/dummy/zone1.wav",
+  "ZONE2_PATH": "/tmp/dummy/zone2.wav",
+  "ZONE3_PATH": "/tmp/dummy/zone3.wav",
+  "ZONE4_PATH": "/tmp/dummy/zone4.wav",
+  "ZONE5_PATH": "/tmp/dummy/zone5.wav",
+  "ZONE6_PATH": "/tmp/dummy/zone6.wav",
+  "HYUNDAI_CAR_MODEL": "bj1",
+  "HYUNDAI_STAGE": "pilot",
+  "KWS_CONFIG": {
+    "KWS_ENABLE": true,
+    "CALIB_KWS_ENABLE": false,
+    "CALIB_KWS_PATH": "/tmp/dummy/kws_calib/",
+    "OUTPUT_AI_MODEL_ENABLE": false,
+    "MANUAL_INDICATOR_ENABLE": false,
+    "INPUT_INDICATOR_PATH": "/tmp/dummy/is_vad.txt",
+    "OUTPUT_KWS_PATH": "/tmp/dummy/kws_out/",
+    "KWS_PRED_FILE_ENABLE": false,
+    "KWS_PRED_FILE_PATH": "/tmp/dummy/kws_pred.txt"
+  },
+  "BIOMETRICS_CONFIG": {
+    "BIO_ENABLE": false,
+    "CALIB_BIO_PATH": "/tmp/dummy/bio_calib.bin"
+  },
+  "SPOT_FORMER_CONFIG": {
+    "AFE_ENABLE": true,
+    "SF_ENABLE": true,
+    "HPF_ENABLE": true,
+    "SF_MODE": 0,
+    "SF_AGILITY": 95,
+    "SF_ADAPTIVE_NOISE_ENABLE": true,
+    "SF_ADAPTIVE_NOISE_SENSITIVITY": 8,
+    "IND_MODE": 7,
+    "IND_SHADOW_LENGTH": 1
+  },
+  "BANDPASS_CONFIG": {
+    "BANDPASS_HPF_ENABLE": true,
+    "BANDPASS_HPF_CUTOFF_HZ": 150,
+    "BANDPASS_HPF_ROLLOFF_DB": 24,
+    "BANDPASS_LPF_ENABLE": false,
+    "BANDPASS_LPF_CUTOFF_HZ": 8000,
+    "BANDPASS_LPF_ROLLOFF_DB": 24
+  },
+  "EC_CONFIG": {
+    "AEC_ENABLE": true,
+    "AEC_ADAPTIVE_DELAY_ENABLE": true,
+    "AEC_AGILITY": 995,
+    "AEC_HISTORY": 2,
+    "AEC_CONSTANT_DELAY_VALUE": 0,
+    "DING_ENABLE": false
+  },
+  "KAD1_CONFIG": {
+    "IND_KAD1_BUBBLE_CENTER_SHIFT": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "IND_KAD1_OFFSET_LEFT": [
+      3,
+      3,
+      2,
+      2,
+      0,
+      0
+    ],
+    "IND_KAD1_OFFSET_RIGHT": [
+      3,
+      3,
+      2,
+      2,
+      0,
+      0
+    ]
+  },
+  "KAD2_CONFIG": {
+    "IND_KAD2_BUBBLE_SIZE": [
+      30,
+      30,
+      35,
+      35,
+      30,
+      30
+    ],
+    "IND_KAD2_SMOOTH": [
+      8,
+      8,
+      12,
+      12,
+      8,
+      8
+    ],
+    "IND_KAD2_AGILITY": 20
+  },
+  "VAD_CONFIG": {
+    "IND_VAD_THRESHOLD": [
+      10,
+      10,
+      10,
+      10,
+      10,
+      10
+    ],
+    "IND_VAD_SMOOTH": [
+      8,
+      8,
+      8,
+      8,
+      8,
+      8
+    ]
+  },
+  "ANTILEAKAGE_CONFIG": {
+    "AL_ENABLE": true,
+    "AL_INDICATOR_MODE": 1,
+    "AL_SMOOTH": [
+      120,
+      120,
+      120,
+      120,
+      120,
+      120
+    ],
+    "AL_OFFSET_SCALE": [
+      25,
+      25,
+      100,
+      100,
+      100,
+      100
+    ],
+    "AL_GAIN": [
+      11,
+      11,
+      40,
+      40,
+      10,
+      10
+    ],
+    "AL_ATTN": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ]
+  },
+  "EQ_CONFIG": {
+    "EQ_ENABLE": true,
+    "EQ_TOTAL_GAIN": 35,
+    "EQ_BUBBLE_GAIN": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "AGC_CONFIG": {
+    "AGC_ENABLE": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "AGC_LIMITER": [
+      3,
+      3,
+      3,
+      3,
+      3,
+      3
+    ],
+    "AGC_AGILITY": [
+      800,
+      800,
+      800,
+      800,
+      800,
+      800
+    ],
+    "AGC_MAX_GAIN": [
+      55,
+      55,
+      55,
+      55,
+      55,
+      55
+    ]
+  },
+  "POST_FILTER_CONFIG": {
+    "PF_AEC_ENABLE": true,
+    "PF_AEC_AGGRESSIVE": 1,
+    "PF_SF_ENABLE": true,
+    "PF_SF_SPECTRAL_AGGRESSIVE": 8,
+    "PF_SF_BIN_AGGRESSIVE": 100,
+    "PF_SF_SMOOTH": 4,
+    "PF_NOISE_GATE_ENABLE": false,
+    "PF_NOISE_GATE_THRESHOLD": 0,
+    "PF_NOISE_GATE_ATTENUATION": 0,
+    "PF_COMFORT_NOISE_ENABLE": true,
+    "PF_COMFORT_NOISE_SCALE": 1
+  }
+}

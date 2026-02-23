@@ -98,6 +98,16 @@ def run_trigger_uri(bucket_root: str, prefix: str, workflow_run_id: str) -> str:
     return bucket_uri(bucket_root, base)
 
 
+def run_handshake_uri(bucket_root: str, prefix: str, workflow_run_id: str) -> str:
+    """Build the GCS URI for VM handshake ack (one file per workflow run)."""
+    parts = normalize_prefix(prefix)
+    safe_run_id = sanitize_run_id(workflow_run_id)
+    base = f"triggers/acks/{safe_run_id}.json"
+    if parts:
+        return bucket_uri(bucket_root, f"{parts}/{base}")
+    return bucket_uri(bucket_root, base)
+
+
 # ── Decision helpers ───────────────────────────────────────────────────────────
 
 

@@ -7,11 +7,13 @@ build-backend = "setuptools.build_meta"
 name = "bmt-cloud-dev"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["click>=8.0"]
+dependencies = ["click>=8.0", "rich>=13.0"]
 
 [project.optional-dependencies]
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
 vm = ["PyJWT>=2.0", "cryptography>=41.0"]
+# For live BMT monitor TUI (install with: pip install -e ".[monitor]")
+monitor = ["rich>=13.0"]
 
 [tool.setuptools.packages.find]
 # ci/ lives at .github/scripts/ci/ — tell setuptools to look there.

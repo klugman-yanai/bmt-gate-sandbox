@@ -221,6 +221,14 @@ def _counter_regex(bmt_cfg: dict[str, Any]) -> re.Pattern[str]:
     return re.compile(DEFAULT_COUNTER_PATTERN)
 
 
+def _effective_gate_comparison(bmt_id: str, comparison: str) -> str:
+    """Normalize comparison and enforce false-reject semantics."""
+    normalized = comparison.strip().lower()
+    if bmt_id.startswith("false_reject") and normalized == "lte":
+        return "gte"
+    return normalized
+
+
 def _resolve_local_path(path_or_contract: str, sk_root: Path) -> Path:
     raw = str(path_or_contract).strip()
     if not raw:
@@ -301,7 +309,10 @@ def _resolve_config(args: argparse.Namespace) -> ResolvedConfig:
     else:
         log_root = results_dir.parent / "logs" / results_dir.name / "latest"
 
-    comparison = args.comparison.strip() or str(gate_cfg.get("comparison", "gte"))
+    comparison = _effective_gate_comparison(
+        args.bmt_id,
+        args.comparison.strip() or str(gate_cfg.get("comparison", "gte")),
+    )
     if comparison not in {"gte", "lte"}:
         raise ValueError(f"Unsupported comparison: {comparison}")
 

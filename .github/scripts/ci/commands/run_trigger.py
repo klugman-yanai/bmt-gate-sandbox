@@ -107,4 +107,7 @@ def command(
 
     manifest = {"legs": legs}
     write_github_output(github_output, "manifest", json.dumps(manifest, separators=(",", ":")))
+    write_github_output(github_output, "run_trigger_uri", run_trigger_uri_str)
+    write_github_output(github_output, "requested_leg_count", str(len(legs)))
+    write_github_output(github_output, "requested_legs", json.dumps(legs, separators=(",", ":")))
     print(f"Triggered run {workflow_run_id} with {len(legs)} leg(s); VM will report status to GitHub")

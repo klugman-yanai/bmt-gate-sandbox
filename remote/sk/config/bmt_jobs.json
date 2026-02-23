@@ -4,8 +4,7 @@
       "enabled": true,
       "runner": {
         "uri": "sk/runners/sk_gcc_release/kardome_runner",
-        "project_lib_prefix": "sk/runners/sk_gcc_release",
-        "deps_prefix": "common/lib"
+        "deps_prefix": "sk/runners/lib"
       },
       "template_uri": "sk/config/input_template.json",
       "paths": {

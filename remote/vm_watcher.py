@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,15 +29,6 @@ from typing import Any
 _SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 import github_auth  # type: ignore[import-not-found]  # noqa: E402
-from gcs import (  # type: ignore[import-not-found]  # noqa: E402
-    bucket_root_uri,
-    bucket_uri,
-    gcloud_download_json,
-    gcloud_ls,
-    gcloud_rm,
-    normalize_prefix,
-    now_iso,
-)
 
 _shutdown = False
 
@@ -61,9 +53,93 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _normalize_prefix(prefix: str) -> str:
+    return prefix.strip("/")
+
+
+def _bucket_root_uri(bucket: str, prefix: str) -> str:
+    prefix = _normalize_prefix(prefix)
+    return f"gs://{bucket}/{prefix}" if prefix else f"gs://{bucket}"
+
+
+def _bucket_uri(bucket_root: str, path: str) -> str:
+    return f"{bucket_root}/{path.lstrip('/')}"
+
+
+def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:
+    """List objects under a GCS URI prefix. Returns list of full URIs."""
+    cmd = ["gcloud", "storage", "ls", uri]
+    if recursive:
+        cmd.append("--recursive")
+    proc = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return []
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def _gcloud_download_json(uri: str) -> dict[str, Any] | None:
+    """Download a JSON object from GCS."""
+    with tempfile.TemporaryDirectory(prefix="vm_watcher_") as tmp_dir:
+        local_path = Path(tmp_dir) / "trigger.json"
+        proc = subprocess.run(
+            ["gcloud", "storage", "cp", uri, str(local_path), "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            print(f"  Failed to download {uri}: {proc.stderr.strip()}")
+            return None
+        try:
+            return json.loads(local_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"  Failed to parse {uri}: {exc}")
+            return None
+
+
+def _gcloud_upload_json(uri: str, payload: dict[str, Any]) -> bool:
+    """Upload a JSON object to GCS."""
+    with tempfile.TemporaryDirectory(prefix="vm_watcher_ack_") as tmp_dir:
+        local_path = Path(tmp_dir) / "ack.json"
+        local_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        proc = subprocess.run(
+            ["gcloud", "storage", "cp", str(local_path), uri, "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            print(f"  Failed to upload {uri}: {proc.stderr.strip()}")
+            return False
+    return True
+
+
+def _gcloud_rm(uri: str, recursive: bool = False) -> bool:
+    """Delete a GCS object or prefix (with recursive=True)."""
+    cmd = ["gcloud", "storage", "rm", uri, "--quiet"]
+    if recursive:
+        cmd.append("--recursive")
+    proc = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
 def _download_orchestrator(bucket_root: str, workspace_root: Path) -> Path:
     """Download root_orchestrator.py from the bucket."""
-    orchestrator_uri = bucket_uri(bucket_root, "root_orchestrator.py")
+    orchestrator_uri = _bucket_uri(bucket_root, "root_orchestrator.py")
     local_path = workspace_root / "bin" / "root_orchestrator.py"
     local_path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
@@ -104,13 +180,18 @@ def _run_orchestrator(
 
 def _discover_run_triggers(bucket_root: str, prefix: str) -> list[str]:
     """List run trigger JSON files under triggers/runs/ (one file per workflow run)."""
-    parts = normalize_prefix(prefix)
+    parts = _normalize_prefix(prefix)
     runs_prefix = "triggers/runs/"
     if parts:
         runs_prefix = f"{parts}/triggers/runs/"
-    runs_uri = bucket_uri(bucket_root, runs_prefix)
-    all_objects = gcloud_ls(runs_uri)
+    runs_uri = _bucket_uri(bucket_root, runs_prefix)
+    all_objects = _gcloud_ls(runs_uri)
     return [uri for uri in all_objects if uri.endswith(".json")]
+
+
+def _run_handshake_uri_from_trigger_uri(run_trigger_uri: str) -> str:
+    """Map triggers/runs/<id>.json -> triggers/acks/<id>.json."""
+    return run_trigger_uri.replace("/triggers/runs/", "/triggers/acks/", 1)
 
 
 def _post_commit_status(
@@ -234,7 +315,7 @@ def _update_pointer_and_cleanup(
         return
     passed = bool(summary.get("passed"))
 
-    current_uri = bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/current.json")
+    current_uri = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/current.json")
     existing: dict[str, Any] = {}
     with tempfile.TemporaryDirectory(prefix="vm_watcher_ptr_") as tmp_dir:
         local_current = Path(tmp_dir) / "current.json"
@@ -255,7 +336,7 @@ def _update_pointer_and_cleanup(
 
     new_latest = run_id
     new_last_passing = run_id if passed else previous_last_passing
-    updated_at = now_iso()
+    updated_at = _now_iso()
     new_pointer = {
         "latest": new_latest,
         "last_passing": new_last_passing,
@@ -278,8 +359,8 @@ def _update_pointer_and_cleanup(
         referenced.add(new_latest)
     if new_last_passing:
         referenced.add(new_last_passing)
-    snapshots_prefix_uri = bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/snapshots/")
-    object_uris = gcloud_ls(snapshots_prefix_uri, recursive=True)
+    snapshots_prefix_uri = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/snapshots/")
+    object_uris = _gcloud_ls(snapshots_prefix_uri, recursive=True)
     seen_run_ids: set[str] = set()
     for obj_uri in object_uris:
         if not obj_uri.startswith(snapshots_prefix_uri):
@@ -291,8 +372,8 @@ def _update_pointer_and_cleanup(
     for run_id_to_delete in seen_run_ids:
         if run_id_to_delete in referenced:
             continue
-        delete_prefix = bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/snapshots/{run_id_to_delete}")
-        if gcloud_rm(delete_prefix, recursive=True):
+        delete_prefix = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/snapshots/{run_id_to_delete}")
+        if _gcloud_rm(delete_prefix, recursive=True):
             print(f"  Cleaned snapshot {run_id_to_delete}")
 
 
@@ -303,10 +384,10 @@ def _process_run_trigger(
     github_token_resolver: Callable[[str], str | None],
 ) -> None:
     """Download run trigger, run each leg, aggregate, post commit status, release locks, delete trigger."""
-    run_payload = gcloud_download_json(run_trigger_uri)
+    run_payload = _gcloud_download_json(run_trigger_uri)
     if run_payload is None:
         print(f"  Skipping unparseable run trigger: {run_trigger_uri}")
-        gcloud_rm(run_trigger_uri)
+        _gcloud_rm(run_trigger_uri)
         return
 
     legs = run_payload.get("legs") or []
@@ -326,8 +407,42 @@ def _process_run_trigger(
 
     if not legs:
         print(f"  Run trigger has no legs: {run_trigger_uri}")
-        gcloud_rm(run_trigger_uri)
+        _gcloud_rm(run_trigger_uri)
         return
+
+    accepted_legs: list[dict[str, str]] = []
+    rejected_legs: list[dict[str, int | str]] = []
+    for idx, leg in enumerate(legs):
+        if not isinstance(leg, dict):
+            rejected_legs.append({"index": idx, "reason": "invalid_leg_type"})
+            continue
+        accepted_legs.append(
+            {
+                "project": str(leg.get("project", "?")),
+                "bmt_id": str(leg.get("bmt_id", "?")),
+                "run_id": str(leg.get("run_id", "?")),
+            }
+        )
+
+    handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
+    handshake_payload: dict[str, Any] = {
+        "workflow_run_id": str(workflow_run_id),
+        "received_at": _now_iso(),
+        "repository": repository,
+        "sha": sha,
+        "run_context": str(run_context),
+        "run_trigger_uri": run_trigger_uri,
+        "requested_leg_count": len(legs),
+        "accepted_leg_count": len(accepted_legs),
+        "accepted_legs": accepted_legs,
+        "rejected_legs": rejected_legs,
+        "vm": {
+            "hostname": os.uname().nodename,
+            "pid": os.getpid(),
+        },
+    }
+    if _gcloud_upload_json(handshake_uri, handshake_payload):
+        print(f"  Wrote VM handshake ack: {handshake_uri}")
 
     print(f"  Processing run {workflow_run_id} with {len(legs)} leg(s)")
 
@@ -357,7 +472,7 @@ def _process_run_trigger(
                 github_token,
                 context=status_context,
             )
-        gcloud_rm(run_trigger_uri)
+        _gcloud_rm(run_trigger_uri)
         return
 
     bucket = run_payload.get("bucket", "")
@@ -394,7 +509,7 @@ def _process_run_trigger(
         else:
             print("  Could not post commit status (check GITHUB_STATUS_TOKEN)")
 
-    gcloud_rm(run_trigger_uri)
+    _gcloud_rm(run_trigger_uri)
     print(f"  Run {workflow_run_id} complete")
 
 
@@ -403,8 +518,8 @@ def main() -> int:
     workspace_root = Path(args.workspace_root).expanduser().resolve()
     workspace_root.mkdir(parents=True, exist_ok=True)
 
-    bucket_root = bucket_root_uri(args.bucket, args.bucket_prefix)
-    prefix = normalize_prefix(args.bucket_prefix)
+    bucket_root = _bucket_root_uri(args.bucket, args.bucket_prefix)
+    prefix = _normalize_prefix(args.bucket_prefix)
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
@@ -419,7 +534,7 @@ def main() -> int:
         run_trigger_uris = _discover_run_triggers(bucket_root, prefix)
 
         if run_trigger_uris:
-            print(f"[{now_iso()}] Found {len(run_trigger_uris)} run trigger(s)")
+            print(f"[{_now_iso()}] Found {len(run_trigger_uris)} run trigger(s)")
             for run_trigger_uri in run_trigger_uris:
                 if _shutdown:
                     break

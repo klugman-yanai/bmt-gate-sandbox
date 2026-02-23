@@ -38,6 +38,12 @@ def test_results_prefix_from_ci_verdict_uri_invalid_returns_none():
     )
 
 
+def test_run_handshake_uri_from_trigger_uri():
+    trigger_uri = "gs://my-bucket/pfx/triggers/runs/123456.json"
+    expected = "gs://my-bucket/pfx/triggers/acks/123456.json"
+    assert watcher._run_handshake_uri_from_trigger_uri(trigger_uri) == expected
+
+
 def test_aggregate_verdicts_from_summaries_all_pass():
     """All pass/warning -> success."""
     summaries = [

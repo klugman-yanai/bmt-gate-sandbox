@@ -1,3 +1,7 @@
+# Single BMT workflow: runs after the build workflow ("CI") succeeds.
+# Downloads runner artifacts from that run, pushes to GCS, triggers VM, handshake, posts pending.
+# For prod: add this alongside the main build workflow (e.g. resources/core-main-workflow.yml);
+# the build workflow must upload runner artifacts so this workflow can push them.
 name: BMT
 run-name: "BMT • ${{ github.event.workflow_run.head_branch }} • ${{ github.event.workflow_run.head_sha }}"
 
@@ -5,7 +9,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [dev]
+    # No branch filter - allows PRs targeting dev to trigger BMT
 
 concurrency:
   group: bmt-${{ github.event.workflow_run.head_sha }}
@@ -15,7 +19,7 @@ permissions:
   contents: read
   id-token: write
   statuses: write
-  actions: read          # needed for actions/download-artifact cross-workflow
+  actions: read
 
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
@@ -24,20 +28,27 @@ env:
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+  BMT_DESCRIPTION_PENDING: ${{ vars.BMT_DESCRIPTION_PENDING }}
   PYTHONPATH: .github/scripts
 
 jobs:
-  # ─────────────────── 0) gate on CI success ───────────────────
+  # ─────────────────── 00 Gate on build success ───────────────────
   guard:
     name: 00 Guard
     runs-on: ubuntu-22.04
-    if: github.event.workflow_run.conclusion == 'success'
+    if: |
+      github.event.workflow_run.conclusion == 'success' && (
+        github.event.workflow_run.head_branch == 'dev' ||
+        (github.event.workflow_run.event == 'pull_request' &&
+         github.event.workflow_run.pull_requests != null &&
+         github.event.workflow_run.pull_requests[0].base.ref == 'dev')
+      )
     steps:
-      - run: echo "CI succeeded — proceeding with BMT"
+      - run: echo "Build succeeded (dev branch or PR to dev) — proceeding with BMT"
 
-  # ─────────────────── 1) extract gcc_Release presets ──────────
+  # ─────────────────── 01 Matrix: which BMTs requested (from presets) ───────────────────
   extract-bmt-presets:
-    name: 01 Extract BMT Presets
+    name: 01 Matrix (BMTs requested)
     needs: guard
     runs-on: ubuntu-22.04
     outputs:
@@ -63,9 +74,9 @@ jobs:
           echo "runner_matrix=$runner_matrix" >>"$GITHUB_OUTPUT"
           echo "::notice::Runner matrix: $runner_matrix"
 
-  # ─────────────────── 2) upload runners to GCS ────────────────
+  # ─────────────────── 02 GCP auth + runners pushed to GCS (from build artifacts) ───────────────────
   upload-runners:
-    name: 02 Upload ${{ matrix.project }}
+    name: 02 Auth & Runners ${{ matrix.project }}
     needs: extract-bmt-presets
     runs-on: ubuntu-22.04
     strategy:
@@ -94,14 +105,15 @@ jobs:
       - name: Setup Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Gcloud auth status
+        run: gcloud auth list
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
       - name: Upload runner to GCS
         run: |
           set -euo pipefail
-          # Artifact layout: artifact/<binary_dir>/Runners/kardome_runner
-          #                   artifact/<binary_dir>/Kardome/libKardome.so
           RUNNER_DIR="artifact/${{ matrix.binary_dir }}/Runners"
           LIB_DIR="artifact/${{ matrix.binary_dir }}/Kardome"
 
@@ -121,9 +133,9 @@ jobs:
             --preset "${{ matrix.preset }}" \
             --source-ref "${{ github.event.workflow_run.head_sha }}"
 
-  # ─────────────────── 3) trigger BMT on VM ────────────────────
-  trigger-bmt:
-    name: 03 Trigger BMT
+  # ─────────────────── 03 Handshake begin (trigger written to GCS) ───────────────────
+  send-run-payload:
+    name: 03 Handshake begin (trigger to GCS)
     needs: [upload-runners, extract-bmt-presets]
     runs-on: ubuntu-22.04
     steps:
@@ -146,25 +158,19 @@ jobs:
 
       - name: Build BMT matrix
         id: matrix
-        run: |
-          matrix_json=$(uv run python ./.github/scripts/ci_driver.py matrix \
-            --config-root remote \
-            --project-filter "${BMT_PROJECTS:-}")
-          echo "matrix_json=$matrix_json" >>"$GITHUB_OUTPUT"
+        run: uv run python ./.github/scripts/ci_driver.py matrix --config-root remote --project-filter "${BMT_PROJECTS:-}"
 
-      - name: Show BMT matrix summary
+      - name: Show BMT matrix handshake
         run: |
           set -euo pipefail
 
-          # Parse uploaded runners from previous job
           ALL_RUNNERS=$(jq -c '[.include[].project] | unique | sort' <<'EOF'
           ${{ needs.extract-bmt-presets.outputs.runner-matrix }}
           EOF
           )
 
-          # Parse BMT-enabled projects from matrix
           BMT_PROJECTS=$(jq -c '[.include[].project] | unique | sort' <<'EOF'
-          ${{ steps.matrix.outputs.matrix_json }}
+          ${{ steps.matrix.outputs.matrix }}
           EOF
           )
 
@@ -173,7 +179,6 @@ jobs:
           echo "| Project | Runners Uploaded | BMT Enabled | Status |" >>"$GITHUB_STEP_SUMMARY"
           echo "|---------|------------------|-------------|--------|" >>"$GITHUB_STEP_SUMMARY"
 
-          # Show all uploaded runners and their BMT status
           echo "$ALL_RUNNERS" | jq -r '.[]' | while read -r proj; do
             if echo "$BMT_PROJECTS" | jq -e --arg p "$proj" 'index($p)' >/dev/null; then
               echo "| $proj | ✓ | ✓ | Will run |" >>"$GITHUB_STEP_SUMMARY"
@@ -190,16 +195,110 @@ jobs:
         id: trigger
         run: |
           set -euo pipefail
+          PR_ARGS=""
+          if [ "${{ github.event.workflow_run.event }}" = "pull_request" ] && [ "${{ github.event.workflow_run.pull_requests != null }}" = "true" ]; then
+            PR_NUM="${{ github.event.workflow_run.pull_requests[0].number }}"
+            if [ -n "$PR_NUM" ]; then
+              PR_ARGS="--pr-number $PR_NUM"
+            fi
+          fi
+
           uv run python ./.github/scripts/ci_driver.py trigger \
             --config-root remote \
             --bucket "$GCS_BUCKET" \
             --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
-            --matrix-json '${{ steps.matrix.outputs.matrix_json }}' \
-            --run-context dev
+            --matrix-json '${{ steps.matrix.outputs.matrix }}' \
+            --run-context "${{ github.event.workflow_run.event == 'pull_request' && 'pr' || 'dev' }}" \
+            $PR_ARGS
+
+  # ─────────────────── 04 VM woken up ───────────────────
+  start-vm:
+    name: 04 VM woken up
+    needs: send-run-payload
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: GCP Auth (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Start BMT VM
         run: uv run python ./.github/scripts/ci_driver.py start-vm
 
+  # ─────────────────── 05 Matrix: accepted vs unsupported (VM handshake response) ───────────────────
+  vm-handshake:
+    name: 05 Matrix accepted vs unsupported
+    needs: [send-run-payload, start-vm]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: GCP Auth (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Wait for VM handshake ack
+        id: handshake
+        run: |
+          set -euo pipefail
+          uv run python ./.github/scripts/ci_driver.py wait-handshake \
+            --bucket "$GCS_BUCKET" \
+            --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --timeout-sec "${BMT_HANDSHAKE_TIMEOUT_SEC:-180}" \
+            --poll-interval-sec 5
+
+      - name: Show VM handshake summary
+        run: |
+          set -euo pipefail
+          ACK_PAYLOAD='${{ steps.handshake.outputs.handshake_payload }}'
+          echo "## VM Handshake Response" >>"$GITHUB_STEP_SUMMARY"
+          echo "" >>"$GITHUB_STEP_SUMMARY"
+          echo "- Ack URI: \`${{ steps.handshake.outputs.handshake_uri }}\`" >>"$GITHUB_STEP_SUMMARY"
+          echo "- Requested legs: **${{ steps.handshake.outputs.handshake_requested_leg_count }}**" >>"$GITHUB_STEP_SUMMARY"
+          echo "- Accepted legs: **${{ steps.handshake.outputs.handshake_accepted_leg_count }}**" >>"$GITHUB_STEP_SUMMARY"
+          echo "" >>"$GITHUB_STEP_SUMMARY"
+          echo "| Project | BMT ID | Run ID |" >>"$GITHUB_STEP_SUMMARY"
+          echo "|---------|--------|--------|" >>"$GITHUB_STEP_SUMMARY"
+          echo "$ACK_PAYLOAD" | jq -r '.accepted_legs[] | "| \(.project) | \(.bmt_id) | \(.run_id) |"' >>"$GITHUB_STEP_SUMMARY"
+          if echo "$ACK_PAYLOAD" | jq -e '.rejected_legs | length > 0' >/dev/null; then
+            echo "" >>"$GITHUB_STEP_SUMMARY"
+            echo "### Rejected Legs" >>"$GITHUB_STEP_SUMMARY"
+            echo "" >>"$GITHUB_STEP_SUMMARY"
+            echo "| Index | Reason |" >>"$GITHUB_STEP_SUMMARY"
+            echo "|-------|--------|" >>"$GITHUB_STEP_SUMMARY"
+            echo "$ACK_PAYLOAD" | jq -r '.rejected_legs[] | "| \(.index) | \(.reason) |"' >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ─────────────────── 06 Pending VM response → End workflow ───────────────────
+  post-pending-status:
+    name: 06 Pending VM response
+    needs: vm-handshake
+    runs-on: ubuntu-22.04
+    steps:
       - name: Post pending commit status
         run: |
           STATUS_CONTEXT="${BMT_STATUS_CONTEXT:-BMT Gate}"
