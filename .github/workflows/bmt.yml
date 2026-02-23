@@ -40,6 +40,7 @@ env:
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
   BMT_DESCRIPTION_PENDING: ${{ vars.BMT_DESCRIPTION_PENDING }}
+  BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   PYTHONPATH: .github/scripts
 
 jobs:
@@ -70,7 +71,7 @@ jobs:
     steps:
       - run: echo "Proceeding with BMT"
 
-  # ─────────────────── 01 Matrix: which BMTs requested (from presets) ───────────────────
+  # ─────────────────── 01 Matrix: which BMTs requested (from presets; filtered by BMT_PROJECTS) ───────────────────
   extract-bmt-presets:
     name: 01 Matrix (BMTs requested)
     needs: [guard, bmt-context]
@@ -83,20 +84,25 @@ jobs:
         with:
           ref: ${{ needs.bmt-context.outputs.head_sha }}
 
-      - name: Parse gcc_Release presets
+      - name: Parse gcc_Release presets (filtered by BMT_PROJECTS; default sk for test env)
         id: parse
         run: |
-          runner_matrix=$(jq -c '{include:
-            [ .configurePresets[]
-              | select(.name | test("_gcc_Release$"))
-              | select(.name | test("xtensa|hexagon") | not)
-              | { configure: .name,
-                  preset: (.name | ascii_downcase),
-                  project: (.name | sub("_gcc_Release$"; "") | ascii_downcase),
-                  binary_dir: (.binaryDir | sub("\\$\\{sourceDir\\}/"; "")) }
-            ]}' CMakePresets.json)
+          ALLOWED="${BMT_PROJECTS:-sk}"
+          ALLOWED_JSON=$(echo "$ALLOWED" | jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | ascii_downcase)')
+          runner_matrix=$(jq -c --argjson allowed "$ALLOWED_JSON" '
+            { include:
+              [ .configurePresets[]
+                | select(.name | test("_gcc_Release$"))
+                | select(.name | test("xtensa|hexagon") | not)
+                | (.name | sub("_gcc_Release$"; "") | ascii_downcase) as $proj
+                | select($allowed | index($proj))
+                | { configure: .name,
+                    preset: (.name | ascii_downcase),
+                    project: $proj,
+                    binary_dir: (.binaryDir | sub("\\$\\{sourceDir\\}/"; "")) }
+              ] }' CMakePresets.json)
           echo "runner_matrix=$runner_matrix" >>"$GITHUB_OUTPUT"
-          echo "::notice::Runner matrix: $runner_matrix"
+          echo "::notice::Runner matrix (BMT_PROJECTS=${ALLOWED}): $runner_matrix"
 
   # ─────────────────── 02 GCP auth + runners pushed to GCS (from build artifacts) ───────────────────
   upload-runners:
@@ -104,7 +110,7 @@ jobs:
     needs: [extract-bmt-presets, bmt-context]
     runs-on: ubuntu-22.04
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix: ${{ fromJson(needs.extract-bmt-presets.outputs.runner-matrix) }}
     steps:
       - name: Checkout
