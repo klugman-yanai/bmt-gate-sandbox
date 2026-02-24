@@ -60,6 +60,11 @@ jobs:
       head_event: ${{ steps.ctx.outputs.head_event }}
       pr_number: ${{ steps.ctx.outputs.pr_number }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.head_sha || github.sha }}
+
       - id: ctx
         env:
           DISPATCH_CI_RUN_ID: ${{ github.event.inputs.ci_run_id }}
@@ -75,6 +80,11 @@ jobs:
     needs: bmt-context
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
+
       - name: Validate required configuration variables
         run: bash .github/scripts/workflows/bmt_workflow.sh validate-required-vars
 
@@ -177,6 +187,11 @@ jobs:
     outputs:
       accepted_projects: ${{ steps.list.outputs.accepted_projects }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
+
       - name: GCP Auth (WIF)
         uses: google-github-actions/auth@v2
         with:
@@ -357,6 +372,11 @@ jobs:
     if: needs.vm-handshake.result == 'success'
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
+
       - name: Post pending commit status
         env:
           REPOSITORY: ${{ github.repository }}
@@ -371,6 +391,11 @@ jobs:
     if: needs.send-run-payload.outputs.has_legs == 'true'
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
+
       - name: Post pending (BMT started)
         env:
           REPOSITORY: ${{ github.repository }}
@@ -385,6 +410,11 @@ jobs:
     if: needs.send-run-payload.outputs.has_legs != 'true'
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
+
       - name: Post success commit status (no supported BMT legs)
         env:
           REPOSITORY: ${{ github.repository }}
@@ -399,6 +429,11 @@ jobs:
     if: failure() && needs.bmt-context.result == 'success'
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
+
       - name: GCP Auth (WIF)
         uses: google-github-actions/auth@v2
         with:
@@ -441,6 +476,11 @@ jobs:
     if: failure() && needs.bmt-context.result == 'failure'
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.head_sha || github.sha }}
+
       - name: Post failure commit status
         env:
           REPOSITORY: ${{ github.repository }}

@@ -131,6 +131,11 @@ jobs:
       statuses: write
       issues: write
     steps:
+      - name: Checkout source for workflow helpers
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v2
