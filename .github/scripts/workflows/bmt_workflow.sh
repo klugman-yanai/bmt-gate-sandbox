@@ -21,9 +21,11 @@ Commands:
   force-clean-vm-restart
   show-handshake-guidance
   wait-handshake
+  wait-verdicts
   handshake-timeout-diagnostics
   show-handshake-summary
   post-pending-status
+  post-final-status-from-decision
   post-started-pending
   post-skipped-success-status
   post-failure-status
@@ -542,6 +544,27 @@ case "$cmd" in
       --poll-interval-sec 5
     ;;
 
+  wait-verdicts)
+    require_cmd uv
+    manifest="${TRIGGER_MANIFEST:-}"
+    timeout="${BMT_VERDICT_TIMEOUT_SEC:-1800}"
+    poll_interval="${BMT_VERDICT_POLL_INTERVAL_SEC:-30}"
+    config_root="${CONFIG_ROOT:-remote/code}"
+
+    if [[ -z "$manifest" ]]; then
+      echo "::error::TRIGGER_MANIFEST is required"
+      exit 1
+    fi
+
+    uv run python ./.github/scripts/ci_driver.py wait \
+      --manifest "$manifest" \
+      --config-root "$config_root" \
+      --bucket "$GCS_BUCKET" \
+      --bucket-prefix "$BMT_BUCKET_PREFIX" \
+      --timeout-sec "$timeout" \
+      --poll-interval-sec "$poll_interval"
+    ;;
+
   handshake-timeout-diagnostics)
     require_cmd gcloud
     run_id="$(current_run_id)"
@@ -639,6 +662,63 @@ case "$cmd" in
       -H "X-GitHub-Api-Version: 2022-11-28" \
       "https://api.github.com/repos/${repository}/statuses/${head_sha}" \
       -d "$(jq -n --arg c "$context" --arg d "$description" '{state:"pending",context:$c,description:$d}')"
+    ;;
+
+  post-final-status-from-decision)
+    require_cmd jq
+    require_cmd curl
+    repository="${REPOSITORY:-}"
+    head_sha="${HEAD_SHA:-}"
+    github_token="${GITHUB_TOKEN:-}"
+    context="${BMT_STATUS_CONTEXT:-BMT Gate}"
+    decision="${DECISION:-}"
+    pass_count="${PASS_COUNT:-0}"
+    warning_count="${WARNING_COUNT:-0}"
+    fail_count="${FAIL_COUNT:-0}"
+    timeout_count="${TIMEOUT_COUNT:-0}"
+
+    if [[ -z "$repository" || -z "$head_sha" || -z "$github_token" ]]; then
+      echo "::error::REPOSITORY, HEAD_SHA, and GITHUB_TOKEN are required"
+      exit 1
+    fi
+
+    state="failure"
+    description="BMT decision unavailable; check workflow logs."
+    case "$decision" in
+      accepted)
+        state="success"
+        description="BMT passed (${pass_count} pass, ${warning_count} warning)."
+        ;;
+      accepted_with_warnings)
+        state="success"
+        description="BMT passed with warnings (${pass_count} pass, ${warning_count} warning)."
+        ;;
+      rejected)
+        state="failure"
+        description="BMT failed (${fail_count} fail, ${timeout_count} timeout)."
+        ;;
+      timeout)
+        state="failure"
+        description="BMT timed out (${timeout_count} timeout)."
+        ;;
+      "")
+        state="failure"
+        description="BMT verdict collection failed; check workflow logs."
+        ;;
+      *)
+        state="failure"
+        description="BMT decision '${decision}' is unsupported; check workflow logs."
+        ;;
+    esac
+    description="${description:0:140}"
+    target_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-${repository}}/actions/runs/${GITHUB_RUN_ID:-}"
+
+    curl -sS -X POST \
+      -H "Accept: application/vnd.github+json" \
+      -H "Authorization: Bearer ${github_token}" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "https://api.github.com/repos/${repository}/statuses/${head_sha}" \
+      -d "$(jq -n --arg c "$context" --arg d "$description" --arg s "$state" --arg t "$target_url" '{state:$s,context:$c,description:$d,target_url:$t}')"
     ;;
 
   post-started-pending)

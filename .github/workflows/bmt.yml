@@ -46,6 +46,7 @@ env:
   BMT_DESCRIPTION_PENDING: ${{ vars.BMT_DESCRIPTION_PENDING }}
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_HANDSHAKE_TIMEOUT_SEC: ${{ vars.BMT_HANDSHAKE_TIMEOUT_SEC }}
+  BMT_VERDICT_TIMEOUT_SEC: ${{ vars.BMT_VERDICT_TIMEOUT_SEC }}
   PYTHONPATH: .github/scripts
 
 jobs:
@@ -216,6 +217,7 @@ jobs:
       has_legs: ${{ steps.filter.outputs.has_legs }}
       restart_vm: ${{ steps.preflight.outputs.restart_vm || 'false' }}
       stale_cleanup_count: ${{ steps.preflight.outputs.stale_cleanup_count || '0' }}
+      trigger_manifest: ${{ steps.trigger.outputs.manifest || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -383,6 +385,64 @@ jobs:
           HEAD_SHA: ${{ needs.bmt-context.outputs.head_sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: bash .github/scripts/workflows/bmt_workflow.sh post-pending-status
+
+  # ─────────────────── 06b Wait for VM verdict and post terminal status ───────────────────
+  wait-vm-results:
+    name: 06b Wait for VM verdicts
+    needs: [send-run-payload, vm-handshake, bmt-context]
+    if: needs.send-run-payload.outputs.has_legs == 'true' && needs.vm-handshake.result == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bmt-context.outputs.head_sha }}
+
+      - name: GCP Auth (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+
+      - name: Wait for VM verdicts
+        id: wait
+        env:
+          TRIGGER_MANIFEST: ${{ needs.send-run-payload.outputs.trigger_manifest }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh wait-verdicts
+
+      - name: Post final commit status
+        if: always()
+        env:
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.bmt-context.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DECISION: ${{ steps.wait.outputs.decision }}
+          PASS_COUNT: ${{ steps.wait.outputs.pass_count }}
+          WARNING_COUNT: ${{ steps.wait.outputs.warning_count }}
+          FAIL_COUNT: ${{ steps.wait.outputs.fail_count }}
+          TIMEOUT_COUNT: ${{ steps.wait.outputs.timeout_count }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-final-status-from-decision
+
+      - name: Evaluate merge gate decision (non-blocking job status)
+        if: steps.wait.outcome == 'success'
+        continue-on-error: true
+        run: |
+          uv run python ./.github/scripts/ci_driver.py gate \
+            --decision "${{ steps.wait.outputs.decision }}" \
+            --pass-count "${{ steps.wait.outputs.pass_count }}" \
+            --warning-count "${{ steps.wait.outputs.warning_count }}" \
+            --fail-count "${{ steps.wait.outputs.fail_count }}" \
+            --timeout-count "${{ steps.wait.outputs.timeout_count }}" \
+            --blocked-legs "${{ steps.wait.outputs.blocked_legs }}" \
+            --blocked-reasons "${{ steps.wait.outputs.blocked_reasons }}"
 
   # ─────────────────── Early pending: show BMT started before handshake ───────────────────
   post-started-pending:
