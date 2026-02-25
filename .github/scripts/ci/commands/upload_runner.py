@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
 
 from ci.adapters import gcloud_cli
-from ci.models import bucket_root_uri, normalize_prefix
+from ci.models import normalize_prefix, runtime_bucket_root_uri
 
 
 @click.command("upload-runner")
@@ -41,8 +41,8 @@ def command(
     source_ref: str,
 ) -> None:
     """Upload runner binary and project lib to GCS."""
-    normalized_prefix = normalize_prefix(bucket_prefix)
-    root = bucket_root_uri(bucket, normalized_prefix)
+    parent = normalize_prefix(bucket_prefix)
+    root = runtime_bucket_root_uri(bucket, parent)
     dest_prefix = f"{project}/runners/{preset}"
 
     runner_binary = runner_dir / "kardome_runner"
@@ -73,7 +73,7 @@ def command(
 
     # Write runner_meta.json
     meta = {
-        "uploaded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "uploaded_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source_ref": source_ref,
         "project": project,
         "preset": preset,

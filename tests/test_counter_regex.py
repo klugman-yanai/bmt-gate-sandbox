@@ -1,4 +1,4 @@
-"""Tests for _counter_regex in bmt_manager and run_sk_bmt_batch.
+"""Tests for regex counter parsing in bmt_manager and bmt_run_local.
 
 The key regression: fallback paths must produce a valid digit pattern (\\d+),
 not a literal-backslash pattern (\\\\d+) as was present before the fix.
@@ -6,10 +6,9 @@ not a literal-backslash pattern (\\\\d+) as was present before the fix.
 
 import importlib
 
-# Both modules expose a _counter_regex function; test them symmetrically.
-# bmt_manager from remote/sk; run_sk_bmt_batch from devtools (conftest adds both to sys.path).
+# bmt_manager (VM path) and bmt_run_local (local path) should share regex behavior.
 bmt_manager = importlib.import_module("bmt_manager")
-batch = importlib.import_module("run_sk_bmt_batch")
+batch = importlib.import_module("bmt_run_local")
 
 _SAMPLE_LINE = "Hi NAMUH counter = 42"
 _CUSTOM_LINE = "Hi WAKE counter = 99"
@@ -68,12 +67,12 @@ def test_manager_empty_pattern_falls_back_to_keyword():
     assert m.group(1) == "42"
 
 
-# ── run_sk_bmt_batch._counter_regex ──────────────────────────────────────────
+# ── bmt_run_local.counter_regex ───────────────────────────────────────────────
 
 
 def test_batch_explicit_pattern():
     cfg = {"parsing": {"counter_pattern": r"Hi NAMUH counter = (\d+)"}}
-    regex = batch._counter_regex(cfg)
+    regex = batch.counter_regex(cfg)
     m = regex.search(_SAMPLE_LINE)
     assert m is not None
     assert m.group(1) == "42"
@@ -81,14 +80,14 @@ def test_batch_explicit_pattern():
 
 def test_batch_keyword_fallback_matches_digits():
     cfg = {"parsing": {"keyword": "NAMUH"}}
-    regex = batch._counter_regex(cfg)
+    regex = batch.counter_regex(cfg)
     m = regex.search(_SAMPLE_LINE)
     assert m is not None
     assert m.group(1) == "42"
 
 
 def test_batch_no_parsing_config():
-    regex = batch._counter_regex({})
+    regex = batch.counter_regex({})
     m = regex.search(_SAMPLE_LINE)
     assert m is not None
     assert m.group(1) == "42"
