@@ -1,4 +1,4 @@
-# Dummy "CI" workflow: mirrors job/step structure of resources/core-main-workflow.yml
+# Dummy "CI" workflow: mirrors job/step structure of docs/reference/workflows/build-and-test.yml
 # (which cannot be modified). Runs on push or PR to dev; BMT runs after this completes.
 # Dummy builds one job per project (filtered by BMT_PROJECTS; default "all release runners").
 # Artifacts are per workflow run; they do not "carry" to another run. The BMT workflow

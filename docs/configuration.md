@@ -50,8 +50,8 @@ Omitted vars inherit from current GitHub repo context first, then from contract 
 just repo-vars-check    # Check repo vars against contract
 just repo-vars-apply    # Apply vars to GitHub (with optional args)
 just show-env           # Print env var names used by CI, VM, devtools
-just env-surface       # Report variable surface
 just validate-vm-vars   # Ensure repo vars match VM metadata
+just sync-vm-metadata   # Sync startup-critical VM metadata from repo contract
 ```
 
 ---
@@ -105,6 +105,7 @@ Use:
 
 `remote/code` is the manual-sync source of truth for `<code-root>` only.
 `remote/runtime` is the manual-sync source for runtime seed artifacts under `<runtime-root>`.
+Local large WAV corpora remain under `data/` (not inside `remote/runtime`).
 Local mirror policy details: [../remote/README.md](../remote/README.md).
 
 - **`<code-root>/...`** — deployable watcher/orchestrator/manager/bootstrap/config mirrored from `remote/code`.
@@ -117,6 +118,7 @@ Local mirror policy details: [../remote/README.md](../remote/README.md).
 - **`<runtime-root>/triggers/status/<workflow_run_id>.json`** — VM progress heartbeat.
 - **`<runtime-root>/_meta/runtime_seed_manifest.json`** — runtime seed sync manifest (written by `devtools/bucket_sync_runtime_seed.py`).
 - **`<runtime-root>/<project>/runners/<preset>/...`** — Runner bundles (uploaded by workflow/devtools).
+- **`<runtime-root>/<project>/inputs/...`** — Runtime input objects in bucket; local source is explicit upload from `data/...` (keep `remote/runtime/**/inputs` as placeholders only).
 - **`<runtime-root>/<results_prefix>/current.json`** — Pointer (`latest`, `last_passing` run_id); updated by watcher.
 - **`<runtime-root>/<results_prefix>/snapshots/<run_id>/`** — Per-run artifacts (`latest.json`, `ci_verdict.json`, logs).
 

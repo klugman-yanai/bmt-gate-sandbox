@@ -19,17 +19,19 @@ from shared_bucket_env import bucket_option, bucket_prefix_option, normalize_pre
 @click.command()
 @bucket_option
 @bucket_prefix_option
-@click.option("--source-dir", default="repo/staging/wavs/false_rejects", help="Local wav directory")
+@click.option(
+    "--source-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Local wav directory (explicit; e.g. data/sk/inputs/false_rejects)",
+)
 @click.option("--dest-prefix", default="sk/inputs/false_rejects", help="Destination prefix in bucket")
-def main(bucket: str, bucket_prefix: str, source_dir: str, dest_prefix: str) -> int:
+def main(bucket: str, bucket_prefix: str, source_dir: Path, dest_prefix: str) -> int:
     if not bucket:
         click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
 
-    source = Path(source_dir)
-    if not source.is_dir():
-        click.echo(f"::error::Source wav directory not found: {source}", err=True)
-        return 1
+    source = source_dir.resolve()
 
     parent = normalize_prefix(bucket_prefix)
     root = runtime_bucket_root_uri(bucket, parent)

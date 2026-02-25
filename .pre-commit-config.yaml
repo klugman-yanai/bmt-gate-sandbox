@@ -6,7 +6,7 @@ repos:
     hooks:
       - id: verify-remote-bucket-sync
         name: Advisory remote/ bucket sync check
-        entry: scripts/pre-commit-sync-remote.sh
+        entry: scripts/hooks/pre-commit-sync-remote.sh
         language: script
         files: ^remote/
         pass_filenames: false

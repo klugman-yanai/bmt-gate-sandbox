@@ -45,6 +45,7 @@ FORBIDDEN_RUNTIME_PATTERNS = (
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/results(/|$)",
     r"(^|/)sk/outputs(/|$)",
+    r"(^|/)inputs(/|$).*\.wav$",
     r"(^|/)__pycache__(/|$)",
     r"\.pyc$",
 )
