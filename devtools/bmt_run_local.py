@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from click_exit import run_click_command
 
 _script_dir = Path(__file__).resolve().parent
 if str(_script_dir) not in sys.path:
@@ -640,4 +641,4 @@ def main(**kwargs) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_click_command(main))

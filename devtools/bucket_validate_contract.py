@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import click
+from click_exit import run_click_command
 
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
@@ -133,4 +134,4 @@ def main(bucket: str, bucket_prefix: str, require_runner: bool) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_click_command(main))

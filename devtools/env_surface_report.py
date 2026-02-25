@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import click
+from click_exit import run_click_command
 from shared_env_contract import default_contract_path, list_context_vars, load_env_contract
 
 
@@ -103,4 +104,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_click_command(main))
