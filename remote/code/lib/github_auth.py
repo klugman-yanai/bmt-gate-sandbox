@@ -125,9 +125,32 @@ def load_github_repos_config(config_path: str | Path) -> dict[str, Any] | None:
         return None
 
 
+def _resolve_config_path(config_path: str | Path | None) -> Path:
+    """Resolve repository-config path with layout-aware defaults."""
+    if config_path is not None and str(config_path).strip():
+        return Path(config_path)
+
+    env_override = os.environ.get("BMT_GITHUB_REPOS_CONFIG", "").strip()
+    if env_override:
+        return Path(env_override)
+
+    # Preferred path in current layout: <repo_root>/config/github_repos.json
+    preferred = Path(__file__).resolve().parents[1] / "config" / "github_repos.json"
+    if preferred.is_file():
+        return preferred
+
+    # Legacy fallback used before remote/code migration.
+    legacy = Path("/opt/bmt/remote/config/github_repos.json")
+    if legacy.is_file():
+        return legacy
+
+    # Final fallback: expected VM path even if file is currently absent.
+    return Path("/opt/bmt/config/github_repos.json")
+
+
 def resolve_auth_for_repository(  # noqa: PLR0911
     repository: str,
-    config_path: str | Path = "/opt/bmt/remote/config/github_repos.json",
+    config_path: str | Path | None = None,
 ) -> str | None:
     """
     Resolve GitHub authentication token for a repository.
@@ -137,7 +160,8 @@ def resolve_auth_for_repository(  # noqa: PLR0911
 
     Args:
         repository: Repository in "owner/repo" format
-        config_path: Path to github_repos.json (default: /opt/bmt/config/github_repos.json)
+        config_path: Optional path override for github_repos.json. If unset, uses
+            BMT_GITHUB_REPOS_CONFIG env override, then layout-aware defaults.
 
     Returns:
         GitHub token string, or None if no auth available
@@ -147,7 +171,8 @@ def resolve_auth_for_repository(  # noqa: PLR0911
         return None
 
     # Load repository configuration
-    config = load_github_repos_config(config_path)
+    resolved_config_path = _resolve_config_path(config_path)
+    config = load_github_repos_config(resolved_config_path)
     if not config:
         print("  Info: No repository config found; using PAT fallback")
         return _fallback_to_pat(config)
