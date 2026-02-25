@@ -24,6 +24,8 @@ This document covers the **current** development workflow: setup, testing, lint/
 
    Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` for VM serial, validate-vm-vars, and CI workflow.
 
+3. **Local diagnostics location:** Keep ad-hoc logs and snapshots under `.local/diagnostics/`. Do not use a root-level `debug/` directory.
+
 ---
 
 ## Testing
@@ -52,13 +54,6 @@ uv run python devtools/bmt_run_local.py \
   --workers 4
 ```
 
-Or use the Justfile:
-
-```bash
-just run-local-bmt
-# Or with args: just run-local-bmt bmt_id="false_reject_namuh" project_id="sk"
-```
-
 ### Pointer/snapshot flow (with GCS)
 
 Requires `gcloud` auth and a bucket with config/runner/dataset synced.
@@ -78,12 +73,7 @@ uv run python remote/code/sk/bmt_manager.py \
   --summary-out ./local_batch/manager_summary.json
 ```
 
-Then inspect GCS: `gs://<bucket>/<parent>/runtime/<results_prefix>/snapshots/<run_id>/` should contain `latest.json`, `ci_verdict.json`, and `logs/` (use `runtime/` when parent is empty). Or use:
-
-```bash
-just run-manager-gcs <bucket>
-# Or: just run-manager-gcs <bucket> run_id=my-run bmt_id=false_reject_namuh
-```
+Then inspect GCS: `gs://<bucket>/<parent>/runtime/<results_prefix>/snapshots/<run_id>/` should contain `latest.json`, `ci_verdict.json`, and `logs/` (use `runtime/` when parent is empty).
 
 **2. Full E2E** — Run the real CI workflow (push or manual trigger). The workflow writes a trigger; the VM (or a local `vm_watcher.py` with the same bucket) picks it up, runs legs, updates `current.json`, and prunes. Verify in GCS: `current.json` at results prefix and only referenced snapshot dirs under `snapshots/`.
 
@@ -128,21 +118,21 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 |--------|---------|
 | `just test` | Unit tests (pytest). |
 | `just lint` | ruff check + format check + basedpyright. |
-| `just run-local-bmt` | Local BMT batch (default bmt_id/project_id; optional dataset_root). |
-| `just run-manager-gcs <bucket>` | Run VM manager once against GCS (optional run_id, project_id, bmt_id). |
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --auto`). |
 | `just sync-remote` | Sync `remote/code` to `<code-root>` (requires `GCS_BUCKET`). |
-| `just verify-sync` | Verify `remote/code` and `remote/runtime` match bucket manifests. |
-| `just verify-runtime-sync` | Verify only `remote/runtime` against `<runtime-root>/_meta/runtime_seed_manifest.json`. |
-| `just sync-remote-delete` | Full mirror (removes bucket objects not in local `remote/code`). |
 | `just sync-runtime-seed` | Sync `remote/runtime` to `<runtime-root>`. |
+| `just verify-sync` | Verify `remote/code` and `remote/runtime` match bucket manifests. |
+| `just validate-layout` | Validate canonical `remote/` mirror policy. |
+| `just validate-repo-layout` | Validate repo top-level layout policy (root clutter + tracked path policy). |
 | `just upload-runner` | Upload runner to bucket. |
-| `just upload-wavs` | Upload wav dataset to bucket. |
+| `just upload-wavs <source_dir>` | Upload wav dataset to bucket (explicit source path, e.g. `data/sk/inputs/false_rejects`). |
 | `just validate-bucket` | Validate bucket contract (optional `--require-runner` via script). |
+| `just sync-vm-metadata` | Sync startup-critical VM metadata from repo configuration. |
+| `just start-vm [args]` | Manual VM start wrapper for debug/maintenance/testing. |
+| `just wait-handshake <workflow_run_id>` | Wait for VM ack under runtime triggers. |
 | `just show-env` | Print env var names used by CI, VM, and devtools. |
 | `just repo-vars-check` | Check repo vars against contract + optional overrides. |
 | `just repo-vars-apply` | Apply vars to GitHub (with optional args). |
-| `just env-surface` | Report config variable surface. |
 | `just validate-vm-vars` | Ensure repo vars match VM metadata. |
 | `just gcs-trigger <run_id>` | Show trigger and ack JSON for a workflow run. |
 | `just vm-serial` | Stream VM serial output. |
@@ -172,15 +162,19 @@ There is **no formal build step** for the BMT pipeline. Deployment is:
    ```bash
    GCS_BUCKET="<bucket>" uv run python devtools/bucket_sync_runtime_seed.py
    GCS_BUCKET="<bucket>" uv run python devtools/bucket_verify_runtime_seed_sync.py
-   # or: just sync-runtime-seed && just verify-runtime-sync
+   # or: just sync-runtime-seed && just verify-sync
    ```
 
 3. **Upload runner and datasets** as needed:
 
-   ```bash
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_runner.py --runner-path <path>
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_wavs.py --source-dir <dir>
-   ```
+```bash
+GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_runner.py --runner-path <path>
+GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_wavs.py --source-dir data/sk/inputs/false_rejects
+```
+
+Dataset policy:
+- `data/` is the local authoritative source for large WAV corpora.
+- `remote/runtime/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
 
 4. **Validate bucket contract:**
 

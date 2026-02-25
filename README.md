@@ -5,14 +5,32 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 ## What Lives Here
 
 - **remote/code/** — Source of truth for deployable VM code/config/templates (watcher, orchestrator, managers, bootstrap). Synced manually to `gs://<bucket>/<parent>/code/`.
-- **remote/runtime/** — Source of truth for runtime seed artifacts (runner binaries, optional seed inputs).
+- **remote/runtime/** — Source of truth for runtime seed artifacts (runner binaries + input placeholders only; no local WAV corpora).
+- **data/** — Local-only large datasets used for local runs and explicit upload operations.
 - **.github/workflows/** — `ci.yml` (build-oriented; dispatches BMT) and `bmt.yml` (BMT control-plane).
 - **.github/scripts/** — `ci_driver.py` and `ci/commands/` for matrix, trigger, start-vm, handshake, etc. All GCP interaction is via `gcloud` CLI (subprocess), not an SDK.
 - **devtools/** — Local scripts for bucket sync, runner/wav upload, contract validation, local BMT runs, and env/repo-vars inspection.
 
+## Repository Layout Contract
+
+This repository uses a strict layout contract:
+
+- **Authoritative source trees**
+  - `remote/code` => deployable VM code/config/bootstrap mirrored to bucket `code/`.
+  - `remote/runtime` => runtime seed mirror for bucket `runtime/` (runners + placeholders only).
+- **Local-only trees**
+  - `data` => large WAV corpora (not stored under `remote/runtime` locally).
+  - `.local/diagnostics` => ad-hoc diagnostics and baseline snapshots (non-authoritative, gitignored).
+- **Operational code**
+  - `.github/` => workflows and CI command wrappers.
+  - `devtools/` => local operator tooling.
+  - `docs/` => contracts, runbooks, reference artifacts.
+
+If a file does not fit these categories, it should not be added at repo root.
+
 ## Workflow (Current)
 
-1. **ci.yml** — Lightweight build workflow; mirrors `resources/core-main-workflow.yml`, produces runner artifacts, dispatches `bmt.yml` via `workflow_dispatch` with `ci_run_id`, `head_sha`, `head_branch`, `head_event`, optional `pr_number`.
+1. **ci.yml** — Lightweight build workflow aligned to the reference workflow at `docs/reference/workflows/build-and-test.yml`, produces runner artifacts, dispatches `bmt.yml` via `workflow_dispatch` with `ci_run_id`, `head_sha`, `head_branch`, `head_event`, optional `pr_number`.
 2. **bmt.yml** — Uploads runners to runtime namespace, writes one run trigger to `<runtime-root>/triggers/runs/<workflow_run_id>.json`, syncs VM metadata, starts the VM, waits for handshake ack, posts pending commit status, then **exits**. It does not wait for final verdicts.
 3. **VM** — Runs independently: polls for the trigger, runs legs via `root_orchestrator` and per-project `bmt_manager`, updates `current.json` pointers and prunes snapshots, posts final commit status and completes the Check Run, then deletes the trigger. Optionally exits after one run so the VM can stop itself.
 
@@ -34,9 +52,11 @@ Configuration is defined in **config/env_contract.json**. Optional overrides: **
 Useful commands:
 
 ```bash
+just sync-vm-metadata
+just start-vm
+just wait-handshake <workflow_run_id>
 just repo-vars-check
 just repo-vars-apply
-just env-surface
 just show-env
 just validate-vm-vars
 ```
@@ -85,7 +105,7 @@ GCS_BUCKET="<bucket>" uv run python devtools/bucket_verify_remote_sync.py
 GCS_BUCKET="<bucket>" uv run python devtools/bucket_sync_runtime_seed.py
 GCS_BUCKET="<bucket>" uv run python devtools/bucket_verify_runtime_seed_sync.py
 GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_runner.py --runner-path <path>
-GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_wavs.py --source-dir <dir>
+GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_wavs.py --source-dir data/sk/inputs/false_rejects
 GCS_BUCKET="<bucket>" uv run python devtools/bucket_validate_contract.py [--require-runner]
 ```
 
@@ -93,9 +113,15 @@ Set `BMT_UV_TOOL_PATH=/path/to/uv` to override which local uv binary is uploaded
 
 More: [docs/development.md](docs/development.md) for setup, testing, and Justfile recipes.
 
+## Local Diagnostics Runbook
+
+- Write ad-hoc diagnostics to `.local/diagnostics/` only.
+- Do not commit local diagnostics artifacts.
+- Retain only what is needed for active incident triage; prune old snapshots periodically.
+
 ## Notes
 
-- `ci.yml` here is a development mirror; `resources/core-main-workflow.yml` tracks the upstream build structure.
+- `ci.yml` here is a development mirror; reference structure is kept at `docs/reference/workflows/build-and-test.yml`.
 - `ci_driver.py wait` and `ci_driver.py gate` exist for manual/local validation only; they are not used in `bmt.yml`.
 - VM bootstrap and auth: [remote/code/bootstrap/README.md](remote/code/bootstrap/README.md).
 

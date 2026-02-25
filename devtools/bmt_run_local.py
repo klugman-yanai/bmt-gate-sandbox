@@ -521,7 +521,7 @@ def write_results(
 @click.option(
     "--sk-root",
     default="",
-    help="Legacy unified SK root override (e.g. remote/sk); when set, ignores --code-root/--runtime-root",
+    help="Legacy unified SK root override (e.g. remote); when set, ignores --code-root/--runtime-root",
 )
 @click.option("--results-subdir", default="false_rejects", help="Fallback subdir when config paths are missing")
 @click.option("--runner", default="", help="Runner path override")

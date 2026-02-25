@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **bmt-cloud-dev** is where BMT (Benchmark/Milestone Testing) logic is planned and you interface with the GCP VM/bucket. You author config/scripts here, test locally, and push assets via devtools; the CI workflow in this repo is copied to production manually. It orchestrates remote VM-based BMT execution (e.g. sk) via Google Cloud, scoring audio quality metrics (NAMUH counter values) against a baseline to gate CI.
 
-**Conventions:** `remote/` is the source of truth for deployable VM code/config/templates and syncs manually to bucket `code/`; runtime artifacts live under bucket `runtime/`. Default jobs config for local runs is `remote/sk/config/bmt_jobs.json`.
+**Conventions:** `remote/` is the source of truth for deployable VM code/config/templates and syncs manually to bucket `code/`; runtime artifacts live under bucket `runtime/`. Default jobs config for local runs is `remote/code/sk/config/bmt_jobs.json`.
 
 ## Time and clocks
 
@@ -83,8 +83,8 @@ Runs the **local** batch runner (different code path from the VM manager); usefu
 ```bash
 python3 devtools/bmt_run_local.py \
   --bmt-id false_reject_namuh \
-  --jobs-config remote/sk/config/bmt_jobs.json \
-  --runner remote/sk/runners/kardome_runner \
+  --jobs-config remote/code/sk/config/bmt_jobs.json \
+  --runner remote/runtime/sk/runners/kardome_runner \
   --dataset-root data/sk/inputs/false_rejects \
   --workers 4
 ```
@@ -97,12 +97,12 @@ To exercise the **manager** (snapshot writes, pointer read for baseline) and opt
 
    ```bash
    # From repo root; workspace can be a local dir
-   uv run python remote/sk/bmt_manager.py \
+   uv run python remote/code/sk/bmt_manager.py \
      --bucket "<bucket>" \
      --bucket-prefix "" \
      --project-id sk \
      --bmt-id false_reject_namuh \
-     --jobs-config remote/sk/config/bmt_jobs.json \
+     --jobs-config remote/code/sk/config/bmt_jobs.json \
      --workspace-root ./local_batch \
      --run-context dev \
      --run-id test-run-$(date +%s) \
@@ -132,8 +132,8 @@ To exercise the **manager** (snapshot writes, pointer read for baseline) and opt
 ```bash
 python3 devtools/bmt_run_local.py \
   --bmt-id false_reject_namuh \
-  --jobs-config remote/sk/config/bmt_jobs.json \
-  --runner remote/sk/runners/kardome_runner \
+  --jobs-config remote/code/sk/config/bmt_jobs.json \
+  --runner remote/runtime/sk/runners/kardome_runner \
   --dataset-root data/sk/inputs/false_rejects \
   --workers 4
 ```
@@ -208,8 +208,8 @@ See **docs/architecture.md** for the full script reference; **docs/implementatio
 ### Config Files
 
 - **`remote/bmt_projects.json`** — project registry; maps project name → `manager_script` (e.g. `sk/bmt_manager.py`) + `jobs_config`.
-- **`remote/sk/config/bmt_jobs.json`** — BMT definitions: runner URI, template URI, dataset paths, gate comparison, score parsing regex, caching TTLs.
-- **`remote/sk/config/input_template.json`** — runner JSON config template with path placeholders (`/tmp/dummy/*`) for REF_PATH, MICS_PATH, output path, and all audio processing parameters.
+- **`remote/code/sk/config/bmt_jobs.json`** — BMT definitions: runner URI, template URI, dataset paths, gate comparison, score parsing regex, caching TTLs.
+- **`remote/code/sk/config/input_template.json`** — runner JSON config template with path placeholders (`/tmp/dummy/*`) for REF_PATH, MICS_PATH, output path, and all audio processing parameters.
 
 ### GCS result layout (pointer-based)
 
@@ -229,7 +229,7 @@ The **Check Run** is implemented and runs after the watcher updates `current.jso
 - `data/` — WAV datasets
 - `sk_runtime/` / `local_batch/` — local execution workspaces
 - `gcp-key.json` — GCP credentials
-- `remote/sk/runners/lib/` runner dependency shared libraries (present locally but `.gitignore`'d in practice)
+- `.local/diagnostics/` — local diagnostics snapshots and ad-hoc incident artifacts
 
 ## GCP Environment Variables (CI)
 

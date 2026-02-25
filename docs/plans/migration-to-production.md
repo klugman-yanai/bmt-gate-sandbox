@@ -122,7 +122,7 @@ just sync-remote
 
 ## Production Repo Changes
 
-### 1. Files to Copy (17 files)
+### 1. Files to Copy (16 files)
 
 Copy from dev repo `.github/scripts/` to prod repo `.github/scripts/`:
 
@@ -146,7 +146,6 @@ Copy from dev repo `.github/scripts/` to prod repo `.github/scripts/`:
 │       ├── upload_runner.py
 │       ├── wait_handshake.py
 │       └── verdict_gate.py
-└── requirements.txt
 ```
 
 ### 2. Create `.github/workflows/bmt.yml`
@@ -162,8 +161,8 @@ Copy from dev repo with these modifications:
     ROOT="gs://${GCS_BUCKET}"
     [ -n "${BMT_BUCKET_PREFIX:-}" ] && ROOT="${ROOT}/${BMT_BUCKET_PREFIX}"
     
-    gcloud storage cp "${ROOT}/remote/bmt_projects.json" /tmp/bmt-config/ --quiet
-    gcloud storage cp -r "${ROOT}/remote/sk/config" /tmp/bmt-config/sk/ --quiet
+    gcloud storage cp "${ROOT}/code/bmt_projects.json" /tmp/bmt-config/ --quiet
+    gcloud storage cp -r "${ROOT}/code/sk/config" /tmp/bmt-config/sk/ --quiet
     
     echo "BMT_CONFIG_ROOT=/tmp/bmt-config" >>"$GITHUB_ENV"
 ```
@@ -178,7 +177,7 @@ Copy from dev repo with these modifications:
       --project-filter "${BMT_PROJECTS:-}"
 ```
 
-### 3. Modify `.github/workflows/core-main-workflow.yml`
+### 3. Modify `.github/workflows/build-and-test.yml`
 
 Add this job after the `build` job:
 
@@ -261,9 +260,9 @@ Settings → Branches → Branch protection rules → Add rule for `dev`:
 | 1 | Create `dispatch_workflow.py` command | Dev |
 | 2 | Register command in `ci_driver.py` | Dev |
 | 3 | Run `just sync-remote` | Dev |
-| 4 | Copy `.github/scripts/` (17 files) | Prod |
+| 4 | Copy `.github/scripts/` (16 files) | Prod |
 | 5 | Copy `.github/workflows/bmt.yml` | Prod |
-| 6 | Add `trigger-bmt` job to `core-main-workflow.yml` | Prod |
+| 6 | Add `trigger-bmt` job to `.github/workflows/build-and-test.yml` | Prod |
 | 7 | Configure GitHub variables (8) | Prod |
 | 8 | Configure GitHub secrets (2) | Prod |
 | 9 | Configure branch protection | Prod |
