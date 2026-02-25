@@ -10,8 +10,10 @@ import click
 from ci.commands.job_matrix import command as matrix_cmd
 from ci.commands.run_trigger import command as trigger_cmd
 from ci.commands.start_vm import command as start_vm_cmd
+from ci.commands.sync_vm_metadata import command as sync_vm_metadata_cmd
 from ci.commands.upload_runner import command as upload_runner_cmd
 from ci.commands.verdict_gate import command as gate_cmd
+from ci.commands.wait_handshake import command as wait_handshake_cmd
 from ci.commands.wait_verdicts import command as wait_cmd
 
 
@@ -22,8 +24,10 @@ def cli() -> None:
 
 cli.add_command(matrix_cmd)
 cli.add_command(trigger_cmd)
+cli.add_command(sync_vm_metadata_cmd)
 cli.add_command(start_vm_cmd)
 cli.add_command(upload_runner_cmd)
+cli.add_command(wait_handshake_cmd)
 cli.add_command(wait_cmd)
 cli.add_command(gate_cmd)
 

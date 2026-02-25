@@ -3,7 +3,7 @@
 # Use Ruff extension (charliermarsh.ruff) for on-save linting/formatting.
 
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 fix = true
 show-fixes = true
 preview = false

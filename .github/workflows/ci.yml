@@ -1,98 +1,178 @@
-name: Sandbox CI
-# run-name: match BMT_STATUS_CONTEXT (set via gh variable set)
-run-name: "BMT Gate • ${{ github.event_name }} • ${{ github.ref_name }}"
+# Dummy "CI" workflow: mirrors job/step structure of resources/core-main-workflow.yml
+# (which cannot be modified). Runs on push or PR to dev; BMT runs after this completes.
+# Dummy builds one job per project (filtered by BMT_PROJECTS; default "all release runners").
+# Artifacts are per workflow run; they do not "carry" to another run. The BMT workflow
+# is triggered with this run's run_id and downloads these artifacts by run-id (see bmt.yml).
+name: CI
 
 on:
-  pull_request:
-    branches: [dev]
+  workflow_dispatch:
   push:
     branches: [dev]
+  pull_request:
+    branches: [dev]
 
-concurrency:
-  group: bmt-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-  id-token: write
-  statuses: write
+defaults:
+  run:
+    shell: bash
 
 env:
-  GCS_BUCKET: ${{ vars.GCS_BUCKET }}
-  GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
-  GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
-  GCP_ZONE: ${{ vars.GCP_ZONE }}
-  BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
-  BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT || 'BMT Gate' }}
-  BMT_DESCRIPTION_PENDING: ${{ vars.BMT_DESCRIPTION_PENDING || 'BMT running on VM; status will update when complete.' }}
-  PYTHONPATH: .github/scripts
+  # One build job per project; default "all release runners". Set repo var BMT_PROJECTS to override.
+  BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
 
 jobs:
-  prepare-matrix:
-    name: 01 Discover Matrix
-    runs-on: ubuntu-22.04
+  # ─────────────────────── 1) one preset per project (gcc_Release only; filtered) ───────────────────────
+  extract-presets:
+    runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
+      presets: ${{ steps.parse.outputs.presets }}
     steps:
-      - name: Checkout
+      - name: Checkout source for preset parsing
         uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Build project+BMT matrix
-        id: matrix
-        run: |
-          uv run --with click python ./.github/scripts/ci_driver.py matrix \
-            --config-root remote \
-            --project-filter "${BMT_PROJECTS:-}"
-
-  trigger-legs:
-    name: 02 Trigger All Legs
-    needs: prepare-matrix
-    runs-on: ubuntu-22.04
-    outputs:
-      manifest: ${{ steps.trigger.outputs.manifest }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: GCP Auth (WIF)
-        uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head_sha || github.sha }}
+          fetch-depth: 1
 
-      - name: Setup Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
+        id: parse
+        run: bash .github/scripts/workflows/ci_workflow.sh parse-presets
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+  # ─────────────────────── 2) build every preset ────────────────────────
+  build:
+    needs: extract-presets
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.extract-presets.outputs.presets) }}
 
-      - name: Write run trigger to GCS
-        id: trigger
-        run: |
-          set -euo pipefail
-          PR_ARGS=""
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_ARGS="--pr-number ${{ github.event.pull_request.number }}"
-          fi
-          uv run --with click python ./.github/scripts/ci_driver.py trigger \
-            --config-root remote \
-            --bucket "$GCS_BUCKET" \
-            --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
-            --matrix-json '${{ needs.prepare-matrix.outputs.matrix }}' \
-            --run-context "${{ github.event_name == 'pull_request' && 'pr' || 'dev' }}" \
-            $PR_ARGS
+    env:
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
 
-      - name: Start BMT VM
-        run: uv run --with click python ./.github/scripts/ci_driver.py start-vm
+    steps:
+      - name: Checkout source to build
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head_sha        || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
-      - name: Post pending commit status
-        run: |
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -d "$(jq -n --arg c "$BMT_STATUS_CONTEXT" --arg d "$BMT_DESCRIPTION_PENDING" '{state:"pending",context:$c,description:$d}')"
+      - name: Disk space (before)
+        run: df -h
+
+      - name: Free disk space on runner
+        run: "true"
+
+      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
+        run: "true"
+
+      - name: Install CMake 3.29.3
+        run: "true"
+
+      - name: Install MinGW (64-bit)
+        if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
+        run: "true"
+
+      - name: Configure ( ${{ matrix.configure }} )
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: "true"
+
+      - name: Build ( ${{ matrix.short }} )
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: bash .github/scripts/workflows/ci_workflow.sh stage-release-runner
+
+      - name: Soft check (Xtensa/Hexagon)
+        if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: "true"
+
+      - name: Strict check (non-embedded)
+        if: ${{ ! (contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon')) }}
+        run: "true"
+
+      - name: Compute preset info
+        id: preset-info
+        if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: bash .github/scripts/workflows/ci_workflow.sh compute-preset-info
+
+      - name: Upload runner artifact
+        if: steps.preset-info.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-${{ steps.preset-info.outputs.preset }}
+          path: |
+            ${{ steps.preset-info.outputs.runners_dir }}/kardome_runner
+            ${{ steps.preset-info.outputs.lib_dir }}/libKardome.so
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Disk space (after)
+        if: always()
+        run: "true"
+
+      - name: Cleanup heavy dirs
+        if: always()
+        run: "true"
+
+  # ─────────────────────── 3) Trigger BMT via workflow_dispatch (using GitHub App token) ───────────────────────
+  trigger-bmt:
+    name: Trigger BMT
+    needs: build
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+      issues: write
+    steps:
+      - name: Checkout source for workflow helpers
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_TEST_ID }}
+          private-key: ${{ secrets.APP_TEST_PRIVATE_KEY }}
+          permission-actions: write
+
+      - name: Resolve head ref and event
+        id: head
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEFAULT_HEAD_SHA: ${{ github.sha }}
+          DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
+        run: bash .github/scripts/workflows/ci_workflow.sh resolve-head-context
+
+      - name: Trigger BMT workflow
+        env:
+          REPOSITORY: ${{ github.repository }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          CI_RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ steps.head.outputs.head_sha }}
+          HEAD_BRANCH: ${{ steps.head.outputs.head_branch }}
+          HEAD_EVENT: ${{ steps.head.outputs.head_event }}
+          PR_NUMBER: ${{ steps.head.outputs.pr_number }}
+        run: bash .github/scripts/workflows/ci_workflow.sh dispatch-bmt
+
+      - name: Post BMT failure status (Trigger BMT failed)
+        if: failure()
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+        run: bash .github/scripts/workflows/ci_workflow.sh post-trigger-failure-status

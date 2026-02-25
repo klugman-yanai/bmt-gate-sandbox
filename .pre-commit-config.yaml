@@ -1,0 +1,12 @@
+# Pre-commit: https://pre-commit.com
+# Install: pre-commit install (or use prek if available)
+# Run manually: pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: verify-remote-bucket-sync
+        name: Advisory remote/ bucket sync check
+        entry: scripts/pre-commit-sync-remote.sh
+        language: script
+        files: ^remote/
+        pass_filenames: false

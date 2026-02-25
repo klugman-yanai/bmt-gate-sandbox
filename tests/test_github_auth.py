@@ -6,7 +6,7 @@ import json
 import os
 
 # Import the module under test
-# Note: We need to add remote/lib to the path
+# Note: We need to add remote/code/lib to the path
 import sys
 import tempfile
 from pathlib import Path
@@ -15,7 +15,7 @@ from unittest import mock
 import pytest
 
 repo_root = Path(__file__).parent.parent
-sys.path.insert(0, str(repo_root / "remote" / "lib"))
+sys.path.insert(0, str(repo_root / "remote" / "code" / "lib"))
 import github_auth  # type: ignore[import-not-found]  # noqa: E402
 
 
@@ -215,6 +215,23 @@ class TestResolveAuthForRepository:
                 config_path=test_config,
             )
             assert token == "test-pat-token"
+
+
+class TestResolveConfigPath:
+    """Tests for _resolve_config_path()."""
+
+    def test_explicit_path_wins(self, test_config):
+        resolved = github_auth._resolve_config_path(test_config)
+        assert resolved == Path(test_config)
+
+    def test_env_override_wins(self, test_config):
+        with mock.patch.dict(os.environ, {"BMT_GITHUB_REPOS_CONFIG": test_config}, clear=True):
+            resolved = github_auth._resolve_config_path(None)
+        assert resolved == Path(test_config)
+
+    def test_default_path_exists(self):
+        resolved = github_auth._resolve_config_path(None)
+        assert resolved.name == "github_repos.json"
 
 
 class TestGetInstallationTokenFromApp:
