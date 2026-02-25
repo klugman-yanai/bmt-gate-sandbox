@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import click
+from click_exit import run_click_command
 
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
@@ -125,4 +126,4 @@ def main(
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_click_command(main))

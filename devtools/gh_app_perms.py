@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 import click
+from click_exit import run_click_command
 
 try:
     import jwt as pyjwt
@@ -86,4 +87,4 @@ def main(
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_click_command(main))
