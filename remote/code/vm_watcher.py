@@ -283,6 +283,159 @@ def _post_commit_status(
         return False
 
 
+def _with_refreshed_token(
+    repository: str,
+    token_resolver: Callable[[str], str | None],
+    current_token: str,
+) -> str:
+    """Try resolving a fresh token; fall back to current token on failure."""
+    refreshed = token_resolver(repository)
+    if refreshed:
+        return refreshed
+    return current_token
+
+
+def _post_commit_status_resilient(
+    repository: str,
+    sha: str,
+    state: str,
+    description: str,
+    target_url: str | None,
+    token: str,
+    *,
+    context: str,
+    token_resolver: Callable[[str], str | None],
+    attempts: int = 3,
+) -> bool:
+    """Post commit status with token refresh retries for transient auth/API issues."""
+    token_in_use = token
+    max_attempts = max(1, attempts)
+    for attempt in range(1, max_attempts + 1):
+        if _post_commit_status(repository, sha, state, description, target_url, token_in_use, context=context):
+            return True
+        if attempt < max_attempts:
+            token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
+    return False
+
+
+def _create_check_run_resilient(
+    token: str,
+    repository: str,
+    sha: str,
+    *,
+    name: str,
+    status: str,
+    output: dict[str, str],
+    token_resolver: Callable[[str], str | None],
+    attempts: int = 3,
+) -> tuple[int | None, str]:
+    """Create check run with token refresh retries. Returns (check_run_id, token_used)."""
+    token_in_use = token
+    max_attempts = max(1, attempts)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            check_run_id = github_checks.create_check_run(
+                token_in_use,
+                repository,
+                sha,
+                name=name,
+                status=status,
+                output=output,
+            )
+            return check_run_id, token_in_use
+        except Exception as exc:
+            print(f"  Warning: Failed to create Check Run (attempt {attempt}/{max_attempts}): {exc}")
+            if attempt < max_attempts:
+                token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
+    return None, token_in_use
+
+
+def _update_check_run_resilient(
+    token: str,
+    repository: str,
+    check_run_id: int,
+    *,
+    token_resolver: Callable[[str], str | None],
+    status: str | None = None,
+    conclusion: str | None = None,
+    output: dict[str, str] | None = None,
+    attempts: int = 3,
+) -> tuple[bool, str]:
+    """Update check run with token refresh retries. Returns (updated, token_used)."""
+    token_in_use = token
+    max_attempts = max(1, attempts)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            github_checks.update_check_run(
+                token_in_use,
+                repository,
+                check_run_id,
+                status=status,
+                conclusion=conclusion,
+                output=output,
+            )
+            return True, token_in_use
+        except Exception as exc:
+            print(f"  Warning: Failed to update Check Run (attempt {attempt}/{max_attempts}): {exc}")
+            if attempt < max_attempts:
+                token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
+    return False, token_in_use
+
+
+def _finalize_check_run_resilient(
+    *,
+    token: str,
+    repository: str,
+    sha: str,
+    status_context: str,
+    check_run_id: int | None,
+    conclusion: str,
+    output: dict[str, str],
+    token_resolver: Callable[[str], str | None],
+) -> tuple[int | None, str, bool]:
+    """Finalize check run, creating one at completion if initial creation failed."""
+    token_in_use = token
+    run_id = check_run_id
+
+    if run_id is not None:
+        updated, token_in_use = _update_check_run_resilient(
+            token_in_use,
+            repository,
+            run_id,
+            token_resolver=token_resolver,
+            status="completed",
+            conclusion=conclusion,
+            output=output,
+        )
+        return run_id, token_in_use, updated
+
+    created_id, token_in_use = _create_check_run_resilient(
+        token_in_use,
+        repository,
+        sha,
+        name=status_context,
+        status="in_progress",
+        output={
+            "title": "BMT Finalizing",
+            "summary": "Late-created check run while publishing final BMT result.",
+        },
+        token_resolver=token_resolver,
+    )
+    if created_id is None:
+        return None, token_in_use, False
+
+    updated, token_in_use = _update_check_run_resilient(
+        token_in_use,
+        repository,
+        created_id,
+        token_resolver=token_resolver,
+        status="completed",
+        conclusion=conclusion,
+        output=output,
+    )
+    return created_id, token_in_use, updated
+
+
 def _latest_run_root(workspace_root: Path, project: str, bmt_id: str) -> Path | None:
     """Return the most recently modified run_* directory under workspace_root/project/bmt_id, or None."""
     parent = workspace_root / project / bmt_id
@@ -729,7 +882,6 @@ def _process_run_trigger(  # noqa: PLR0911
     stop_heartbeat = threading.Event()
     heartbeat_thread: threading.Thread | None = None
     check_run_id: int | None = None
-    pending_status_posted = False
     cancelled_due_to_closed_pr = False
     cancel_reason: str | None = None
     pointer_promotion_allowed = True
@@ -823,24 +975,23 @@ def _process_run_trigger(  # noqa: PLR0911
         print("  Started heartbeat thread")
 
         if repository and sha and github_token:
-            try:
-                check_run_id = github_checks.create_check_run(
-                    github_token,
-                    repository,
-                    sha,
-                    name=status_context,
-                    status="in_progress",
-                    output={
-                        "title": f"BMT Execution Started ({len(legs_raw)} legs)",
-                        "summary": f"Running BMT for {len(legs_raw)} project configurations...",
-                    },
-                )
+            check_run_id, github_token = _create_check_run_resilient(
+                github_token,
+                repository,
+                sha,
+                name=status_context,
+                status="in_progress",
+                output={
+                    "title": f"BMT Execution Started ({len(legs_raw)} legs)",
+                    "summary": f"Running BMT for {len(legs_raw)} project configurations...",
+                },
+                token_resolver=github_token_resolver,
+            )
+            if check_run_id is not None:
                 print(f"  Created GitHub Check Run: {check_run_id}")
-            except Exception as exc:
-                print(f"  Warning: Failed to create Check Run: {exc}")
 
         if repository and sha and github_token:
-            pending_status_posted = _post_commit_status(
+            _post_commit_status_resilient(
                 repository,
                 sha,
                 "pending",
@@ -848,6 +999,8 @@ def _process_run_trigger(  # noqa: PLR0911
                 None,
                 github_token,
                 context=status_context,
+                token_resolver=github_token_resolver,
+                attempts=2,
             )
 
         try:
@@ -855,7 +1008,7 @@ def _process_run_trigger(  # noqa: PLR0911
         except subprocess.CalledProcessError as exc:
             print(f"  Failed to download orchestrator: {exc}")
             if repository and sha and github_token:
-                _post_commit_status(
+                _post_commit_status_resilient(
                     repository,
                     sha,
                     "failure",
@@ -863,6 +1016,20 @@ def _process_run_trigger(  # noqa: PLR0911
                     None,
                     github_token,
                     context=status_context,
+                    token_resolver=github_token_resolver,
+                )
+                check_run_id, github_token, _ = _finalize_check_run_resilient(
+                    token=github_token,
+                    repository=repository,
+                    sha=sha,
+                    status_context=status_context,
+                    check_run_id=check_run_id,
+                    conclusion="failure",
+                    output={
+                        "title": "BMT VM Error",
+                        "summary": "Failed to download orchestrator on VM.",
+                    },
+                    token_resolver=github_token_resolver,
                 )
                 if pr_number is not None:
                     body = _format_bmt_comment(
@@ -987,22 +1154,21 @@ def _process_run_trigger(  # noqa: PLR0911
                         status_file.write_status(bucket, runtime_prefix, run_id, current_status)
 
                         if check_run_id and repository and sha and github_token:
-                            try:
-                                github_checks.update_check_run(
-                                    github_token,
-                                    repository,
-                                    check_run_id,
-                                    output={
-                                        "title": f"BMT Progress: {idx + 1}/{len(legs_raw)} legs complete",
-                                        "summary": github_checks.render_progress_markdown(
-                                            current_status["legs"],
-                                            elapsed_sec=current_status["elapsed_sec"],
-                                            eta_sec=current_status.get("eta_sec"),
-                                        ),
-                                    },
-                                )
-                            except Exception as exc:
-                                print(f"  Warning: Failed to update Check Run: {exc}")
+                            _, github_token = _update_check_run_resilient(
+                                github_token,
+                                repository,
+                                check_run_id,
+                                token_resolver=github_token_resolver,
+                                output={
+                                    "title": f"BMT Progress: {idx + 1}/{len(legs_raw)} legs complete",
+                                    "summary": github_checks.render_progress_markdown(
+                                        current_status["legs"],
+                                        elapsed_sec=current_status["elapsed_sec"],
+                                        eta_sec=current_status.get("eta_sec"),
+                                    ),
+                                },
+                                attempts=2,
+                            )
                         if repository and sha and github_token:
                             desc = _progress_description(
                                 current_status["legs"],
@@ -1036,25 +1202,25 @@ def _process_run_trigger(  # noqa: PLR0911
                 except Exception as exc:
                     print(f"  Warning: Failed to finalize cancellation status file: {exc}")
 
-                if check_run_id and repository and sha and github_token:
-                    try:
-                        github_checks.update_check_run(
-                            github_token,
-                            repository,
-                            check_run_id,
-                            status="completed",
-                            conclusion="neutral",
-                            output={
-                                "title": "BMT Cancelled",
-                                "summary": "Cancelled: PR closed before completion.",
-                            },
-                        )
+                if repository and sha and github_token:
+                    check_run_id, github_token, check_completed = _finalize_check_run_resilient(
+                        token=github_token,
+                        repository=repository,
+                        sha=sha,
+                        status_context=status_context,
+                        check_run_id=check_run_id,
+                        conclusion="neutral",
+                        output={
+                            "title": "BMT Cancelled",
+                            "summary": "Cancelled: PR closed before completion.",
+                        },
+                        token_resolver=github_token_resolver,
+                    )
+                    if check_completed:
                         print("  Completed Check Run: neutral (PR closed)")
-                    except Exception as exc:
-                        print(f"  Warning: Failed to complete Check Run for cancellation: {exc}")
 
-                if pending_status_posted and repository and sha and github_token:
-                    _post_commit_status(
+                if repository and sha and github_token:
+                    _post_commit_status_resilient(
                         repository,
                         sha,
                         "error",
@@ -1062,6 +1228,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         None,
                         github_token,
                         context=status_context,
+                        token_resolver=github_token_resolver,
                     )
                 print("  Cancelled run due to closed PR; skipping pointer promotion and PR comments.")
                 return
@@ -1083,30 +1250,32 @@ def _process_run_trigger(  # noqa: PLR0911
             except Exception as exc:
                 print(f"  Warning: Failed to finalize status file: {exc}")
 
-            if check_run_id and repository and sha and github_token:
-                try:
-                    conclusion = "success" if state == "success" else "failure"
-                    github_checks.update_check_run(
-                        github_token,
-                        repository,
-                        check_run_id,
-                        status="completed",
-                        conclusion=conclusion,
-                        output={
-                            "title": f"BMT Complete: {state.upper()}",
-                            "summary": github_checks.render_results_table(
-                                leg_summaries,
-                                {
-                                    "state": "PASS" if state == "success" else "FAIL",
-                                    "decision": state,
-                                    "reasons": [],
-                                },
-                            ),
-                        },
-                    )
+            if repository and sha and github_token:
+                conclusion = "success" if state == "success" else "failure"
+                check_run_id, github_token, check_completed = _finalize_check_run_resilient(
+                    token=github_token,
+                    repository=repository,
+                    sha=sha,
+                    status_context=status_context,
+                    check_run_id=check_run_id,
+                    conclusion=conclusion,
+                    output={
+                        "title": f"BMT Complete: {state.upper()}",
+                        "summary": github_checks.render_results_table(
+                            leg_summaries,
+                            {
+                                "state": "PASS" if state == "success" else "FAIL",
+                                "decision": state,
+                                "reasons": [],
+                            },
+                        ),
+                    },
+                    token_resolver=github_token_resolver,
+                )
+                if check_completed:
                     print(f"  Completed Check Run: {conclusion}")
-                except Exception as exc:
-                    print(f"  Warning: Failed to complete Check Run: {exc}")
+                else:
+                    print("  Could not finalize Check Run")
 
             if pointer_promotion_allowed:
                 for summary in leg_summaries:
@@ -1114,7 +1283,16 @@ def _process_run_trigger(  # noqa: PLR0911
                         _update_pointer_and_cleanup(runtime_bucket_root, summary)
 
             if repository and sha and github_token:
-                if _post_commit_status(repository, sha, state, description, None, github_token, context=status_context):
+                if _post_commit_status_resilient(
+                    repository,
+                    sha,
+                    state,
+                    description,
+                    None,
+                    github_token,
+                    context=status_context,
+                    token_resolver=github_token_resolver,
+                ):
                     print(f"  Posted commit status: {state}")
                 else:
                     print("  Could not post commit status")
@@ -1132,7 +1310,7 @@ def _process_run_trigger(  # noqa: PLR0911
             print(f"  Error during BMT run: {exc}")
             traceback.print_exc()
             if repository and sha and github_token:
-                _post_commit_status(
+                _post_commit_status_resilient(
                     repository,
                     sha,
                     "failure",
@@ -1140,22 +1318,23 @@ def _process_run_trigger(  # noqa: PLR0911
                     None,
                     github_token,
                     context=status_context,
+                    token_resolver=github_token_resolver,
                 )
-                if check_run_id is not None:
-                    try:
-                        github_checks.update_check_run(
-                            github_token,
-                            repository,
-                            check_run_id,
-                            status="completed",
-                            conclusion="failure",
-                            output={
-                                "title": "BMT VM Error",
-                                "summary": f"Unhandled error: {exc!s}",
-                            },
-                        )
-                    except Exception as update_exc:
-                        print(f"  Warning: Failed to complete Check Run on error: {update_exc}")
+                check_run_id, github_token, check_completed = _finalize_check_run_resilient(
+                    token=github_token,
+                    repository=repository,
+                    sha=sha,
+                    status_context=status_context,
+                    check_run_id=check_run_id,
+                    conclusion="failure",
+                    output={
+                        "title": "BMT VM Error",
+                        "summary": f"Unhandled error: {exc!s}",
+                    },
+                    token_resolver=github_token_resolver,
+                )
+                if not check_completed:
+                    print("  Warning: Failed to complete Check Run on error")
                 if pr_number is not None:
                     body = _format_bmt_comment(
                         "Failed",
