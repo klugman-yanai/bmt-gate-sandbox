@@ -195,6 +195,141 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
     assert pr_comment_calls == []
 
 
+def test_closed_mid_run_posts_terminal_error_even_when_pending_status_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status_store = _StatusStore()
+    post_status_states: list[str] = []
+
+    pr_states = iter(
+        [
+            {"state": "open", "merged": False, "checked_at": "2026-02-26T00:00:00Z", "error": None},
+            {"state": "open", "merged": False, "checked_at": "2026-02-26T00:00:05Z", "error": None},
+            {"state": "closed", "merged": False, "checked_at": "2026-02-26T00:00:10Z", "error": None},
+        ]
+    )
+
+    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload())
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(watcher, "_run_orchestrator", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
+    monkeypatch.setattr(
+        watcher,
+        "_load_manager_summary",
+        lambda _run_root: {
+            "status": "pass",
+            "project_id": "sk",
+            "bmt_id": "bmt_0",
+            "run_id": "run-0",
+            "passed": True,
+            "ci_verdict_uri": "gs://bucket-a/runtime/sk/results/false_rejects/snapshots/run-0/ci_verdict.json",
+            "bmt_results": {"results": []},
+            "orchestration_timing": {"duration_sec": 1},
+        },
+    )
+    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
+    monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 88)
+    monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.github_pull_request, "get_pr_state", lambda *_args, **_kwargs: next(pr_states))
+
+    def _post_status(_repo: str, _sha: str, state: str, *_args: Any, **_kwargs: Any) -> bool:
+        post_status_states.append(state)
+        return state != "pending"
+
+    monkeypatch.setattr(watcher, "_post_commit_status", _post_status)
+    monkeypatch.setattr(watcher.github_pr_comment, "post_pr_comment", lambda *_args, **_kwargs: True)
+
+    watcher._process_run_trigger(
+        "gs://bucket-a/runtime/triggers/runs/123.json",
+        "gs://bucket-a/code",
+        "gs://bucket-a/runtime",
+        "runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert status_store.payload is not None
+    assert status_store.payload["run_outcome"] == "cancelled"
+    assert "pending" in post_status_states
+    assert "error" in post_status_states
+
+
+def test_final_check_run_is_created_at_completion_if_startup_creation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status_store = _StatusStore()
+    create_calls: list[int] = []
+    update_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1))
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(watcher, "_run_orchestrator", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
+    monkeypatch.setattr(
+        watcher,
+        "_load_manager_summary",
+        lambda _run_root: {
+            "status": "pass",
+            "project_id": "sk",
+            "bmt_id": "bmt_0",
+            "run_id": "run-0",
+            "passed": True,
+            "ci_verdict_uri": "gs://bucket-a/runtime/sk/results/false_rejects/snapshots/run-0/ci_verdict.json",
+            "bmt_results": {"results": []},
+            "orchestration_timing": {"duration_sec": 1},
+        },
+    )
+    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
+    monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+
+    def _create_check_run(*_args: Any, **_kwargs: Any) -> int:
+        create_calls.append(1)
+        if len(create_calls) <= 3:
+            raise RuntimeError("simulated create failure")
+        return 321
+
+    monkeypatch.setattr(watcher.github_checks, "create_check_run", _create_check_run)
+    monkeypatch.setattr(
+        watcher.github_checks,
+        "update_check_run",
+        lambda _token, _repo, _check_run_id, **kwargs: update_calls.append(kwargs),
+    )
+    monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        watcher.github_pull_request,
+        "get_pr_state",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected PR state check")),
+    )
+    monkeypatch.setattr(watcher.github_pr_comment, "post_pr_comment", lambda *_args, **_kwargs: True)
+
+    watcher._process_run_trigger(
+        "gs://bucket-a/runtime/triggers/runs/123.json",
+        "gs://bucket-a/code",
+        "gs://bucket-a/runtime",
+        "runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert status_store.payload is not None
+    assert status_store.payload["run_outcome"] == "completed"
+    assert len(create_calls) >= 4
+    assert any(call.get("status") == "completed" and call.get("conclusion") == "success" for call in update_calls)
+
+
 def test_pr_state_api_failure_fails_open_and_completes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
