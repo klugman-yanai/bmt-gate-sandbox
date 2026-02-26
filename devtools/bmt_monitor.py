@@ -355,7 +355,20 @@ def poll_all(state: MonitorState) -> None:
                     completed += 1
             except Exception:  # noqa: S110
                 pass  # Gracefully skip legs with missing config or GCS files
-        state.legs_completed = completed
+        status_legs = state.vm_status_data.get("legs") if state.vm_status_data else None
+        if isinstance(status_legs, list):
+            completed_from_status = 0
+            for idx, row in enumerate(status_legs):
+                if idx >= len(state.legs) or not isinstance(row, dict):
+                    continue
+                row_status = str(row.get("status", "")).strip().lower()
+                if row_status in {"skipped", "cancelled"} and not state.legs[idx].verdict_data:
+                    state.legs[idx].status = row_status
+                if row_status and row_status not in {"pending", "running"}:
+                    completed_from_status += 1
+            state.legs_completed = max(completed, completed_from_status)
+        else:
+            state.legs_completed = completed
 
         # Commit status (if we have sha)
         if state.workflow_sha:
@@ -414,8 +427,13 @@ def render_gcs_vm_debug(state: MonitorState) -> Panel:
             or state.handshake_data.get("acknowledged_at", "?")
         )
         legs = len(state.handshake_data.get("accepted_legs", []))
+        run_disposition = str(state.handshake_data.get("run_disposition", "")).strip().lower()
+        skip_reason = state.handshake_data.get("skip_reason")
         lines.append(f"  [green]✓[/green] Ack      [dim]{ack_uri}[/dim]")
-        lines.append(f"         acknowledged at {ts}  ({legs} legs)")
+        if run_disposition == "skipped":
+            lines.append(f"         acknowledged at {ts}  (disposition=skipped, reason={skip_reason or '?'})")
+        else:
+            lines.append(f"         acknowledged at {ts}  ({legs} legs)")
     else:
         lines.append(f"  [red]✗[/red] Ack      [dim]{ack_uri}[/dim]")
         lines.append("         [red]NOT FOUND[/red] — VM has not written ack (handshake step will time out)")
@@ -527,6 +545,12 @@ def render_vm(state: MonitorState) -> Panel:
 
         eta_sec = state.vm_status_data.get("eta_sec")
         elapsed_sec = state.vm_status_data.get("elapsed_sec", 0)
+        run_outcome = str(state.vm_status_data.get("run_outcome", "")).strip().lower()
+        cancel_reason = state.vm_status_data.get("cancel_reason")
+        if run_outcome == "skipped":
+            lines.append(f"[yellow]Run outcome: skipped ({cancel_reason or 'n/a'})[/yellow]")
+        elif run_outcome == "cancelled":
+            lines.append(f"[red]Run outcome: cancelled ({cancel_reason or 'n/a'})[/red]")
         if eta_sec is not None:
             lines.append(f"ETA: ~{_format_duration_sec(eta_sec)}  Elapsed: {_format_duration_sec(elapsed_sec)}")
         elif elapsed_sec:
@@ -546,9 +570,13 @@ def render_vm(state: MonitorState) -> Panel:
     # Stage 2: Handshake
     if state.handshake_data:
         ack_time = state.handshake_timestamp or state.handshake_data.get("acknowledged_at", "?")
-        leg_count = len(state.handshake_data.get("legs", []))
+        leg_count = len(state.handshake_data.get("accepted_legs", []))
+        run_disposition = str(state.handshake_data.get("run_disposition", "")).strip().lower()
+        skip_reason = state.handshake_data.get("skip_reason")
         # Calculate time from trigger to handshake
-        if state.trigger_timestamp and state.handshake_timestamp:
+        if run_disposition == "skipped":
+            lines.append(f"  ✓ VM acknowledged at {ack_time} (run skipped: {skip_reason or 'n/a'})")
+        elif state.trigger_timestamp and state.handshake_timestamp:
             t1 = _parse_iso(state.trigger_timestamp)
             t2 = _parse_iso(state.handshake_timestamp)
             if t1 is not None and t2 is not None:
@@ -562,7 +590,16 @@ def render_vm(state: MonitorState) -> Panel:
         lines.append("  ◌ Waiting for VM to pick up trigger...")
 
     # Stage 3: Leg execution
-    if state.legs_total > 0:
+    run_outcome = ""
+    cancel_reason = ""
+    if state.vm_status_data:
+        run_outcome = str(state.vm_status_data.get("run_outcome", "")).strip().lower()
+        cancel_reason = str(state.vm_status_data.get("cancel_reason", "")).strip()
+    if run_outcome == "skipped":
+        lines.append(f"  ✓ Run skipped ({cancel_reason or 'n/a'})")
+    elif run_outcome == "cancelled":
+        lines.append(f"  ✗ Run cancelled ({cancel_reason or 'n/a'})")
+    elif state.legs_total > 0:
         if state.legs_completed == state.legs_total:
             lines.append(f"  ✓ All legs complete ({state.legs_completed}/{state.legs_total})")
         elif state.legs_completed > 0:
@@ -594,6 +631,10 @@ def render_legs(state: MonitorState) -> Panel:
             status_text = Text("● fail", style="red")
         elif leg.status == "error":
             status_text = Text("● error", style="red")
+        elif leg.status == "skipped":
+            status_text = Text("● skipped", style="dim")
+        elif leg.status == "cancelled":
+            status_text = Text("● cancelled", style="yellow")
         elif leg.verdict_detected_at:
             # Has verdict but status not yet determined
             status_text = Text("● complete", style="cyan")

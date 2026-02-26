@@ -28,6 +28,9 @@ This document describes the **current** communication model after the handoff-on
    - `04B Handoff Run (Trigger + VM Ack)` when legs exist.
 3. In run path, `bmt.yml` writes trigger, starts VM, waits for handshake ack, writes handoff summary, and exits.
 4. VM processes legs asynchronously and posts pending/final commit status + check run updates to the PR.
+5. If PR is closed:
+   - Before pickup: VM acknowledges trigger as skipped and exits without leg execution.
+   - During execution: VM stops before next leg, finalizes existing pending signals as cancelled (`check=neutral`, `status=error`), and skips PR comments.
 
 ## What developers see
 
@@ -37,6 +40,7 @@ This document describes the **current** communication model after the handoff-on
 | Handoff success | Green `bmt.yml` run summary confirms VM acknowledged trigger. |
 | Handoff failure | Failed `bmt.yml` run summary + diagnostics in Actions logs. |
 | BMT in progress/complete | PR **Checks** and PR **Comments** (VM-owned updates). |
+| PR closed during/after handoff | Runtime trigger ack/status shows skipped/cancelled PR-closure reason; no new PR comment is posted. |
 
 ## Branch protection
 

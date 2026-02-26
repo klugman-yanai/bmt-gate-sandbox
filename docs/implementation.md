@@ -7,6 +7,9 @@ This document describes how the system runs today, with the current split storag
 1. CI uploads runner artifacts to `<runtime-root>` and writes one trigger file to `<runtime-root>/triggers/runs/<workflow_run_id>.json`.
 2. CI syncs VM metadata, starts the VM, waits for handshake ack, posts pending commit status, and exits.
 3. VM watcher polls runtime triggers, writes ack/status files, runs orchestrator per leg, updates pointers, posts final status/check run, and deletes the trigger.
+4. For PR-context runs, watcher checks PR state:
+   - PR already closed at pickup: writes handshake/status skip metadata and exits without running legs.
+   - PR closed during execution: completes current leg, marks remaining legs skipped, finalizes check/status as cancelled, and skips pointer promotion.
 
 ## Storage contract
 
@@ -49,8 +52,8 @@ Ownership:
 ## Canonical runtime object layout
 
 - `<runtime-root>/triggers/runs/<workflow_run_id>.json`
-- `<runtime-root>/triggers/acks/<workflow_run_id>.json`
-- `<runtime-root>/triggers/status/<workflow_run_id>.json`
+- `<runtime-root>/triggers/acks/<workflow_run_id>.json` (includes optional `run_disposition`, `skip_reason`, `pr_state`, `pr_merged`, `pr_state_checked_at`)
+- `<runtime-root>/triggers/status/<workflow_run_id>.json` (includes optional `run_outcome`, `cancel_reason`, `cancelled_at`, per-leg `skip_reason`)
 - `<runtime-root>/<project>/runners/<preset>/...`
 - `<runtime-root>/<results_prefix>/current.json`
 - `<runtime-root>/<results_prefix>/snapshots/<run_id>/latest.json`
@@ -67,6 +70,7 @@ Ownership:
   - `ack_unreadable`
   - `ack_not_written`
 - Workflow cleanup removes current run trigger/ack/status objects on failure.
+- PR closure handling is fail-open for PR-state API errors (`unknown` state does not block execution).
 
 ## Not implemented
 

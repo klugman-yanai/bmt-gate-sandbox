@@ -206,3 +206,51 @@ def test_process_run_trigger_rejects_when_auth_unavailable(monkeypatch, tmp_path
     )
 
     assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]
+
+
+def test_process_run_trigger_closed_pr_skips_pointer_promotion(monkeypatch, tmp_path: Path):
+    pointer_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "repository": "owner/repo",
+            "sha": "abc123",
+            "run_context": "pr",
+            "pull_request_number": 9,
+            "bucket": "bucket",
+            "runtime_prefix": "runtime",
+            "code_prefix": "code",
+            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+        },
+    )
+    monkeypatch.setattr(
+        watcher.github_pull_request,
+        "get_pr_state",
+        lambda *_args, **_kwargs: {
+            "state": "closed",
+            "merged": False,
+            "checked_at": "2026-02-26T00:00:00Z",
+            "error": None,
+        },
+    )
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.status_file, "write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.status_file, "read_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: pointer_calls.append(summary))
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        "runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert pointer_calls == []
