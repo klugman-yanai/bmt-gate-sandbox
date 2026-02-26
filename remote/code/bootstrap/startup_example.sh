@@ -7,12 +7,13 @@
 # Use as GCP "Startup script" (VM metadata) or from systemd. Set the variables
 # below, or set them via VM custom metadata (see setup_vm_startup.sh), or export
 # before running. Requires gcloud and the VM service account to have
-# roles/secretmanager.secretAccessor on the three secrets.
+# roles/secretmanager.secretAccessor on the configured GitHub App secrets.
 
 set -euo pipefail
 
 _self_stop_enabled="${BMT_SELF_STOP:-1}"
 
+# shellcheck disable=SC2329
 _stop_instance_best_effort() {
   local exit_code="$1"
   if [[ "${_self_stop_enabled}" != "1" ]]; then
@@ -38,6 +39,7 @@ _stop_instance_best_effort() {
   fi
 }
 
+# shellcheck disable=SC2329
 _on_exit() {
   local rc=$?
   trap - EXIT
@@ -68,18 +70,14 @@ BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
 GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET or VM metadata GCS_BUCKET}"
 BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-}"
 HOME_DIR="${HOME:-/root}"
-if [[ -n "${BMT_WORKSPACE_ROOT:-}" ]]; then
-  BMT_WORKSPACE_ROOT="${BMT_WORKSPACE_ROOT}"
-elif [[ -d "${HOME_DIR}/sk_runtime" && ! -d "${HOME_DIR}/bmt_workspace" ]]; then
-  echo "Warning: using legacy workspace path ${HOME_DIR}/sk_runtime"
-  BMT_WORKSPACE_ROOT="${HOME_DIR}/sk_runtime"
-else
-  BMT_WORKSPACE_ROOT="${HOME_DIR}/bmt_workspace"
+if [[ -z "${BMT_WORKSPACE_ROOT:-}" ]]; then
+  if [[ -d "${HOME_DIR}/sk_runtime" && ! -d "${HOME_DIR}/bmt_workspace" ]]; then
+    echo "Warning: using legacy workspace path ${HOME_DIR}/sk_runtime"
+    BMT_WORKSPACE_ROOT="${HOME_DIR}/sk_runtime"
+  else
+    BMT_WORKSPACE_ROOT="${HOME_DIR}/bmt_workspace"
+  fi
 fi
-# Secret Manager secret IDs (defaults match README)
-GITHUB_APP_SECRET_ID_APP="${GITHUB_APP_SECRET_ID_APP:-GITHUB_APP_ID}"
-GITHUB_APP_SECRET_ID_INSTALL="${GITHUB_APP_SECRET_ID_INSTALL:-GITHUB_APP_INSTALLATION_ID}"
-GITHUB_APP_SECRET_ID_KEY="${GITHUB_APP_SECRET_ID_KEY:-GITHUB_APP_PRIVATE_KEY}"
 
 VENV="${BMT_REPO_ROOT}/.venv"
 WATCHER="${BMT_REPO_ROOT}/vm_watcher.py"
@@ -135,12 +133,6 @@ if gcloud secrets describe GITHUB_APP_PROD_ID &>/dev/null; then
   if [[ -n "$GITHUB_APP_PROD_ID" ]]; then
     echo "✓ Loaded GitHub App credentials for prod environment"
   fi
-fi
-
-# Preserve PAT fallback (if set)
-if [[ -n "${GITHUB_STATUS_TOKEN:-}" ]]; then
-  export GITHUB_STATUS_TOKEN
-  echo "✓ PAT token available as fallback"
 fi
 
 # 4. Run watcher once with uv-managed Python and always attempt self-stop afterwards.

@@ -19,9 +19,6 @@ def _set_required_env(monkeypatch: pytest.MonkeyPatch, output_file: Path) -> Non
     monkeypatch.setenv("GITHUB_REF", "refs/heads/dev")
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("BMT_STATUS_CONTEXT", "BMT Gate")
-    monkeypatch.setenv("BMT_DESCRIPTION_PENDING", "pending")
-    monkeypatch.setenv("BMT_DESCRIPTION_SUCCESS", "success")
-    monkeypatch.setenv("BMT_DESCRIPTION_FAILURE", "failure")
 
 
 def test_trigger_rejects_when_other_pending_trigger_exists(
@@ -36,7 +33,7 @@ def test_trigger_rejects_when_other_pending_trigger_exists(
     monkeypatch.setattr(
         run_trigger.gcloud_cli,
         "run_capture",
-        lambda cmd: (
+        lambda _cmd: (
             0,
             "\n".join(
                 [
@@ -47,7 +44,7 @@ def test_trigger_rejects_when_other_pending_trigger_exists(
         ),
     )
     uploaded: list[str] = []
-    monkeypatch.setattr(run_trigger.gcloud_cli, "upload_json", lambda uri, payload: uploaded.append(uri))
+    monkeypatch.setattr(run_trigger.gcloud_cli, "upload_json", lambda uri, _payload: uploaded.append(uri))
 
     matrix = json.dumps({"include": [{"project": "sk", "bmt_id": "false_reject_namuh"}]})
     result = runner.invoke(
@@ -79,7 +76,7 @@ def test_trigger_allows_when_only_current_run_trigger_exists(
     runner = CliRunner()
 
     current_trigger = "gs://bucket-a/team/runtime/triggers/runs/10001.json"
-    monkeypatch.setattr(run_trigger.gcloud_cli, "run_capture", lambda cmd: (0, f"{current_trigger}\n"))
+    monkeypatch.setattr(run_trigger.gcloud_cli, "run_capture", lambda _cmd: (0, f"{current_trigger}\n"))
     uploaded: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(run_trigger.gcloud_cli, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
 
@@ -102,4 +99,9 @@ def test_trigger_allows_when_only_current_run_trigger_exists(
     assert result.exit_code == 0
     assert len(uploaded) == 1
     assert uploaded[0][0] == current_trigger
+    payload = uploaded[0][1]
+    assert payload["description_pending"] == run_trigger.DEFAULT_DESCRIPTION_PENDING
+    assert "description_success" not in payload
+    assert "description_failure" not in payload
+    assert "code_manifest_digest" not in payload
     assert output_file.exists()

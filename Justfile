@@ -32,6 +32,9 @@ validate-layout:
 validate-repo-layout:
     uv run python devtools/repo_layout_policy.py
 
+check-build-and-test-base:
+    uv run python devtools/check_build_and_test_base_parity.py
+
 # Bucket artifact ops
 upload-runner:
     uv run python devtools/bucket_upload_runner.py

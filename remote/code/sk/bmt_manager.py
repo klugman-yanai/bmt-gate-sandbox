@@ -20,16 +20,13 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 
 class SKManagerError(RuntimeError):
     """Raised for manager execution/config errors."""
-
-
-UTC = timezone.utc
 
 
 _FORCED_WAV_PATH_KEYS = {

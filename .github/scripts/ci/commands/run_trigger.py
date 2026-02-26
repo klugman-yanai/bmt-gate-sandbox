@@ -12,8 +12,6 @@ from ci.github_output import write_github_output
 
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
 DEFAULT_DESCRIPTION_PENDING = "BMT running on VM; status will update when complete."
-DEFAULT_DESCRIPTION_SUCCESS = "BMT passed"
-DEFAULT_DESCRIPTION_FAILURE = "BMT failed"
 
 
 def _list_pending_trigger_uris(runtime_bucket_root: str) -> list[str]:
@@ -66,9 +64,7 @@ def command(
         raise RuntimeError("Empty matrix — nothing to trigger")
 
     ctx = (os.environ.get("BMT_STATUS_CONTEXT") or "").strip() or DEFAULT_STATUS_CONTEXT
-    description_pending = (os.environ.get("BMT_DESCRIPTION_PENDING") or "").strip() or DEFAULT_DESCRIPTION_PENDING
-    description_success = (os.environ.get("BMT_DESCRIPTION_SUCCESS") or "").strip() or DEFAULT_DESCRIPTION_SUCCESS
-    description_failure = (os.environ.get("BMT_DESCRIPTION_FAILURE") or "").strip() or DEFAULT_DESCRIPTION_FAILURE
+    description_pending = DEFAULT_DESCRIPTION_PENDING
 
     parent = models.parent_prefix(bucket_prefix)
     code_prefix = models.code_prefix(parent)
@@ -110,12 +106,7 @@ def command(
         "legs": legs,
         "status_context": ctx,
         "description_pending": description_pending,
-        "description_success": description_success,
-        "description_failure": description_failure,
     }
-    code_manifest_digest = (os.environ.get("BMT_CODE_MANIFEST_DIGEST") or "").strip()
-    if code_manifest_digest:
-        run_payload["code_manifest_digest"] = code_manifest_digest
     if pr_number is not None:
         run_payload["pull_request_number"] = pr_number
 

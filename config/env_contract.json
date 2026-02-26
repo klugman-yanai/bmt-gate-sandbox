@@ -15,7 +15,6 @@
         "BMT_BUCKET_PREFIX",
         "BMT_PROJECTS",
         "BMT_STATUS_CONTEXT",
-        "BMT_DESCRIPTION_PENDING",
         "BMT_HANDSHAKE_TIMEOUT_SEC"
       ]
     },
@@ -30,7 +29,6 @@
     },
     "vm_runtime_env": {
       "optional": [
-        "GITHUB_STATUS_TOKEN",
         "GITHUB_APP_TEST_ID",
         "GITHUB_APP_TEST_INSTALLATION_ID",
         "GITHUB_APP_TEST_PRIVATE_KEY",
@@ -59,7 +57,6 @@
     "BMT_BUCKET_PREFIX": "",
     "BMT_PROJECTS": "all release runners",
     "BMT_STATUS_CONTEXT": "BMT Gate",
-    "BMT_DESCRIPTION_PENDING": "BMT running on VM; status will update when complete.",
     "BMT_HANDSHAKE_TIMEOUT_SEC": "180",
     "BMT_REPO_ROOT": "/opt/bmt"
   },

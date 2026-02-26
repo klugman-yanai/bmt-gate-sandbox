@@ -8,11 +8,11 @@ Summary of official docs and tools useful for BMT workflows, status/checks, and 
 
 | Feature | What it does | Relevant to BMT |
 |--------|----------------|------------------|
-| **Job summary** | Write Markdown to `$GITHUB_STEP_SUMMARY`; it appears on the **Actions run summary** for that job. | BMT workflow already uses this (e.g. "How to check VM behavior", handshake table). Use for any step that should show a readable summary in the browser. |
+| **Job summary** | Write Markdown to `$GITHUB_STEP_SUMMARY`; it appears on the **Actions run summary** for that job. | `build-and-test.yml` BMT tail writes a dispatch-handoff summary; `bmt.yml` writes routing/trigger/handshake summaries. Both point users to PR checks/comments for final BMT outcome. |
 | **Re-run** | Re-run all jobs, failed jobs only, or specific jobs (up to 30 days). Uses same SHA/ref. | Devs can re-run the BMT workflow from the Actions tab without pushing again. |
 | **Workflow run logs** | Each run has logs per job/step. | Primary place for debugging when status says "Check Actions logs." |
 | **Debug logging** | Enable runner diagnostic logging and step debug logging when re-running. | Useful when debugging handshake or runner upload failures. |
-| **Commit statuses** | Workflows can post status via API; branch protection can require a status. | BMT gate uses commit status (`BMT_STATUS_CONTEXT`). |
+| **Commit statuses** | Workflows/apps can post status via API; branch protection can require a status. | BMT gate status (`BMT_STATUS_CONTEXT`) is VM-owned after handoff. |
 
 ---
 
@@ -50,6 +50,7 @@ Only **GitHub Apps** can create/update check runs; OAuth/users have read-only. O
 - **Description** is limited to **140 characters** (we truncate in BMT).
 - Used for the **merge gate**; Check Run is supplementary for detail.
 - See `docs/communication-flow.md` for when we post status and what devs see.
+- Branch protection should continue to require VM-owned `BMT_STATUS_CONTEXT`, not workflow run conclusion.
 
 ---
 

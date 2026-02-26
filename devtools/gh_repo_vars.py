@@ -200,9 +200,7 @@ def main(config: str, contract: str, apply: bool, prune_extra: bool) -> int:
         and (desired_origin.get(name) == "config" or (desired_origin.get(name) == "default" and name in required_set))
     )
     changed = sorted(
-        name
-        for name in ordered_names
-        if name in current and desired[name] != "" and current[name] != desired[name]
+        name for name in ordered_names if name in current and desired[name] != "" and current[name] != desired[name]
     )
     should_delete = sorted(name for name in desired_absent if name in current)
     extra = sorted(name for name in current if name not in canonical)

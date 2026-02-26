@@ -63,7 +63,7 @@ BMT does not create or edit workflow files; it only **triggers** an existing wor
 | **Checks (R/W)**  | VM only                       | Create/update Check Run for live progress and final summary. |
 | **Issues (R/W)** or **Pull requests (R/W)** | VM (and workflow failure steps use `GITHUB_TOKEN`) | Planned: one PR comment per run. Currently unused (PR comments not implemented). Workflow can post failure "Did not run" comments. |
 
-If the App is used only on the **VM** (and CI uses a PAT or another token for trigger + status), the VM still needs **Statuses** and **Checks** at minimum. If the App is used in **CI** to trigger BMT, it must also have **Actions: Read and write**.
+If the App is used only on the **VM**, the VM still needs **Statuses** and **Checks** at minimum. If the App is also used in **CI** to trigger BMT, it must have **Actions: Read and write**.
 
 ---
 
@@ -85,9 +85,9 @@ So for **minimum** runner permissions:
 - **ci.yml**: For **trigger-bmt** only: `permissions: statuses: write, issues: write` (for failure status and PR comment).
 - **bmt.yml**: `contents: read`, `id-token: write`, `statuses: write`, `actions: read`, `issues: write` (for failure-path PR comments).
 
-### VM / GCS machine (PAT or App installation token)
+### VM / GCS machine (GitHub App installation token)
 
-The VM does **not** use GITHUB_TOKEN. It uses either a **PAT** (`GITHUB_STATUS_TOKEN`) or a **GitHub App installation token** (from `github_auth.resolve_auth_for_repository`).
+The VM does **not** use `GITHUB_TOKEN`. It resolves a **GitHub App installation token** per repository (`github_auth.resolve_auth_for_repository`).
 
 | Capability | Permission needed | Where it’s used |
 |------------|-------------------|------------------|
@@ -95,7 +95,7 @@ The VM does **not** use GITHUB_TOKEN. It uses either a **PAT** (`GITHUB_STATUS_T
 | Create/update Check Run (progress + result) | **Checks: Read and write** | `remote/code/lib/github_checks.py` → create_check_run, update_check_run |
 | Post PR comment (Success / Failed / Did not run) — *not yet implemented* | **Issues: Read and write** (or **Pull requests: Read and write**) | Would use `POST /repos/{owner}/{repo}/issues/{pr_number}/comments` |
 
-The VM does **not** trigger workflows or read repo contents from GitHub; it talks to GCS and to the GitHub API for statuses and Check Runs. PR comments are not implemented. In practice the VM token (PAT or App) needs **Statuses** and **Checks**; **Issues** (or **Pull requests**) is for when PR comments are added.
+The VM does **not** trigger workflows or read repo contents from GitHub; it talks to GCS and to the GitHub API for statuses and Check Runs. PR comments are not implemented. In practice the VM token needs **Statuses** and **Checks**; **Issues** (or **Pull requests**) is for when PR comments are added.
 
 ### GCS (not GitHub permissions)
 

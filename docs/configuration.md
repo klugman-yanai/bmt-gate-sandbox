@@ -39,7 +39,6 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `BMT_BUCKET_PREFIX` | `""` | Parent namespace prefix; code/runtime are derived as `<parent>/code` and `<parent>/runtime`. |
 | `BMT_PROJECTS` | `"all release runners"` | Filter for BMT projects (e.g. non-embedded `*_gcc_Release` presets). |
 | `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. |
-| `BMT_DESCRIPTION_PENDING` | `"BMT running on VM; status will update when complete."` | Pending status description. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for VM handshake wait. |
 
 Omitted vars inherit from current GitHub repo context first, then from contract defaults (see `config/env_contract.json` and `devtools/gh_repo_vars.py`). Optional overrides can be declared in **config/repo_vars.toml** for local/tooling use.
@@ -75,16 +74,15 @@ Defined under `vm_metadata` in [../config/env_contract.json](../config/env_contr
 
 ## VM runtime environment
 
-On the VM, these are **optional** in the contract; at least one auth method is needed for posting status and Check Run:
+On the VM, these are the runtime credentials expected by `vm_watcher.py`. For every enabled repository in `remote/code/config/github_repos.json`, the matching App credential triple must be resolvable at startup:
 
 | Variable | Purpose |
 |----------|---------|
-| `GITHUB_STATUS_TOKEN` | PAT (or token with `repo:status`). Used by `vm_watcher.py` to post commit status and, when available, for Check Run. |
 | `GITHUB_APP_TEST_ID`, `GITHUB_APP_TEST_INSTALLATION_ID`, `GITHUB_APP_TEST_PRIVATE_KEY` | GitHub App credentials (test). |
 | `GITHUB_APP_PROD_ID`, `GITHUB_APP_PROD_INSTALLATION_ID`, `GITHUB_APP_PROD_PRIVATE_KEY` | GitHub App credentials (production). |
 | `BMT_UV_BIN` | Optional debug override for uv binary path on VM (bootstrap default is self-heal from pinned code artifact). |
 
-Repository mapping for App vs PAT is in **remote/code/config/github_repos.json**. See [../remote/code/lib/github_auth.py](../remote/code/lib/github_auth.py) for resolution logic.
+Repository mapping is in **remote/code/config/github_repos.json**. See [../remote/code/lib/github_auth.py](../remote/code/lib/github_auth.py) for resolution logic.
 
 ---
 
@@ -92,7 +90,8 @@ Repository mapping for App vs PAT is in **remote/code/config/github_repos.json**
 
 | Secret | Purpose |
 |--------|---------|
-| `GH_WORKFLOW_DISPATCH_TOKEN` | PAT with **Actions: read and write**. Used by the CI workflow to trigger the BMT workflow via `workflow_dispatch` (default `GITHUB_TOKEN` cannot trigger other workflows). Set in **Settings → Secrets and variables → Actions → Secrets**. |
+| `APP_TEST_ID` | GitHub App ID used by `ci.yml` (`actions/create-github-app-token@v2`). |
+| `APP_TEST_PRIVATE_KEY` | GitHub App private key used by `ci.yml` to mint dispatch token for `workflow_dispatch`. |
 
 ---
 

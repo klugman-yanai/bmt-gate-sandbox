@@ -134,8 +134,7 @@ def main(bucket: str, bucket_prefix: str, src_dir: str, include_runtime_artifact
     if local_digest != remote_digest or local_count != remote_count:
         click.echo(f"::error::remote/code is not in sync with {manifest_uri}", err=True)
         click.echo(
-            f"Local digest={local_digest} count={local_count}; "
-            f"manifest digest={remote_digest} count={remote_count}",
+            f"Local digest={local_digest} count={local_count}; manifest digest={remote_digest} count={remote_count}",
             err=True,
         )
         return 1
@@ -160,8 +159,7 @@ def main(bucket: str, bucket_prefix: str, src_dir: str, include_runtime_artifact
     remote_uv_sha = _extract_sha(_download_text(uv_sha_uri))
     if remote_uv_sha != local_uv_sha:
         click.echo(
-            "::error::Pinned uv checksum mismatch between local source and bucket "
-            f"({local_uv_sha} != {remote_uv_sha})",
+            f"::error::Pinned uv checksum mismatch between local source and bucket ({local_uv_sha} != {remote_uv_sha})",
             err=True,
         )
         return 1

@@ -1,11 +1,10 @@
 """
 GitHub App authentication module for multi-repository support.
 
-Provides minimal GitHub App authentication with PAT fallback:
+Provides minimal GitHub App authentication:
 - Generates JWT from App credentials
 - Exchanges JWT for installation token
 - Resolves repository-specific auth from declarative config
-- Falls back to PAT if App auth unavailable
 """
 
 import json
@@ -148,6 +147,37 @@ def _resolve_config_path(config_path: str | Path | None) -> Path:
     return Path("/opt/bmt/config/github_repos.json")
 
 
+def list_enabled_repositories(config_path: str | Path | None = None) -> list[str] | None:
+    """
+    List repositories that are enabled in github_repos.json.
+
+    Args:
+        config_path: Optional path override for github_repos.json. If unset, uses
+            BMT_GITHUB_REPOS_CONFIG env override, then layout-aware defaults.
+
+    Returns:
+        List of enabled repository names, or None if config cannot be loaded.
+    """
+    resolved_config_path = _resolve_config_path(config_path)
+    config = load_github_repos_config(resolved_config_path)
+    if not config:
+        print(f"  Error: repository config is required but could not be loaded ({resolved_config_path})")
+        return None
+
+    repositories = config.get("repositories", {})
+    if not isinstance(repositories, dict):
+        print(f"  Error: invalid repository config shape in {resolved_config_path}")
+        return None
+
+    enabled: list[str] = []
+    for repo_name, repo_config in repositories.items():
+        if not isinstance(repo_config, dict):
+            continue
+        if repo_config.get("enabled", True):
+            enabled.append(str(repo_name))
+    return enabled
+
+
 def resolve_auth_for_repository(  # noqa: PLR0911
     repository: str,
     config_path: str | Path | None = None,
@@ -155,8 +185,7 @@ def resolve_auth_for_repository(  # noqa: PLR0911
     """
     Resolve GitHub authentication token for a repository.
 
-    Primary entry point for VM watcher. Tries GitHub App auth first,
-    falls back to PAT, then returns None if no auth available.
+    Primary entry point for VM watcher. Uses GitHub App auth only.
 
     Args:
         repository: Repository in "owner/repo" format
@@ -174,16 +203,16 @@ def resolve_auth_for_repository(  # noqa: PLR0911
     resolved_config_path = _resolve_config_path(config_path)
     config = load_github_repos_config(resolved_config_path)
     if not config:
-        print("  Info: No repository config found; using PAT fallback")
-        return _fallback_to_pat(config)
+        print(f"  Error: Repository config is required and could not be loaded ({resolved_config_path})")
+        return None
 
     # Look up repository in config
     repositories = config.get("repositories", {})
     repo_config = repositories.get(repository)
 
     if not repo_config:
-        print(f"  Info: Repository '{repository}' not found in config; using PAT fallback")
-        return _fallback_to_pat(config)
+        print(f"  Error: Repository '{repository}' not found in config; cannot resolve GitHub App auth")
+        return None
 
     # Check if repository is enabled
     if not repo_config.get("enabled", True):
@@ -195,8 +224,8 @@ def resolve_auth_for_repository(  # noqa: PLR0911
     repo_env = repo_config.get("repo_env", "unknown")
 
     if not secret_prefix:
-        print(f"  Info: No secret_prefix for '{repository}'; using PAT fallback")
-        return _fallback_to_pat(config)
+        print(f"  Error: No secret_prefix for '{repository}' (env: {repo_env}); cannot resolve GitHub App auth")
+        return None
 
     # Read App credentials from environment variables
     app_id = os.environ.get(f"{secret_prefix}_ID", "").strip()
@@ -204,8 +233,8 @@ def resolve_auth_for_repository(  # noqa: PLR0911
     private_key = os.environ.get(f"{secret_prefix}_PRIVATE_KEY", "").strip()
 
     if not (app_id and installation_id and private_key):
-        print(f"  Info: GitHub App secrets not found for '{repository}' (env: {repo_env}); using PAT fallback")
-        return _fallback_to_pat(config)
+        print(f"  Error: Missing GitHub App credentials for '{repository}' (env: {repo_env})")
+        return None
 
     # Try to get installation token
     token = get_installation_token_from_app(app_id, installation_id, private_key)
@@ -213,36 +242,5 @@ def resolve_auth_for_repository(  # noqa: PLR0911
         print(f"  ✓ Using GitHub App auth for '{repository}' (env: {repo_env})")
         return token
 
-    # App auth failed, fall back to PAT
-    print(f"  Warning: Failed to generate GitHub App token for '{repository}' (env: {repo_env}); using PAT fallback")
-    return _fallback_to_pat(config)
-
-
-def _fallback_to_pat(config: dict[str, Any] | None) -> str | None:
-    """
-    Fall back to Personal Access Token authentication.
-
-    Args:
-        config: Repository config dict (may be None)
-
-    Returns:
-        PAT token string, or None if PAT not available
-    """
-    # Check if PAT fallback is enabled in config
-    if config:
-        fallback_config = config.get("fallback", {})
-        if not fallback_config.get("use_pat", True):
-            print("  Info: PAT fallback is disabled in config")
-            return None
-        pat_env_var = fallback_config.get("pat_env_var", "GITHUB_STATUS_TOKEN")
-    else:
-        pat_env_var = "GITHUB_STATUS_TOKEN"
-
-    # Read PAT from environment
-    pat = os.environ.get(pat_env_var, "").strip()
-    if pat:
-        print(f"  ✓ Using PAT auth (from {pat_env_var})")
-        return pat
-
-    print(f"  Warning: No PAT found in {pat_env_var}")
+    print(f"  Error: Failed to generate GitHub App token for '{repository}' (env: {repo_env})")
     return None

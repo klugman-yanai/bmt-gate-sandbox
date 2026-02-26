@@ -201,7 +201,7 @@ The `remote/` directory mirrors the bucket `code/` namespace. On the VM:
 - **vm_watcher.py** — Polls GCS for run triggers. For each trigger: posts pending commit status, creates/updates a **GitHub Check Run** (implemented), runs `root_orchestrator.py` once per leg, reads verdicts from manager summaries (in-memory), updates each leg's `current.json` pointer and cleans stale snapshots, posts final commit status, completes the Check Run, deletes trigger. Optionally exits after one run (`--exit-after-run`) so the VM can stop. **PR comments are not implemented.**
 - **root_orchestrator.py** — Per leg: downloads `bmt_projects.json`, jobs config, and the project’s manager script from the bucket; invokes the manager with bucket, project, bmt_id, run_id, run_context; writes root summary to GCS.
 - **Per-project managers** — Each project has its own **bmt_manager.py** (e.g. `sk/bmt_manager.py`). They load BMT job config (dict/JSON), cache runner/template/dataset from GCS via `gcloud` CLI, run the runner binary per WAV in a thread pool, parse scores, evaluate gate, and write outputs under `{results_prefix}/snapshots/{run_id}/` (latest.json, ci_verdict.json, logs). Baseline is read by resolving `current.json` to the last-passing snapshot.
-- **remote/lib/** — Shared VM-side code only: `github_auth.py` (GitHub App JWT + installation token, PAT fallback), `github_checks.py` (Check Run create/update), `status_file.py`. No `bmt_lib/` or `github_api.py` in the current implementation.
+- **remote/lib/** — Shared VM-side code only: `github_auth.py` (GitHub App JWT + installation token), `github_checks.py` (Check Run create/update), `status_file.py`. No `bmt_lib/` or `github_api.py` in the current implementation.
 
 See **docs/architecture.md** for the full script reference; **docs/implementation.md** for current data flow and limitations. Planned changes (SDK, Pydantic, bmt_lib, PR comments): **docs/plans/future-architecture.md**.
 
@@ -243,7 +243,6 @@ gh variable set GCP_ZONE "<zone>"
 gh variable set BMT_VM_NAME "<vm-name>"
 # Optional (test repo / overrides):
 gh variable set BMT_STATUS_CONTEXT "BMT Gate (test)"
-gh variable set BMT_DESCRIPTION_PENDING "BMT running (test)..."
 ```
 
 | Variable | Purpose |
@@ -255,7 +254,7 @@ gh variable set BMT_DESCRIPTION_PENDING "BMT running (test)..."
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
 
-**Optional** (leave unset for defaults): `BMT_BUCKET_PREFIX` (empty), `BMT_PROJECTS` (`all release runners`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection), `BMT_DESCRIPTION_PENDING` (default: "BMT running on VM; status will update when complete.").
+**Optional** (leave unset for defaults): `BMT_BUCKET_PREFIX` (empty), `BMT_PROJECTS` (`all release runners`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
 
 For **local** use (e.g. `remote/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 
@@ -263,12 +262,15 @@ For **local** use (e.g. `remote/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_ins
 
 | Secret | Purpose |
 | ------ | ------- |
-| `GH_WORKFLOW_DISPATCH_TOKEN` | PAT with **Actions: read and write**. Used by the CI workflow to trigger the BMT workflow via `workflow_dispatch` (default `GITHUB_TOKEN` cannot trigger other workflows). Add in Settings → Secrets and variables → Actions → Secrets. |
+| `APP_TEST_ID` | GitHub App ID used by `build-and-test.yml` to mint a dispatch token. |
+| `APP_TEST_PRIVATE_KEY` | GitHub App private key used by `build-and-test.yml` for `workflow_dispatch` token minting. |
 
 ### VM-side (for trigger-and-stop gating)
 
-| Variable | Purpose |
-| -------- | ------- |
-| `GITHUB_STATUS_TOKEN` | PAT or token with `repo:status` (or GitHub App installation token). Used by `vm_watcher.py` to post commit status. Set per repo (e.g. test app token in test repo). |
+`vm_watcher.py` uses GitHub App credentials only. For each enabled repository mapping in `remote/code/config/github_repos.json`, the VM must have:
+
+- `<prefix>_ID`
+- `<prefix>_INSTALLATION_ID`
+- `<prefix>_PRIVATE_KEY`
 
 **Branch protection:** Require the status check named by `BMT_STATUS_CONTEXT` to pass before merge.
