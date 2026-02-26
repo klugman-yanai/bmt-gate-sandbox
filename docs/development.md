@@ -219,6 +219,16 @@ Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/
    - Set `BMT_UV_BIN` on VM metadata/runtime env to a known executable UV path.
    - Keep `BMT_SELF_STOP=1` unless explicitly doing maintenance with `BMT_SELF_STOP=0`.
 
+## PR closure behavior
+
+For `run_context=pr`, watcher performs PR-state checks:
+
+- **Closed before pickup:** run is skipped (no leg execution, no new PR check/comment writes).
+- **Closed during execution:** current leg is allowed to finish, remaining legs are marked skipped, and pending GitHub signals are finalized as cancelled (`check_run=neutral`, `commit_status=error`).
+- **PR-state API failure:** fail-open (run continues).
+
+Use `just monitor --run-id <id>` to confirm `run_outcome` / `cancel_reason` from `<runtime-root>/triggers/status/<id>.json`.
+
 ## VM start policy
 
 - Manual VM starts are allowed only for **debugging**, **maintenance**, or **testing**.
