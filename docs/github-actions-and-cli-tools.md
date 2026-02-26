@@ -8,7 +8,7 @@ Summary of official docs and tools useful for BMT workflows, status/checks, and 
 
 | Feature | What it does | Relevant to BMT |
 |--------|----------------|------------------|
-| **Job summary** | Write Markdown to `$GITHUB_STEP_SUMMARY`; it appears on the **Actions run summary** for that job. | `build-and-test.yml` BMT tail writes a dispatch-handoff summary; `bmt.yml` writes routing/trigger/handshake summaries. Both point users to PR checks/comments for final BMT outcome. |
+| **Job summary** | Write Markdown to `$GITHUB_STEP_SUMMARY`; it appears on the **Actions run summary** for that job. | `dummy-build-and-test.yml` BMT tail writes a dispatch-handoff summary; `bmt.yml` writes routing/trigger/handshake summaries. Both point users to PR checks/comments for final BMT outcome. |
 | **Re-run** | Re-run all jobs, failed jobs only, or specific jobs (up to 30 days). Uses same SHA/ref. | Devs can re-run the BMT workflow from the Actions tab without pushing again. |
 | **Workflow run logs** | Each run has logs per job/step. | Primary place for debugging when status says "Check Actions logs." |
 | **Debug logging** | Enable runner diagnostic logging and step debug logging when re-running. | Useful when debugging handshake or runner upload failures. |
