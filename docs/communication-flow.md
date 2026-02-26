@@ -9,20 +9,20 @@ This document describes the **current** communication model after the handoff-on
 - Workflow success means handoff completed.
 - Workflow failure means handoff failed.
 - **BMT final outcome is VM-owned** and appears in PR checks/comments.
-- `build-and-test.yml` keeps a prod-immutable base (`original_build-and-test.yml`) plus an append-only BMT tail.
+- This test repo uses `dummy-build-and-test.yml` (dummy/no-op build steps + runner artifact upload + BMT dispatch).
 
 ## Who owns what
 
 | Stage | Owner | Source of truth |
 |-------|-------|-----------------|
-| Build and dispatch | `build-and-test.yml` | Actions run result + BMT tail dispatch summary |
+| Build and dispatch | `dummy-build-and-test.yml` | Actions run result + BMT tail dispatch summary |
 | Handoff (trigger + VM ack) | `bmt.yml` | Actions run result + handoff summary |
 | BMT pending/final status | VM watcher | PR commit status (`BMT_STATUS_CONTEXT`) |
 | Detailed run outcome | VM watcher | PR check run + PR comments |
 
 ## Current flow overview
 
-1. `build-and-test.yml` builds artifacts from the immutable base, then append-only BMT tail dispatches `bmt.yml`.
+1. `dummy-build-and-test.yml` performs dummy/no-op CI steps, uploads runner artifacts, then dispatches `bmt.yml`.
 2. `bmt.yml` prepares context, uploads runners, classifies path, and then:
    - `04A Handoff Skip (No Legs)` when no supported uploaded legs exist, or
    - `04B Handoff Run (Trigger + VM Ack)` when legs exist.
@@ -33,7 +33,7 @@ This document describes the **current** communication model after the handoff-on
 
 | Scenario | What the developer should look at |
 |----------|-----------------------------------|
-| CI run (build-and-test) success/failure | Build/test result + BMT handoff dispatch summary in workflow run. |
+| CI run (dummy-build-and-test) success/failure | Dummy CI result + BMT handoff dispatch summary in workflow run. |
 | Handoff success | Green `bmt.yml` run summary confirms VM acknowledged trigger. |
 | Handoff failure | Failed `bmt.yml` run summary + diagnostics in Actions logs. |
 | BMT in progress/complete | PR **Checks** and PR **Comments** (VM-owned updates). |

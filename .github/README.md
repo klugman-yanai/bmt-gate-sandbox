@@ -2,7 +2,7 @@
 
 This repository keeps GitHub Actions logic in the native locations that GitHub executes:
 
-- `workflows/`: workflow entrypoints (`ci.yml`, `bmt.yml`)
+- `workflows/`: workflow entrypoints (`dummy-build-and-test.yml`, `bmt.yml`)
 - `actions/`: local composite actions used by workflows
 - `scripts/`: shell/Python helpers used by workflow steps
 

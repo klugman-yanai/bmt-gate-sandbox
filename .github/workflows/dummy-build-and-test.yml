@@ -1,0 +1,180 @@
+# Dummy CI workflow for this test repository.
+# Keeps original CI job topology as no-op while still collecting/uploading release runners for BMT handoff tests.
+name: CI (Dummy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # One build job per project; default "all release runners". Set repo var BMT_PROJECTS to override.
+  BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
+
+jobs:
+  # ─────────────────────── 1) one preset per project (gcc_Release only; filtered) ───────────────────────
+  extract-presets:
+    runs-on: ubuntu-latest
+    outputs:
+      presets: ${{ steps.parse.outputs.presets }}
+    steps:
+      - name: Checkout source for preset parsing
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+
+      - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
+        id: parse
+        run: bash .github/scripts/workflows/ci_workflow.sh parse-presets
+
+  # ─────────────────────── 2) build every preset (dummy/no-op except runner staging + upload) ────────────────────────
+  build:
+    needs: extract-presets
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.extract-presets.outputs.presets) }}
+
+    env:
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+
+    steps:
+      - name: Checkout source to build
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Disk space (before)
+        run: df -h
+
+      - name: Free disk space on runner (dummy)
+        run: "true"
+
+      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains (dummy)
+        run: "true"
+
+      - name: Install CMake 3.29.3 (dummy)
+        run: "true"
+
+      - name: Install MinGW (64-bit) (dummy)
+        if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
+        run: "true"
+
+      - name: Configure (dummy) ( ${{ matrix.configure }} )
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: "true"
+
+      - name: Build (dummy) + stage release runner ( ${{ matrix.short }} )
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: bash .github/scripts/workflows/ci_workflow.sh stage-release-runner
+
+      - name: Soft check (Xtensa/Hexagon) (dummy)
+        if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: "true"
+
+      - name: Strict check (non-embedded) (dummy)
+        if: ${{ ! (contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon')) }}
+        run: "true"
+
+      - name: Compute preset info
+        id: preset-info
+        if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: bash .github/scripts/workflows/ci_workflow.sh compute-preset-info
+
+      - name: Upload runner artifact
+        if: steps.preset-info.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-${{ steps.preset-info.outputs.preset }}
+          path: |
+            ${{ steps.preset-info.outputs.runners_dir }}/kardome_runner
+            ${{ steps.preset-info.outputs.lib_dir }}/libKardome.so
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Disk space (after)
+        if: always()
+        run: "true"
+
+      - name: Cleanup heavy dirs
+        if: always()
+        run: "true"
+
+  # ─────────────────────── 3) Trigger BMT via workflow_dispatch (handoff dispatch only) ───────────────────────
+  trigger-bmt:
+    name: Trigger BMT Handoff
+    needs: build
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+      issues: write
+    env:
+      REPOSITORY: ${{ github.repository }}
+      EVENT_NAME: ${{ github.event_name }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      DEFAULT_HEAD_SHA: ${{ github.sha }}
+      DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
+      CI_RUN_ID: ${{ github.run_id }}
+      BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_SERVER_URL: ${{ github.server_url }}
+    steps:
+      - name: Checkout source for BMT handoff helpers
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate GitHub App token for handoff dispatch
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_TEST_ID }}
+          private-key: ${{ secrets.APP_TEST_PRIVATE_KEY }}
+          permission-actions: write
+
+      - name: Resolve head context and dispatch BMT handoff
+        id: dispatch
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: bash .github/scripts/workflows/ci_workflow.sh handoff-dispatch-bmt
+
+      - name: Post BMT failure status/comment (handoff dispatch failed)
+        if: failure()
+        env:
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: bash .github/scripts/workflows/ci_workflow.sh post-trigger-failure-status
+
+      - name: Write handoff dispatch summary
+        if: always()
+        env:
+          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome || 'unknown' }}
+          HEAD_SHA: ${{ steps.dispatch.outputs.head_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
+          HEAD_BRANCH: ${{ steps.dispatch.outputs.head_branch || (github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name) }}
+          HEAD_EVENT: ${{ steps.dispatch.outputs.head_event || (github.event_name == 'pull_request' && 'pull_request' || 'push') }}
+        run: bash .github/scripts/workflows/ci_workflow.sh write-handoff-dispatch-summary

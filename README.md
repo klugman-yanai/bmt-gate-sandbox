@@ -7,7 +7,7 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 - **remote/code/** — Source of truth for deployable VM code/config/templates (watcher, orchestrator, managers, bootstrap). Synced manually to `gs://<bucket>/<parent>/code/`.
 - **remote/runtime/** — Source of truth for runtime seed artifacts (runner binaries + input placeholders only; no local WAV corpora).
 - **data/** — Local-only large datasets used for local runs and explicit upload operations.
-- **.github/workflows/** — `build-and-test.yml` (prod-locked build workflow with append-only BMT tail) and `bmt.yml` (BMT handoff control-plane).
+- **.github/workflows/** — `dummy-build-and-test.yml` (test-repo CI workflow with no-op build steps + runner artifact upload + BMT dispatch) and `bmt.yml` (BMT handoff control-plane).
 - **.github/scripts/** — `ci_driver.py` and `ci/commands/` for matrix, trigger, start-vm, handshake, etc. All GCP interaction is via `gcloud` CLI (subprocess), not an SDK.
 - **devtools/** — Local scripts for bucket sync, runner/wav upload, contract validation, local BMT runs, and env/repo-vars inspection.
 
@@ -30,7 +30,7 @@ If a file does not fit these categories, it should not be added at repo root.
 
 ## Workflow (Current)
 
-1. **build-and-test.yml** — Prod-locked workflow: immutable base mirrors `original_build-and-test.yml`; only append-only BMT extension is editable. It produces runner artifacts and dispatches `bmt.yml` via `workflow_dispatch` with `ci_run_id`, `head_sha`, `head_branch`, `head_event`, optional `pr_number`.
+1. **dummy-build-and-test.yml** — Test-repo CI workflow. Build/toolchain steps are no-op, but release-runner artifacts are still staged from repository runtime paths and uploaded for BMT handoff; then it dispatches `bmt.yml` via `workflow_dispatch` with `ci_run_id`, `head_sha`, `head_branch`, `head_event`, optional `pr_number`.
 2. **bmt.yml** — Handoff workflow only: uploads runners to runtime namespace, writes one run trigger to `<runtime-root>/triggers/runs/<workflow_run_id>.json`, syncs VM metadata, starts the VM, waits for handshake ack, writes handoff summary, then **exits**. It does not post final BMT verdicts.
 3. **VM** — Runs independently: polls for the trigger, runs legs via `root_orchestrator` and per-project `bmt_manager`, updates `current.json` pointers and prunes snapshots, posts final commit status and completes the Check Run, then deletes the trigger. Optionally exits after one run so the VM can stop itself.
 
@@ -38,7 +38,7 @@ Final pass/fail is always posted by the VM. Branch protection should require the
 
 Manual VM starts are permitted only for debugging, maintenance, or testing. Routine starts should come from `bmt.yml`.
 
-`build-and-test.yml` run summary in the BMT tail reports dispatch handoff health only. Final BMT pass/fail/completion is VM-owned and appears in PR checks/comments.
+`dummy-build-and-test.yml` run summary in the BMT tail reports dispatch handoff health only. Final BMT pass/fail/completion is VM-owned and appears in PR checks/comments.
 
 ## Configuration
 
@@ -62,7 +62,6 @@ just repo-vars-check
 just repo-vars-apply
 just show-env
 just validate-vm-vars
-just check-build-and-test-base
 ```
 
 See [docs/configuration.md](docs/configuration.md) for full env contract, VM metadata, and secrets.
@@ -125,7 +124,7 @@ More: [docs/development.md](docs/development.md) for setup, testing, and Justfil
 
 ## Notes
 
-- `build-and-test.yml` base is locked to `original_build-and-test.yml`; only the append-only BMT extension block is editable.
+- `original_build-and-test.yml` is kept for reference; this test repo executes `dummy-build-and-test.yml`.
 - `ci_driver.py wait` and `ci_driver.py gate` exist for manual/local validation only; they are not used in `bmt.yml`.
 - VM bootstrap and auth: [remote/code/bootstrap/README.md](remote/code/bootstrap/README.md).
 

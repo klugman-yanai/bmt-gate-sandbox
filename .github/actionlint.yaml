@@ -15,8 +15,5 @@ config-variables: null
 # "ignore" is an array of regular expression patterns. Matched error messages
 # are ignored. This is similar to the "-ignore" command line option.
 paths:
-  .github/workflows/build-and-test.yml:
-    # Prod-immutable base shell snippets trigger known false positives in actionlint's shellcheck integration.
-    ignore:
-      - "SC2016"
-      - "SC2193"
+#  .github/workflows/**/*.yml:
+#    ignore: []
