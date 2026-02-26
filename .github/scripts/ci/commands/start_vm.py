@@ -96,7 +96,9 @@ def command(timeout_sec: int, poll_interval_sec: int, stabilization_sec: int, *,
         last_seen_status = _instance_status(describe)
         last_seen_start = _last_start_timestamp(describe)
         running = last_seen_status == "RUNNING"
-        start_advanced = before_last_start is None or (last_seen_start is not None and last_seen_start != before_last_start)
+        start_advanced = before_last_start is None or (
+            last_seen_start is not None and last_seen_start != before_last_start
+        )
         already_running = before_status == "RUNNING" and running
         if running and (start_advanced or already_running):
             print(
@@ -105,18 +107,14 @@ def command(timeout_sec: int, poll_interval_sec: int, stabilization_sec: int, *,
             )
             if stabilization_sec <= 0:
                 return
-            print(
-                "Stabilizing RUNNING state "
-                f"for {stabilization_sec}s (poll={poll_interval_sec}s)"
-            )
+            print(f"Stabilizing RUNNING state for {stabilization_sec}s (poll={poll_interval_sec}s)")
             stable_deadline = time.monotonic() + stabilization_sec
             while time.monotonic() < stable_deadline:
                 stable_describe = gcloud_cli.vm_describe(project, zone, instance_name)
                 stable_status = _instance_status(stable_describe)
                 if stable_status != "RUNNING":
                     raise click.ClickException(
-                        "VM became unstable during stabilization window; "
-                        f"status={stable_status or '<unknown>'}"
+                        f"VM became unstable during stabilization window; status={stable_status or '<unknown>'}"
                     )
                 remaining = stable_deadline - time.monotonic()
                 if remaining > 0:

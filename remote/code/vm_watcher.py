@@ -24,7 +24,7 @@ import traceback
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,6 @@ import status_file  # type: ignore[import-not-found]  # noqa: E402
 _shutdown = False
 _KEEP_RECENT_WORKFLOW_FILES = 2
 _KEEP_RECENT_LOCAL_RUNS = 2
-UTC = timezone.utc
 
 
 def _handle_signal(signum: int, _frame: Any) -> None:
@@ -655,10 +654,17 @@ def _process_run_trigger(
         with contextlib.suppress(TypeError, ValueError):
             pr_number = int(pr_raw)
 
+    if not repository:
+        print("  Error: Run trigger missing repository; cannot resolve GitHub App auth")
+        _gcloud_rm(run_trigger_uri)
+        return
+
     # Resolve GitHub token for this specific repository
-    github_token = github_token_resolver(repository) if repository else None
+    github_token = github_token_resolver(repository)
     if not github_token:
-        print(f"  Warning: No GitHub auth for {repository}; VM will not post commit status")
+        print(f"  Error: GitHub App auth could not be resolved for {repository}; refusing to process trigger")
+        _gcloud_rm(run_trigger_uri)
+        return
 
     if not legs:
         print(f"  Run trigger has no legs: {run_trigger_uri}")
@@ -960,11 +966,14 @@ def _process_run_trigger(
                         conclusion=conclusion,
                         output={
                             "title": f"BMT Complete: {state.upper()}",
-                            "summary": github_checks.render_results_table(leg_summaries, {
-                                "state": "PASS" if state == "success" else "FAIL",
-                                "decision": state,
-                                "reasons": [],
-                            }),
+                            "summary": github_checks.render_results_table(
+                                leg_summaries,
+                                {
+                                    "state": "PASS" if state == "success" else "FAIL",
+                                    "decision": state,
+                                    "reasons": [],
+                                },
+                            ),
                         },
                     )
                     print(f"  Completed Check Run: {conclusion}")
@@ -979,7 +988,7 @@ def _process_run_trigger(
                 if _post_commit_status(repository, sha, state, description, None, github_token, context=status_context):
                     print(f"  Posted commit status: {state}")
                 else:
-                    print("  Could not post commit status (check GITHUB_STATUS_TOKEN)")
+                    print("  Could not post commit status")
                 if pr_number is not None:
                     details = "For details, open the **Checks** tab on this PR."
                     if state == "success":
@@ -1067,6 +1076,27 @@ def main() -> int:
 
     # Use GitHub App auth module for per-repository token resolution
     github_token_resolver = github_auth.resolve_auth_for_repository
+
+    enabled_repositories = github_auth.list_enabled_repositories()
+    if enabled_repositories is None:
+        print("Error: cannot start watcher without a valid GitHub App repository config.")
+        return 2
+    if not enabled_repositories:
+        print("Warning: no enabled repositories in GitHub App config; incoming triggers will be rejected.")
+    unresolved_repositories: list[str] = []
+    for repository in enabled_repositories:
+        token = github_token_resolver(repository)
+        if not token:
+            unresolved_repositories.append(repository)
+    if unresolved_repositories:
+        joined = ", ".join(unresolved_repositories)
+        print(
+            "Error: GitHub App auth preflight failed for enabled repositories: "
+            f"{joined}. Ensure *_ID, *_INSTALLATION_ID, and *_PRIVATE_KEY are present and valid."
+        )
+        return 2
+    if enabled_repositories:
+        print(f"GitHub App auth preflight passed for {len(enabled_repositories)} enabled repository(ies).")
 
     # Startup sweep: enforce bounded retention even after prior failed runs.
     _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)

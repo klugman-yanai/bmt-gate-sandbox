@@ -149,3 +149,60 @@ def test_cleanup_legacy_result_history_deletes_archive_and_logs(monkeypatch):
         ("gs://b/p/sk/results/archive", True),
         ("gs://b/p/sk/results/logs/false_rejects", True),
     ]
+
+
+def test_process_run_trigger_rejects_missing_repository(monkeypatch, tmp_path: Path):
+    removed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+        },
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_rm",
+        lambda uri, recursive=False: removed.append((uri, recursive)) or True,
+    )
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        "runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]
+
+
+def test_process_run_trigger_rejects_when_auth_unavailable(monkeypatch, tmp_path: Path):
+    removed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "repository": "owner/repo",
+            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+        },
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_rm",
+        lambda uri, recursive=False: removed.append((uri, recursive)) or True,
+    )
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        "runtime",
+        tmp_path,
+        lambda _repository: None,
+    )
+
+    assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]

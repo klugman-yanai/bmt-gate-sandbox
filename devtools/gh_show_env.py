@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
@@ -17,6 +18,19 @@ if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
 
 from shared_env_contract import default_contract_path, list_context_vars, load_env_contract
+
+
+@dataclass(frozen=True)
+class SecretHint:
+    name: str
+    present_label: str
+    absent_label: str = "(unset)"
+
+
+APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (
+    SecretHint("APP_TEST_ID", "*** (repo secret)"),
+    SecretHint("APP_TEST_PRIVATE_KEY", "*** (repo secret)"),
+)
 
 
 def cmd_exists(name: str) -> bool:
@@ -30,17 +44,17 @@ def gh_var(name: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def gh_secret_exists(name: str) -> bool:
+def gh_secret_names() -> set[str] | None:
     if not cmd_exists("gh"):
-        return False
+        return None
     result = subprocess.run(["gh", "secret", "list", "--json", "name"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        return False
+        return None
     try:
         secrets = json.loads(result.stdout)
-        return any(s.get("name") == name for s in secrets)
+        return {str(s.get("name", "")).strip() for s in secrets if str(s.get("name", "")).strip()}
     except json.JSONDecodeError:
-        return False
+        return None
 
 
 def gcloud_config(name: str) -> str | None:
@@ -70,9 +84,17 @@ def _contract_defaults(contract: dict[str, object]) -> dict[str, str]:
     return {str(k): str(v) for k, v in defaults_raw.items()}
 
 
+def print_repo_secret_hints(secret_hints: tuple[SecretHint, ...], secret_names: set[str]) -> None:
+    for secret_hint in secret_hints:
+        if secret_hint.name in secret_names:
+            click.echo(f"    {secret_hint.name}={secret_hint.present_label}")
+        else:
+            click.echo(f"    {secret_hint.name}={secret_hint.absent_label}")
+
+
 def print_github_section(contract: dict[str, object]) -> None:
     header = (
-        "GitHub (gh) — used by: ci.yml, start_vm, run_trigger, job_matrix, wait; "
+        "GitHub (gh) — used by: build-and-test.yml, start_vm, run_trigger, job_matrix, wait; "
         "VM bootstrap scripts. Unset = CI uses default below."
     )
     click.echo(header)
@@ -95,22 +117,19 @@ def print_github_section(contract: dict[str, object]) -> None:
             "BMT_BUCKET_PREFIX",
             "BMT_PROJECTS",
             "BMT_STATUS_CONTEXT",
-            "BMT_DESCRIPTION_PENDING",
             "BMT_HANDSHAKE_TIMEOUT_SEC",
         ]
     for name in optional_vars:
         print_env_var(name, gh_var(name), default=defaults.get(name))
 
-    if gh_secret_exists("GITHUB_STATUS_TOKEN") or gh_var("GITHUB_STATUS_TOKEN"):
-        click.echo("  GITHUB_STATUS_TOKEN=*** (repo)")
-    else:
-        click.echo("  GITHUB_STATUS_TOKEN=(unset in repo)")
+    click.echo("  App-trigger secrets (CI trigger-bmt):")
+    secret_names = gh_secret_names() or set()
+    print_repo_secret_hints(APP_TRIGGER_SECRET_HINTS, secret_names)
 
 
 def print_gcloud_section() -> None:
     click.echo(
-        "\ngcloud — used by: audit_vm_and_bucket, ssh_install, setup_vm_startup; "
-        "tools require explicit canonical vars."
+        "\ngcloud — used by: audit_vm_and_bucket, ssh_install, setup_vm_startup; tools require explicit canonical vars."
     )
     if not cmd_exists("gcloud"):
         click.echo("  (gcloud not available)")
@@ -126,7 +145,7 @@ def get_vm_project() -> str | None:
 
 
 def print_vm_section() -> None:
-    click.echo("\nVM env — used by: vm_watcher.py only (posts commit status). VM must be running to read.")
+    click.echo("\nVM env — used by: vm_watcher.py (App auth, statuses/checks). VM must be running to read.")
 
     if not cmd_exists("gh") or not cmd_exists("gcloud"):
         click.echo("  (need gh and gcloud to read VM env)")
@@ -169,20 +188,42 @@ def print_vm_section() -> None:
             vm_name,
             f"--zone={vm_zone}",
             f"--project={vm_project}",
-            '--command=[ -n "${GITHUB_STATUS_TOKEN:-}" ] && echo set || echo unset',
+            (
+                "--command=for name in "
+                "GITHUB_APP_TEST_ID GITHUB_APP_TEST_INSTALLATION_ID GITHUB_APP_TEST_PRIVATE_KEY "
+                "GITHUB_APP_PROD_ID GITHUB_APP_PROD_INSTALLATION_ID GITHUB_APP_PROD_PRIVATE_KEY; do "
+                'if [ -n "${!name:-}" ]; then echo "$name=set"; else echo "$name=unset"; fi; '
+                "done"
+            ),
         ],
         capture_output=True,
         text=True,
         check=False,
     )
-    token_status = ssh_result.stdout.strip() if ssh_result.returncode == 0 else ""
-
-    if token_status == "set":
-        click.echo("  GITHUB_STATUS_TOKEN=*** (set on VM)")
-    elif token_status == "unset":
-        click.echo("  GITHUB_STATUS_TOKEN=(unset on VM)")
-    else:
+    if ssh_result.returncode != 0:
         click.echo("  (VM unreachable or ssh failed)")
+        return
+
+    states: dict[str, str] = {}
+    for raw_line in ssh_result.stdout.splitlines():
+        line = raw_line.strip()
+        if "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        states[name.strip()] = value.strip()
+
+    def app_bundle_state(prefix: str) -> str:
+        names = [f"{prefix}_ID", f"{prefix}_INSTALLATION_ID", f"{prefix}_PRIVATE_KEY"]
+        values = [states.get(name, "unset") for name in names]
+        if all(value == "set" for value in values):
+            return "ready"
+        if all(value == "unset" for value in values):
+            return "unset"
+        return "partial"
+
+    click.echo(f"  GITHUB_APP_TEST_*={app_bundle_state('GITHUB_APP_TEST')}")
+    click.echo(f"  GITHUB_APP_PROD_*={app_bundle_state('GITHUB_APP_PROD')}")
+    click.echo("  hint: each enabled repository needs *_ID + *_INSTALLATION_ID + *_PRIVATE_KEY")
 
 
 def print_local_section() -> None:

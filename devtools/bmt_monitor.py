@@ -346,7 +346,9 @@ def poll_all(state: MonitorState) -> None:
                 if verdict:
                     # Mark when verdict was first detected
                     if not leg.verdict_detected_at:
-                        leg.verdict_detected_at = Instant.now().format_iso(sep=" ").split()[1].split(".")[0].replace("Z", "")
+                        leg.verdict_detected_at = (
+                            Instant.now().format_iso(sep=" ").split()[1].split(".")[0].replace("Z", "")
+                        )
                     leg.verdict_data = verdict
                     leg.status = verdict.get("status", "unknown")
                     leg.score = str(verdict.get("current_score")) if verdict.get("current_score") else None
@@ -406,7 +408,11 @@ def render_gcs_vm_debug(state: MonitorState) -> Panel:
     # Ack (VM must write this; if missing, handshake step times out)
     lines.append("")
     if state.handshake_data:
-        ts = state.handshake_timestamp or state.handshake_data.get("received_at") or state.handshake_data.get("acknowledged_at", "?")
+        ts = (
+            state.handshake_timestamp
+            or state.handshake_data.get("received_at")
+            or state.handshake_data.get("acknowledged_at", "?")
+        )
         legs = len(state.handshake_data.get("accepted_legs", []))
         lines.append(f"  [green]✓[/green] Ack      [dim]{ack_uri}[/dim]")
         lines.append(f"         acknowledged at {ts}  ({legs} legs)")

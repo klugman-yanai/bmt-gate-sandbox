@@ -66,5 +66,4 @@ Pinned uv artifact contract under `<code-root>`:
 
 Watcher token resolution is repository-aware via `remote/code/lib/github_auth.py` + `remote/code/config/github_repos.json`.
 
-- Preferred: GitHub App env vars (`<prefix>_ID`, `<prefix>_INSTALLATION_ID`, `<prefix>_PRIVATE_KEY`)
-- Fallback: `GITHUB_STATUS_TOKEN`
+- Required: GitHub App env vars (`<prefix>_ID`, `<prefix>_INSTALLATION_ID`, `<prefix>_PRIVATE_KEY`)

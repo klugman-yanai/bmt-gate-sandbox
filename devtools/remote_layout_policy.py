@@ -107,9 +107,7 @@ def main() -> int:
         missing = True
 
     unexpected_top_level = sorted(
-        entry.name
-        for entry in root.iterdir()
-        if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".")
+        entry.name for entry in root.iterdir() if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".")
     )
     if unexpected_top_level:
         click.echo("::error::remote/ must be a direct bucket mirror with only code/ and runtime/.", err=True)

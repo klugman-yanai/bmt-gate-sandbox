@@ -106,9 +106,7 @@ def main() -> int:
 
     cursor_plans = root / ".cursor" / "plans"
     if cursor_plans.exists():
-        existing_plan_files = sorted(
-            p.relative_to(root).as_posix() for p in cursor_plans.rglob("*") if p.is_file()
-        )
+        existing_plan_files = sorted(p.relative_to(root).as_posix() for p in cursor_plans.rglob("*") if p.is_file())
         if existing_plan_files:
             failures.append("Editor plan artifacts must be archived under docs/plans/archive/cursor/:")
             failures.extend([f"  - {path}" for path in existing_plan_files[:30]])

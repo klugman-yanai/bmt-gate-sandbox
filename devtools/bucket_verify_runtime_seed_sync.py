@@ -102,8 +102,7 @@ def main(bucket: str, bucket_prefix: str, src_dir: str, allow_generated_artifact
     if local_digest != remote_digest or local_count != remote_count:
         click.echo(f"::error::remote/runtime is not in sync with {manifest_uri}", err=True)
         click.echo(
-            f"Local digest={local_digest} count={local_count}; "
-            f"manifest digest={remote_digest} count={remote_count}",
+            f"Local digest={local_digest} count={local_count}; manifest digest={remote_digest} count={remote_count}",
             err=True,
         )
         return 1

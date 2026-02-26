@@ -13,16 +13,13 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 
 class OrchestratorError(RuntimeError):
     """Raised for invalid orchestration state."""
-
-
-UTC = timezone.utc
 
 
 def parse_args() -> argparse.Namespace:

@@ -9,14 +9,7 @@ from typing import Any
 import requests
 
 
-def create_check_run(
-    token: str,
-    repo: str,
-    sha: str,
-    name: str,
-    status: str,
-    output: dict[str, str]
-) -> int:
+def create_check_run(token: str, repo: str, sha: str, name: str, status: str, output: dict[str, str]) -> int:
     """Create a GitHub Check Run.
 
     Args:
@@ -37,15 +30,10 @@ def create_check_run(
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28"
+        "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    payload = {
-        "name": name,
-        "head_sha": sha,
-        "status": status,
-        "output": output
-    }
+    payload = {"name": name, "head_sha": sha, "status": status, "output": output}
 
     response = requests.post(url, json=payload, headers=headers, timeout=30)
     response.raise_for_status()
@@ -58,7 +46,7 @@ def update_check_run(
     check_run_id: int,
     status: str | None = None,
     conclusion: str | None = None,
-    output: dict[str, str] | None = None
+    output: dict[str, str] | None = None,
 ) -> None:
     """Update an existing Check Run.
 
@@ -77,7 +65,7 @@ def update_check_run(
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28"
+        "X-GitHub-Api-Version": "2022-11-28",
     }
 
     payload: dict[str, Any] = {}
@@ -92,11 +80,7 @@ def update_check_run(
     response.raise_for_status()
 
 
-def render_progress_markdown(
-    legs: list[dict[str, Any]],
-    elapsed_sec: int,
-    eta_sec: int | None
-) -> str:
+def render_progress_markdown(legs: list[dict[str, Any]], elapsed_sec: int, eta_sec: int | None) -> str:
     """Render progress table as markdown for Check Run output (GitHub browser).
 
     Optimized for what devs see in the PR: headline first, then table.
@@ -136,10 +120,7 @@ def render_progress_markdown(
     return "\n".join(lines)
 
 
-def render_results_table(
-    leg_summaries: list[dict[str, Any]],
-    aggregate: dict[str, Any]
-) -> str:
+def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[str, Any]) -> str:
     """Render final results table as markdown.
 
     Args:
