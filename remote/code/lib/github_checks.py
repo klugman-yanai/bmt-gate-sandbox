@@ -157,19 +157,18 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
         project = summary.get("project_id", "unknown")
         bmt_id = summary.get("bmt_id", "unknown")
 
-        ci_verdict = summary.get("ci_verdict", {})
-        verdict = ci_verdict.get("verdict", "UNKNOWN")
-        if verdict == "PASS":
+        # Manager summary uses "status" ("pass"/"fail") and "passed" (bool).
+        passed = summary.get("passed", False)
+        status = summary.get("status", "unknown")
+        if passed or status == "pass":
             verdict_display = "✅ PASS"
         else:
             verdict_display = "❌ FAIL"
 
-        # Get score from results
-        bmt_results = summary.get("bmt_results", {})
-        scores = [r.get("score", 0) for r in bmt_results.get("results", [])]
-        avg_score = sum(scores) / len(scores) if scores else 0
+        # Score is directly on the summary as "aggregate_score".
+        avg_score = float(summary.get("aggregate_score", 0) or 0)
 
-        # Duration
+        # Duration from orchestration_timing.
         timing = summary.get("orchestration_timing", {})
         duration_sec = timing.get("duration_sec")
         if duration_sec is not None:
