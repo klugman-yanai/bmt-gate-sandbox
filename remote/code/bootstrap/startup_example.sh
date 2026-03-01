@@ -117,19 +117,41 @@ fi
 # Canonical groups only:
 #   - GITHUB_APP_TEST_*
 #   - GITHUB_APP_PROD_*
-_gcloud_project_args=()
-if [[ -n "${GCP_PROJECT:-}" ]]; then
-  _gcloud_project_args=(--project "$GCP_PROJECT")
-fi
 
-# Regional secrets location (Secret Manager regional secrets require --location).
+# Regional secrets location — derive from VM zone.
 # Set BMT_SECRETS_LOCATION to override; defaults to the VM zone's region.
 if [[ -z "${BMT_SECRETS_LOCATION:-}" ]]; then
   _vm_zone=$(curl -sS -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/zone" 2>/dev/null | sed 's|.*/||' || true)
-  # Derive region from zone (e.g. europe-west4-a -> europe-west4)
   BMT_SECRETS_LOCATION="${_vm_zone%-*}"
 fi
+
+# Access a secret value via the regional Secret Manager REST API.
+# Regional secrets use a location-specific endpoint that the gcloud CLI
+# does not support natively (--location is rejected for secrets commands).
+_access_regional_secret() {
+  local project="$1" location="$2" secret_name="$3"
+  local token endpoint url payload
+  token=$(gcloud auth print-access-token 2>/dev/null) || return 1
+  endpoint="https://secretmanager.${location}.rep.googleapis.com"
+  url="${endpoint}/v1/projects/${project}/locations/${location}/secrets/${secret_name}/versions/latest:access"
+  payload=$(curl -sS --fail -H "Authorization: Bearer ${token}" "$url" 2>/dev/null) || return 1
+  # payload.data is base64-encoded
+  echo "$payload" | python3 -c "import json,sys,base64; d=json.load(sys.stdin); sys.stdout.write(base64.b64decode(d['payload']['data']).decode())" 2>/dev/null
+}
+
+# Access a secret value — try global gcloud first, then regional REST API.
+_access_secret() {
+  local secret_name="$1"
+  local val
+  # Try global secret via gcloud CLI
+  val=$(gcloud secrets versions access latest --secret="$secret_name" --project="${GCP_PROJECT}" 2>/dev/null) && [[ -n "$val" ]] && { echo "$val"; return 0; }
+  # Try regional secret via REST API
+  if [[ -n "${BMT_SECRETS_LOCATION:-}" ]]; then
+    val=$(_access_regional_secret "${GCP_PROJECT}" "${BMT_SECRETS_LOCATION}" "$secret_name" 2>/dev/null) && [[ -n "$val" ]] && { echo "$val"; return 0; }
+  fi
+  return 1
+}
 
 _load_github_app_credentials() {
   local env_label="$1"
@@ -138,32 +160,17 @@ _load_github_app_credentials() {
   local installation_secret="${prefix}_INSTALLATION_ID"
   local key_secret="${prefix}_PRIVATE_KEY"
 
-  # Build location args for regional secrets; fall back to global if location is empty.
-  local _loc_args=()
-  if [[ -n "${BMT_SECRETS_LOCATION:-}" ]]; then
-    _loc_args=(--location "$BMT_SECRETS_LOCATION")
-  fi
-
-  # Try regional first, then global.
-  local _found=false
-  if [[ ${#_loc_args[@]} -gt 0 ]] && gcloud secrets describe "$id_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" &>/dev/null; then
-    _found=true
-  elif gcloud secrets describe "$id_secret" "${_gcloud_project_args[@]}" &>/dev/null; then
-    _loc_args=()  # global secret — no location flag
-    _found=true
-  fi
-
-  if [[ "$_found" != "true" ]]; then
+  local app_id installation_id private_key
+  app_id=$(_access_secret "$id_secret" 2>/dev/null || true)
+  if [[ -z "$app_id" ]]; then
     echo "Info: ${env_label}: GitHub App secrets not found/readable (${id_secret}) in project ${GCP_PROJECT:-<default>}."
     return 0
   fi
 
-  local app_id installation_id private_key
-  app_id=$(gcloud secrets versions access latest --secret="$id_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" 2>/dev/null || true)
-  installation_id=$(gcloud secrets versions access latest --secret="$installation_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" 2>/dev/null || true)
-  private_key=$(gcloud secrets versions access latest --secret="$key_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" 2>/dev/null || true)
-  if [[ -z "$app_id" || -z "$installation_id" || -z "$private_key" ]]; then
-    echo "Warning: ${env_label}: secret set ${prefix}_* exists but values are missing/unreadable."
+  installation_id=$(_access_secret "$installation_secret" 2>/dev/null || true)
+  private_key=$(_access_secret "$key_secret" 2>/dev/null || true)
+  if [[ -z "$installation_id" || -z "$private_key" ]]; then
+    echo "Warning: ${env_label}: secret set ${prefix}_* partially available but values are missing/unreadable."
     return 0
   fi
 
