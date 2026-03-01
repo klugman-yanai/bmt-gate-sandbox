@@ -122,6 +122,15 @@ if [[ -n "${GCP_PROJECT:-}" ]]; then
   _gcloud_project_args=(--project "$GCP_PROJECT")
 fi
 
+# Regional secrets location (Secret Manager regional secrets require --location).
+# Set BMT_SECRETS_LOCATION to override; defaults to the VM zone's region.
+if [[ -z "${BMT_SECRETS_LOCATION:-}" ]]; then
+  _vm_zone=$(curl -sS -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/zone" 2>/dev/null | sed 's|.*/||' || true)
+  # Derive region from zone (e.g. europe-west4-a -> europe-west4)
+  BMT_SECRETS_LOCATION="${_vm_zone%-*}"
+fi
+
 _load_github_app_credentials() {
   local env_label="$1"
   local prefix="$2"
@@ -129,15 +138,30 @@ _load_github_app_credentials() {
   local installation_secret="${prefix}_INSTALLATION_ID"
   local key_secret="${prefix}_PRIVATE_KEY"
 
-  if ! gcloud secrets describe "$id_secret" "${_gcloud_project_args[@]}" &>/dev/null; then
+  # Build location args for regional secrets; fall back to global if location is empty.
+  local _loc_args=()
+  if [[ -n "${BMT_SECRETS_LOCATION:-}" ]]; then
+    _loc_args=(--location "$BMT_SECRETS_LOCATION")
+  fi
+
+  # Try regional first, then global.
+  local _found=false
+  if [[ ${#_loc_args[@]} -gt 0 ]] && gcloud secrets describe "$id_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" &>/dev/null; then
+    _found=true
+  elif gcloud secrets describe "$id_secret" "${_gcloud_project_args[@]}" &>/dev/null; then
+    _loc_args=()  # global secret — no location flag
+    _found=true
+  fi
+
+  if [[ "$_found" != "true" ]]; then
     echo "Info: ${env_label}: GitHub App secrets not found/readable (${id_secret}) in project ${GCP_PROJECT:-<default>}."
     return 0
   fi
 
   local app_id installation_id private_key
-  app_id=$(gcloud secrets versions access latest --secret="$id_secret" "${_gcloud_project_args[@]}" 2>/dev/null || true)
-  installation_id=$(gcloud secrets versions access latest --secret="$installation_secret" "${_gcloud_project_args[@]}" 2>/dev/null || true)
-  private_key=$(gcloud secrets versions access latest --secret="$key_secret" "${_gcloud_project_args[@]}" 2>/dev/null || true)
+  app_id=$(gcloud secrets versions access latest --secret="$id_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" 2>/dev/null || true)
+  installation_id=$(gcloud secrets versions access latest --secret="$installation_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" 2>/dev/null || true)
+  private_key=$(gcloud secrets versions access latest --secret="$key_secret" "${_gcloud_project_args[@]}" "${_loc_args[@]}" 2>/dev/null || true)
   if [[ -z "$app_id" || -z "$installation_id" || -z "$private_key" ]]; then
     echo "Warning: ${env_label}: secret set ${prefix}_* exists but values are missing/unreadable."
     return 0
