@@ -36,46 +36,9 @@ REASON_VM_LOCKED = "vm_locked"
 REASON_UNKNOWN = "unknown"
 
 _RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
-_CODE_SUBDIR = "code"
-_RUNTIME_SUBDIR = "runtime"
 
 
 # ── URI helpers ────────────────────────────────────────────────────────────────
-
-
-def normalize_prefix(prefix: str) -> str:
-    """Strip leading/trailing slashes from a bucket prefix."""
-    return (prefix or "").strip("/")
-
-
-def parent_prefix(prefix: str) -> str:
-    """Canonical parent namespace from BMT_BUCKET_PREFIX."""
-    return normalize_prefix(prefix)
-
-
-def child_prefix(parent: str, leaf: str) -> str:
-    """Join a parent prefix and child leaf with normalized slashes."""
-    parent_norm = parent_prefix(parent)
-    leaf_norm = normalize_prefix(leaf)
-    if not leaf_norm:
-        return parent_norm
-    return f"{parent_norm}/{leaf_norm}" if parent_norm else leaf_norm
-
-
-def code_prefix(parent: str) -> str:
-    """Derived code namespace under parent prefix."""
-    return child_prefix(parent, _CODE_SUBDIR)
-
-
-def runtime_prefix(parent: str) -> str:
-    """Derived runtime namespace under parent prefix."""
-    return child_prefix(parent, _RUNTIME_SUBDIR)
-
-
-def bucket_root_uri(bucket: str, prefix: str) -> str:
-    """Build gs://bucket or gs://bucket/prefix from bucket and optional prefix."""
-    normalized = normalize_prefix(prefix)
-    return f"gs://{bucket}/{normalized}" if normalized else f"gs://{bucket}"
 
 
 def bucket_uri(bucket_root: str, rel_path: str) -> str:
@@ -83,14 +46,14 @@ def bucket_uri(bucket_root: str, rel_path: str) -> str:
     return f"{bucket_root}/{rel_path.lstrip('/')}"
 
 
-def code_bucket_root_uri(bucket: str, parent: str) -> str:
-    """Code bucket root under derived code prefix."""
-    return bucket_root_uri(bucket, code_prefix(parent))
+def code_bucket_root_uri(bucket: str) -> str:
+    """Code bucket root: gs://<bucket>/code."""
+    return f"gs://{bucket}/code"
 
 
-def runtime_bucket_root_uri(bucket: str, parent: str) -> str:
-    """Runtime bucket root under derived runtime prefix."""
-    return bucket_root_uri(bucket, runtime_prefix(parent))
+def runtime_bucket_root_uri(bucket: str) -> str:
+    """Runtime bucket root: gs://<bucket>/runtime."""
+    return f"gs://{bucket}/runtime"
 
 
 # ── Status / run-id helpers ────────────────────────────────────────────────────
@@ -237,7 +200,6 @@ class LegOutcome:
     status: str
     reason_code: str
     bucket: str
-    bucket_prefix: str
     verdict_uri: str
     verdict: dict[str, Any] | None
     aggregate_score: float | None

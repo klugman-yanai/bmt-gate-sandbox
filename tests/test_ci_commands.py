@@ -18,7 +18,7 @@ import pytest
 def test_matrix_command_runs() -> None:
     """Test that the matrix command runs without error and produces valid output."""
     # CRITICAL: Verify config files exist before running test
-    config_root = Path("remote")
+    config_root = Path("remote/code")
     assert config_root.exists(), f"Config root {config_root} does not exist - test environment broken"
     assert (config_root / "bmt_projects.json").exists(), "bmt_projects.json missing - cannot test"
 
@@ -32,7 +32,7 @@ def test_matrix_command_runs() -> None:
                 ".github/scripts/ci_driver.py",
                 "matrix",
                 "--config-root",
-                "remote",
+                "remote/code",
                 "--project-filter",
                 "",
                 "--github-output",
@@ -96,7 +96,7 @@ def test_matrix_command_with_filter() -> None:
                 ".github/scripts/ci_driver.py",
                 "matrix",
                 "--config-root",
-                "remote",
+                "remote/code",
                 "--project-filter",
                 "sk",
                 "--github-output",
@@ -152,7 +152,7 @@ def test_matrix_command_with_all_release_runners_filter() -> None:
                 ".github/scripts/ci_driver.py",
                 "matrix",
                 "--config-root",
-                "remote",
+                "remote/code",
                 "--project-filter",
                 "all release runners",
                 "--github-output",
@@ -187,7 +187,7 @@ def test_matrix_command_with_unsupported_filter_is_non_fatal() -> None:
                 ".github/scripts/ci_driver.py",
                 "matrix",
                 "--config-root",
-                "remote",
+                "remote/code",
                 "--project-filter",
                 "does-not-exist",
                 "--github-output",
@@ -308,6 +308,98 @@ def test_gate_command_help() -> None:
     assert "--pass-count" in result.stdout
 
 
+def test_filter_supported_matrix_command_help() -> None:
+    """Test that filter-supported-matrix command is registered and shows help."""
+    result = subprocess.run(
+        ["python", ".github/scripts/ci_driver.py", "filter-supported-matrix", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "--runner-matrix-json" in result.stdout
+    assert "--full-matrix-json" in result.stdout
+    assert "--accepted-projects-json" in result.stdout
+
+
+def test_filter_supported_matrix_success() -> None:
+    """Supported uploaded projects should produce filtered matrix with has_legs=true."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
+        github_output = Path(tmp.name)
+
+    try:
+        runner_matrix = {"include": [{"project": "sk"}, {"project": "missing"}]}
+        full_matrix = {"include": [{"project": "sk", "bmt_id": "sk-bmt"}]}
+        accepted_projects = ["sk"]
+
+        result = subprocess.run(
+            [
+                "python",
+                ".github/scripts/ci_driver.py",
+                "filter-supported-matrix",
+                "--runner-matrix-json",
+                json.dumps(runner_matrix),
+                "--full-matrix-json",
+                json.dumps(full_matrix),
+                "--accepted-projects-json",
+                json.dumps(accepted_projects),
+                "--github-output",
+                str(github_output),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        content = github_output.read_text()
+        matrix_line = next((line for line in content.splitlines() if line.startswith("matrix=")), None)
+        has_legs_line = next((line for line in content.splitlines() if line.startswith("has_legs=")), None)
+        assert matrix_line is not None
+        assert has_legs_line == "has_legs=true"
+        parsed = json.loads(matrix_line.split("=", 1)[1])
+        assert parsed["include"] == [{"project": "sk", "bmt_id": "sk-bmt"}]
+    finally:
+        if github_output.exists():
+            github_output.unlink()
+
+
+def test_filter_supported_matrix_fails_when_no_uploaded_supported_projects() -> None:
+    """If supported legs exist but uploads did not succeed, command must fail."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
+        github_output = Path(tmp.name)
+
+    try:
+        runner_matrix = {"include": [{"project": "sk"}]}
+        full_matrix = {"include": [{"project": "sk", "bmt_id": "sk-bmt"}]}
+
+        result = subprocess.run(
+            [
+                "python",
+                ".github/scripts/ci_driver.py",
+                "filter-supported-matrix",
+                "--runner-matrix-json",
+                json.dumps(runner_matrix),
+                "--full-matrix-json",
+                json.dumps(full_matrix),
+                "--accepted-projects-json",
+                "[]",
+                "--github-output",
+                str(github_output),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0
+        assert "no supported runner upload succeeded" in (result.stderr + result.stdout).lower()
+    finally:
+        if github_output.exists():
+            github_output.unlink()
+
+
 def test_matrix_command_fails_without_github_output() -> None:
     """Test that matrix command fails when GITHUB_OUTPUT is missing."""
     result = subprocess.run(
@@ -316,7 +408,7 @@ def test_matrix_command_fails_without_github_output() -> None:
             ".github/scripts/ci_driver.py",
             "matrix",
             "--config-root",
-            "remote",
+            "remote/code",
         ],
         check=False,
         capture_output=True,
@@ -325,9 +417,9 @@ def test_matrix_command_fails_without_github_output() -> None:
 
     # CRITICAL: Must fail when required env var is missing
     assert result.returncode != 0, "Command should fail without GITHUB_OUTPUT"
-    assert "GITHUB_OUTPUT is required" in result.stderr or "GITHUB_OUTPUT" in str(
-        result.stderr + result.stdout
-    ), f"Error message unclear: {result.stderr}"
+    assert "GITHUB_OUTPUT is required" in result.stderr or "GITHUB_OUTPUT" in str(result.stderr + result.stdout), (
+        f"Error message unclear: {result.stderr}"
+    )
 
 
 def test_matrix_command_fails_with_invalid_config_root() -> None:
@@ -371,6 +463,8 @@ def test_all_commands_are_registered() -> None:
     # CRITICAL: All commands must be present
     expected_commands = [
         "matrix",
+        "filter-supported-matrix",
+        "parse-release-runners",
         "trigger",
         "sync-vm-metadata",
         "start-vm",
@@ -408,7 +502,7 @@ def test_matrix_output_is_valid_json() -> None:
                 ".github/scripts/ci_driver.py",
                 "matrix",
                 "--config-root",
-                "remote",
+                "remote/code",
                 "--github-output",
                 str(github_output),
             ],
@@ -448,11 +542,9 @@ def test_upload_runner_fails_with_missing_required_args() -> None:
     # CRITICAL: Must fail without required args
     assert result.returncode != 0, "Should fail without required arguments"
     # Should mention missing required options
-    assert (
-        "Missing option" in result.stderr
-        or "required" in result.stderr.lower()
-        or "Error" in result.stderr
-    ), f"Error message unclear: {result.stderr}"
+    assert "Missing option" in result.stderr or "required" in result.stderr.lower() or "Error" in result.stderr, (
+        f"Error message unclear: {result.stderr}"
+    )
 
 
 def test_trigger_fails_with_invalid_matrix_json() -> None:
@@ -467,7 +559,7 @@ def test_trigger_fails_with_invalid_matrix_json() -> None:
             ".github/scripts/ci_driver.py",
             "trigger",
             "--config-root",
-            "remote",
+            "remote/code",
             "--bucket",
             "test-bucket",
             "--matrix-json",

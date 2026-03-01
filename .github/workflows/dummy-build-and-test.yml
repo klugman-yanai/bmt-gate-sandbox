@@ -1,9 +1,6 @@
-# Dummy "CI" workflow: mirrors job/step structure of resources/core-main-workflow.yml
-# (which cannot be modified). Runs on push or PR to dev; BMT runs after this completes.
-# Dummy builds one job per project (filtered by BMT_PROJECTS; default "all release runners").
-# Artifacts are per workflow run; they do not "carry" to another run. The BMT workflow
-# is triggered with this run's run_id and downloads these artifacts by run-id (see bmt.yml).
-name: CI
+# Dummy CI workflow for this test repository.
+# Keeps original CI job topology as no-op while still collecting/uploading release runners for BMT handoff tests.
+name: CI (Dummy)
 
 on:
   workflow_dispatch:
@@ -30,15 +27,20 @@ jobs:
       - name: Checkout source for preset parsing
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head_sha || github.sha }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
 
       - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
         id: parse
         run: bash .github/scripts/workflows/ci_workflow.sh parse-presets
 
-  # ─────────────────────── 2) build every preset ────────────────────────
+  # ─────────────────────── 2) build every preset (dummy/no-op except runner staging + upload) ────────────────────────
   build:
     needs: extract-presets
     runs-on: ubuntu-latest
@@ -54,8 +56,8 @@ jobs:
       - name: Checkout source to build
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head_sha        || github.sha }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           submodules: false
           lfs: false
@@ -64,34 +66,34 @@ jobs:
       - name: Disk space (before)
         run: df -h
 
-      - name: Free disk space on runner
+      - name: Free disk space on runner (dummy)
         run: "true"
 
-      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
+      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains (dummy)
         run: "true"
 
-      - name: Install CMake 3.29.3
+      - name: Install CMake 3.29.3 (dummy)
         run: "true"
 
-      - name: Install MinGW (64-bit)
+      - name: Install MinGW (64-bit) (dummy)
         if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
         run: "true"
 
-      - name: Configure ( ${{ matrix.configure }} )
+      - name: Configure (dummy) ( ${{ matrix.configure }} )
         continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
         run: "true"
 
-      - name: Build ( ${{ matrix.short }} )
+      - name: Build (dummy) + stage release runner ( ${{ matrix.short }} )
         continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
         env:
           MATRIX_CONFIGURE: ${{ matrix.configure }}
         run: bash .github/scripts/workflows/ci_workflow.sh stage-release-runner
 
-      - name: Soft check (Xtensa/Hexagon)
+      - name: Soft check (Xtensa/Hexagon) (dummy)
         if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
         run: "true"
 
-      - name: Strict check (non-embedded)
+      - name: Strict check (non-embedded) (dummy)
         if: ${{ ! (contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon')) }}
         run: "true"
 
@@ -121,22 +123,34 @@ jobs:
         if: always()
         run: "true"
 
-  # ─────────────────────── 3) Trigger BMT via workflow_dispatch (using GitHub App token) ───────────────────────
+  # ─────────────────────── 3) Trigger BMT via workflow_dispatch (handoff dispatch only) ───────────────────────
   trigger-bmt:
-    name: Trigger BMT
+    name: Trigger BMT Handoff
     needs: build
     if: success()
     runs-on: ubuntu-latest
     permissions:
       statuses: write
       issues: write
+    env:
+      REPOSITORY: ${{ github.repository }}
+      EVENT_NAME: ${{ github.event_name }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      DEFAULT_HEAD_SHA: ${{ github.sha }}
+      DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
+      CI_RUN_ID: ${{ github.run_id }}
+      BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_SERVER_URL: ${{ github.server_url }}
     steps:
-      - name: Checkout source for workflow helpers
+      - name: Checkout source for BMT handoff helpers
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Generate GitHub App token
+      - name: Generate GitHub App token for handoff dispatch
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
@@ -144,35 +158,23 @@ jobs:
           private-key: ${{ secrets.APP_TEST_PRIVATE_KEY }}
           permission-actions: write
 
-      - name: Resolve head ref and event
-        id: head
+      - name: Resolve head context and dispatch BMT handoff
+        id: dispatch
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          DEFAULT_HEAD_SHA: ${{ github.sha }}
-          DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
-        run: bash .github/scripts/workflows/ci_workflow.sh resolve-head-context
-
-      - name: Trigger BMT workflow
-        env:
-          REPOSITORY: ${{ github.repository }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          CI_RUN_ID: ${{ github.run_id }}
-          HEAD_SHA: ${{ steps.head.outputs.head_sha }}
-          HEAD_BRANCH: ${{ steps.head.outputs.head_branch }}
-          HEAD_EVENT: ${{ steps.head.outputs.head_event }}
-          PR_NUMBER: ${{ steps.head.outputs.pr_number }}
-        run: bash .github/scripts/workflows/ci_workflow.sh dispatch-bmt
+        run: bash .github/scripts/workflows/ci_workflow.sh handoff-dispatch-bmt
 
-      - name: Post BMT failure status (Trigger BMT failed)
+      - name: Post BMT failure status/comment (handoff dispatch failed)
         if: failure()
         env:
-          REPOSITORY: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          GITHUB_TOKEN: ${{ github.token }}
-          BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
         run: bash .github/scripts/workflows/ci_workflow.sh post-trigger-failure-status
+
+      - name: Write handoff dispatch summary
+        if: always()
+        env:
+          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome || 'unknown' }}
+          HEAD_SHA: ${{ steps.dispatch.outputs.head_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
+          HEAD_BRANCH: ${{ steps.dispatch.outputs.head_branch || (github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name) }}
+          HEAD_EVENT: ${{ steps.dispatch.outputs.head_event || (github.event_name == 'pull_request' && 'pull_request' || 'push') }}
+        run: bash .github/scripts/workflows/ci_workflow.sh write-handoff-dispatch-summary

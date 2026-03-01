@@ -4,19 +4,44 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
 from click_exit import run_click_command
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.tree import Tree
 
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
 
-from shared_env_contract import default_contract_path, list_context_vars, load_env_contract
+from shared_env_contract import (
+    default_contract_path,
+    list_context_vars,
+    list_repo_var_vs_branch_required_status_context_checks,
+    load_env_contract,
+)
+
+console = Console()
+
+
+@dataclass(frozen=True)
+class SecretHint:
+    name: str
+    present_label: str
+    absent_label: str = "(unset)"
+
+
+APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (
+    SecretHint("APP_TEST_ID", "*** (repo secret)"),
+    SecretHint("APP_TEST_PRIVATE_KEY", "*** (repo secret)"),
+)
 
 
 def cmd_exists(name: str) -> bool:
@@ -30,17 +55,67 @@ def gh_var(name: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def gh_secret_exists(name: str) -> bool:
+def gh_secret_names() -> set[str] | None:
     if not cmd_exists("gh"):
-        return False
+        return None
     result = subprocess.run(["gh", "secret", "list", "--json", "name"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        return False
+        return None
     try:
         secrets = json.loads(result.stdout)
-        return any(s.get("name") == name for s in secrets)
+        return {str(s.get("name", "")).strip() for s in secrets if str(s.get("name", "")).strip()}
     except json.JSONDecodeError:
-        return False
+        return None
+
+
+def gh_repo_slug() -> str | None:
+    if not cmd_exists("gh"):
+        return None
+    result = subprocess.run(
+        ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    slug = result.stdout.strip()
+    return slug if result.returncode == 0 and "/" in slug else None
+
+
+def gh_required_status_contexts(repo_slug: str, branch: str) -> list[str] | None:
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo_slug}/rules/branches/{branch}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, list):
+        return None
+
+    contexts: list[str] = []
+    for rule in payload:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("type", "")).strip() != "required_status_checks":
+            continue
+        parameters = rule.get("parameters", {})
+        if not isinstance(parameters, dict):
+            continue
+        checks = parameters.get("required_status_checks", [])
+        if not isinstance(checks, list):
+            continue
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            context = str(check.get("context", "")).strip()
+            if context and context not in contexts:
+                contexts.append(context)
+    return contexts
 
 
 def gcloud_config(name: str) -> str | None:
@@ -51,18 +126,6 @@ def gcloud_config(name: str) -> str | None:
     return val if val and not val.startswith("(unset)") else None
 
 
-def print_env_var(name: str, val: str | None, default: str | None = None) -> None:
-    if val:
-        click.echo(f"  {name}={val}")
-    elif default is not None:
-        if default == "":
-            click.echo(f'  {name}="" (default)')
-        else:
-            click.echo(f"  {name}={default} (default)")
-    else:
-        click.echo(f"  {name}=(unset)")
-
-
 def _contract_defaults(contract: dict[str, object]) -> dict[str, str]:
     defaults_raw = contract.get("defaults", {})
     if not isinstance(defaults_raw, dict):
@@ -70,55 +133,117 @@ def _contract_defaults(contract: dict[str, object]) -> dict[str, str]:
     return {str(k): str(v) for k, v in defaults_raw.items()}
 
 
+def _var_value_cell(val: str | None, default: str | None = None) -> Text:
+    if val:
+        return Text(val, style="green")
+    if default is not None:
+        if default == "":
+            return Text('"" (default)', style="dim cyan")
+        return Text(f"{default} (default)", style="dim cyan")
+    return Text("(unset)", style="dim red")
+
+
+def _vars_table(rows: list[tuple[str, Text]]) -> Table:
+    t = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    t.add_column("Variable", style="bold")
+    t.add_column("Value")
+    for name, value in rows:
+        t.add_row(name, value)
+    return t
+
+
 def print_github_section(contract: dict[str, object]) -> None:
-    header = (
-        "GitHub (gh) — used by: ci.yml, start_vm, run_trigger, job_matrix, wait; "
-        "VM bootstrap scripts. Unset = CI uses default below."
+    description = (
+        "Used by: build-and-test.yml, start_vm, run_trigger, job_matrix, wait; VM bootstrap. Unset = CI uses default."
     )
-    click.echo(header)
-    click.echo(f"  contract: {default_contract_path()}")
+    content_parts: list = []
+
+    contract_path = default_contract_path()
+    content_parts.append(Text(f"Contract: {contract_path}", style="dim"))
+    content_parts.append(Text())
 
     if not cmd_exists("gh"):
-        click.echo("  (gh not available; run 'gh auth login' in repo to list GitHub vars)")
+        content_parts.append(Text("(gh not available; run 'gh auth login' in repo to list GitHub vars)", style="dim"))
+        console.print(Panel(Text.assemble(*content_parts), title="[bold]GitHub (gh)[/]", subtitle=description))
         return
 
     required_vars = list_context_vars(contract, "github_repo_vars", "required")
     if not required_vars:
         required_vars = ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_PROJECT", "GCP_ZONE", "BMT_VM_NAME"]
-    for name in required_vars:
-        print_env_var(name, gh_var(name))
 
     defaults = _contract_defaults(contract)
     optional_vars = list_context_vars(contract, "github_repo_vars", "optional")
     if not optional_vars:
         optional_vars = [
-            "BMT_BUCKET_PREFIX",
             "BMT_PROJECTS",
             "BMT_STATUS_CONTEXT",
-            "BMT_DESCRIPTION_PENDING",
             "BMT_HANDSHAKE_TIMEOUT_SEC",
         ]
+    rows: list[tuple[str, Text]] = []
+    for name in required_vars:
+        rows.append((name, _var_value_cell(gh_var(name))))
     for name in optional_vars:
-        print_env_var(name, gh_var(name), default=defaults.get(name))
+        rows.append((name, _var_value_cell(gh_var(name), default=defaults.get(name))))
 
-    if gh_secret_exists("GITHUB_STATUS_TOKEN") or gh_var("GITHUB_STATUS_TOKEN"):
-        click.echo("  GITHUB_STATUS_TOKEN=*** (repo)")
-    else:
-        click.echo("  GITHUB_STATUS_TOKEN=(unset in repo)")
+    content_parts.append(_vars_table(rows))
+    content_parts.append(Text())
+
+    # Branch-rule consistency checks
+    repo_slug = gh_repo_slug()
+    branch_checks = list_repo_var_vs_branch_required_status_context_checks(contract)
+    if repo_slug and branch_checks:
+        tree = Tree(Text("Branch-rule consistency", style="bold"))
+        for check in branch_checks:
+            repo_var = check["repo_var"]
+            branch = check["branch"]
+            required = gh_required_status_contexts(repo_slug, branch)
+            if required is None:
+                tree.add(Text(f"{repo_var} @ {branch}: unable to read branch rules", style="dim"))
+                continue
+            current = gh_var(repo_var) or ""
+            listed = ", ".join(required) if required else "<none>"
+            if current and current in required:
+                tree.add(
+                    Text(f"{repo_var} @ {branch}: ", style="dim")
+                    + Text("OK", style="green")
+                    + Text(f" ({current}) from [{listed}]", style="dim")
+                )
+            elif current:
+                tree.add(
+                    Text(f"{repo_var} @ {branch}: ", style="dim")
+                    + Text("DRIFT", style="yellow")
+                    + Text(f" current={current} required=[{listed}]", style="dim")
+                )
+            else:
+                tree.add(Text(f"{repo_var} @ {branch}: repo var unset required=[{listed}]", style="dim"))
+        content_parts.append(tree)
+        content_parts.append(Text())
+
+    # App-trigger secrets
+    secret_names = gh_secret_names() or set()
+    secret_rows: list[tuple[str, Text]] = []
+    for h in APP_TRIGGER_SECRET_HINTS:
+        val = Text(h.present_label, style="green") if h.name in secret_names else Text(h.absent_label, style="dim red")
+        secret_rows.append((h.name, val))
+    content_parts.append(Text("App-trigger secrets (CI trigger-bmt):", style="bold"))
+    content_parts.append(_vars_table(secret_rows))
+
+    # Build panel content
+    console.print(Panel(Group(*content_parts), title="[bold]GitHub (gh)[/]", subtitle=description))
 
 
 def print_gcloud_section() -> None:
-    click.echo(
-        "\ngcloud — used by: audit_vm_and_bucket, ssh_install, setup_vm_startup; "
-        "tools require explicit canonical vars."
-    )
+    description = "Used by: audit_vm_and_bucket, ssh_install, setup_vm_startup. Tools require explicit canonical vars."
     if not cmd_exists("gcloud"):
-        click.echo("  (gcloud not available)")
+        console.print(Panel(Text("(gcloud not available)", style="dim"), title="[bold]gcloud[/]", subtitle=description))
         return
 
-    click.echo(f"  project={gcloud_config('project') or '(unset)'}")
-    click.echo(f"  account={gcloud_config('account') or '(unset)'}")
-    click.echo(f"  compute/zone={gcloud_config('compute/zone') or '(unset)'}")
+    rows: list[tuple[str, Text]] = [
+        ("project", _var_value_cell(gcloud_config("project"))),
+        ("account", _var_value_cell(gcloud_config("account"))),
+        ("compute/zone", _var_value_cell(gcloud_config("compute/zone"))),
+    ]
+    console.print(Panel(_vars_table(rows), title="[bold]gcloud[/]", subtitle=description))
 
 
 def get_vm_project() -> str | None:
@@ -126,10 +251,14 @@ def get_vm_project() -> str | None:
 
 
 def print_vm_section() -> None:
-    click.echo("\nVM env — used by: vm_watcher.py only (posts commit status). VM must be running to read.")
+    description = "Used by: vm_watcher.py (App auth, statuses/checks). VM must be running to read."
 
     if not cmd_exists("gh") or not cmd_exists("gcloud"):
-        click.echo("  (need gh and gcloud to read VM env)")
+        console.print(
+            Panel(
+                Text("(need gh and gcloud to read VM env)", style="dim"), title="[bold]VM env[/]", subtitle=description
+            )
+        )
         return
 
     vm_project = get_vm_project()
@@ -137,7 +266,13 @@ def print_vm_section() -> None:
     vm_name = gh_var("BMT_VM_NAME")
 
     if not vm_project or not vm_zone or not vm_name:
-        click.echo("  (need GCP_PROJECT, GCP_ZONE, BMT_VM_NAME from gh to connect)")
+        console.print(
+            Panel(
+                Text("(need GCP_PROJECT, GCP_ZONE, BMT_VM_NAME from gh to connect)", style="dim"),
+                title="[bold]VM env[/]",
+                subtitle=description,
+            )
+        )
         return
 
     result = subprocess.run(
@@ -158,7 +293,13 @@ def print_vm_section() -> None:
     vm_status = result.stdout.strip() if result.returncode == 0 else ""
 
     if vm_status != "RUNNING":
-        click.echo(f"  (VM {vm_name} not RUNNING; start VM to see VM env)")
+        console.print(
+            Panel(
+                Text(f"VM {vm_name} not RUNNING — start VM to see VM env", style="dim"),
+                title="[bold]VM env[/]",
+                subtitle=description,
+            )
+        )
         return
 
     ssh_result = subprocess.run(
@@ -169,38 +310,47 @@ def print_vm_section() -> None:
             vm_name,
             f"--zone={vm_zone}",
             f"--project={vm_project}",
-            '--command=[ -n "${GITHUB_STATUS_TOKEN:-}" ] && echo set || echo unset',
+            (
+                "--command=for name in "
+                "GITHUB_APP_TEST_ID GITHUB_APP_TEST_INSTALLATION_ID GITHUB_APP_TEST_PRIVATE_KEY "
+                "GITHUB_APP_PROD_ID GITHUB_APP_PROD_INSTALLATION_ID GITHUB_APP_PROD_PRIVATE_KEY; do "
+                'if [ -n "${!name:-}" ]; then echo "$name=set"; else echo "$name=unset"; fi; '
+                "done"
+            ),
         ],
         capture_output=True,
         text=True,
         check=False,
     )
-    token_status = ssh_result.stdout.strip() if ssh_result.returncode == 0 else ""
-
-    if token_status == "set":
-        click.echo("  GITHUB_STATUS_TOKEN=*** (set on VM)")
-    elif token_status == "unset":
-        click.echo("  GITHUB_STATUS_TOKEN=(unset on VM)")
-    else:
-        click.echo("  (VM unreachable or ssh failed)")
-
-
-def print_local_section() -> None:
-    click.echo(
-        "\nLocal env — used by: sync_remote, upload_*, validate_bucket_contract, "
-        "run-manager-gcs (canonical: GCS_BUCKET)."
-    )
-    gcs_bucket = os.environ.get("GCS_BUCKET")
-    prefix = os.environ.get("BMT_BUCKET_PREFIX")
-
-    print_env_var("GCS_BUCKET", gcs_bucket or None)
-    print_env_var("BMT_BUCKET_PREFIX", prefix or None)
-
-    if gcs_bucket:
-        click.echo(f"  effective bucket (devtools use this): {gcs_bucket}")
+    if ssh_result.returncode != 0:
+        console.print(
+            Panel(Text("(VM unreachable or ssh failed)", style="dim"), title="[bold]VM env[/]", subtitle=description)
+        )
         return
 
-    click.echo("  effective bucket: (none — set GCS_BUCKET)")
+    states: dict[str, str] = {}
+    for raw_line in ssh_result.stdout.splitlines():
+        line = raw_line.strip()
+        if "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        states[name.strip()] = value.strip()
+
+    def app_bundle_state(prefix: str) -> Text:
+        names = [f"{prefix}_ID", f"{prefix}_INSTALLATION_ID", f"{prefix}_PRIVATE_KEY"]
+        values = [states.get(name, "unset") for name in names]
+        if all(v == "set" for v in values):
+            return Text("ready", style="green")
+        if all(v == "unset" for v in values):
+            return Text("unset", style="dim red")
+        return Text("partial", style="yellow")
+
+    rows: list[tuple[str, Text]] = [
+        ("GITHUB_APP_TEST_*", app_bundle_state("GITHUB_APP_TEST")),
+        ("GITHUB_APP_PROD_*", app_bundle_state("GITHUB_APP_PROD")),
+    ]
+    hint = Text("Hint: each enabled repo needs *_ID + *_INSTALLATION_ID + *_PRIVATE_KEY", style="dim")
+    console.print(Panel(Group(_vars_table(rows), Text(), hint), title="[bold]VM env[/]", subtitle=description))
 
 
 @click.command()
@@ -210,9 +360,10 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError):
         contract = {}
     print_github_section(contract)
+    console.print()
     print_gcloud_section()
+    console.print()
     print_vm_section()
-    print_local_section()
     return 0
 
 

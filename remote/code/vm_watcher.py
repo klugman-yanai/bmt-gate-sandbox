@@ -34,12 +34,15 @@ sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 import github_auth  # type: ignore[import-not-found]  # noqa: E402
 import github_checks  # type: ignore[import-not-found]  # noqa: E402
 import github_pr_comment  # type: ignore[import-not-found]  # noqa: E402
+import github_pull_request  # type: ignore[import-not-found]  # noqa: E402
 import status_file  # type: ignore[import-not-found]  # noqa: E402
 
 _shutdown = False
 _KEEP_RECENT_WORKFLOW_FILES = 2
 _KEEP_RECENT_LOCAL_RUNS = 2
-UTC = timezone.utc
+
+# Fallback when trigger payload omits status_context; normal path is run_trigger payload (workflow sets from repo vars).
+DEFAULT_STATUS_CONTEXT = "BMT Gate"
 
 
 def _handle_signal(signum: int, _frame: Any) -> None:
@@ -51,7 +54,6 @@ def _handle_signal(signum: int, _frame: Any) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Poll GCS for BMT trigger files")
     _ = parser.add_argument("--bucket", required=True)
-    _ = parser.add_argument("--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
     _ = parser.add_argument("--poll-interval-sec", type=int, default=10)
     _ = parser.add_argument("--workspace-root", default=os.environ.get("BMT_WORKSPACE_ROOT", ""))
     _ = parser.add_argument(
@@ -63,32 +65,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _normalize_prefix(prefix: str) -> str:
-    return prefix.strip("/")
+def _code_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/code"
 
 
-def _child_prefix(parent: str, leaf: str) -> str:
-    parent_clean = _normalize_prefix(parent)
-    leaf_clean = _normalize_prefix(leaf)
-    if not leaf_clean:
-        return parent_clean
-    return f"{parent_clean}/{leaf_clean}" if parent_clean else leaf_clean
-
-
-def _code_prefix(parent: str) -> str:
-    return _child_prefix(parent, "code")
-
-
-def _runtime_prefix(parent: str) -> str:
-    return _child_prefix(parent, "runtime")
-
-
-def _bucket_root_uri(bucket: str, prefix: str) -> str:
-    prefix = _normalize_prefix(prefix)
-    return f"gs://{bucket}/{prefix}" if prefix else f"gs://{bucket}"
+def _runtime_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/runtime"
 
 
 def _bucket_uri(bucket_root: str, path: str) -> str:
@@ -198,15 +183,6 @@ def _run_orchestrator(
         str(orchestrator_path),
         "--bucket",
         str(trigger["bucket"]),
-        "--bucket-prefix-parent",
-        str(trigger.get("bucket_prefix_parent", "")),
-        "--code-prefix",
-        str(trigger.get("code_prefix", "")),
-        "--runtime-prefix",
-        str(trigger.get("runtime_prefix", "")),
-        # Compatibility for older orchestrator versions.
-        "--bucket-prefix",
-        str(trigger.get("bucket_prefix", "")),
         "--project",
         str(trigger["project"]),
         "--bmt-id",
@@ -247,7 +223,7 @@ def _post_commit_status(
     description: str,
     target_url: str | None,
     token: str,
-    context: str = "BMT Gate",
+    context: str = DEFAULT_STATUS_CONTEXT,
 ) -> bool:
     """Post a commit status to GitHub. state: pending|success|failure|error."""
     if not token or not repository or not sha:
@@ -258,7 +234,7 @@ def _post_commit_status(
     url = f"https://api.github.com/repos/{owner}/{repo}/statuses/{sha}"
     body = {
         "state": state,
-        "context": (context or "BMT Gate").strip() or "BMT Gate",
+        "context": (context or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT,
         "description": description[:140],
     }
     if target_url:
@@ -281,6 +257,159 @@ def _post_commit_status(
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
         print(f"  Failed to post commit status: {exc}")
         return False
+
+
+def _with_refreshed_token(
+    repository: str,
+    token_resolver: Callable[[str], str | None],
+    current_token: str,
+) -> str:
+    """Try resolving a fresh token; fall back to current token on failure."""
+    refreshed = token_resolver(repository)
+    if refreshed:
+        return refreshed
+    return current_token
+
+
+def _post_commit_status_resilient(
+    repository: str,
+    sha: str,
+    state: str,
+    description: str,
+    target_url: str | None,
+    token: str,
+    *,
+    context: str,
+    token_resolver: Callable[[str], str | None],
+    attempts: int = 3,
+) -> bool:
+    """Post commit status with token refresh retries for transient auth/API issues."""
+    token_in_use = token
+    max_attempts = max(1, attempts)
+    for attempt in range(1, max_attempts + 1):
+        if _post_commit_status(repository, sha, state, description, target_url, token_in_use, context=context):
+            return True
+        if attempt < max_attempts:
+            token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
+    return False
+
+
+def _create_check_run_resilient(
+    token: str,
+    repository: str,
+    sha: str,
+    *,
+    name: str,
+    status: str,
+    output: dict[str, str],
+    token_resolver: Callable[[str], str | None],
+    attempts: int = 3,
+) -> tuple[int | None, str]:
+    """Create check run with token refresh retries. Returns (check_run_id, token_used)."""
+    token_in_use = token
+    max_attempts = max(1, attempts)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            check_run_id = github_checks.create_check_run(
+                token_in_use,
+                repository,
+                sha,
+                name=name,
+                status=status,
+                output=output,
+            )
+            return check_run_id, token_in_use
+        except Exception as exc:
+            print(f"  Warning: Failed to create Check Run (attempt {attempt}/{max_attempts}): {exc}")
+            if attempt < max_attempts:
+                token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
+    return None, token_in_use
+
+
+def _update_check_run_resilient(
+    token: str,
+    repository: str,
+    check_run_id: int,
+    *,
+    token_resolver: Callable[[str], str | None],
+    status: str | None = None,
+    conclusion: str | None = None,
+    output: dict[str, str] | None = None,
+    attempts: int = 3,
+) -> tuple[bool, str]:
+    """Update check run with token refresh retries. Returns (updated, token_used)."""
+    token_in_use = token
+    max_attempts = max(1, attempts)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            github_checks.update_check_run(
+                token_in_use,
+                repository,
+                check_run_id,
+                status=status,
+                conclusion=conclusion,
+                output=output,
+            )
+            return True, token_in_use
+        except Exception as exc:
+            print(f"  Warning: Failed to update Check Run (attempt {attempt}/{max_attempts}): {exc}")
+            if attempt < max_attempts:
+                token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
+    return False, token_in_use
+
+
+def _finalize_check_run_resilient(
+    *,
+    token: str,
+    repository: str,
+    sha: str,
+    status_context: str,
+    check_run_id: int | None,
+    conclusion: str,
+    output: dict[str, str],
+    token_resolver: Callable[[str], str | None],
+) -> tuple[int | None, str, bool]:
+    """Finalize check run, creating one at completion if initial creation failed."""
+    token_in_use = token
+    run_id = check_run_id
+
+    if run_id is not None:
+        updated, token_in_use = _update_check_run_resilient(
+            token_in_use,
+            repository,
+            run_id,
+            token_resolver=token_resolver,
+            status="completed",
+            conclusion=conclusion,
+            output=output,
+        )
+        return run_id, token_in_use, updated
+
+    created_id, token_in_use = _create_check_run_resilient(
+        token_in_use,
+        repository,
+        sha,
+        name=status_context,
+        status="in_progress",
+        output={
+            "title": "BMT Finalizing",
+            "summary": "Late-created check run while publishing final BMT result.",
+        },
+        token_resolver=token_resolver,
+    )
+    if created_id is None:
+        return None, token_in_use, False
+
+    updated, token_in_use = _update_check_run_resilient(
+        token_in_use,
+        repository,
+        created_id,
+        token_resolver=token_resolver,
+        status="completed",
+        conclusion=conclusion,
+        output=output,
+    )
+    return created_id, token_in_use, updated
 
 
 def _latest_run_root(workspace_root: Path, project: str, bmt_id: str) -> Path | None:
@@ -503,9 +632,63 @@ def _aggregate_verdicts_from_summaries(summaries: list[dict[str, Any] | None]) -
     return "failure", f"BMT: {fail_count}/{total} failed, {pass_count} passed"
 
 
-def _format_bmt_comment(result: str, summary_line: str, details_line: str) -> str:
-    """Build PR comment body: heading + summary + details line."""
-    return f"## BMT result: {result}\n\n{summary_line}\n\n{details_line}"
+def _short_sha(sha: str, *, length: int = 12) -> str:
+    """Return short SHA for display while preserving the full hash elsewhere."""
+    clean = (sha or "").strip()
+    if not clean:
+        return "unknown"
+    return clean[: max(4, length)]
+
+
+def _commit_url(repository: str, sha: str) -> str:
+    """Build commit URL when repository and SHA are available."""
+    repo = (repository or "").strip()
+    clean_sha = (sha or "").strip()
+    if not repo or not clean_sha:
+        return ""
+    return f"https://github.com/{repo}/commit/{clean_sha}"
+
+
+def _commit_markdown_link(repository: str, sha: str) -> str:
+    """Render commit link markdown with short SHA text."""
+    url = _commit_url(repository, sha)
+    short = _short_sha(sha)
+    if not url:
+        return f"`{short}`"
+    return f"[`{short}`]({url})"
+
+
+def _comment_marker_for_sha(sha: str) -> str:
+    """Stable hidden marker used for commit-specific PR comment upsert."""
+    return f"<!-- bmt-vm-comment-sha:{(sha or '').strip()} -->"
+
+
+def _format_bmt_comment(
+    result: str,
+    summary_line: str,
+    details_line: str,
+    *,
+    repository: str,
+    tested_sha: str,
+    workflow_run_id: str | int | None,
+    superseding_sha: str | None = None,
+) -> str:
+    """Build PR comment body with commit linkage and stable marker for upsert."""
+    lines = [
+        _comment_marker_for_sha(tested_sha),
+        f"## BMT result: {result}",
+        "",
+        summary_line,
+        "",
+        details_line,
+        "",
+        f"- Tested commit: {_commit_markdown_link(repository, tested_sha)}",
+    ]
+    if superseding_sha:
+        lines.append(f"- Superseding commit: {_commit_markdown_link(repository, superseding_sha)}")
+    if workflow_run_id is not None:
+        lines.append(f"- Workflow run id: `{workflow_run_id}`")
+    return "\n".join(lines)
 
 
 def _human_readable_bmt_label(bmt_id: str) -> str:
@@ -624,11 +807,10 @@ def _update_pointer_and_cleanup(
     _cleanup_legacy_result_history(bucket_root, results_prefix)
 
 
-def _process_run_trigger(
+def _process_run_trigger(  # noqa: PLR0911
     run_trigger_uri: str,
     default_code_bucket_root: str,
     default_runtime_bucket_root: str,
-    default_runtime_prefix: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
 ) -> None:
@@ -639,12 +821,15 @@ def _process_run_trigger(
         _gcloud_rm(run_trigger_uri)
         return
 
-    legs = run_payload.get("legs") or []
+    legs_raw = run_payload.get("legs") or []
+    if not isinstance(legs_raw, list):
+        legs_raw = []
+
     repository = (run_payload.get("repository") or "").strip()
     sha = (run_payload.get("sha") or "").strip()
-    run_context = run_payload.get("run_context", "manual")
+    run_context = str(run_payload.get("run_context", "manual"))
     workflow_run_id = run_payload.get("workflow_run_id", "?")
-    status_context = (run_payload.get("status_context") or "BMT Gate").strip() or "BMT Gate"
+    status_context = (run_payload.get("status_context") or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
     description_pending = (
         run_payload.get("description_pending") or ""
     ).strip() or "BMT running on VM; status will update when complete."
@@ -655,155 +840,250 @@ def _process_run_trigger(
         with contextlib.suppress(TypeError, ValueError):
             pr_number = int(pr_raw)
 
-    # Resolve GitHub token for this specific repository
-    github_token = github_token_resolver(repository) if repository else None
-    if not github_token:
-        print(f"  Warning: No GitHub auth for {repository}; VM will not post commit status")
+    if not repository:
+        print("  Error: Run trigger missing repository; cannot resolve GitHub App auth")
+        _gcloud_rm(run_trigger_uri)
+        return
 
-    if not legs:
+    github_token = github_token_resolver(repository)
+    if not github_token:
+        print(f"  Error: GitHub App auth could not be resolved for {repository}; refusing to process trigger")
+        _gcloud_rm(run_trigger_uri)
+        return
+
+    if not legs_raw:
         print(f"  Run trigger has no legs: {run_trigger_uri}")
         _gcloud_rm(run_trigger_uri)
         return
 
+    bucket = str(run_payload.get("bucket", "")).strip()
+    code_bucket_root = _code_bucket_root(bucket) if bucket else default_code_bucket_root
+    runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
+    runtime_prefix = "runtime"
+
+    print(f"  Processing run {workflow_run_id} with {len(legs_raw)} leg(s)")
+
+    run_id = str(workflow_run_id)
+    workflow_run_id_str = str(workflow_run_id)
+
+    should_check_pr_state = run_context == "pr" and pr_number is not None
+    if run_context == "pr" and pr_number is None:
+        print("  Warning: run_context=pr but pull_request_number is missing; fail-open (continuing run).")
+
+    pr_state_at_pickup: dict[str, str | bool | None] | None = None
+    skip_before_pickup_reason: str | None = None
+    superseded_by_sha: str | None = None
+    if should_check_pr_state and pr_number is not None:
+        pr_state_at_pickup = github_pull_request.get_pr_state(github_token, repository, pr_number, attempts=3)
+        state_at_pickup = str(pr_state_at_pickup.get("state"))
+        if state_at_pickup == "unknown":
+            print(
+                f"  Warning: could not verify PR state at pickup (error={pr_state_at_pickup.get('error')}); "
+                "fail-open (continuing run)."
+            )
+        elif state_at_pickup == "closed":
+            skip_before_pickup_reason = "pr_closed_before_pickup"
+        else:
+            pr_head_sha = pr_state_at_pickup.get("head_sha")
+            if isinstance(pr_head_sha, str):
+                pr_head_sha = pr_head_sha.strip() or None
+            else:
+                pr_head_sha = None
+            if sha and pr_head_sha and pr_head_sha != sha:
+                skip_before_pickup_reason = "superseded_by_new_commit"
+                superseded_by_sha = pr_head_sha
+
+    skip_before_pickup = bool(skip_before_pickup_reason)
+
     accepted_legs: list[dict[str, str]] = []
     rejected_legs: list[dict[str, int | str]] = []
-    for idx, leg in enumerate(legs):
-        if not isinstance(leg, dict):
-            rejected_legs.append({"index": idx, "reason": "invalid_leg_type"})
-            continue
-        accepted_legs.append(
-            {
-                "project": str(leg.get("project", "?")),
-                "bmt_id": str(leg.get("bmt_id", "?")),
-                "run_id": str(leg.get("run_id", "?")),
-            }
-        )
+    if skip_before_pickup:
+        rejected_legs = [
+            {"index": idx, "reason": skip_before_pickup_reason or "skipped"} for idx, _ in enumerate(legs_raw)
+        ]
+    else:
+        for idx, leg in enumerate(legs_raw):
+            if not isinstance(leg, dict):
+                rejected_legs.append({"index": idx, "reason": "invalid_leg_type"})
+                continue
+            accepted_legs.append(
+                {
+                    "project": str(leg.get("project", "?")),
+                    "bmt_id": str(leg.get("bmt_id", "?")),
+                    "run_id": str(leg.get("run_id", "?")),
+                }
+            )
 
-    handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
-    handshake_payload: dict[str, Any] = {
-        "workflow_run_id": str(workflow_run_id),
-        "received_at": _now_iso(),
-        "repository": repository,
-        "sha": sha,
-        "run_context": str(run_context),
-        "run_trigger_uri": run_trigger_uri,
-        "requested_leg_count": len(legs),
-        "accepted_leg_count": len(accepted_legs),
-        "accepted_legs": accepted_legs,
-        "rejected_legs": rejected_legs,
-        "vm": {
-            "hostname": os.uname().nodename,
-            "pid": os.getpid(),
-        },
-    }
-    if _gcloud_upload_json(handshake_uri, handshake_payload):
-        print(f"  Wrote VM handshake ack: {handshake_uri}")
-
-    bucket = str(run_payload.get("bucket", "")).strip()
-    parent_prefix = _normalize_prefix(str(run_payload.get("bucket_prefix_parent") or ""))
-    runtime_prefix = _normalize_prefix(str(run_payload.get("runtime_prefix") or ""))
-    code_prefix = _normalize_prefix(str(run_payload.get("code_prefix") or ""))
-    legacy_bucket_prefix = _normalize_prefix(str(run_payload.get("bucket_prefix") or ""))
-    if not runtime_prefix:
-        runtime_prefix = legacy_bucket_prefix or _runtime_prefix(parent_prefix) or default_runtime_prefix
-    if not code_prefix:
-        code_prefix = _code_prefix(parent_prefix)
-    code_bucket_root = _bucket_root_uri(bucket, code_prefix) if bucket else default_code_bucket_root
-    runtime_bucket_root = _bucket_root_uri(bucket, runtime_prefix) if bucket else default_runtime_bucket_root
-
-    print(
-        f"  Processing run {workflow_run_id} with {len(legs)} leg(s) "
-        f"[parent={parent_prefix or '<none>'} code={code_prefix or '<none>'} runtime={runtime_prefix or '<none>'}]"
-    )
-
-    # Initialize status file for progress tracking
-    run_id = str(workflow_run_id)  # Use workflow_run_id as the overall run identifier
-    initial_status = {
-        "run_id": run_id,
-        "workflow_run_id": workflow_run_id,
-        "repository": repository,
-        "sha": sha,
-        "vm_state": "acknowledged",
-        "started_at": _now_iso(),
-        "last_heartbeat": _now_iso(),
-        "legs_total": len(legs),
-        "legs_completed": 0,
-        "current_leg": None,
-        "legs": [
-            {
-                "index": i,
-                "project": leg.get("project", "?"),
-                "bmt_id": leg.get("bmt_id", "?"),
-                "run_id": leg.get("run_id", "?"),
-                "status": "pending",
-                "started_at": None,
-                "completed_at": None,
-                "duration_sec": None,
-                "files_total": None,
-                "files_completed": 0,
-            }
-            for i, leg in enumerate(legs)
-        ],
-        "eta_sec": None,
-        "elapsed_sec": 0,
-        "last_run_duration_sec": None,
-        "errors": [],
-    }
-    workflow_run_id_str = str(workflow_run_id)
-    try:
-        status_file.write_status(bucket, runtime_prefix, run_id, initial_status)
-        print(f"  Initialized status file for run {run_id}")
-    except Exception as exc:
-        print(f"  Warning: Failed to write initial status file: {exc}")
-
-    # Start heartbeat thread
     stop_heartbeat = threading.Event()
-    heartbeat_thread = threading.Thread(
-        target=_heartbeat_loop,
-        args=(bucket, runtime_prefix, run_id, stop_heartbeat),
-        daemon=True,
-    )
-    heartbeat_thread.start()
-    print("  Started heartbeat thread")
-
-    # Create GitHub Check Run
+    heartbeat_thread: threading.Thread | None = None
     check_run_id: int | None = None
-    if repository and sha and github_token:
+    cancelled_due_to_pr_state = False
+    cancel_reason: str | None = None
+    pointer_promotion_allowed = True
+    start_timestamp = time.time()
+    leg_summaries: list[dict[str, Any] | None] = []
+
+    def _upsert_pr_comment(
+        *,
+        result: str,
+        summary_line: str,
+        details_line: str,
+        superseding_sha: str | None = None,
+    ) -> None:
+        nonlocal github_token
+        if pr_number is None or not repository or not sha or not github_token:
+            return
+        marker = _comment_marker_for_sha(sha)
+        body = _format_bmt_comment(
+            result,
+            summary_line,
+            details_line,
+            repository=repository,
+            tested_sha=sha,
+            workflow_run_id=workflow_run_id,
+            superseding_sha=superseding_sha,
+        )
+        if github_pr_comment.upsert_pr_comment_by_marker(github_token, repository, pr_number, marker, body):
+            print("  Upserted PR comment")
+        else:
+            print("  Could not upsert PR comment (non-fatal)")
+
+    try:
+        handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
+        handshake_payload: dict[str, Any] = {
+            "workflow_run_id": str(workflow_run_id),
+            "received_at": _now_iso(),
+            "repository": repository,
+            "sha": sha,
+            "run_context": run_context,
+            "run_trigger_uri": run_trigger_uri,
+            "requested_leg_count": len(legs_raw),
+            "accepted_leg_count": len(accepted_legs),
+            "accepted_legs": accepted_legs,
+            "rejected_legs": rejected_legs,
+            "run_disposition": "skipped" if skip_before_pickup else "accepted",
+            "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
+            "pr_state": pr_state_at_pickup.get("state") if pr_state_at_pickup else None,
+            "pr_merged": pr_state_at_pickup.get("merged") if pr_state_at_pickup else None,
+            "pr_state_checked_at": pr_state_at_pickup.get("checked_at") if pr_state_at_pickup else None,
+            "pr_head_sha": pr_state_at_pickup.get("head_sha") if pr_state_at_pickup else None,
+            "superseded_by_sha": superseded_by_sha,
+            "vm": {
+                "hostname": os.uname().nodename,
+                "pid": os.getpid(),
+            },
+        }
+        if _gcloud_upload_json(handshake_uri, handshake_payload):
+            print(f"  Wrote VM handshake ack: {handshake_uri}")
+
+        started_at = _now_iso()
+        initial_legs: list[dict[str, Any]] = []
+        for idx, leg in enumerate(legs_raw):
+            project = str(leg.get("project", "?")) if isinstance(leg, dict) else "?"
+            bmt_id = str(leg.get("bmt_id", "?")) if isinstance(leg, dict) else "?"
+            leg_run_id = str(leg.get("run_id", "?")) if isinstance(leg, dict) else "?"
+            initial_legs.append(
+                {
+                    "index": idx,
+                    "project": project,
+                    "bmt_id": bmt_id,
+                    "run_id": leg_run_id,
+                    "status": "skipped" if skip_before_pickup else "pending",
+                    "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
+                    "started_at": None,
+                    "completed_at": started_at if skip_before_pickup else None,
+                    "duration_sec": None,
+                    "files_total": None,
+                    "files_completed": 0,
+                }
+            )
+
+        initial_status = {
+            "run_id": run_id,
+            "workflow_run_id": workflow_run_id,
+            "repository": repository,
+            "sha": sha,
+            "vm_state": (
+                "skipped_pr_closed_before_pickup"
+                if skip_before_pickup_reason == "pr_closed_before_pickup"
+                else "skipped_superseded_by_new_commit"
+                if skip_before_pickup_reason == "superseded_by_new_commit"
+                else "acknowledged"
+            ),
+            "started_at": started_at,
+            "last_heartbeat": started_at,
+            "legs_total": len(legs_raw),
+            "legs_completed": 0,
+            "current_leg": None,
+            "legs": initial_legs,
+            "eta_sec": None,
+            "elapsed_sec": 0,
+            "last_run_duration_sec": None,
+            "errors": [],
+            "run_outcome": "skipped" if skip_before_pickup else "running",
+            "cancel_reason": skip_before_pickup_reason if skip_before_pickup else None,
+            "cancelled_at": started_at if skip_before_pickup else None,
+            "superseded_by_sha": superseded_by_sha,
+        }
         try:
-            check_run_id = github_checks.create_check_run(
+            status_file.write_status(bucket, runtime_prefix, run_id, initial_status)
+            print(f"  Initialized status file for run {run_id}")
+        except Exception as exc:
+            print(f"  Warning: Failed to write initial status file: {exc}")
+
+        if skip_before_pickup:
+            if skip_before_pickup_reason == "superseded_by_new_commit":
+                print(
+                    "  Run was superseded by newer PR head before pickup; "
+                    "skipping run without GitHub status/check updates."
+                )
+            else:
+                print("  PR is already closed at pickup; skipping run without GitHub status/check updates.")
+            return
+
+        heartbeat_thread = threading.Thread(
+            target=_heartbeat_loop,
+            args=(bucket, runtime_prefix, run_id, stop_heartbeat),
+            daemon=True,
+        )
+        heartbeat_thread.start()
+        print("  Started heartbeat thread")
+
+        if repository and sha and github_token:
+            check_run_id, github_token = _create_check_run_resilient(
                 github_token,
                 repository,
                 sha,
                 name=status_context,
                 status="in_progress",
                 output={
-                    "title": f"BMT Execution Started ({len(legs)} legs)",
-                    "summary": f"Running BMT for {len(legs)} project configurations...",
+                    "title": f"BMT Execution Started ({len(legs_raw)} legs)",
+                    "summary": f"Running BMT for {len(legs_raw)} project configurations...",
                 },
+                token_resolver=github_token_resolver,
             )
-            print(f"  Created GitHub Check Run: {check_run_id}")
-        except Exception as exc:
-            print(f"  Warning: Failed to create Check Run: {exc}")
+            if check_run_id is not None:
+                print(f"  Created GitHub Check Run: {check_run_id}")
 
-    # Handshake: post pending so GitHub shows BMT has been picked up by the VM
-    if repository and sha and github_token:
-        _post_commit_status(
-            repository,
-            sha,
-            "pending",
-            description_pending,
-            None,
-            github_token,
-            context=status_context,
-        )
+        if repository and sha and github_token:
+            _post_commit_status_resilient(
+                repository,
+                sha,
+                "pending",
+                description_pending,
+                None,
+                github_token,
+                context=status_context,
+                token_resolver=github_token_resolver,
+                attempts=2,
+            )
 
-    try:
         try:
             orchestrator_path = _download_orchestrator(code_bucket_root, workspace_root)
         except subprocess.CalledProcessError as exc:
             print(f"  Failed to download orchestrator: {exc}")
             if repository and sha and github_token:
-                _post_commit_status(
+                _post_commit_status_resilient(
                     repository,
                     sha,
                     "failure",
@@ -811,44 +1091,124 @@ def _process_run_trigger(
                     None,
                     github_token,
                     context=status_context,
+                    token_resolver=github_token_resolver,
+                )
+                check_run_id, github_token, _ = _finalize_check_run_resilient(
+                    token=github_token,
+                    repository=repository,
+                    sha=sha,
+                    status_context=status_context,
+                    check_run_id=check_run_id,
+                    conclusion="failure",
+                    output={
+                        "title": "BMT VM Error",
+                        "summary": "Failed to download orchestrator on VM.",
+                    },
+                    token_resolver=github_token_resolver,
                 )
                 if pr_number is not None:
-                    body = _format_bmt_comment(
-                        "Did not run",
-                        "The test runner could not start.",
-                        "For details, open the **Checks** tab on this PR.",
+                    _upsert_pr_comment(
+                        result="Did not run",
+                        summary_line="The test runner could not start.",
+                        details_line="For details, open the **Checks** tab on this PR.",
                     )
-                    github_pr_comment.post_pr_comment(github_token, repository, pr_number, body)
             return
 
-        leg_summaries: list[dict[str, Any] | None] = []
-        start_timestamp = time.time()
-
         try:
-            for idx, leg in enumerate(legs):
+            for idx, leg in enumerate(legs_raw):
                 if not isinstance(leg, dict):
                     leg_summaries.append(None)
                     continue
 
-                # Update status: mark leg as running
+                if should_check_pr_state and pr_number is not None:
+                    pr_state_now = github_pull_request.get_pr_state(github_token, repository, pr_number, attempts=3)
+                    state_now = str(pr_state_now.get("state"))
+                    if state_now == "unknown":
+                        print(
+                            f"  Warning: could not re-check PR state for leg {idx} "
+                            f"(error={pr_state_now.get('error')}); fail-open (continuing)."
+                        )
+                    else:
+                        cancel_detected = False
+                        detected_reason: str | None = None
+                        detected_superseding_sha: str | None = None
+
+                        if state_now == "closed":
+                            cancel_detected = True
+                            detected_reason = "pr_closed_during_run"
+                        else:
+                            pr_head_sha_now = pr_state_now.get("head_sha")
+                            if isinstance(pr_head_sha_now, str):
+                                pr_head_sha_now = pr_head_sha_now.strip() or None
+                            else:
+                                pr_head_sha_now = None
+                            if sha and pr_head_sha_now and pr_head_sha_now != sha:
+                                cancel_detected = True
+                                detected_reason = "superseded_by_new_commit"
+                                detected_superseding_sha = pr_head_sha_now
+
+                        if cancel_detected:
+                            cancelled_due_to_pr_state = True
+                            cancel_reason = detected_reason
+                            pointer_promotion_allowed = False
+                            superseded_by_sha = detected_superseding_sha
+                            cancelled_at = _now_iso()
+                            if cancel_reason == "superseded_by_new_commit":
+                                print(
+                                    "  Run superseded before next leg; cancelling remaining legs. "
+                                    f"superseding_sha={superseded_by_sha or 'unknown'}"
+                                )
+                            else:
+                                print(f"  PR closed before leg {idx + 1}; cancelling remaining legs.")
+                            try:
+                                current_status = status_file.read_status(bucket, runtime_prefix, run_id)
+                                if current_status:
+                                    current_status["vm_state"] = (
+                                        "cancelled_pr_closed_during_run"
+                                        if cancel_reason == "pr_closed_during_run"
+                                        else "cancelled_superseded_by_new_commit"
+                                    )
+                                    current_status["run_outcome"] = "cancelled"
+                                    current_status["cancel_reason"] = cancel_reason
+                                    current_status["cancelled_at"] = cancelled_at
+                                    current_status["last_heartbeat"] = cancelled_at
+                                    current_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                                    current_status["current_leg"] = None
+                                    current_status["superseded_by_sha"] = superseded_by_sha
+                                    status_legs = current_status.get("legs")
+                                    if isinstance(status_legs, list):
+                                        for rem_idx in range(idx, len(status_legs)):
+                                            row = status_legs[rem_idx]
+                                            if not isinstance(row, dict):
+                                                continue
+                                            if row.get("status") in {"pass", "fail", "warning"}:
+                                                continue
+                                            row["status"] = "skipped"
+                                            row["skip_reason"] = cancel_reason
+                                            row["completed_at"] = cancelled_at
+                                    status_file.write_status(bucket, runtime_prefix, run_id, current_status)
+                            except Exception as exc:
+                                print(f"  Warning: Failed to update cancellation status: {exc}")
+                            break
+
                 try:
                     current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if current_status:
                         current_status["legs"][idx]["status"] = "running"
+                        current_status["legs"][idx]["skip_reason"] = None
                         current_status["legs"][idx]["started_at"] = _now_iso()
                         current_status["current_leg"] = current_status["legs"][idx].copy()
                         current_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                        current_status["run_outcome"] = "running"
+                        current_status["cancel_reason"] = None
+                        current_status["cancelled_at"] = None
+                        current_status["superseded_by_sha"] = None
                         status_file.write_status(bucket, runtime_prefix, run_id, current_status)
                 except Exception as exc:
                     print(f"  Warning: Failed to update status for leg {idx}: {exc}")
 
                 trigger = {
                     "bucket": bucket,
-                    "bucket_prefix_parent": parent_prefix,
-                    "code_prefix": code_prefix,
-                    "runtime_prefix": runtime_prefix,
-                    # Compatibility field for older orchestrator versions.
-                    "bucket_prefix": runtime_prefix,
                     "project": leg.get("project", "?"),
                     "bmt_id": leg.get("bmt_id", "?"),
                     "run_context": run_context,
@@ -860,28 +1220,26 @@ def _process_run_trigger(
                 exit_code = _run_orchestrator(orchestrator_path, trigger, workspace_root)
                 leg_duration = int(time.time() - leg_start_time)
                 state = "PASS" if exit_code == 0 else "FAIL"
-                print(f"  Leg {idx + 1}/{len(legs)} {trigger['project']}.{trigger['bmt_id']} -> {state}")
+                print(f"  Leg {idx + 1}/{len(legs_raw)} {trigger['project']}.{trigger['bmt_id']} -> {state}")
                 run_root = _latest_run_root(workspace_root, trigger["project"], trigger["bmt_id"])
                 summary = _load_manager_summary(run_root)
                 leg_summaries.append(summary)
 
-                # Update status: mark leg as complete
                 try:
                     current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if current_status:
                         leg_status = "pass" if exit_code == 0 else "fail"
                         current_status["legs"][idx]["status"] = leg_status
+                        current_status["legs"][idx]["skip_reason"] = None
                         current_status["legs"][idx]["completed_at"] = _now_iso()
                         current_status["legs"][idx]["duration_sec"] = leg_duration
 
-                        # Get files info from manager summary if available
                         if summary:
                             bmt_results = summary.get("bmt_results", {})
                             results = bmt_results.get("results", [])
                             current_status["legs"][idx]["files_total"] = len(results)
                             current_status["legs"][idx]["files_completed"] = len(results)
 
-                            # Get orchestration timing for ETA
                             orchestration_timing = summary.get("orchestration_timing", {})
                             if "duration_sec" in orchestration_timing:
                                 current_status["legs"][idx]["duration_sec"] = orchestration_timing["duration_sec"]
@@ -889,33 +1247,29 @@ def _process_run_trigger(
                         current_status["legs_completed"] = idx + 1
                         current_status["elapsed_sec"] = int(time.time() - start_timestamp)
 
-                        # Update current_leg to next leg or None
-                        if idx + 1 < len(legs):
+                        if idx + 1 < len(legs_raw):
                             current_status["current_leg"] = current_status["legs"][idx + 1].copy()
                         else:
                             current_status["current_leg"] = None
 
                         status_file.write_status(bucket, runtime_prefix, run_id, current_status)
 
-                        # Update Check Run with progress (what devs see in GitHub browser)
                         if check_run_id and repository and sha and github_token:
-                            try:
-                                github_checks.update_check_run(
-                                    github_token,
-                                    repository,
-                                    check_run_id,
-                                    output={
-                                        "title": f"BMT Progress: {idx + 1}/{len(legs)} legs complete",
-                                        "summary": github_checks.render_progress_markdown(
-                                            current_status["legs"],
-                                            elapsed_sec=current_status["elapsed_sec"],
-                                            eta_sec=current_status.get("eta_sec"),
-                                        ),
-                                    },
-                                )
-                            except Exception as exc:
-                                print(f"  Warning: Failed to update Check Run: {exc}")
-                        # Update commit status description so PR status line shows progress
+                            _, github_token = _update_check_run_resilient(
+                                github_token,
+                                repository,
+                                check_run_id,
+                                token_resolver=github_token_resolver,
+                                output={
+                                    "title": f"BMT Progress: {idx + 1}/{len(legs_raw)} legs complete",
+                                    "summary": github_checks.render_progress_markdown(
+                                        current_status["legs"],
+                                        elapsed_sec=current_status["elapsed_sec"],
+                                        eta_sec=current_status.get("eta_sec"),
+                                    ),
+                                },
+                                attempts=2,
+                            )
                         if repository and sha and github_token:
                             desc = _progress_description(
                                 current_status["legs"],
@@ -933,14 +1287,85 @@ def _process_run_trigger(
                 except Exception as exc:
                     print(f"  Warning: Failed to update status after leg {idx}: {exc}")
 
+            if cancelled_due_to_pr_state:
+                cancelled_at = _now_iso()
+                try:
+                    final_status = status_file.read_status(bucket, runtime_prefix, run_id)
+                    if final_status:
+                        final_status["vm_state"] = (
+                            "cancelled_pr_closed_during_run"
+                            if cancel_reason == "pr_closed_during_run"
+                            else "cancelled_superseded_by_new_commit"
+                        )
+                        final_status["run_outcome"] = "cancelled"
+                        final_status["cancel_reason"] = cancel_reason or "pr_closed_during_run"
+                        final_status["cancelled_at"] = final_status.get("cancelled_at") or cancelled_at
+                        final_status["last_heartbeat"] = cancelled_at
+                        final_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                        final_status["current_leg"] = None
+                        final_status["superseded_by_sha"] = superseded_by_sha
+                        status_file.write_status(bucket, runtime_prefix, run_id, final_status)
+                except Exception as exc:
+                    print(f"  Warning: Failed to finalize cancellation status file: {exc}")
+
+                if repository and sha and github_token:
+                    check_summary = "Cancelled: PR closed before completion."
+                    if cancel_reason == "superseded_by_new_commit":
+                        short_new = _short_sha(superseded_by_sha or "")
+                        check_summary = f"Cancelled: superseded by newer commit ({short_new})."
+                    check_run_id, github_token, check_completed = _finalize_check_run_resilient(
+                        token=github_token,
+                        repository=repository,
+                        sha=sha,
+                        status_context=status_context,
+                        check_run_id=check_run_id,
+                        conclusion="neutral",
+                        output={
+                            "title": "BMT Cancelled",
+                            "summary": check_summary,
+                        },
+                        token_resolver=github_token_resolver,
+                    )
+                    if check_completed:
+                        print("  Completed Check Run: neutral (cancelled)")
+
+                if repository and sha and github_token:
+                    cancel_description = "BMT cancelled: PR closed before completion."
+                    if cancel_reason == "superseded_by_new_commit":
+                        cancel_description = "BMT cancelled: superseded by newer commit."
+                    _post_commit_status_resilient(
+                        repository,
+                        sha,
+                        "error",
+                        cancel_description,
+                        None,
+                        github_token,
+                        context=status_context,
+                        token_resolver=github_token_resolver,
+                    )
+                if cancel_reason == "superseded_by_new_commit":
+                    _upsert_pr_comment(
+                        result="Superseded",
+                        summary_line="This VM run was superseded by a newer commit on the PR.",
+                        details_line="A newer commit arrived before all legs completed; this run stopped before the next leg.",
+                        superseding_sha=superseded_by_sha,
+                    )
+                    print("  Cancelled run due to superseding commit; skipped pointer promotion.")
+                else:
+                    print("  Cancelled run due to closed PR; skipping pointer promotion and PR comments.")
+                return
+
             state, description = _aggregate_verdicts_from_summaries(leg_summaries)
             print(f"  Aggregate: {state} — {description}")
 
-            # Finalize status file
             try:
                 final_status = status_file.read_status(bucket, runtime_prefix, run_id)
                 if final_status:
                     final_status["vm_state"] = "completed"
+                    final_status["run_outcome"] = "completed"
+                    final_status["cancel_reason"] = None
+                    final_status["cancelled_at"] = None
+                    final_status["superseded_by_sha"] = None
                     final_status["last_heartbeat"] = _now_iso()
                     final_status["elapsed_sec"] = int(time.time() - start_timestamp)
                     status_file.write_status(bucket, runtime_prefix, run_id, final_status)
@@ -948,53 +1373,71 @@ def _process_run_trigger(
             except Exception as exc:
                 print(f"  Warning: Failed to finalize status file: {exc}")
 
-            # Complete GitHub Check Run
-            if check_run_id and repository and sha and github_token:
-                try:
-                    conclusion = "success" if state == "success" else "failure"
-                    github_checks.update_check_run(
-                        github_token,
-                        repository,
-                        check_run_id,
-                        status="completed",
-                        conclusion=conclusion,
-                        output={
-                            "title": f"BMT Complete: {state.upper()}",
-                            "summary": github_checks.render_results_table(leg_summaries, {
+            if repository and sha and github_token:
+                conclusion = "success" if state == "success" else "failure"
+                check_run_id, github_token, check_completed = _finalize_check_run_resilient(
+                    token=github_token,
+                    repository=repository,
+                    sha=sha,
+                    status_context=status_context,
+                    check_run_id=check_run_id,
+                    conclusion=conclusion,
+                    output={
+                        "title": f"BMT Complete: {state.upper()}",
+                        "summary": github_checks.render_results_table(
+                            leg_summaries,
+                            {
                                 "state": "PASS" if state == "success" else "FAIL",
                                 "decision": state,
                                 "reasons": [],
-                            }),
-                        },
-                    )
+                            },
+                        ),
+                    },
+                    token_resolver=github_token_resolver,
+                )
+                if check_completed:
                     print(f"  Completed Check Run: {conclusion}")
-                except Exception as exc:
-                    print(f"  Warning: Failed to complete Check Run: {exc}")
+                else:
+                    print("  Could not finalize Check Run")
 
-            for summary in leg_summaries:
-                if summary is not None:
-                    _update_pointer_and_cleanup(runtime_bucket_root, summary)
+            if pointer_promotion_allowed:
+                for summary in leg_summaries:
+                    if summary is not None:
+                        _update_pointer_and_cleanup(runtime_bucket_root, summary)
 
             if repository and sha and github_token:
-                if _post_commit_status(repository, sha, state, description, None, github_token, context=status_context):
+                if _post_commit_status_resilient(
+                    repository,
+                    sha,
+                    state,
+                    description,
+                    None,
+                    github_token,
+                    context=status_context,
+                    token_resolver=github_token_resolver,
+                ):
                     print(f"  Posted commit status: {state}")
                 else:
-                    print("  Could not post commit status (check GITHUB_STATUS_TOKEN)")
+                    print("  Could not post commit status")
                 if pr_number is not None:
                     details = "For details, open the **Checks** tab on this PR."
                     if state == "success":
-                        body = _format_bmt_comment("Success", "All tests passed.", details)
+                        _upsert_pr_comment(
+                            result="Success",
+                            summary_line="All tests passed.",
+                            details_line=details,
+                        )
                     else:
-                        body = _format_bmt_comment("Failed", _failed_legs_display(leg_summaries), details)
-                    if github_pr_comment.post_pr_comment(github_token, repository, pr_number, body):
-                        print("  Posted PR comment")
-                    else:
-                        print("  Could not post PR comment (non-fatal)")
+                        _upsert_pr_comment(
+                            result="Failed",
+                            summary_line=_failed_legs_display(leg_summaries),
+                            details_line=details,
+                        )
         except Exception as exc:
             print(f"  Error during BMT run: {exc}")
             traceback.print_exc()
             if repository and sha and github_token:
-                _post_commit_status(
+                _post_commit_status_resilient(
                     repository,
                     sha,
                     "failure",
@@ -1002,39 +1445,37 @@ def _process_run_trigger(
                     None,
                     github_token,
                     context=status_context,
+                    token_resolver=github_token_resolver,
                 )
-                if check_run_id is not None:
-                    try:
-                        github_checks.update_check_run(
-                            github_token,
-                            repository,
-                            check_run_id,
-                            status="completed",
-                            conclusion="failure",
-                            output={
-                                "title": "BMT VM Error",
-                                "summary": f"Unhandled error: {exc!s}",
-                            },
-                        )
-                    except Exception as update_exc:
-                        print(f"  Warning: Failed to complete Check Run on error: {update_exc}")
+                check_run_id, github_token, check_completed = _finalize_check_run_resilient(
+                    token=github_token,
+                    repository=repository,
+                    sha=sha,
+                    status_context=status_context,
+                    check_run_id=check_run_id,
+                    conclusion="failure",
+                    output={
+                        "title": "BMT VM Error",
+                        "summary": f"Unhandled error: {exc!s}",
+                    },
+                    token_resolver=github_token_resolver,
+                )
+                if not check_completed:
+                    print("  Warning: Failed to complete Check Run on error")
                 if pr_number is not None:
-                    body = _format_bmt_comment(
-                        "Failed",
-                        "The test runner encountered an error.",
-                        "For details, open the **Checks** tab on this PR.",
+                    _upsert_pr_comment(
+                        result="Failed",
+                        summary_line="The test runner encountered an error.",
+                        details_line="For details, open the **Checks** tab on this PR.",
                     )
-                    if github_pr_comment.post_pr_comment(github_token, repository, pr_number, body):
-                        print("  Posted PR comment")
-                    else:
-                        print("  Could not post PR comment (non-fatal)")
             return
     except Exception as exc:
         print(f"  Warning: post-run finalization failed: {exc}")
     finally:
         stop_heartbeat.set()
-        heartbeat_thread.join(timeout=5)
-        print("  Stopped heartbeat thread")
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=5)
+            print("  Stopped heartbeat thread")
         _gcloud_rm(run_trigger_uri)
         _cleanup_workflow_artifacts(
             runtime_bucket_root=runtime_bucket_root,
@@ -1049,24 +1490,42 @@ def main() -> int:
     workspace_root = _resolve_workspace_root(args.workspace_root)
     workspace_root.mkdir(parents=True, exist_ok=True)
 
-    parent = _normalize_prefix(args.bucket_prefix)
-    code_prefix = _code_prefix(parent)
-    runtime_prefix = _runtime_prefix(parent)
-    code_bucket_root = _bucket_root_uri(args.bucket, code_prefix)
-    runtime_bucket_root = _bucket_root_uri(args.bucket, runtime_prefix)
+    code_bucket_root = _code_bucket_root(args.bucket)
+    runtime_bucket_root = _runtime_bucket_root(args.bucket)
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
     print(
         f"BMT Watcher started: bucket={args.bucket} "
-        f"parent={parent or '<none>'} code={code_prefix or '<none>'} runtime={runtime_prefix or '<none>'} "
+        f"code={code_bucket_root} runtime={runtime_bucket_root} "
         f"poll={args.poll_interval_sec}s"
     )
     print(f"Workspace: {workspace_root}")
 
     # Use GitHub App auth module for per-repository token resolution
     github_token_resolver = github_auth.resolve_auth_for_repository
+
+    enabled_repositories = github_auth.list_enabled_repositories()
+    if enabled_repositories is None:
+        print("Error: cannot start watcher without a valid GitHub App repository config.")
+        return 2
+    if not enabled_repositories:
+        print("Warning: no enabled repositories in GitHub App config; incoming triggers will be rejected.")
+    unresolved_repositories: list[str] = []
+    for repository in enabled_repositories:
+        token = github_token_resolver(repository)
+        if not token:
+            unresolved_repositories.append(repository)
+    if unresolved_repositories:
+        joined = ", ".join(unresolved_repositories)
+        print(
+            "Error: GitHub App auth preflight failed for enabled repositories: "
+            f"{joined}. Ensure *_ID, *_INSTALLATION_ID, and *_PRIVATE_KEY are present and valid."
+        )
+        return 2
+    if enabled_repositories:
+        print(f"GitHub App auth preflight passed for {len(enabled_repositories)} enabled repository(ies).")
 
     # Startup sweep: enforce bounded retention even after prior failed runs.
     _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)
@@ -1087,7 +1546,6 @@ def main() -> int:
                     run_trigger_uri,
                     code_bucket_root,
                     runtime_bucket_root,
-                    runtime_prefix,
                     workspace_root,
                     github_token_resolver,
                 )

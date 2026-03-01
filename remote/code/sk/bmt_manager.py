@@ -29,9 +29,6 @@ class SKManagerError(RuntimeError):
     """Raised for manager execution/config errors."""
 
 
-UTC = timezone.utc
-
-
 _FORCED_WAV_PATH_KEYS = {
     "REF_PATH",
     "QUIET_PATH",
@@ -48,11 +45,6 @@ _FORCED_WAV_PATH_KEYS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SK project BMT manager")
     _ = parser.add_argument("--bucket", required=True)
-    _ = parser.add_argument("--bucket-prefix-parent", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
-    _ = parser.add_argument("--code-prefix", default="")
-    _ = parser.add_argument("--runtime-prefix", default="")
-    # Compatibility for older orchestrator versions.
-    _ = parser.add_argument("--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
     _ = parser.add_argument("--project-id", required=True)
     _ = parser.add_argument("--bmt-id", required=True)
     _ = parser.add_argument("--jobs-config", required=True)
@@ -71,28 +63,19 @@ def parse_args() -> argparse.Namespace:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _now_stamp() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _normalize_prefix(prefix: str) -> str:
-    return prefix.strip("/")
+def _code_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/code"
 
 
-def _child_prefix(parent: str, leaf: str) -> str:
-    parent_clean = _normalize_prefix(parent)
-    leaf_clean = _normalize_prefix(leaf)
-    if not leaf_clean:
-        return parent_clean
-    return f"{parent_clean}/{leaf_clean}" if parent_clean else leaf_clean
-
-
-def _bucket_root_uri(bucket: str, prefix: str) -> str:
-    p = _normalize_prefix(prefix)
-    return f"gs://{bucket}/{p}" if p else f"gs://{bucket}"
+def _runtime_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/runtime"
 
 
 def _default_cache_root() -> Path:
@@ -140,11 +123,31 @@ def _gcloud_rsync(src: str, dst: Path | str, delete: bool = False) -> None:
     _ = subprocess.run(cmd, check=True)
 
 
+# Exclude Python/uv cache and bloat when uploading dirs to GCS (e.g. logs, outputs).
+_UPLOAD_EXCLUDE = (
+    r"__pycache__",
+    r"\.pyc$",
+    r"\.pyo$",
+    r"(^|/)\.venv(/|$)",
+    r"(^|/)venv(/|$)",
+    r"(^|/)\.uv(/|$)",
+    r"(^|/)\.mypy_cache(/|$)",
+    r"(^|/)\.pytest_cache(/|$)",
+    r"(^|/)\.ruff_cache(/|$)",
+    r"(^|/)\.tox(/|$)",
+    r"(^|/)\.eggs(/|$)",
+    r"(^|/)[^/]+\.egg-info(/|$)",
+    r"\.egg$",
+)
+
+
 def _gcloud_rsync_to_gcs(src: Path | str, dst_uri: str, delete: bool = False) -> None:
     src_path = Path(src) if not isinstance(src, Path) else src
     cmd = ["gcloud", "storage", "rsync", "--recursive"]
     if delete:
         cmd.append("--delete-unmatched-destination-objects")
+    for pattern in _UPLOAD_EXCLUDE:
+        cmd.extend(["--exclude", pattern])
     cmd.extend([str(src_path), dst_uri, "--quiet"])
     _ = subprocess.run(cmd, check=True)
 
@@ -475,11 +478,9 @@ def main() -> int:
     run_id = args.run_id.strip()
     started_at = _now_iso()
     start_timestamp = time.time()
-    parent_prefix = _normalize_prefix(args.bucket_prefix_parent or args.bucket_prefix)
-    runtime_prefix = _normalize_prefix(args.runtime_prefix) or _child_prefix(parent_prefix, "runtime")
-    code_prefix = _normalize_prefix(args.code_prefix) or _child_prefix(parent_prefix, "code")
-    runtime_bucket_root = _bucket_root_uri(args.bucket, runtime_prefix)
-    code_bucket_root = _bucket_root_uri(args.bucket, code_prefix)
+    runtime_bucket_root = _runtime_bucket_root(args.bucket)
+    code_bucket_root = _code_bucket_root(args.bucket)
+    runtime_prefix = "runtime"
 
     # Check if progress tracking is enabled
     enable_progress = (
@@ -639,7 +640,7 @@ def main() -> int:
     if cache_enabled and dataset_meta_path.is_file() and cache_dataset_dir.is_dir():
         dataset_meta = _load_json(dataset_meta_path)
         last_sync_epoch = float(dataset_meta.get("last_sync_epoch", 0.0) or 0.0)
-        age = datetime.now(UTC).timestamp() - last_sync_epoch
+        age = datetime.now(timezone.utc).timestamp() - last_sync_epoch
         dataset_hit = str(dataset_meta.get("source_uri", "")) == dataset_uri and age <= float(dataset_ttl_sec)
 
     if cache_enabled:
@@ -652,7 +653,7 @@ def main() -> int:
                 {
                     "timestamp": _now_iso(),
                     "source_uri": dataset_uri,
-                    "last_sync_epoch": datetime.now(UTC).timestamp(),
+                    "last_sync_epoch": datetime.now(timezone.utc).timestamp(),
                     "dataset_ttl_sec": dataset_ttl_sec,
                 },
             )

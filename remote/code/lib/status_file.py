@@ -11,10 +11,7 @@ from typing import Any
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-UTC = timezone.utc
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _normalize_prefix(prefix: str) -> str:

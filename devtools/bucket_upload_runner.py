@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Upload runner with single previous-version rotation + metadata."""
+"""Upload runner with single previous-version rotation + metadata.
+
+Default runner-path and runner-uri are for the current sk project; override via
+CLI for other projects.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ from click_exit import run_click_command
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, normalize_prefix, runtime_bucket_root_uri
+from shared_bucket_env import bucket_option, runtime_bucket_root_uri
 
 
 def run(cmd: list[str], capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -26,7 +30,6 @@ def run(cmd: list[str], capture: bool = False) -> subprocess.CompletedProcess[st
 
 @click.command()
 @bucket_option
-@bucket_prefix_option
 @click.option(
     "--runner-path",
     default="repo/staging/runners/sk_gcc_release/kardome_runner",
@@ -46,7 +49,6 @@ def run(cmd: list[str], capture: bool = False) -> subprocess.CompletedProcess[st
 @click.option("--force", is_flag=True, help="Force upload even if size matches")
 def main(
     bucket: str,
-    bucket_prefix: str,
     runner_path: str,
     runner_uri: str,
     source: str,
@@ -66,8 +68,7 @@ def main(
         proc = run(["git", "rev-parse", "--short", "HEAD"], capture=True)
         source_ref = proc.stdout.strip() if proc.returncode == 0 else "unknown"
 
-    parent = normalize_prefix(bucket_prefix)
-    bucket_root = runtime_bucket_root_uri(bucket, parent)
+    bucket_root = runtime_bucket_root_uri(bucket)
     runner_uri_clean = runner_uri.lstrip("/")
     canonical_uri = f"{bucket_root}/{runner_uri_clean}"
     previous_uri = f"{canonical_uri}.previous"

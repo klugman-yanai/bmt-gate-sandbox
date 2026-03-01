@@ -20,11 +20,31 @@ from click_exit import run_click_command
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, code_bucket_root_uri, normalize_prefix
+from repo_paths import DEFAULT_CONFIG_ROOT
+from shared_bucket_env import bucket_option, code_bucket_root_uri
 
+# Exclude Python/uv cache, venvs, and build bloat. Use both path-anchored and substring
+# patterns so __pycache__ etc. are excluded regardless of how gcloud applies the regex.
 DEFAULT_CODE_EXCLUDES = (
+    # Python bytecode and cache
     r"(^|/)__pycache__(/|$)",
+    r"__pycache__",
     r"\.pyc$",
+    r"\.pyo$",
+    # Virtual environments and uv project cache
+    r"(^|/)\.venv(/|$)",
+    r"(^|/)venv(/|$)",
+    r"(^|/)\.uv(/|$)",
+    # Tool caches
+    r"(^|/)\.mypy_cache(/|$)",
+    r"(^|/)\.pytest_cache(/|$)",
+    r"(^|/)\.ruff_cache(/|$)",
+    r"(^|/)\.tox(/|$)",
+    # Build/packaging
+    r"(^|/)\.eggs(/|$)",
+    r"(^|/)[^/]+\.egg-info(/|$)",
+    r"\.egg$",
+    # Runtime/BMT artifacts
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/inputs(/|$)",
     r"(^|/)sk/outputs(/|$)",
@@ -62,6 +82,21 @@ def _git_commit_sha() -> str | None:
     return sha or None
 
 
+def _local_digest(src: Path, include_runtime_artifacts: bool) -> tuple[str, int]:
+    """Same digest as bucket_verify_remote_sync for idempotent skip check."""
+    files: list[tuple[str, str, int]] = []
+    for path in _iter_source_files(src, include_runtime_artifacts):
+        rel = path.relative_to(src).as_posix()
+        h = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                h.update(chunk)
+        files.append((rel, h.hexdigest(), path.stat().st_size))
+    digest_input = "\n".join(f"{rel}|{sha}|{size}" for rel, sha, size in files).encode("utf-8")
+    digest = hashlib.sha256(digest_input).hexdigest()
+    return digest, len(files)
+
+
 def _local_manifest(src: Path, include_runtime_artifacts: bool) -> dict[str, object]:
     files: list[tuple[str, str, int]] = []
     for path in _iter_source_files(src, include_runtime_artifacts):
@@ -84,6 +119,34 @@ def _local_manifest(src: Path, include_runtime_artifacts: bool) -> dict[str, obj
         "source_files": [{"path": rel, "sha256": sha, "size": size} for rel, sha, size in files],
         "git_commit_sha": _git_commit_sha(),
     }
+
+
+def _download_manifest(uri: str) -> dict[str, object] | None:
+    proc = subprocess.run(
+        ["gcloud", "storage", "cat", uri],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
+    with tempfile.TemporaryDirectory(prefix="remote_manifest_") as tmp_dir:
+        path = Path(tmp_dir) / "remote_manifest.json"
+        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        uri = f"{dest_root}/_meta/remote_manifest.json"
+        click.echo(f"Uploading sync manifest -> {uri}")
+        proc = subprocess.run(
+            ["gcloud", "storage", "cp", str(path), uri, "--quiet"],
+            check=False,
+        )
+        return proc.returncode
 
 
 def _sha256_file(path: Path) -> str:
@@ -164,15 +227,25 @@ def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
 
 @click.command()
 @bucket_option
-@bucket_prefix_option
-@click.option("--src-dir", default="remote/code", help="Source directory to sync (canonical code mirror)")
+@click.option("--src-dir", default=DEFAULT_CONFIG_ROOT, help="Source directory to sync (canonical code mirror)")
 @click.option("--delete", is_flag=True, help="Delete unmatched destination objects")
 @click.option(
     "--include-runtime-artifacts",
     is_flag=True,
     help="Include runtime-generated paths (triggers, inputs, outputs, results).",
 )
-def main(bucket: str, bucket_prefix: str, src_dir: str, delete: bool, include_runtime_artifacts: bool) -> int:
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force sync even if bucket manifest matches local (default: skip when already in sync).",
+)
+def main(
+    bucket: str,
+    src_dir: str,
+    delete: bool,
+    include_runtime_artifacts: bool,
+    force: bool,
+) -> int:
     if not bucket:
         click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
@@ -182,8 +255,27 @@ def main(bucket: str, bucket_prefix: str, src_dir: str, delete: bool, include_ru
         click.echo(f"::error::Missing source directory: {src}", err=True)
         return 1
 
-    parent = normalize_prefix(bucket_prefix)
-    dest = code_bucket_root_uri(bucket, parent)
+    dest = code_bucket_root_uri(bucket)
+    manifest_uri = f"{dest}/_meta/remote_manifest.json"
+
+    if not force:
+        manifest = _download_manifest(manifest_uri)
+        if manifest and isinstance(manifest.get("source_digest_sha256"), str):
+            local_digest, local_count = _local_digest(src, include_runtime_artifacts)
+            remote_digest = str(manifest.get("source_digest_sha256", "")).strip()
+            remote_count = int(manifest.get("source_file_count", -1))
+            if local_digest == remote_digest and local_count == remote_count:
+                skip = True
+                if not include_runtime_artifacts:
+                    local_uv_sha = (
+                        _read_expected_sha(src / UV_CHECKSUM_REL) if (src / UV_CHECKSUM_REL).is_file() else ""
+                    )
+                    remote_uv = str(manifest.get("uv_artifact_sha256", "")).strip()
+                    if remote_uv and local_uv_sha != remote_uv:
+                        skip = False
+                if skip:
+                    click.echo("Code already in sync with bucket; skipping. Use --force to re-sync.")
+                    return 0
 
     cmd = ["gcloud", "storage", "rsync", "--recursive"]
     if delete:
@@ -208,8 +300,7 @@ def main(bucket: str, bucket_prefix: str, src_dir: str, delete: bool, include_ru
 
     manifest = _local_manifest(src, include_runtime_artifacts)
     manifest["bucket"] = bucket
-    manifest["bucket_prefix_parent"] = parent
-    manifest["code_prefix"] = dest.removeprefix(f"gs://{bucket}/") if dest != f"gs://{bucket}" else ""
+    manifest["code_prefix"] = "code"
     manifest.update(uv_metadata)
     manifest["include_runtime_artifacts"] = include_runtime_artifacts
     if not include_runtime_artifacts:

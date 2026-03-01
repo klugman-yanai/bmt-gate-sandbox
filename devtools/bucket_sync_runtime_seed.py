@@ -18,15 +18,45 @@ from click_exit import run_click_command
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, normalize_prefix, runtime_bucket_root_uri
+from repo_paths import DEFAULT_RUNTIME_ROOT
+from shared_bucket_env import bucket_option, runtime_bucket_root_uri
 
 FORBIDDEN_RUNTIME_SEED = (
+    r"(^|/)__pycache__(/|$)",
+    r"__pycache__",
+    r"\.pyc$",
+    r"\.pyo$",
+    r"(^|/)\.venv(/|$)",
+    r"(^|/)venv(/|$)",
+    r"(^|/)\.uv(/|$)",
+    r"(^|/)\.mypy_cache(/|$)",
+    r"(^|/)\.pytest_cache(/|$)",
+    r"(^|/)\.ruff_cache(/|$)",
+    r"(^|/)\.tox(/|$)",
+    r"(^|/)\.eggs(/|$)",
+    r"(^|/)[^/]+\.egg-info(/|$)",
+    r"\.egg$",
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/results(/|$)",
     r"(^|/)sk/outputs(/|$)",
 )
 
 RUNTIME_SEED_MANIFEST = "_meta/runtime_seed_manifest.json"
+
+
+def _download_manifest(uri: str) -> dict[str, object] | None:
+    proc = subprocess.run(
+        ["gcloud", "storage", "cat", uri],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
 
 
 def _iter_source_files(src: Path, allow_generated_artifacts: bool) -> list[Path]:
@@ -63,6 +93,12 @@ def _local_manifest(src: Path, allow_generated_artifacts: bool) -> dict[str, obj
     }
 
 
+def _local_digest(src: Path, allow_generated_artifacts: bool) -> tuple[str, int]:
+    """Same digest as bucket_verify_runtime_seed_sync for idempotent skip check."""
+    m = _local_manifest(src, allow_generated_artifacts)
+    return str(m["source_digest_sha256"]), int(m["source_file_count"])
+
+
 def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
     with tempfile.TemporaryDirectory(prefix="runtime_seed_manifest_") as tmp_dir:
         path = Path(tmp_dir) / "runtime_seed_manifest.json"
@@ -78,20 +114,24 @@ def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
 
 @click.command()
 @bucket_option
-@bucket_prefix_option
-@click.option("--src-dir", default="remote/runtime", help="Runtime seed source directory")
+@click.option("--src-dir", default=DEFAULT_RUNTIME_ROOT, help="Runtime seed source directory")
 @click.option("--delete", is_flag=True, help="Delete unmatched destination objects")
 @click.option(
     "--allow-generated-artifacts",
     is_flag=True,
     help="Allow syncing generated runtime artifacts (triggers/results/outputs).",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force sync even if bucket manifest matches local (default: skip when already in sync).",
+)
 def main(
     bucket: str,
-    bucket_prefix: str,
     src_dir: str,
     delete: bool,
     allow_generated_artifacts: bool,
+    force: bool,
 ) -> int:
     if not bucket:
         click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
@@ -102,8 +142,18 @@ def main(
         click.echo(f"::error::Missing source directory: {src}", err=True)
         return 1
 
-    parent = normalize_prefix(bucket_prefix)
-    dest = runtime_bucket_root_uri(bucket, parent)
+    dest = runtime_bucket_root_uri(bucket)
+    manifest_uri = f"{dest}/{RUNTIME_SEED_MANIFEST}"
+
+    if not force:
+        manifest = _download_manifest(manifest_uri)
+        if manifest and isinstance(manifest.get("source_digest_sha256"), str):
+            local_digest, local_count = _local_digest(src, allow_generated_artifacts)
+            remote_digest = str(manifest.get("source_digest_sha256", "")).strip()
+            remote_count = int(manifest.get("source_file_count", -1))
+            if local_digest == remote_digest and local_count == remote_count:
+                click.echo("Runtime seed already in sync with bucket; skipping. Use --force to re-sync.")
+                return 0
 
     cmd = ["gcloud", "storage", "rsync", "--recursive"]
     if delete:
@@ -122,8 +172,7 @@ def main(
 
     manifest = _local_manifest(src, allow_generated_artifacts)
     manifest["bucket"] = bucket
-    manifest["bucket_prefix_parent"] = parent
-    manifest["runtime_prefix"] = dest.removeprefix(f"gs://{bucket}/") if dest != f"gs://{bucket}" else ""
+    manifest["runtime_prefix"] = "runtime"
     return _upload_manifest(dest, manifest)
 
 

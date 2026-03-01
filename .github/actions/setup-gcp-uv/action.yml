@@ -1,0 +1,36 @@
+name: Setup GCP and uv
+description: Authenticate to GCP via WIF, install Cloud SDK, and optionally install uv.
+
+inputs:
+  workload_identity_provider:
+    description: Workload Identity Provider resource name.
+    required: true
+  service_account:
+    description: Service account email used for WIF auth.
+    required: true
+  python_version:
+    description: Python version used by setup-uv.
+    required: false
+    default: "3.12"
+  install_uv:
+    description: Whether to install uv.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: GCP Auth (WIF)
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+
+    - name: Setup Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Install uv
+      if: ${{ inputs.install_uv == 'true' }}
+      uses: astral-sh/setup-uv@v4
+      with:
+        python-version: ${{ inputs.python_version }}

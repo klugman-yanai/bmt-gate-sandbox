@@ -7,7 +7,9 @@ import sys
 
 import click
 
+from ci.commands.filter_supported_matrix import command as filter_supported_matrix_cmd
 from ci.commands.job_matrix import command as matrix_cmd
+from ci.commands.release_runner_matrix import command as parse_release_runners_cmd
 from ci.commands.run_trigger import command as trigger_cmd
 from ci.commands.start_vm import command as start_vm_cmd
 from ci.commands.sync_vm_metadata import command as sync_vm_metadata_cmd
@@ -23,6 +25,8 @@ def cli() -> None:
 
 
 cli.add_command(matrix_cmd)
+cli.add_command(filter_supported_matrix_cmd)
+cli.add_command(parse_release_runners_cmd)
 cli.add_command(trigger_cmd)
 cli.add_command(sync_vm_metadata_cmd)
 cli.add_command(start_vm_cmd)

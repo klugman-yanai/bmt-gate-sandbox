@@ -28,6 +28,7 @@ from click_exit import run_click_command
 _script_dir = Path(__file__).resolve().parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
+from repo_paths import DEFAULT_CONFIG_ROOT, DEFAULT_RUNTIME_ROOT
 from shared_time_utils import now_iso, now_stamp
 
 PRINT_LOCK = threading.Lock()
@@ -71,8 +72,8 @@ class RunOptions:
     bmt_id: str = "false_reject_namuh"
     project_id: str = "sk"
     run_context: str = "manual"
-    code_root: str = "remote/code"
-    runtime_root: str = "remote/runtime"
+    code_root: str = DEFAULT_CONFIG_ROOT
+    runtime_root: str = DEFAULT_RUNTIME_ROOT
     sk_root: str = ""
     results_subdir: str = "false_rejects"
     runner: str = ""
@@ -512,16 +513,16 @@ def write_results(
 @click.option("--bmt-id", default="false_reject_namuh", help="BMT id under bmts.<bmt_id> in jobs config")
 @click.option("--project-id", default="sk", help="Project id for result metadata")
 @click.option("--run-context", type=click.Choice(["manual", "dev", "pr"]), default="manual", help="Run context")
-@click.option("--code-root", default="remote/code", help="Code root for sk/config/... contract paths")
+@click.option("--code-root", default=DEFAULT_CONFIG_ROOT, help="Code root for sk/config/... contract paths")
 @click.option(
     "--runtime-root",
-    default="remote/runtime",
+    default=DEFAULT_RUNTIME_ROOT,
     help="Runtime root for sk/runners, sk/inputs, sk/outputs, and sk/results contract paths",
 )
 @click.option(
     "--sk-root",
     default="",
-    help="Legacy unified SK root override (e.g. remote/sk); when set, ignores --code-root/--runtime-root",
+    help="Legacy unified SK root override (e.g. remote); when set, ignores --code-root/--runtime-root",
 )
 @click.option("--results-subdir", default="false_rejects", help="Fallback subdir when config paths are missing")
 @click.option("--runner", default="", help="Runner path override")

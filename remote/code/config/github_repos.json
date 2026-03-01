@@ -13,9 +13,5 @@
       "secret_prefix": "GITHUB_APP_PROD",
       "enabled": true
     }
-  },
-  "fallback": {
-    "use_pat": true,
-    "pat_env_var": "GITHUB_STATUS_TOKEN"
   }
 }

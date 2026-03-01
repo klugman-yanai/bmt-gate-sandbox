@@ -108,7 +108,9 @@ def test_start_vm_times_out_when_not_running(monkeypatch: pytest.MonkeyPatch) ->
     monotonic_values = iter([0.0, 0.5, 1.0, 1.6])
     monkeypatch.setattr(start_vm.time, "monotonic", lambda: next(monotonic_values))
 
-    result = runner.invoke(start_vm.command, ["--timeout-sec", "1", "--poll-interval-sec", "1", "--stabilization-sec", "0"])
+    result = runner.invoke(
+        start_vm.command, ["--timeout-sec", "1", "--poll-interval-sec", "1", "--stabilization-sec", "0"]
+    )
     assert result.exit_code != 0
     assert "did not reach ready state" in result.output
 
@@ -133,7 +135,9 @@ def test_start_vm_continues_when_already_running_error(monkeypatch: pytest.Monke
     monkeypatch.setattr(start_vm.gcloud_cli, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(start_vm.time, "sleep", lambda *_args, **_kwargs: None)
 
-    result = runner.invoke(start_vm.command, ["--timeout-sec", "5", "--poll-interval-sec", "1", "--stabilization-sec", "0"])
+    result = runner.invoke(
+        start_vm.command, ["--timeout-sec", "5", "--poll-interval-sec", "1", "--stabilization-sec", "0"]
+    )
     assert result.exit_code == 0
     assert "already running" in result.output.lower()
     assert "VM ready: status=RUNNING" in result.output

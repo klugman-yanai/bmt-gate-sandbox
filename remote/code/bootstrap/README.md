@@ -4,16 +4,15 @@ Bootstrap scripts here configure the VM to load watcher code from GCS and execut
 
 ## Boot flow
 
-1. Workflow `sync-vm-metadata` validates required code objects in `<code-root>`, then sets VM metadata: `GCS_BUCKET`, `BMT_BUCKET_PREFIX`, `BMT_REPO_ROOT`, and inline `startup-script` from `startup_wrapper.sh`.
-2. `startup_wrapper.sh` syncs `<code-root>/` into `BMT_REPO_ROOT` (strict `code/` namespace).
+1. Workflow `sync-vm-metadata` validates required code objects in `<code-root>`, then sets VM metadata: `GCS_BUCKET`, `BMT_REPO_ROOT`, and inline `startup-script` from `startup_wrapper.sh`.
+2. `startup_wrapper.sh` syncs `<code-root>/` into `BMT_REPO_ROOT` (fixed `code/` namespace).
 3. `startup_wrapper.sh` then execs `startup_example.sh`.
 4. `startup_example.sh` resolves `uv` (override -> PATH -> pinned code artifact), installs deps (if needed), fetches GitHub App secrets, runs watcher with `--exit-after-run`, then stops the VM.
 
-## Prefix model
+## Namespace model
 
-- Parent: `BMT_BUCKET_PREFIX` (may be empty)
-- Code prefix: `<parent>/code` (or `code`)
-- Runtime prefix: `<parent>/runtime` (or `runtime`)
+- Code root: `gs://<bucket>/code`
+- Runtime root: `gs://<bucket>/runtime`
 
 `remote/code` manual sync should populate `<code-root>` before VM runs.
 
@@ -39,7 +38,6 @@ Bootstrap scripts here configure the VM to load watcher code from GCS and execut
 
 Optional:
 
-- `BMT_BUCKET_PREFIX`
 - `BMT_REPO_ROOT` (default `/opt/bmt`)
 - `BMT_WORKSPACE_ROOT` (defaults to `~/bmt_workspace`, fallback to legacy `~/sk_runtime`)
 - `BMT_SELF_STOP` (default `1`; set `0` to disable auto-stop for manual maintenance/debug sessions)
@@ -66,5 +64,4 @@ Pinned uv artifact contract under `<code-root>`:
 
 Watcher token resolution is repository-aware via `remote/code/lib/github_auth.py` + `remote/code/config/github_repos.json`.
 
-- Preferred: GitHub App env vars (`<prefix>_ID`, `<prefix>_INSTALLATION_ID`, `<prefix>_PRIVATE_KEY`)
-- Fallback: `GITHUB_STATUS_TOKEN`
+- Required: GitHub App env vars (`<prefix>_ID`, `<prefix>_INSTALLATION_ID`, `<prefix>_PRIVATE_KEY`)

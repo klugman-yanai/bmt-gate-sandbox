@@ -44,7 +44,7 @@ else
   exit 1
 fi
 
-# Non-fatal check: watcher can still run without jwt if PAT fallback is used.
+# Non-fatal check: startup preflight still enforces valid App auth before processing runs.
 if [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
   if "${REPO_ROOT}/.venv/bin/python" -c "import jwt; import cryptography; import requests; print('OK')" 2>/dev/null; then
     echo "Verified requests/jwt/cryptography availability in ${REPO_ROOT}/.venv"

@@ -11,44 +11,13 @@
 
 set -euo pipefail
 
-_normalize_prefix() {
-  local value="$1"
-  value="${value#/}"
-  value="${value%/}"
-  printf '%s' "$value"
-}
-
-_child_prefix() {
-  local parent="$(_normalize_prefix "$1")"
-  local leaf="$(_normalize_prefix "$2")"
-  if [[ -z "$leaf" ]]; then
-    printf '%s' "$parent"
-    return
-  fi
-  if [[ -n "$parent" ]]; then
-    printf '%s/%s' "$parent" "$leaf"
-  else
-    printf '%s' "$leaf"
-  fi
-}
-
-_bucket_root() {
-  local bucket="$1"
-  local prefix="$(_normalize_prefix "$2")"
-  if [[ -n "$prefix" ]]; then
-    printf 'gs://%s/%s' "$bucket" "$prefix"
-  else
-    printf 'gs://%s' "$bucket"
-  fi
-}
-
 _extract_sha() {
   local sha_file="$1"
   awk 'NF { print $1; exit }' "$sha_file"
 }
 
 _download_and_install_uv() {
-  local code_root="$1"
+  local code_root="$1"  # e.g. gs://BUCKET/code
   local install_dir="$2"
   local tmp_dir
   local uv_uri="${code_root}/_tools/uv/linux-x86_64/uv"
@@ -97,11 +66,9 @@ main() {
     return 0
   fi
 
-  local bucket parent code_prefix code_root install_dir
+  local bucket code_root install_dir
   bucket="${GCS_BUCKET:-}"
-  parent="$(_normalize_prefix "${BMT_BUCKET_PREFIX:-}")"
-  code_prefix="${BMT_CODE_PREFIX:-$(_child_prefix "$parent" "code")}"
-  code_root="$(_bucket_root "$bucket" "$code_prefix")"
+  code_root="gs://${bucket}/code"
   install_dir="${BMT_REPO_ROOT:-/opt/bmt}/.tools/uv/linux-x86_64"
 
   if [[ -z "$bucket" ]]; then
