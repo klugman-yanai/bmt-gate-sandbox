@@ -333,6 +333,7 @@ def _gate_result(
     last_score: float | None,
     failed_count: int,
     run_context: str,
+    tolerance_abs: float = 0.0,
 ) -> dict[str, Any]:
     if failed_count > 0:
         return {
@@ -360,11 +361,12 @@ def _gate_result(
             "reason": "bootstrap_no_previous_result",
         }
 
+    tol = abs(tolerance_abs)
     if comparison == "gte":
-        passed = current_score >= last_score
+        passed = current_score >= last_score - tol
         reason = "score_gte_last" if passed else "score_below_last"
     elif comparison == "lte":
-        passed = current_score <= last_score
+        passed = current_score <= last_score + tol
         reason = "score_lte_last" if passed else "score_above_last"
     else:
         raise SKManagerError(f"Unsupported gate comparison: {comparison}")
@@ -757,6 +759,7 @@ def main() -> int:
     demo_cfg = bmt_cfg.get("demo", {}) if isinstance(bmt_cfg.get("demo"), dict) else {}
     demo_force_pass = bool(demo_cfg.get("force_pass", False))
     comparison = _effective_gate_comparison(args.bmt_id, str(gate_cfg.get("comparison", "gte")))
+    tolerance_abs = float(gate_cfg.get("tolerance_abs", 0.0) or 0.0)
 
     # Baseline from pointer-resolved snapshot (current.json -> last_passing -> latest.json).
     last_passing_run_id = _resolve_last_passing_run_id(runtime_bucket_root, results_prefix)
@@ -767,7 +770,7 @@ def main() -> int:
             runtime_bucket_root, f"{results_prefix}/snapshots/{last_passing_run_id}", "latest.json"
         )
     delta_from_previous = (aggregate_score - last_score) if last_score is not None else None
-    gate = _gate_result(comparison, aggregate_score, last_score, failed_count, args.run_context)
+    gate = _gate_result(comparison, aggregate_score, last_score, failed_count, args.run_context, tolerance_abs)
     status, reason_code = _resolve_status(gate, warning_policy)
     if demo_force_pass and status == "fail":
         status = "pass"
