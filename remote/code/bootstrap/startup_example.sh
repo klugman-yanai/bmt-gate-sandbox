@@ -118,39 +118,27 @@ fi
 #   - GITHUB_APP_TEST_*
 #   - GITHUB_APP_PROD_*
 
-# Regional secrets location — derive from VM zone.
+# Regional secrets: configure gcloud to use the regional Secret Manager endpoint.
 # Set BMT_SECRETS_LOCATION to override; defaults to the VM zone's region.
+# When set, gcloud secrets commands route through the regional endpoint automatically.
 if [[ -z "${BMT_SECRETS_LOCATION:-}" ]]; then
   _vm_zone=$(curl -sS -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/zone" 2>/dev/null | sed 's|.*/||' || true)
   BMT_SECRETS_LOCATION="${_vm_zone%-*}"
 fi
 
-# Access a secret value via the regional Secret Manager REST API.
-# Regional secrets use a location-specific endpoint that the gcloud CLI
-# does not support natively (--location is rejected for secrets commands).
-_access_regional_secret() {
-  local project="$1" location="$2" secret_name="$3"
-  local token endpoint url payload
-  token=$(gcloud auth print-access-token 2>/dev/null) || return 1
-  endpoint="https://secretmanager.${location}.rep.googleapis.com"
-  url="${endpoint}/v1/projects/${project}/locations/${location}/secrets/${secret_name}/versions/latest:access"
-  payload=$(curl -sS --fail -H "Authorization: Bearer ${token}" "$url" 2>/dev/null) || return 1
-  # payload.data is base64-encoded
-  echo "$payload" | python3 -c "import json,sys,base64; d=json.load(sys.stdin); sys.stdout.write(base64.b64decode(d['payload']['data']).decode())" 2>/dev/null
-}
+if [[ -n "${BMT_SECRETS_LOCATION:-}" ]]; then
+  gcloud config set api_endpoint_overrides/secretmanager \
+    "https://secretmanager.${BMT_SECRETS_LOCATION}.rep.googleapis.com/" 2>/dev/null
+  echo "Configured regional Secret Manager endpoint for ${BMT_SECRETS_LOCATION}"
+fi
 
-# Access a secret value — try global gcloud first, then regional REST API.
 _access_secret() {
   local secret_name="$1"
-  local val
-  # Try global secret via gcloud CLI
-  val=$(gcloud secrets versions access latest --secret="$secret_name" --project="${GCP_PROJECT}" 2>/dev/null) && [[ -n "$val" ]] && { echo "$val"; return 0; }
-  # Try regional secret via REST API
-  if [[ -n "${BMT_SECRETS_LOCATION:-}" ]]; then
-    val=$(_access_regional_secret "${GCP_PROJECT}" "${BMT_SECRETS_LOCATION}" "$secret_name" 2>/dev/null) && [[ -n "$val" ]] && { echo "$val"; return 0; }
-  fi
-  return 1
+  gcloud secrets versions access latest \
+    --secret="$secret_name" \
+    --location="${BMT_SECRETS_LOCATION:-}" \
+    --project="${GCP_PROJECT}" 2>/dev/null
 }
 
 _load_github_app_credentials() {
