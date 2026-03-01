@@ -90,16 +90,14 @@ def test_decision_exit_rejected_nonzero():
 # ── URI helpers ───────────────────────────────────────────────────────────────
 
 
-def test_bucket_root_uri_no_prefix():
-    assert models.bucket_root_uri("my-bucket", "") == "gs://my-bucket"
+def test_code_bucket_root_uri_fixed():
+    """Fixed code root: gs://<bucket>/code (no prefix argument)."""
+    assert models.code_bucket_root_uri("my-bucket") == "gs://my-bucket/code"
 
 
-def test_bucket_root_uri_with_prefix():
-    assert models.bucket_root_uri("my-bucket", "some/prefix") == "gs://my-bucket/some/prefix"
-
-
-def test_bucket_root_uri_strips_slashes():
-    assert models.bucket_root_uri("my-bucket", "/some/prefix/") == "gs://my-bucket/some/prefix"
+def test_runtime_bucket_root_uri_fixed():
+    """Fixed runtime root: gs://<bucket>/runtime (no prefix argument)."""
+    assert models.runtime_bucket_root_uri("my-bucket") == "gs://my-bucket/runtime"
 
 
 def test_snapshot_verdict_uri():
@@ -113,13 +111,28 @@ def test_current_pointer_uri():
 
 
 def test_run_trigger_uri():
-    uri = models.run_trigger_uri("gs://b", "", "123456")
-    assert uri == "gs://b/triggers/runs/123456.json"
+    uri = models.run_trigger_uri("gs://b/runtime", "123456")
+    assert uri == "gs://b/runtime/triggers/runs/123456.json"
 
 
 def test_run_trigger_uri_with_prefix():
-    uri = models.run_trigger_uri("gs://b", "pfx", "123456")
-    assert uri == "gs://b/pfx/triggers/runs/123456.json"
+    uri = models.run_trigger_uri("gs://b/team/runtime", "123456")
+    assert uri == "gs://b/team/runtime/triggers/runs/123456.json"
+
+
+def test_run_handshake_uri():
+    uri = models.run_handshake_uri("gs://b/runtime", "123456")
+    assert uri == "gs://b/runtime/triggers/acks/123456.json"
+
+
+def test_run_handshake_uri_with_prefix():
+    uri = models.run_handshake_uri("gs://b/team/runtime", "123456")
+    assert uri == "gs://b/team/runtime/triggers/acks/123456.json"
+
+
+def test_run_status_uri():
+    uri = models.run_status_uri("gs://b/runtime", "123456")
+    assert uri == "gs://b/runtime/triggers/status/123456.json"
 
 
 # ── CloudVerdict.from_payload ─────────────────────────────────────────────────

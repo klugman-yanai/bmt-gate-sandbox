@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "description": "Canonical configuration contract for workflows, VM bootstrap, and local devtools.",
+  "contexts": {
+    "github_repo_vars": {
+      "required": [
+        "GCS_BUCKET",
+        "GCP_WIF_PROVIDER",
+        "GCP_SA_EMAIL",
+        "GCP_PROJECT",
+        "GCP_ZONE",
+        "BMT_VM_NAME"
+      ],
+      "optional": [
+        "BMT_PROJECTS",
+        "BMT_STATUS_CONTEXT",
+        "BMT_HANDSHAKE_TIMEOUT_SEC"
+      ]
+    },
+    "vm_metadata": {
+      "required": [
+        "GCS_BUCKET"
+      ],
+      "optional": [
+        "BMT_REPO_ROOT"
+      ]
+    },
+    "vm_runtime_env": {
+      "optional": [
+        "GITHUB_APP_TEST_ID",
+        "GITHUB_APP_TEST_INSTALLATION_ID",
+        "GITHUB_APP_TEST_PRIVATE_KEY",
+        "GITHUB_APP_PROD_ID",
+        "GITHUB_APP_PROD_INSTALLATION_ID",
+        "GITHUB_APP_PROD_PRIVATE_KEY"
+      ]
+    },
+    "local_dev_env": {
+      "optional": [
+        "GCS_BUCKET",
+        "GCP_PROJECT",
+        "GCP_ZONE",
+        "BMT_VM_NAME"
+      ]
+    }
+  },
+  "consistency_checks": {
+    "repo_vs_vm_metadata": [
+      "GCS_BUCKET"
+    ],
+    "repo_var_vs_branch_required_status_context": [
+      {
+        "repo_var": "BMT_STATUS_CONTEXT",
+        "branch": "dev",
+        "context_substring": "bmt"
+      }
+    ]
+  },
+  "defaults": {
+    "BMT_PROJECTS": "all release runners",
+    "BMT_STATUS_CONTEXT": "BMT Gate",
+    "BMT_HANDSHAKE_TIMEOUT_SEC": "180",
+    "BMT_REPO_ROOT": "/opt/bmt"
+  },
+  "recommended_minimal_input": [
+    "GCS_BUCKET",
+    "GCP_WIF_PROVIDER",
+    "GCP_SA_EMAIL",
+    "GCP_PROJECT",
+    "GCP_ZONE",
+    "BMT_VM_NAME"
+  ]
+}

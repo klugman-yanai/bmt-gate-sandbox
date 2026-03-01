@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +13,11 @@ from ci import config, models
 from ci.adapters import gcloud_cli
 from ci.github_output import emit_leg_annotation, write_aggregate_step_summary, write_github_output
 from ci.models import AggregateRow, CloudVerdict, LegOutcome, RunnerIdentity, TriggerLeg
+from ci.repo_paths import DEFAULT_CONFIG_ROOT
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _unknown_runner() -> RunnerIdentity:
@@ -26,7 +27,6 @@ def _unknown_runner() -> RunnerIdentity:
 def _build_outcome(
     leg: TriggerLeg,
     bucket: str,
-    bucket_prefix: str,
     *,
     status: str,
     reason_code: str,
@@ -42,7 +42,6 @@ def _build_outcome(
         status=status,
         reason_code=reason_code,
         bucket=bucket,
-        bucket_prefix=models.normalize_prefix(bucket_prefix),
         verdict_uri=leg.verdict_uri,
         verdict=verdict,
         aggregate_score=aggregate_score,
@@ -95,7 +94,7 @@ def _group_by_prefix(legs: list[TriggerLeg]) -> dict[str, list[TriggerLeg]]:
     return dict(groups)
 
 
-def _collect_verdict(leg: TriggerLeg, bucket: str, bucket_prefix: str) -> LegOutcome:
+def _collect_verdict(leg: TriggerLeg, bucket: str) -> LegOutcome:
     """Download and validate a verdict for one leg."""
     verdict_payload, verdict_error = gcloud_cli.download_json(leg.verdict_uri)
 
@@ -128,7 +127,6 @@ def _collect_verdict(leg: TriggerLeg, bucket: str, bucket_prefix: str) -> LegOut
     return _build_outcome(
         leg,
         bucket,
-        bucket_prefix,
         status=status,
         reason_code=reason_code,
         verdict=verdict_dict,
@@ -153,7 +151,6 @@ def _poll_and_collect(
     prefix_groups: dict[str, list[TriggerLeg]],
     bucket_root: str,
     bucket: str,
-    bucket_prefix: str,
     deadline: float,
     poll_interval_sec: int,
     total_legs: int,
@@ -172,12 +169,11 @@ def _poll_and_collect(
                 if latest_run_id is None or latest_run_id != leg.run_id:
                     continue
                 try:
-                    outcome = _collect_verdict(leg, bucket, bucket_prefix)
+                    outcome = _collect_verdict(leg, bucket)
                 except Exception as exc:
                     outcome = _build_outcome(
                         leg,
                         bucket,
-                        bucket_prefix,
                         status=models.STATUS_FAIL,
                         reason_code=models.REASON_CI_DRIVER_EXCEPTION,
                         collection_error=str(exc),
@@ -207,7 +203,6 @@ def _poll_and_collect(
         outcome = _build_outcome(
             leg,
             bucket,
-            bucket_prefix,
             status=models.STATUS_TIMEOUT,
             reason_code=models.REASON_VERDICT_TIMEOUT,
         )
@@ -261,9 +256,8 @@ def _aggregate(
 
 @click.command("wait")
 @click.option("--manifest", required=True, help="JSON manifest from trigger step")
-@click.option("--config-root", default="remote", show_default=True, type=click.Path(path_type=Path))
+@click.option("--config-root", default=DEFAULT_CONFIG_ROOT, show_default=True, type=click.Path(path_type=Path))
 @click.option("--bucket", required=True, envvar="GCS_BUCKET")
-@click.option("--bucket-prefix", default="", envvar="BMT_BUCKET_PREFIX")
 @click.option("--timeout-sec", required=True, type=int)
 @click.option("--poll-interval-sec", default=30, type=int, show_default=True)
 @click.option("--github-output", envvar="GITHUB_OUTPUT")
@@ -272,7 +266,6 @@ def command(
     manifest: str,
     config_root: Path,
     bucket: str,
-    bucket_prefix: str,
     timeout_sec: int,
     poll_interval_sec: int,
     github_output: str | None,
@@ -282,7 +275,7 @@ def command(
     if not github_output:
         raise RuntimeError("GITHUB_OUTPUT is required")
 
-    bucket_root = models.bucket_root_uri(bucket, bucket_prefix)
+    bucket_root = models.runtime_bucket_root_uri(bucket)
     legs = _parse_manifest(manifest, config_root, bucket_root)
     if not legs:
         raise RuntimeError("Empty manifest — nothing to wait for")
@@ -292,9 +285,7 @@ def command(
     deadline = time.monotonic() + timeout_sec
     print(f"Waiting for {len(pending)} verdict(s), timeout={timeout_sec}s, poll={poll_interval_sec}s")
 
-    collected = _poll_and_collect(
-        pending, prefix_groups, bucket_root, bucket, bucket_prefix, deadline, poll_interval_sec, len(legs)
-    )
+    collected = _poll_and_collect(pending, prefix_groups, bucket_root, bucket, deadline, poll_interval_sec, len(legs))
 
     decision, counts, rows, blocked_legs, blocked_reasons = _aggregate(collected)
 

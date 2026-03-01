@@ -4,6 +4,8 @@ data/
 local_batch/
 sk_runtime/
 secrets/
+debug/
+.local/
 
 # Python
 **/__pycache__/
@@ -21,16 +23,16 @@ repo/staging/
 bmt_root_results.json
 
 # VM/BMT runtime artifacts (bucket sync + handshake staging)
-remote/sk/inputs/
-remote/sk/outputs/
-remote/sk/results/archive/
-remote/triggers/
-resources/
+remote/runtime/triggers/
+remote/runtime/**/inputs/**/*.wav
+remote/runtime/**/outputs/
+remote/runtime/**/results/
 
 # Tooling/editor
 compile_commands.json
 .vscode/
 .idea/
+.cursor/plans/
 *.swp
 *~
 

@@ -41,20 +41,19 @@ _RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
 # ── URI helpers ────────────────────────────────────────────────────────────────
 
 
-def normalize_prefix(prefix: str) -> str:
-    """Strip leading/trailing slashes from a bucket prefix."""
-    return prefix.strip("/")
-
-
-def bucket_root_uri(bucket: str, prefix: str) -> str:
-    """Build gs://bucket or gs://bucket/prefix from bucket and optional prefix."""
-    normalized = normalize_prefix(prefix)
-    return f"gs://{bucket}/{normalized}" if normalized else f"gs://{bucket}"
-
-
 def bucket_uri(bucket_root: str, rel_path: str) -> str:
     """Append a relative path to a bucket root URI."""
     return f"{bucket_root}/{rel_path.lstrip('/')}"
+
+
+def code_bucket_root_uri(bucket: str) -> str:
+    """Code bucket root: gs://<bucket>/code."""
+    return f"gs://{bucket}/code"
+
+
+def runtime_bucket_root_uri(bucket: str) -> str:
+    """Runtime bucket root: gs://<bucket>/runtime."""
+    return f"gs://{bucket}/runtime"
 
 
 # ── Status / run-id helpers ────────────────────────────────────────────────────
@@ -88,14 +87,22 @@ def current_pointer_uri(bucket_root: str, results_prefix: str) -> str:
     return bucket_uri(bucket_root, f"{cleaned}/current.json")
 
 
-def run_trigger_uri(bucket_root: str, prefix: str, workflow_run_id: str) -> str:
-    """Build the GCS URI for a single run trigger (one file per workflow run, contains all legs)."""
-    parts = normalize_prefix(prefix)
+def run_trigger_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
+    """Build GCS URI for one run trigger file under runtime root."""
     safe_run_id = sanitize_run_id(workflow_run_id)
-    base = f"triggers/runs/{safe_run_id}.json"
-    if parts:
-        return bucket_uri(bucket_root, f"{parts}/{base}")
-    return bucket_uri(bucket_root, base)
+    return bucket_uri(runtime_bucket_root, f"triggers/runs/{safe_run_id}.json")
+
+
+def run_handshake_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
+    """Build GCS URI for VM handshake ack under runtime root."""
+    safe_run_id = sanitize_run_id(workflow_run_id)
+    return bucket_uri(runtime_bucket_root, f"triggers/acks/{safe_run_id}.json")
+
+
+def run_status_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
+    """Build GCS URI for VM status file under runtime root."""
+    safe_run_id = sanitize_run_id(workflow_run_id)
+    return bucket_uri(runtime_bucket_root, f"triggers/status/{safe_run_id}.json")
 
 
 # ── Decision helpers ───────────────────────────────────────────────────────────
@@ -193,7 +200,6 @@ class LegOutcome:
     status: str
     reason_code: str
     bucket: str
-    bucket_prefix: str
     verdict_uri: str
     verdict: dict[str, Any] | None
     aggregate_score: float | None

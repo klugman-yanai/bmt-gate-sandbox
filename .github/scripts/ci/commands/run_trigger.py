@@ -2,22 +2,53 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 import click
 
 from ci import models
 from ci.adapters import gcloud_cli
 from ci.github_output import write_github_output
+from ci.repo_paths import DEFAULT_CONFIG_ROOT, DEFAULT_ENV_CONTRACT_PATH
 
+# Fallback when env and contract are unavailable; single source of truth: config/env_contract.json defaults.BMT_STATUS_CONTEXT
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
 DEFAULT_DESCRIPTION_PENDING = "BMT running on VM; status will update when complete."
-DEFAULT_DESCRIPTION_SUCCESS = "BMT passed"
-DEFAULT_DESCRIPTION_FAILURE = "BMT failed"
+
+
+def _default_status_context_from_contract() -> str:
+    """Read BMT_STATUS_CONTEXT default from config/env_contract.json when present."""
+    for base in (Path.cwd(), Path(__file__).resolve().parents[4]):
+        contract_path = base / DEFAULT_ENV_CONTRACT_PATH
+        if contract_path.is_file():
+            try:
+                with contract_path.open() as f:
+                    contract = json.load(f)
+                defaults = contract.get("defaults") or {}
+                ctx = defaults.get("BMT_STATUS_CONTEXT")
+                if ctx and str(ctx).strip():
+                    return str(ctx).strip()
+            except (OSError, json.JSONDecodeError, TypeError):
+                pass
+            break
+    return DEFAULT_STATUS_CONTEXT
+
+
+def _list_pending_trigger_uris(runtime_bucket_root: str) -> list[str]:
+    """List existing run trigger URIs under runtime root."""
+    prefix = f"{runtime_bucket_root}/triggers/runs/"
+    rc, out = gcloud_cli.run_capture(["gcloud", "storage", "ls", prefix])
+    if rc != 0:
+        text = (out or "").lower()
+        if "matched no objects" in text or "one or more urls matched no objects" in text:
+            return []
+        raise RuntimeError(f"Failed to list pending triggers at {prefix}: {out}")
+    return [line.strip() for line in (out or "").splitlines() if line.strip().endswith(".json")]
 
 
 def _default_run_id(project: str, bmt_id: str) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    now = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     sha = os.environ.get("GITHUB_SHA", "")[:12]
@@ -26,9 +57,8 @@ def _default_run_id(project: str, bmt_id: str) -> str:
 
 
 @click.command("trigger")
-@click.option("--config-root", default="remote", show_default=True)
+@click.option("--config-root", default=DEFAULT_CONFIG_ROOT, show_default=True)
 @click.option("--bucket", required=True)
-@click.option("--bucket-prefix", default="")
 @click.option("--matrix-json", required=True, help="JSON matrix from prepare-matrix (has 'include' array)")
 @click.option("--run-context", required=True, type=click.Choice(["pr", "dev"]))
 @click.option(
@@ -38,7 +68,6 @@ def _default_run_id(project: str, bmt_id: str) -> str:
 def command(
     config_root: str,
     bucket: str,
-    bucket_prefix: str,
     matrix_json: str,
     run_context: str,
     pr_number: int | None,
@@ -53,14 +82,11 @@ def command(
     if not rows:
         raise RuntimeError("Empty matrix — nothing to trigger")
 
-    ctx = (os.environ.get("BMT_STATUS_CONTEXT") or "").strip() or DEFAULT_STATUS_CONTEXT
-    description_pending = (os.environ.get("BMT_DESCRIPTION_PENDING") or "").strip() or DEFAULT_DESCRIPTION_PENDING
-    description_success = (os.environ.get("BMT_DESCRIPTION_SUCCESS") or "").strip() or DEFAULT_DESCRIPTION_SUCCESS
-    description_failure = (os.environ.get("BMT_DESCRIPTION_FAILURE") or "").strip() or DEFAULT_DESCRIPTION_FAILURE
+    ctx = (os.environ.get("BMT_STATUS_CONTEXT") or "").strip() or _default_status_context_from_contract()
+    description_pending = DEFAULT_DESCRIPTION_PENDING
 
-    normalized_prefix = models.normalize_prefix(bucket_prefix)
-    bucket_root = models.bucket_root_uri(bucket, normalized_prefix)
-    triggered_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    runtime_bucket_root = models.runtime_bucket_root_uri(bucket)
+    triggered_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     sha = os.environ.get("GITHUB_SHA", "")
     ref = os.environ.get("GITHUB_REF", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")
@@ -88,17 +114,29 @@ def command(
         "run_context": run_context,
         "triggered_at": triggered_at,
         "bucket": bucket,
-        "bucket_prefix": normalized_prefix,
         "legs": legs,
         "status_context": ctx,
         "description_pending": description_pending,
-        "description_success": description_success,
-        "description_failure": description_failure,
     }
     if pr_number is not None:
         run_payload["pull_request_number"] = pr_number
 
-    run_trigger_uri_str = models.run_trigger_uri(bucket_root, normalized_prefix, workflow_run_id)
+    run_trigger_uri_str = models.run_trigger_uri(runtime_bucket_root, workflow_run_id)
+    pending_trigger_uris = _list_pending_trigger_uris(runtime_bucket_root)
+    blocking_triggers = [uri for uri in pending_trigger_uris if uri != run_trigger_uri_str]
+    if blocking_triggers and run_context != "pr":
+        sample = ", ".join(blocking_triggers[:3])
+        extra = "" if len(blocking_triggers) <= 3 else f" (+{len(blocking_triggers) - 3} more)"
+        raise RuntimeError(
+            "VM runtime is busy: pending run trigger(s) already exist under runtime root. "
+            f"Blocking triggers: {sample}{extra}. "
+            "Wait for the active run to finish or clean stale trigger files before retrying."
+        )
+    if blocking_triggers and run_context == "pr":
+        print(
+            "PR queue mode: existing trigger(s) detected; "
+            f"enqueuing run {workflow_run_id} behind {len(blocking_triggers)} pending trigger(s)."
+        )
     try:
         gcloud_cli.upload_json(run_trigger_uri_str, run_payload)
     except gcloud_cli.GcloudError as exc:
@@ -107,4 +145,7 @@ def command(
 
     manifest = {"legs": legs}
     write_github_output(github_output, "manifest", json.dumps(manifest, separators=(",", ":")))
+    write_github_output(github_output, "run_trigger_uri", run_trigger_uri_str)
+    write_github_output(github_output, "requested_leg_count", str(len(legs)))
+    write_github_output(github_output, "requested_legs", json.dumps(legs, separators=(",", ":")))
     print(f"Triggered run {workflow_run_id} with {len(legs)} leg(s); VM will report status to GitHub")
