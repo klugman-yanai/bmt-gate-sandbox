@@ -150,8 +150,8 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
     # Per-leg results
     lines.append("### Results by Leg")
     lines.append("")
-    lines.append("| Project | BMT | Verdict | Score | Duration |")
-    lines.append("|---------|-----|---------|-------|----------|")
+    lines.append("| Project | BMT | Verdict | Current | Baseline | Reason | Duration |")
+    lines.append("|---------|-----|---------|---------|----------|--------|----------|")
 
     for summary in leg_summaries:
         project = summary.get("project_id", "unknown")
@@ -165,8 +165,12 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
         else:
             verdict_display = "❌ FAIL"
 
-        # Score is directly on the summary as "aggregate_score".
-        avg_score = float(summary.get("aggregate_score", 0) or 0)
+        # Scores from manager summary and gate.
+        current_score = float(summary.get("aggregate_score", 0) or 0)
+        gate = summary.get("gate", {}) if isinstance(summary.get("gate"), dict) else {}
+        last_score = gate.get("last_score")
+        baseline_str = f"{last_score:.1f}" if last_score is not None else "—"
+        reason_code = summary.get("reason_code", "")
 
         # Duration from orchestration_timing.
         timing = summary.get("orchestration_timing", {})
@@ -176,7 +180,10 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
         else:
             duration = "—"
 
-        lines.append(f"| {project} | {bmt_id} | {verdict_display} | {avg_score:.1f} | {duration} |")
+        lines.append(
+            f"| {project} | {bmt_id} | {verdict_display} "
+            f"| {current_score:.1f} | {baseline_str} | {reason_code} | {duration} |"
+        )
 
     lines.append("")
     lines.append("---")

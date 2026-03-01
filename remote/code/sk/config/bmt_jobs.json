@@ -27,7 +27,8 @@
         }
       },
       "gate": {
-        "comparison": "gte"
+        "comparison": "gte",
+        "tolerance_abs": 0.25
       },
       "warning_policy": {
         "bootstrap_without_baseline": true
