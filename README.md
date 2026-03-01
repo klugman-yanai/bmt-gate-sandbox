@@ -1,70 +1,115 @@
 # bmt-cloud-dev
 
-Where BMT logic is planned and you interface with the GCP VM/bucket: author config/scripts, test locally, push via devtools; the CI workflow here is copied to production manually.
+Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This repo owns the BMT workflow, VM watcher and orchestrator logic, and the GCS bucket contract used by GitHub Actions. Local devtools provide sync, upload, and validation against the bucket.
 
-## Purpose
+## Features
 
-This repo holds:
+- **Trigger-and-stop handoff** — CI writes one run trigger, starts the VM, waits for handshake ack, then exits. The VM runs BMT legs and posts final outcome.
+- **Commit status and Check Run** — VM posts pending then success/failure commit status and creates/updates a Check Run for progress and results. Branch protection gates on the status context (`BMT_STATUS_CONTEXT`, default: BMT Gate).
+- **Pointer-based results** — `current.json` points to latest and last-passing run; per-run artifacts live under `snapshots/<run_id>/`. Baseline for gate comparison comes from last-passing snapshot.
+- **PR closure and supersede** — Closed or superseded PR runs are skipped or cancelled without promoting pointers. See [docs/communication-flow.md](docs/communication-flow.md) and [docs/architecture.md](docs/architecture.md).
 
-1. Bucket mirror and VM-side scripts (`remote/`).
-2. Thin CI: matrix discovery and trigger (GCS); VM runs BMT and reports status to GitHub (trigger-and-stop, no blocking workflow).
-3. Local runner and devtools for sync/upload/validation.
+## Safety and reliability
 
-## Canonical layout
+- **Handshake validation** — Workflow waits for VM ack with clear failure reasons (`trigger_missing`, `vm_not_running`, `ack_not_written`, etc.). See [docs/implementation.md](docs/implementation.md#reliability-behavior).
+- **PR closed/superseded** — Before pickup: run skipped. During execution: current leg finishes, remaining legs skipped, signals finalized as cancelled; no pointer promotion for superseded runs.
+- **Fail-open** — PR state API errors do not block execution.
+- **Workflow cleanup** — On handshake failure, workflow removes trigger/ack/status objects.
 
-- **Workflow:** `.github/workflows/ci.yml`; `.github/scripts/ci_driver.py` and `ci/` (matrix, trigger, start-vm, wait, gate; adapters, models, config).
-- **VM:** `remote/vm_watcher.py` (trigger loop, orchestration driver, aggregation, promotion); `remote/root_orchestrator.py` (one leg: run per-project manager); `remote/sk/bmt_manager.py` (SK project: run runner per WAV, gate, upload results).
-- **Local/dev:** `devtools/` (run_sk_bmt_batch, sync_remote_to_bucket, upload_runner, upload_wavs, validate_bucket_contract).
-- **Config/data:** `remote/bmt_projects.json`, `remote/sk/config/` (bmt_jobs.json, input_template.json), `remote/sk/results/` (current.json pointer + snapshots per run_id).
+## Dev quality of life
 
-`remote/` maps directly to `gs://<bucket>/`. See **ARCHITECTURE.md** for architecture and a full description of client-side and VM-side scripts; **CLAUDE.md** for config, linting, and env vars.
+- **Just recipes** — `just test`, `just lint`, `just sync-remote`, `just verify-sync`, `just validate-bucket`, `just show-env`, `just repo-vars-check`, `just repo-vars-apply`, `just validate-vm-vars`. Run `just` for the full list.
+- **GitHub CLI** — `gh pr checks --watch` to wait for BMT and other checks; `gh run watch <run_id>` to follow a workflow run.
+- **Job summaries** — Workflow runs write handoff and routing summaries to the Actions run summary.
 
-## CI flow (trigger-and-stop)
+See [docs/development.md](docs/development.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
 
-1. **Discover Matrix** — `ci_driver.py matrix` builds project+BMT matrix.
-2. **Trigger** — `ci_driver.py trigger` writes **one** run trigger to GCS (`triggers/runs/<workflow_run_id>.json`) with all legs, then the workflow posts a "pending" commit status and **ends** (no long-running wait job).
-3. **VM** — `vm_watcher.py` on the VM polls GCS for run triggers (or a Pub/Sub puller receives the same payload), runs `root_orchestrator.py` for each leg, reads verdicts from manager summaries, updates each leg's **current.json** pointer and cleans stale snapshots, then posts **commit status** (success/failure) to GitHub. Merge is gated by requiring the "BMT Gate" status check to pass.
+## Monitoring (GitHub Actions and VM runtime)
 
-This saves GitHub Actions runner minutes; the VM does the work and reports back. Set `GITHUB_STATUS_TOKEN` on the VM (PAT with `repo:status`). Require status check "BMT Gate" in branch protection.
+- **Handoff vs BMT outcome** — Workflow run success = handoff completed. Final BMT pass/fail is VM-owned and appears in PR **Checks** and **Comments**.
+- **Live TUI** — `just monitor` (or `just monitor --run-id <id>`) shows trigger, ack, status, and VM/GCS state; useful when handshake fails.
+- **CLI inspection** — `just gcs-trigger <run_id>`, `just vm-serial`, `just check-vm-gcs <run_id>` for trigger/ack and VM serial output.
+
+See [docs/communication-flow.md](docs/communication-flow.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
+
+## BMT management
+
+- **Pointer** — `current.json` at `<runtime-root>/<results_prefix>/` holds `latest` and `last_passing` run IDs; updated by the watcher after all legs.
+- **Snapshots** — Each run writes `snapshots/<run_id>/latest.json`, `ci_verdict.json`, and logs. Gate reads baseline from the last-passing snapshot.
+- **Retention** — Only snapshots referenced by the pointer are kept; watcher prunes the rest.
+
+See [docs/architecture.md](docs/architecture.md#results-contract).
+
+## Performance and cost
+
+- **VM self-stop** — VM runs with `--exit-after-run` and stops itself after one run so it does not idle.
+- **Snapshot retention** — Only latest and last_passing snapshot dirs retained per results prefix; trigger/ack/status metadata trimmed to current + previous.
+- **No long-tail history** — Run triggers deleted after processing; debugging uses workflow logs and Check Runs.
+
+See [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md#runtime-retention-policy-hard-delete-no-quarantine).
+
+## Configuration
+
+Canonical source: **config/env_contract.json**. Optional overrides: **config/repo_vars.toml**.
+
+| Required repo vars | Optional (common) |
+|--------------------|-------------------|
+| `GCS_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` | `BMT_PROJECTS`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC` |
+
+VM metadata (`GCS_BUCKET`, `BMT_REPO_ROOT`) is synced from repo config by the workflow. Branch protection should require the commit status named by `BMT_STATUS_CONTEXT`.
+
+Useful commands: `just sync-vm-metadata`, `just start-vm`, `just wait-handshake <workflow_run_id>`, `just repo-vars-check`, `just repo-vars-apply`, `just show-env`, `just validate-vm-vars`.
+
+See [docs/configuration.md](docs/configuration.md) for full env contract, VM metadata, and secrets.
+
+## GCS contract (summary)
+
+- **Roots** — `<code-root> = gs://<bucket>/code`; `<runtime-root> = gs://<bucket>/runtime`.
+- **Code root** — Deployable code/config/bootstrap from `remote/code`; manual sync only.
+- **Runtime root** — Triggers (`runs/`, `acks/`, `status/`), runner bundles, `current.json`, `snapshots/<run_id>/`.
+
+See [docs/architecture.md](docs/architecture.md) and [docs/configuration.md](docs/configuration.md) for full layout.
 
 ## Local usage
 
-Run a local BMT batch (config-driven, no cloud VM):
+- **Local BMT batch** (no cloud): `uv run python devtools/bmt_run_local.py --bmt-id ... --jobs-config ... --runner ... --runtime-root remote/runtime --dataset-root ... --workers 4`. See [docs/development.md](docs/development.md).
+- **Bucket tools** (set `GCS_BUCKET`): `just sync-remote`, `just verify-sync`, `just sync-runtime-seed`, `just upload-runner`, `just upload-wavs <source_dir>`, `just validate-bucket`.
 
-```bash
-python3 devtools/run_sk_bmt_batch.py \
-  --bmt-id false_reject_namuh \
-  --jobs-config remote/sk/config/bmt_jobs.json \
-  --runner remote/sk/runners/kardome_runner \
-  --dataset-root data/sk/inputs/false_rejects \
-  --workers 4
-```
+## Repository layout
 
-Devtools (bucket sync, runner/wav upload, contract validation):
+- **remote/code/** — Deployable VM code/config/templates; synced manually to `<code-root>`.
+- **remote/runtime/** — Runtime seed (runners + placeholders); synced to `<runtime-root>`.
+- **data/** — Local-only datasets; upload explicitly.
+- **.github/** — Workflows (`dummy-build-and-test.yml`, `bmt.yml`) and CI scripts.
+- **devtools/** — Bucket sync, upload, validation, local BMT, env/repo-vars.
+- **.local/diagnostics/** — Ad-hoc diagnostics (gitignored).
 
-```bash
-BUCKET="<bucket>" python3 devtools/sync_remote_to_bucket.py
-BUCKET="<bucket>" python3 devtools/upload_runner.py --runner-path <path>
-BUCKET="<bucket>" python3 devtools/upload_wavs.py --source-dir <dir>
-BUCKET="<bucket>" python3 devtools/validate_bucket_contract.py [--require-runner]
-```
+See [remote/README.md](remote/README.md) for canonical mirror policy.
 
-## Full reseed (destructive)
+## Documentation
 
-Clear bucket and reseed from `remote/`:
-
-```bash
-gcloud storage rm --recursive "gs://<bucket>/**"
-BUCKET="<bucket>" python3 devtools/sync_remote_to_bucket.py --delete
-BUCKET="<bucket>" python3 devtools/upload_runner.py --runner-path <binary>
-BUCKET="<bucket>" python3 devtools/upload_wavs.py --source-dir <wav_root>
-BUCKET="<bucket>" python3 devtools/validate_bucket_contract.py --require-runner
-```
+| Doc | Description |
+|-----|--------------|
+| [README.md](README.md) | This file — overview, features, config, local usage. |
+| [CLAUDE.md](CLAUDE.md) | AI/maintainer guide — code layout, time/clocks, devtools, lint/test, CI and VM layout, env vars. |
+| [docs/architecture.md](docs/architecture.md) | Trigger-and-stop, GCS contract, script map, diagrams. |
+| [docs/implementation.md](docs/implementation.md) | Data flow, reliability, limitations. |
+| [docs/development.md](docs/development.md) | Setup, testing, lint/typecheck, Justfile, deploy. |
+| [docs/configuration.md](docs/configuration.md) | Env contract, repo vars, VM metadata, secrets, bucket layout. |
+| [docs/communication-flow.md](docs/communication-flow.md) | Commit status and Check Runs; failure handling. |
+| [docs/github-app-permissions.md](docs/github-app-permissions.md) | GitHub App permissions and how to check them. |
+| [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md) | Actions summaries, re-run, debug; `gh` CLI; retention policy. |
+| [docs/plans/future-architecture.md](docs/plans/future-architecture.md) | Planned changes (SDK, Pydantic, bmt_lib, PR comments). |
+| [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md) | Enabling BMT in production repo. |
+| [remote/README.md](remote/README.md) | Local bucket mirror policy. |
+| [remote/code/bootstrap/README.md](remote/code/bootstrap/README.md) | VM bootstrap and auth. |
 
 ## Notes
 
-- WAV payload and runner binaries are not committed.
-- Runtime workspace default is `~/sk_runtime` (or per CLAUDE.md).
-- Result files are written under snapshot prefixes; the watcher updates the canonical `current.json` pointer after all legs complete (see **ARCHITECTURE.md**).
-- See **CLAUDE.md** for time/clocks, linting, config files, result paths, and GCP env vars.
-- Test-environment note: docs-only commits may be used to trigger workflow checks.
+- Ad-hoc diagnostics: use `.local/diagnostics/` only; do not commit.
+- `ci_driver.py wait` and `ci_driver.py gate` exist for manual/local use only; not used by `bmt.yml`.
+- Manual VM start: `just start-vm` (debug/maintenance/testing only); routine starts come from `bmt.yml`.
+
+## Test vs production
+
+When moving to production: update GitHub App credentials and repo mapping (`remote/code/config/github_repos.json`), and status context name (`BMT_STATUS_CONTEXT`) for branch protection. See [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md).

@@ -6,10 +6,11 @@ from pathlib import Path
 import click
 
 from ci import config
+from ci.repo_paths import DEFAULT_CONFIG_ROOT
 
 
 @click.command("matrix")
-@click.option("--config-root", default="remote", show_default=True)
+@click.option("--config-root", default=DEFAULT_CONFIG_ROOT, show_default=True)
 @click.option("--project-filter", default="", envvar="BMT_PROJECTS")
 @click.option("--output-key", default="matrix", show_default=True)
 @click.option("--github-output", envvar="GITHUB_OUTPUT")
@@ -22,7 +23,7 @@ def command(
     """Build matrix JSON from remote config."""
     matrix = config.build_matrix(Path(config_root), project_filter)
     if not matrix["include"]:
-        raise RuntimeError("No enabled project+BMT rows found for CI matrix")
+        print("::warning::No supported project+BMT rows found for requested project filter.")
     if not github_output:
         raise RuntimeError("GITHUB_OUTPUT is required")
     with Path(github_output).open("a", encoding="utf-8") as fh:

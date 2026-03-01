@@ -1,0 +1,7 @@
+version = 1
+description = "Optional declarative overrides for GitHub repo vars."
+
+[variables]
+# BMT_STATUS_CONTEXT is sourced from GitHub branch rules via:
+# consistency_checks.repo_var_vs_branch_required_status_context in config/env_contract.json
+# Keep this file for optional manual overrides of other vars only.
