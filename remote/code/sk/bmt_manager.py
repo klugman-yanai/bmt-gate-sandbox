@@ -334,6 +334,7 @@ def _gate_result(
     failed_count: int,
     run_context: str,
     tolerance_abs: float = 0.0,
+    baseline_zero_is_missing: bool = True,
 ) -> dict[str, Any]:
     if failed_count > 0:
         return {
@@ -344,18 +345,12 @@ def _gate_result(
             "reason": "runner_failures",
         }
 
-    if last_score is None:
-        if run_context == "pr":
-            return {
-                "comparison": comparison,
-                "last_score": None,
-                "current_score": current_score,
-                "passed": False,
-                "reason": "missing_previous_result",
-            }
+    # Treat missing or zero baseline as bootstrap: accept current score as new baseline.
+    # Managers that legitimately expect a zero baseline can set baseline_zero_is_missing=False.
+    if last_score is None or (baseline_zero_is_missing and last_score == 0):
         return {
             "comparison": comparison,
-            "last_score": None,
+            "last_score": last_score,
             "current_score": current_score,
             "passed": True,
             "reason": "bootstrap_no_previous_result",
