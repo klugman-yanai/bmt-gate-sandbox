@@ -150,26 +150,29 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
     # Per-leg results
     lines.append("### Results by Leg")
     lines.append("")
-    lines.append("| Project | BMT | Verdict | Score | Duration |")
-    lines.append("|---------|-----|---------|-------|----------|")
+    lines.append("| Project | BMT | Verdict | Current Score | Last Passing Score | Reason | Duration |")
+    lines.append("|---------|-----|---------|---------------|--------------------|---------|---------:|")
 
     for summary in leg_summaries:
         project = summary.get("project_id", "unknown")
         bmt_id = summary.get("bmt_id", "unknown")
 
-        ci_verdict = summary.get("ci_verdict", {})
-        verdict = ci_verdict.get("verdict", "UNKNOWN")
-        if verdict == "PASS":
+        # Manager summary uses "status" ("pass"/"fail") and "passed" (bool).
+        passed = summary.get("passed", False)
+        status = summary.get("status", "unknown")
+        if passed or status == "pass":
             verdict_display = "✅ PASS"
         else:
             verdict_display = "❌ FAIL"
 
-        # Get score from results
-        bmt_results = summary.get("bmt_results", {})
-        scores = [r.get("score", 0) for r in bmt_results.get("results", [])]
-        avg_score = sum(scores) / len(scores) if scores else 0
+        # Scores from manager summary and gate.
+        current_score = float(summary.get("aggregate_score", 0) or 0)
+        gate = summary.get("gate", {}) if isinstance(summary.get("gate"), dict) else {}
+        last_score = gate.get("last_score")
+        baseline_str = f"{last_score:.1f}" if last_score is not None else "—"
+        reason_code = summary.get("reason_code", "")
 
-        # Duration
+        # Duration from orchestration_timing.
         timing = summary.get("orchestration_timing", {})
         duration_sec = timing.get("duration_sec")
         if duration_sec is not None:
@@ -177,7 +180,10 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
         else:
             duration = "—"
 
-        lines.append(f"| {project} | {bmt_id} | {verdict_display} | {avg_score:.1f} | {duration} |")
+        lines.append(
+            f"| {project} | {bmt_id} | {verdict_display} "
+            f"| {current_score:.1f} | {baseline_str} | {reason_code} | {duration} |"
+        )
 
     lines.append("")
     lines.append("---")
