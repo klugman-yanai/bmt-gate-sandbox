@@ -1,150 +1,83 @@
-# bmt-cloud-dev — common commands (just run `just` for list)
+# bmt-cloud-dev maintainer commands (run `just` for list)
 
 default:
     @just --list
 
-# Install deps and run all unit tests (no GCS/VM)
+# Quality gates (no GCS/VM)
 test:
     uv sync
     uv run python -m pytest tests/ -v
 
-# Lint and type-check (see CLAUDE.md)
 lint:
     uv sync
     ruff check .
     ruff format --check .
     basedpyright
 
-# =============================================================================
-# BMT Execution
-# =============================================================================
-
-# Local BMT batch (no cloud; dataset_root defaults to data/{project_id}/inputs/{bmt_id})
-run-local-bmt bmt_id="false_reject_namuh" project_id="sk" dataset_root="":
-    #!/usr/bin/env -S bash -eu
-    DS_ROOT="{{dataset_root}}"
-    [ -z "$DS_ROOT" ] && DS_ROOT="data/{{project_id}}/inputs/{{bmt_id}}"
-    uv run python devtools/bmt_run_local.py \
-      --bmt-id {{bmt_id}} \
-      --jobs-config remote/code/{{project_id}}/config/bmt_jobs.json \
-      --runner remote/runtime/{{project_id}}/runners/kardome_runner \
-      --dataset-root "$DS_ROOT" \
-      --workers 4
-
-# Run manager once against GCS (bucket arg required; optional BMT_BUCKET_PREFIX env)
-run-manager-gcs bucket run_id="test-local" project_id="sk" bmt_id="false_reject_namuh":
-    #!/usr/bin/env -S bash -eu
-    GCS_BUCKET_ARG="{{bucket}}"
-    RUN_ID="{{run_id}}"
-    uv run python remote/code/{{project_id}}/bmt_manager.py \
-      --bucket "$GCS_BUCKET_ARG" \
-      --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
-      --project-id {{project_id}} \
-      --bmt-id {{bmt_id}} \
-      --jobs-config remote/code/{{project_id}}/config/bmt_jobs.json \
-      --workspace-root ./local_batch \
-      --run-context dev \
-      --run-id "$RUN_ID" \
-      --summary-out ./local_batch/manager_summary.json
-    echo "Summary: ./local_batch/manager_summary.json"
-    echo "GCS: gs://$GCS_BUCKET_ARG/{{project_id}}/results/false_rejects/snapshots/$RUN_ID/"
-
-# Live TUI monitor for BMT runs (use --auto for auto-detect, --prod for production repo)
-monitor *args:
-    uv run python devtools/bmt_monitor.py {{args}}
-
-# =============================================================================
-# GCS Bucket Operations
-# =============================================================================
-
-# Sync canonical code mirror (remote/code) to GCS code namespace.
+# Bucket sync / verify (safe to re-run: skip when already in sync; use --force to re-sync)
 sync-remote:
     uv run python devtools/bucket_sync_remote.py
 
-# Sync canonical code mirror with --delete (full mirror under code namespace).
-sync-remote-delete:
-    uv run python devtools/bucket_sync_remote.py --delete
+sync-runtime-seed:
+    uv run python devtools/bucket_sync_runtime_seed.py
 
-# Sync code mirror including runtime/generated patterns (debug only).
-sync-remote-runtime:
-    uv run python devtools/bucket_sync_remote.py --include-runtime-artifacts
-
-# Verify local code + runtime mirrors match bucket manifests
 verify-sync:
     uv run python devtools/bucket_verify_remote_sync.py
     uv run python devtools/bucket_verify_runtime_seed_sync.py
 
-# Verify only runtime seed sync state against runtime manifest.
-verify-runtime-sync:
-    uv run python devtools/bucket_verify_runtime_seed_sync.py
+# Remove Python/uv bloat from GCS (dry-run by default; use --execute to delete)
+clean-bloat *args:
+    uv run python devtools/bucket_clean_bloat.py {{args}}
 
-# Sync runtime seed mirror (remote/runtime) to runtime namespace.
-sync-runtime-seed:
-    uv run python devtools/bucket_sync_runtime_seed.py
-
-# Validate canonical remote layout policy (remote/ as 1:1 bucket mirror).
+# Layout / policy
 validate-layout:
     uv run python devtools/remote_layout_policy.py
 
-# Upload runner binary to bucket (bucket from GCS_BUCKET env)
+validate-repo-layout:
+    uv run python devtools/repo_layout_policy.py
+
+# Bucket artifact ops (safe to re-run: skip when already in sync; use --force to re-upload)
 upload-runner:
     uv run python devtools/bucket_upload_runner.py
 
-# Upload wav dataset to bucket (bucket from GCS_BUCKET env)
-upload-wavs:
-    uv run python devtools/bucket_upload_wavs.py
+upload-wavs source_dir dest_prefix="sk/inputs/false_rejects":
+    uv run python devtools/bucket_upload_wavs.py --source-dir {{source_dir}} --dest-prefix {{dest_prefix}}
 
-# Validate bucket contract (bucket from GCS_BUCKET env)
 validate-bucket:
     uv run python devtools/bucket_validate_contract.py
 
-# =============================================================================
-# Debug / Utilities
-# =============================================================================
+# VM control (manual debug/maintenance/testing only; sync-vm-metadata: skip when in sync, use --force to re-sync)
+sync-vm-metadata:
+    uv run python .github/scripts/ci_driver.py sync-vm-metadata
 
-# Show env vars used by CI, VM, and devtools
-show-env:
-    uv run python devtools/gh_show_env.py
+start-vm *args:
+    uv run python .github/scripts/ci_driver.py start-vm --allow-manual-start {{args}}
 
-# Check GitHub repo vars against contract + optional declarative overrides
-repo-vars-check:
-    uv run python devtools/gh_repo_vars.py
+wait-handshake workflow_run_id timeout_sec="180":
+    #!/usr/bin/env -S bash -eu
+    uv run python .github/scripts/ci_driver.py wait-handshake \
+      --bucket "${GCS_BUCKET:?Set GCS_BUCKET}" \
+      --workflow-run-id {{workflow_run_id}} \
+      --timeout-sec {{timeout_sec}} \
+      --project "${GCP_PROJECT:-}" \
+      --zone "${GCP_ZONE:-}" \
+      --instance-name "${BMT_VM_NAME:-}"
 
-# Apply contract/default-backed repo vars (plus optional declarative overrides) to GitHub
-repo-vars-apply *args:
-    uv run python devtools/gh_repo_vars.py --apply {{args}}
+# Runtime observability
+monitor *args:
+    uv run python devtools/bmt_monitor.py {{args}}
 
-# Report config variable surface and reduction opportunities
-env-surface:
-    uv run python devtools/env_surface_report.py
-
-# Validate required repo vars match VM metadata (set BMT_VM_NAME, GCP_ZONE, GCP_PROJECT or pass flags)
-validate-vm-vars *args:
-    uv run python devtools/gh_validate_vm_vars.py {{args}}
-
-# Fetch GitHub App permissions (requires --app-id and private key path)
-gh-app-perms *args:
-    uv run python devtools/gh_app_perms.py {{args}}
-
-# Check GCS trigger and ack for a workflow run (requires GCS_BUCKET env)
-# Use after handshake timeout: see if trigger was written and if VM wrote ack
 gcs-trigger run_id:
     #!/usr/bin/env -S bash -eu
     GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET}"
-    PARENT="${BMT_BUCKET_PREFIX:-}"
-    PARENT="${PARENT#/}"
-    PARENT="${PARENT%/}"
     RID="{{run_id}}"
-    RUNTIME_PREFIX="runtime"
-    [ -n "$PARENT" ] && RUNTIME_PREFIX="$PARENT/runtime"
-    ROOT="gs://$GCS_BUCKET/$RUNTIME_PREFIX"
+    ROOT="gs://$GCS_BUCKET/runtime"
     echo "=== Trigger (workflow wrote this) ==="
     gcloud storage cat "$ROOT/triggers/runs/$RID.json" 2>/dev/null || echo "(not found or failed)"
     echo ""
     echo "=== Ack (VM should write this when it picks up trigger) ==="
     gcloud storage cat "$ROOT/triggers/acks/$RID.json" 2>/dev/null || echo "(not found - VM may not have started or watcher failed)"
 
-# Stream VM serial port output (requires BMT_VM_NAME, GCP_ZONE)
 vm-serial:
     #!/usr/bin/env -S bash -eu
     VM="${BMT_VM_NAME:?Set BMT_VM_NAME}"
@@ -152,7 +85,6 @@ vm-serial:
     echo "VM=$VM zone=$ZONE"
     gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE"
 
-# One-shot: show GCS trigger/ack and tail VM serial (requires run_id, BMT_VM_NAME, GCP_ZONE, GCS_BUCKET)
 check-vm-gcs run_id:
     #!/usr/bin/env -S bash -eu
     just gcs-trigger {{run_id}}
@@ -161,3 +93,16 @@ check-vm-gcs run_id:
     VM="${BMT_VM_NAME:?Set BMT_VM_NAME}"
     ZONE="${GCP_ZONE:?Set GCP_ZONE}"
     gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | tail -c 2048 || echo "(failed - check VM name/zone)"
+
+# Config / environment tooling (repo-vars-apply: skip when vars match; use --force to re-set all)
+show-env:
+    uv run python devtools/gh_show_env.py
+
+repo-vars-check:
+    uv run python devtools/gh_repo_vars.py
+
+repo-vars-apply *args:
+    uv run python devtools/gh_repo_vars.py --apply {{args}}
+
+validate-vm-vars *args:
+    uv run python devtools/gh_validate_vm_vars.py {{args}}

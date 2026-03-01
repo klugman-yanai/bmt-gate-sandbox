@@ -26,9 +26,6 @@ class SKManagerError(RuntimeError):
     """Raised for manager execution/config errors."""
 
 
-UTC = timezone.utc
-
-
 _FORCED_WAV_PATH_KEYS = {
     "REF_PATH",
     "QUIET_PATH",
@@ -45,16 +42,11 @@ _FORCED_WAV_PATH_KEYS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SK project BMT manager")
     _ = parser.add_argument("--bucket", required=True)
-    _ = parser.add_argument(
-        "--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", "")
-    )
     _ = parser.add_argument("--project-id", required=True)
     _ = parser.add_argument("--bmt-id", required=True)
     _ = parser.add_argument("--jobs-config", required=True)
     _ = parser.add_argument("--workspace-root", default=".")
-    _ = parser.add_argument(
-        "--run-context", choices=["dev", "pr", "manual"], default="manual"
-    )
+    _ = parser.add_argument("--run-context", choices=["dev", "pr", "manual"], default="manual")
     _ = parser.add_argument("--limit", type=int, default=int(os.environ.get("LIMIT", "0")))
     _ = parser.add_argument(
         "--max-jobs",
@@ -67,20 +59,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _now_stamp() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _normalize_prefix(prefix: str) -> str:
-    return prefix.strip("/")
-
-
-def _bucket_root_uri(bucket: str, prefix: str) -> str:
-    p = _normalize_prefix(prefix)
-    return f"gs://{bucket}/{p}" if p else f"gs://{bucket}"
+def _runtime_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/runtime"
 
 
 def _bucket_uri(bucket_root: str, path_or_uri: str) -> str:
@@ -102,15 +89,11 @@ def _gcs_exists(uri: str) -> bool:
 def _gcloud_cp(src: str, dst: Path | str) -> None:
     dst_path = Path(dst) if not isinstance(dst, Path) else dst
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-    _ = subprocess.run(
-        ["gcloud", "storage", "cp", src, str(dst_path), "--quiet"], check=True
-    )
+    _ = subprocess.run(["gcloud", "storage", "cp", src, str(dst_path), "--quiet"], check=True)
 
 
 def _gcloud_upload(src: Path, dst_uri: str) -> None:
-    _ = subprocess.run(
-        ["gcloud", "storage", "cp", str(src), dst_uri, "--quiet"], check=True
-    )
+    _ = subprocess.run(["gcloud", "storage", "cp", str(src), dst_uri, "--quiet"], check=True)
 
 
 def _gcloud_rsync(src: str, dst: Path | str) -> None:
@@ -147,9 +130,7 @@ def _counter_regex(bmt_cfg: dict[str, Any]) -> re.Pattern[str]:
     return re.compile(r"Hi NAMUH counter = (\\d+)")
 
 
-def _rewrite_json_paths_for_wav(
-    cfg: dict[str, Any], wav_path: Path, output_path: Path
-) -> None:
+def _rewrite_json_paths_for_wav(cfg: dict[str, Any], wav_path: Path, output_path: Path) -> None:
     wav_value = str(wav_path.resolve())
     output_value = str(output_path.resolve())
 
@@ -274,17 +255,12 @@ def _gate_result(
     }
 
 
-def _resolve_status(
-    gate: dict[str, Any], warning_policy: dict[str, Any]
-) -> tuple[str, str]:
+def _resolve_status(gate: dict[str, Any], warning_policy: dict[str, Any]) -> tuple[str, str]:
     reason = str(gate.get("reason", "unknown"))
     if not bool(gate.get("passed")):
         return "fail", reason
 
-    if (
-        reason == "bootstrap_no_previous_result"
-        and bool(warning_policy.get("bootstrap_without_baseline", False))
-    ):
+    if reason == "bootstrap_no_previous_result" and bool(warning_policy.get("bootstrap_without_baseline", False)):
         return "warning", "bootstrap_without_baseline"
 
     return "pass", reason
@@ -317,9 +293,7 @@ def _run_one(
     for dotted_key, value in enable_overrides.items():
         _set_dotted(cfg, dotted_key, value)
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", dir=runtime_dir, delete=False
-    ) as temp_file:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", dir=runtime_dir, delete=False) as temp_file:
         json.dump(cfg, temp_file, indent=2)
         temp_path = Path(temp_file.name)
 
@@ -361,7 +335,7 @@ def _run_one(
 
 def main() -> int:
     args = parse_args()
-    bucket_root = _bucket_root_uri(args.bucket, args.bucket_prefix)
+    bucket_root = _runtime_bucket_root(args.bucket)
 
     jobs_cfg = _load_json(Path(args.jobs_config))
     bmts = jobs_cfg.get("bmts", {})
@@ -420,23 +394,15 @@ def main() -> int:
         custom_loader.chmod(custom_loader.stat().st_mode | 0o111)
 
     runtime_env = dict(os.environ)
-    runtime_cfg = (
-        bmt_cfg.get("runtime", {}) if isinstance(bmt_cfg.get("runtime"), dict) else {}
-    )
-    env_overrides = (
-        runtime_cfg.get("env_overrides", {})
-        if isinstance(runtime_cfg.get("env_overrides"), dict)
-        else {}
-    )
+    runtime_cfg = bmt_cfg.get("runtime", {}) if isinstance(bmt_cfg.get("runtime"), dict) else {}
+    env_overrides = runtime_cfg.get("env_overrides", {}) if isinstance(runtime_cfg.get("env_overrides"), dict) else {}
     if not isinstance(env_overrides, dict):
         raise SKManagerError("runtime.env_overrides must be an object")
     for key, value in env_overrides.items():
         runtime_env[str(key)] = str(value)
     staged_lib_path = str(runner_path.parent.resolve())
     existing_ld = str(runtime_env.get("LD_LIBRARY_PATH", "")).strip()
-    runtime_env["LD_LIBRARY_PATH"] = (
-        f"{staged_lib_path}:{existing_ld}" if existing_ld else staged_lib_path
-    )
+    runtime_env["LD_LIBRARY_PATH"] = f"{staged_lib_path}:{existing_ld}" if existing_ld else staged_lib_path
 
     _gcloud_rsync(dataset_uri, inputs_dir)
     wav_files = sorted(inputs_dir.rglob("*.wav"))
@@ -482,36 +448,22 @@ def main() -> int:
             result = future.result()
             file_results.append(result)
             if args.human:
-                print(
-                    f"[{idx}/{total}] {result['file']} count={result['namuh_count']} exit={result['exit_code']}"
-                )
+                print(f"[{idx}/{total}] {result['file']} count={result['namuh_count']} exit={result['exit_code']}")
 
     file_results.sort(key=lambda item: item["file"])
     failed_count = sum(1 for item in file_results if int(item["exit_code"]) != 0)
-    raw_score = (
-        sum(int(item["namuh_count"]) for item in file_results) / len(file_results)
-        if file_results
-        else 0.0
-    )
+    raw_score = sum(int(item["namuh_count"]) for item in file_results) / len(file_results) if file_results else 0.0
     aggregate_score = raw_score
 
     gate_cfg = bmt_cfg.get("gate", {}) if isinstance(bmt_cfg.get("gate"), dict) else {}
-    warning_policy = (
-        bmt_cfg.get("warning_policy", {})
-        if isinstance(bmt_cfg.get("warning_policy"), dict)
-        else {}
-    )
+    warning_policy = bmt_cfg.get("warning_policy", {}) if isinstance(bmt_cfg.get("warning_policy"), dict) else {}
     demo_cfg = bmt_cfg.get("demo", {}) if isinstance(bmt_cfg.get("demo"), dict) else {}
     demo_force_pass = bool(demo_cfg.get("force_pass", False))
     comparison = _effective_gate_comparison(args.bmt_id, str(gate_cfg.get("comparison", "gte")))
     # Gate against the previous run's latest.json for direct run-to-run comparison.
     last_score, previous_latest = _read_result_file(bucket_root, results_prefix, "latest.json")
-    delta_from_previous = (
-        (aggregate_score - last_score) if last_score is not None else None
-    )
-    gate = _gate_result(
-        comparison, aggregate_score, last_score, failed_count, args.run_context
-    )
+    delta_from_previous = (aggregate_score - last_score) if last_score is not None else None
+    gate = _gate_result(comparison, aggregate_score, last_score, failed_count, args.run_context)
     status, reason_code = _resolve_status(gate, warning_policy)
     if demo_force_pass and status == "fail":
         status = "pass"
@@ -551,13 +503,9 @@ def main() -> int:
 
     should_update_last_passing = args.run_context == "dev" and bool(gate["passed"])
     if should_update_last_passing:
-        _ = last_passing_local.write_text(
-            json.dumps(result, indent=2) + "\n", encoding="utf-8"
-        )
+        _ = last_passing_local.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
-    _gcloud_upload(
-        latest_local, _bucket_uri(bucket_root, f"{results_prefix}/latest.json")
-    )
+    _gcloud_upload(latest_local, _bucket_uri(bucket_root, f"{results_prefix}/latest.json"))
     _gcloud_upload(
         archive_local,
         _bucket_uri(bucket_root, f"{archive_prefix}/{archive_local.name}"),
@@ -598,15 +546,10 @@ def main() -> int:
         "failed_count": failed_count,
         "latest_json": str(latest_local),
     }
-    _ = Path(args.summary_out).write_text(
-        json.dumps(manager_summary, indent=2) + "\n", encoding="utf-8"
-    )
+    _ = Path(args.summary_out).write_text(json.dumps(manager_summary, indent=2) + "\n", encoding="utf-8")
 
     state = status.upper()
-    print(
-        f"SK_BMT_GATE={state} BMT={args.bmt_id} SCORE={aggregate_score:.3f} "
-         f"RAW={raw_score:.3f}"
-    )
+    print(f"SK_BMT_GATE={state} BMT={args.bmt_id} SCORE={aggregate_score:.3f} RAW={raw_score:.3f}")
 
     return 1 if status == "fail" else 0
 

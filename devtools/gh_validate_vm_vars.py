@@ -33,10 +33,7 @@ def _resolve_required(name: str, cli_value: str | None, cli_flag: str) -> str:
 
 
 def _normalize(name: str, value: str) -> str:
-    raw = (value or "").strip()
-    if name == "BMT_BUCKET_PREFIX":
-        return raw.strip("/")
-    return raw
+    return (value or "").strip()
 
 
 def _read_vm_metadata(project: str, zone: str, vm_name: str, key: str) -> str:

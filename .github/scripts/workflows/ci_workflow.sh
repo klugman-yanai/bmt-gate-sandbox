@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/github_api.sh"
+
+HEAD_SHA_RESOLVED=""
+HEAD_BRANCH_RESOLVED=""
+HEAD_EVENT_RESOLVED=""
+PR_NUMBER_RESOLVED=""
+
 usage() {
   cat <<'USAGE'
 Usage: .github/scripts/workflows/ci_workflow.sh <command>
@@ -11,7 +20,9 @@ Commands:
   compute-preset-info
   resolve-head-context
   dispatch-bmt
+  handoff-dispatch-bmt
   post-trigger-failure-status
+  write-handoff-dispatch-summary
 USAGE
 }
 
@@ -20,6 +31,75 @@ require_cmd() {
     echo "::error::Required command not found: $1"
     exit 1
   fi
+}
+
+resolve_head_context() {
+  local event_name="${EVENT_NAME:-}"
+  if [[ -z "$event_name" ]]; then
+    echo "::error::EVENT_NAME is required"
+    exit 1
+  fi
+
+  if [[ "$event_name" == "pull_request" || "$event_name" == "pull_request_target" ]]; then
+    HEAD_SHA_RESOLVED="${PR_HEAD_SHA:-}"
+    HEAD_BRANCH_RESOLVED="${PR_HEAD_REF:-}"
+    HEAD_EVENT_RESOLVED="pull_request"
+    PR_NUMBER_RESOLVED="${PR_NUMBER:-}"
+  else
+    HEAD_SHA_RESOLVED="${DEFAULT_HEAD_SHA:-}"
+    HEAD_BRANCH_RESOLVED="${DEFAULT_HEAD_BRANCH:-}"
+    HEAD_EVENT_RESOLVED="push"
+    PR_NUMBER_RESOLVED=""
+  fi
+
+  if [[ -z "$HEAD_SHA_RESOLVED" || -z "$HEAD_BRANCH_RESOLVED" ]]; then
+    echo "::error::Failed to resolve head context (HEAD_SHA/HEAD_BRANCH empty)"
+    exit 1
+  fi
+}
+
+write_head_context_output() {
+  if [[ -z "${GITHUB_OUTPUT:-}" ]]; then
+    echo "::error::GITHUB_OUTPUT is not set"
+    exit 1
+  fi
+  {
+    echo "head_sha=${HEAD_SHA_RESOLVED}"
+    echo "head_branch=${HEAD_BRANCH_RESOLVED}"
+    echo "head_event=${HEAD_EVENT_RESOLVED}"
+    echo "pr_number=${PR_NUMBER_RESOLVED}"
+  } >>"$GITHUB_OUTPUT"
+}
+
+dispatch_bmt_request() {
+  local repository="$1"
+  local app_token="$2"
+  local head_branch="$3"
+  local ci_run_id="$4"
+  local head_sha="$5"
+  local head_event="$6"
+  local pr_number="$7"
+  local ref=""
+  local url=""
+  local body=""
+
+  if [[ -z "$repository" || -z "$app_token" || -z "$head_branch" || -z "$ci_run_id" || -z "$head_sha" ]]; then
+    echo "::error::REPOSITORY, APP_TOKEN, HEAD_BRANCH, CI_RUN_ID, and HEAD_SHA are required"
+    exit 1
+  fi
+
+  ref="refs/heads/${head_branch}"
+  url="https://api.github.com/repos/${repository}/actions/workflows/bmt.yml/dispatches"
+  body="$(jq -n \
+    --arg ref "$ref" \
+    --arg run_id "$ci_run_id" \
+    --arg head_sha "$head_sha" \
+    --arg head_branch "$head_branch" \
+    --arg head_event "$head_event" \
+    --arg pr_number "$pr_number" \
+    '{ref: $ref, inputs: {ci_run_id: $run_id, head_sha: $head_sha, head_branch: $head_branch, head_event: $head_event, pr_number: $pr_number}}')"
+
+  gh_api_request "POST" "$url" "$app_token" "$body"
 }
 
 cmd="${1:-}"
@@ -31,29 +111,11 @@ shift || true
 
 case "$cmd" in
   parse-presets)
-    require_cmd jq
-    allowed_raw="${BMT_PROJECTS:-all release runners}"
-    allowed_norm="$(echo "$allowed_raw" | tr '[:upper:]' '[:lower:]' | xargs)"
-
-    if [[ -z "$allowed_norm" || "$allowed_norm" == "all" || "$allowed_norm" == "*" || "$allowed_norm" == "all release runners" || "$allowed_norm" == "all-release-runners" || "$allowed_norm" == "all_release_runners" ]]; then
-      allowed_json='null'
-    else
-      allowed_json="$(echo "$allowed_raw" | jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | ascii_downcase) | map(select(length>0))')"
-    fi
-
-    presets="$(jq -c --argjson allowed "$allowed_json" '
-      [ .configurePresets[]
-        | select(.name | test("_gcc_Release$"))
-        | select(.name | test("xtensa|hexagon") | not)
-        | (.name | sub("_gcc_Release$"; "") | ascii_downcase) as $proj
-        | select($allowed == null or ($allowed | index($proj)))
-        | { configure: .name, build: (.name + "-build"), short: .name }
-      ] | unique_by(.configure)' CMakePresets.json)"
-
-    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-      echo "presets=$presets" >>"$GITHUB_OUTPUT"
-    fi
-    echo "::notice::Building one job per project (BMT_PROJECTS=${allowed_raw}): $presets"
+    require_cmd uv
+    uv run python ./.github/scripts/ci_driver.py parse-release-runners \
+      --output-format ci \
+      --output-key presets \
+      --project-filter "${BMT_PROJECTS:-}"
     ;;
 
   stage-release-runner)
@@ -65,7 +127,7 @@ case "$cmd" in
     fi
 
     if [[ "$cfg" == *"_gcc_Release"* && "$cfg" != *"xtensa"* && "$cfg" != *"hexagon"* ]]; then
-      binary_dir="$(jq -r --arg name "$cfg" '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json | sed 's|\${sourceDir}|.|')"
+      binary_dir="$(jq -r --arg name "$cfg" '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json | sed 's|[$]{sourceDir}|.|')"
       project="$(echo "$cfg" | sed 's/_gcc_Release$//' | tr '[:upper:]' '[:lower:]')"
       mkdir -p "$binary_dir/Runners" "$binary_dir/Kardome"
       if [[ -f "$binary_dir/Runners/kardome_runner" ]]; then
@@ -93,7 +155,7 @@ case "$cmd" in
 
     preset="$(echo "$cfg" | tr '[:upper:]' '[:lower:]')"
     project="$(echo "$cfg" | sed 's/_gcc_Release$//' | tr '[:upper:]' '[:lower:]')"
-    binary_dir="$(jq -r --arg name "$cfg" '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json | sed 's|\${sourceDir}|.|')"
+    binary_dir="$(jq -r --arg name "$cfg" '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json | sed 's|[$]{sourceDir}|.|')"
 
     if [[ -z "${GITHUB_OUTPUT:-}" ]]; then
       echo "::error::GITHUB_OUTPUT is not set"
@@ -107,32 +169,12 @@ case "$cmd" in
     ;;
 
   resolve-head-context)
-    event_name="${EVENT_NAME:-}"
-    if [[ -z "$event_name" ]]; then
-      echo "::error::EVENT_NAME is required"
-      exit 1
-    fi
-    if [[ -z "${GITHUB_OUTPUT:-}" ]]; then
-      echo "::error::GITHUB_OUTPUT is not set"
-      exit 1
-    fi
-
-    if [[ "$event_name" == "pull_request" ]]; then
-      echo "head_sha=${PR_HEAD_SHA:-}" >>"$GITHUB_OUTPUT"
-      echo "head_branch=${PR_HEAD_REF:-}" >>"$GITHUB_OUTPUT"
-      echo "head_event=pull_request" >>"$GITHUB_OUTPUT"
-      echo "pr_number=${PR_NUMBER:-}" >>"$GITHUB_OUTPUT"
-    else
-      echo "head_sha=${DEFAULT_HEAD_SHA:-}" >>"$GITHUB_OUTPUT"
-      echo "head_branch=${DEFAULT_HEAD_BRANCH:-}" >>"$GITHUB_OUTPUT"
-      echo "head_event=push" >>"$GITHUB_OUTPUT"
-      echo "pr_number=" >>"$GITHUB_OUTPUT"
-    fi
+    resolve_head_context
+    write_head_context_output
     ;;
 
   dispatch-bmt)
     require_cmd jq
-    require_cmd curl
     repository="${REPOSITORY:-}"
     app_token="${APP_TOKEN:-}"
     head_branch="${HEAD_BRANCH:-}"
@@ -141,38 +183,31 @@ case "$cmd" in
     head_event="${HEAD_EVENT:-push}"
     pr_number="${PR_NUMBER:-}"
 
-    if [[ -z "$repository" || -z "$app_token" || -z "$head_branch" || -z "$ci_run_id" || -z "$head_sha" ]]; then
-      echo "::error::REPOSITORY, APP_TOKEN, HEAD_BRANCH, CI_RUN_ID, and HEAD_SHA are required"
-      exit 1
-    fi
+    dispatch_bmt_request "$repository" "$app_token" "$head_branch" "$ci_run_id" "$head_sha" "$head_event" "$pr_number"
+    ;;
 
-    ref="refs/heads/${head_branch}"
-    url="https://api.github.com/repos/${repository}/actions/workflows/bmt.yml/dispatches"
-    body="$(jq -n \
-      --arg ref "$ref" \
-      --arg run_id "$ci_run_id" \
-      --arg head_sha "$head_sha" \
-      --arg head_branch "$head_branch" \
-      --arg head_event "$head_event" \
-      --arg pr_number "$pr_number" \
-      '{ref: $ref, inputs: {ci_run_id: $run_id, head_sha: $head_sha, head_branch: $head_branch, head_event: $head_event, pr_number: $pr_number}}')"
+  handoff-dispatch-bmt)
+    require_cmd jq
+    resolve_head_context
 
-    http_code="$(curl -sS -w '%{http_code}' -o /tmp/dispatch_resp -X POST \
-      -H "Accept: application/vnd.github+json" \
-      -H "Authorization: Bearer ${app_token}" \
-      -H "X-GitHub-Api-Version: 2022-11-28" \
-      "$url" -d "$body")"
+    repository="${REPOSITORY:-}"
+    app_token="${APP_TOKEN:-}"
+    ci_run_id="${CI_RUN_ID:-}"
+    dispatch_bmt_request \
+      "$repository" \
+      "$app_token" \
+      "$HEAD_BRANCH_RESOLVED" \
+      "$ci_run_id" \
+      "$HEAD_SHA_RESOLVED" \
+      "$HEAD_EVENT_RESOLVED" \
+      "$PR_NUMBER_RESOLVED"
 
-    if [[ "$http_code" != "204" ]]; then
-      echo "Workflow dispatch returned HTTP ${http_code}. Response:"
-      cat /tmp/dispatch_resp
-      exit 1
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      write_head_context_output
     fi
     ;;
 
   post-trigger-failure-status)
-    require_cmd jq
-    require_cmd curl
     repository="${REPOSITORY:-}"
     github_token="${GITHUB_TOKEN:-}"
     head_sha="${HEAD_SHA:-}"
@@ -185,22 +220,69 @@ case "$cmd" in
       exit 1
     fi
 
-    curl -sS -X POST \
-      -H "Accept: application/vnd.github+json" \
-      -H "Authorization: Bearer ${github_token}" \
-      -H "X-GitHub-Api-Version: 2022-11-28" \
-      "https://api.github.com/repos/${repository}/statuses/${head_sha}" \
-      -d "$(jq -n --arg c "$context" --arg d "Trigger BMT failed. Check Actions logs." '{state:"failure",context:$c,description:$d}')"
+    gh_post_status \
+      "$repository" \
+      "$head_sha" \
+      "$github_token" \
+      "failure" \
+      "$context" \
+      "Trigger BMT failed. Check Actions logs."
 
-    if [[ "$event_name" == "pull_request" && -n "$pr_number" ]]; then
+    if [[ ( "$event_name" == "pull_request" || "$event_name" == "pull_request_target" ) && -n "$pr_number" ]]; then
       body=$'## BMT result: Did not run\n\nThe test run could not be started. For details, open the **Actions** tab for this PR.'
-      curl -sS -X POST \
-        -H "Accept: application/vnd.github+json" \
-        -H "Authorization: Bearer ${github_token}" \
-        -H "X-GitHub-Api-Version: 2022-11-28" \
-        "https://api.github.com/repos/${repository}/issues/${pr_number}/comments" \
-        -d "$(jq -n --arg body "$body" '{body:$body}')"
+      gh_post_pr_comment "$repository" "$pr_number" "$github_token" "$body"
     fi
+    ;;
+
+  write-handoff-dispatch-summary)
+    repository="${REPOSITORY:-}"
+    event_name="${EVENT_NAME:-push}"
+    head_sha="${HEAD_SHA:-}"
+    head_branch="${HEAD_BRANCH:-}"
+    head_event="${HEAD_EVENT:-push}"
+    pr_number="${PR_NUMBER:-}"
+    ci_run_id="${CI_RUN_ID:-}"
+    dispatch_outcome="${DISPATCH_OUTCOME:-unknown}"
+    server_url="${GITHUB_SERVER_URL:-https://github.com}"
+    run_url=""
+    pr_url=""
+    state_line=""
+
+    if [[ -n "$repository" && -n "$ci_run_id" ]]; then
+      run_url="${server_url}/${repository}/actions/runs/${ci_run_id}"
+    fi
+    if [[ -n "$repository" && -n "$pr_number" ]]; then
+      pr_url="${server_url}/${repository}/pull/${pr_number}"
+    fi
+
+    if [[ "$dispatch_outcome" == "success" ]]; then
+      state_line="Handoff dispatch complete: bmt.yml workflow was triggered."
+    else
+      state_line="Handoff dispatch failed: bmt.yml workflow was not triggered."
+    fi
+
+    {
+      echo "## BMT Handoff Dispatch Summary"
+      echo
+      echo "$state_line"
+      echo
+      echo "- Repository: \`${repository:-unknown}\`"
+      echo "- Event: \`${event_name}\` (head event: \`${head_event}\`)"
+      echo "- Head branch: \`${head_branch:-unknown}\`"
+      echo "- Head SHA: \`${head_sha:-unknown}\`"
+      echo "- Dispatch outcome: \`${dispatch_outcome}\`"
+      if [[ -n "$run_url" ]]; then
+        echo "- Workflow run: [Open run](${run_url})"
+      fi
+      if [[ -n "$pr_url" ]]; then
+        echo "- PR: [#${pr_number}](${pr_url})"
+      else
+        echo "- PR: (not applicable)"
+      fi
+      echo
+      echo "This workflow reports handoff dispatch health only."
+      echo "Final BMT outcome is posted by the VM to PR checks/comments."
+    } >>"${GITHUB_STEP_SUMMARY:-/dev/stdout}"
     ;;
 
   *)

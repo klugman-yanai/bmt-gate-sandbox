@@ -4,6 +4,8 @@ data/
 local_batch/
 sk_runtime/
 secrets/
+debug/
+.local/
 
 # Python
 **/__pycache__/
@@ -25,12 +27,12 @@ remote/runtime/triggers/
 remote/runtime/**/inputs/**/*.wav
 remote/runtime/**/outputs/
 remote/runtime/**/results/
-resources/
 
 # Tooling/editor
 compile_commands.json
 .vscode/
 .idea/
+.cursor/plans/
 *.swp
 *~
 

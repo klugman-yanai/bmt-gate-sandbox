@@ -34,7 +34,19 @@ REQUIRED_CODE_FILES = (
 
 FORBIDDEN_CODE_PATTERNS = (
     r"(^|/)__pycache__(/|$)",
+    r"__pycache__",
     r"\.pyc$",
+    r"\.pyo$",
+    r"(^|/)\.venv(/|$)",
+    r"(^|/)venv(/|$)",
+    r"(^|/)\.uv(/|$)",
+    r"(^|/)\.mypy_cache(/|$)",
+    r"(^|/)\.pytest_cache(/|$)",
+    r"(^|/)\.ruff_cache(/|$)",
+    r"(^|/)\.tox(/|$)",
+    r"(^|/)\.eggs(/|$)",
+    r"(^|/)[^/]+\.egg-info(/|$)",
+    r"\.egg$",
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/inputs(/|$)",
     r"(^|/)sk/outputs(/|$)",
@@ -45,8 +57,21 @@ FORBIDDEN_RUNTIME_PATTERNS = (
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/results(/|$)",
     r"(^|/)sk/outputs(/|$)",
+    r"(^|/)inputs(/|$).*\.wav$",
     r"(^|/)__pycache__(/|$)",
+    r"__pycache__",
     r"\.pyc$",
+    r"\.pyo$",
+    r"(^|/)\.venv(/|$)",
+    r"(^|/)venv(/|$)",
+    r"(^|/)\.uv(/|$)",
+    r"(^|/)\.mypy_cache(/|$)",
+    r"(^|/)\.pytest_cache(/|$)",
+    r"(^|/)\.ruff_cache(/|$)",
+    r"(^|/)\.tox(/|$)",
+    r"(^|/)\.eggs(/|$)",
+    r"(^|/)[^/]+\.egg-info(/|$)",
+    r"\.egg$",
 )
 
 
@@ -106,9 +131,7 @@ def main() -> int:
         missing = True
 
     unexpected_top_level = sorted(
-        entry.name
-        for entry in root.iterdir()
-        if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".")
+        entry.name for entry in root.iterdir() if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".")
     )
     if unexpected_top_level:
         click.echo("::error::remote/ must be a direct bucket mirror with only code/ and runtime/.", err=True)

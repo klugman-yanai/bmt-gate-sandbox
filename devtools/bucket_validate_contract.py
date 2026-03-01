@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Validate code/runtime bucket contract for manual sync deployments."""
+"""Validate code/runtime bucket contract for manual sync deployments.
+
+Paths such as sk/results/false_rejects and runner URIs are project-specific
+(current sk project); derive from bmt_projects.json + jobs config where possible.
+CLI and contract allow overrides.
+"""
 
 from __future__ import annotations
 
@@ -15,9 +20,7 @@ if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
 from shared_bucket_env import (
     bucket_option,
-    bucket_prefix_option,
     code_bucket_root_uri,
-    normalize_prefix,
     runtime_bucket_root_uri,
 )
 
@@ -65,20 +68,18 @@ def has_snapshot_leaf(runtime_root: str, results_prefix: str, leaf_name: str) ->
 
 @click.command()
 @bucket_option
-@bucket_prefix_option
 @click.option(
     "--require-runner",
     is_flag=True,
     help="Also require canonical runner binary object to exist in runtime namespace.",
 )
-def main(bucket: str, bucket_prefix: str, require_runner: bool) -> int:
+def main(bucket: str, require_runner: bool) -> int:
     if not bucket:
         click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
 
-    parent = normalize_prefix(bucket_prefix)
-    code_root = code_bucket_root_uri(bucket, parent)
-    runtime_root = runtime_bucket_root_uri(bucket, parent)
+    code_root = code_bucket_root_uri(bucket)
+    runtime_root = runtime_bucket_root_uri(bucket)
     missing = False
 
     click.echo(f"Validating code root: {code_root}")

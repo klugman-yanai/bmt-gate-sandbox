@@ -9,37 +9,6 @@ _read_meta() {
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/${key}" 2>/dev/null || true
 }
 
-_normalize_prefix() {
-  local value="$1"
-  value="${value#/}"
-  value="${value%/}"
-  printf '%s' "$value"
-}
-
-_child_prefix() {
-  local parent="$(_normalize_prefix "$1")"
-  local leaf="$(_normalize_prefix "$2")"
-  if [[ -z "$leaf" ]]; then
-    printf '%s' "$parent"
-    return
-  fi
-  if [[ -n "$parent" ]]; then
-    printf '%s/%s' "$parent" "$leaf"
-  else
-    printf '%s' "$leaf"
-  fi
-}
-
-_bucket_root() {
-  local bucket="$1"
-  local prefix="$(_normalize_prefix "$2")"
-  if [[ -n "$prefix" ]]; then
-    printf 'gs://%s/%s' "$bucket" "$prefix"
-  else
-    printf 'gs://%s' "$bucket"
-  fi
-}
-
 _object_exists() {
   local uri="$1"
   gcloud storage ls "$uri" >/dev/null 2>&1
@@ -65,20 +34,14 @@ _rsync_with_retry() {
 }
 
 export GCS_BUCKET="${GCS_BUCKET:-$(_read_meta "GCS_BUCKET")}"
-export BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-$(_read_meta "BMT_BUCKET_PREFIX")}"
 export BMT_REPO_ROOT="${BMT_REPO_ROOT:-$(_read_meta "BMT_REPO_ROOT")}"
 
 GCS_BUCKET="${GCS_BUCKET:?Set metadata GCS_BUCKET}"
-BMT_BUCKET_PREFIX="$(_normalize_prefix "${BMT_BUCKET_PREFIX:-}")"
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
-CODE_PREFIX="$(_child_prefix "$BMT_BUCKET_PREFIX" "code")"
-RUNTIME_PREFIX="$(_child_prefix "$BMT_BUCKET_PREFIX" "runtime")"
-CODE_ROOT="$(_bucket_root "$GCS_BUCKET" "$CODE_PREFIX")"
+CODE_ROOT="gs://${GCS_BUCKET}/code"
 BOOTSTRAP_REL="bootstrap/startup_example.sh"
 
-export GCS_BUCKET BMT_BUCKET_PREFIX BMT_REPO_ROOT
-export BMT_CODE_PREFIX="${CODE_PREFIX}"
-export BMT_RUNTIME_PREFIX="${RUNTIME_PREFIX}"
+export GCS_BUCKET BMT_REPO_ROOT
 
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "::error::gcloud CLI not found on VM; bootstrap cannot sync code." >&2
@@ -102,6 +65,17 @@ fi
 if [[ -d "${BMT_REPO_ROOT}/bootstrap" ]]; then
   chmod +x "${BMT_REPO_ROOT}/bootstrap/"*.sh 2>/dev/null || true
 fi
+
+# Remove Python/uv bloat that may have been synced or left from a previous run.
+_clean_bloat() {
+  local root="${1:?}"
+  find "$root" -type d \( -name '__pycache__' -o -name '.venv' -o -name 'venv' -o -name '.uv' \
+    -o -name '.mypy_cache' -o -name '.pytest_cache' -o -name '.ruff_cache' -o -name '.tox' -o -name '.eggs' \) \
+    -exec rm -rf {} + 2>/dev/null || true
+  find "$root" -type d -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
+  find "$root" -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.egg' \) -delete 2>/dev/null || true
+}
+_clean_bloat "${BMT_REPO_ROOT}"
 
 if [[ -f "${BMT_REPO_ROOT}/bootstrap/startup_example.sh" ]]; then
   exec bash "${BMT_REPO_ROOT}/bootstrap/startup_example.sh"

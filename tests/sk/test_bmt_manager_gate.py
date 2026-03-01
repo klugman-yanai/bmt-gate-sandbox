@@ -1,4 +1,4 @@
-"""Tests for gate comparison normalization in remote/sk/bmt_manager.py."""
+"""Tests for gate comparison normalization in remote/code/sk/bmt_manager.py."""
 
 from __future__ import annotations
 

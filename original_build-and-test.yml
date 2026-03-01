@@ -168,33 +168,6 @@ jobs:
             exit 1
           fi
 
-      # ---- upload runner artifact for BMT (gcc_Release only) ---------
-      - name: Compute preset info
-        id: preset-info
-        if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
-        run: |
-          set -euo pipefail
-          preset=$(echo "${{ matrix.configure }}" | tr '[:upper:]' '[:lower:]')
-          project=$(echo "${{ matrix.configure }}" | sed 's/_gcc_Release$//' | tr '[:upper:]' '[:lower:]')
-          binary_dir=$(jq -r --arg name "${{ matrix.configure }}" \
-            '.configurePresets[] | select(.name==$name) | .binaryDir' CMakePresets.json \
-            | sed 's|\${sourceDir}|.|')
-          echo "preset=$preset" >>"$GITHUB_OUTPUT"
-          echo "project=$project" >>"$GITHUB_OUTPUT"
-          echo "runners_dir=${binary_dir}/Runners" >>"$GITHUB_OUTPUT"
-          echo "lib_dir=${binary_dir}/Kardome" >>"$GITHUB_OUTPUT"
-
-      - name: Upload runner artifact
-        if: steps.preset-info.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: runner-${{ steps.preset-info.outputs.preset }}
-          path: |
-            ${{ steps.preset-info.outputs.runners_dir }}/kardome_runner
-            ${{ steps.preset-info.outputs.lib_dir }}/libKardome.so
-          retention-days: 1
-          if-no-files-found: warn
-
       # ---- final disk report + cleanup (always) ----------------------
       - name: Disk space (after)
         if: always()

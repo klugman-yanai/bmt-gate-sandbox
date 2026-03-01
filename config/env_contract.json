@@ -12,10 +12,8 @@
         "BMT_VM_NAME"
       ],
       "optional": [
-        "BMT_BUCKET_PREFIX",
         "BMT_PROJECTS",
         "BMT_STATUS_CONTEXT",
-        "BMT_DESCRIPTION_PENDING",
         "BMT_HANDSHAKE_TIMEOUT_SEC"
       ]
     },
@@ -24,13 +22,11 @@
         "GCS_BUCKET"
       ],
       "optional": [
-        "BMT_BUCKET_PREFIX",
         "BMT_REPO_ROOT"
       ]
     },
     "vm_runtime_env": {
       "optional": [
-        "GITHUB_STATUS_TOKEN",
         "GITHUB_APP_TEST_ID",
         "GITHUB_APP_TEST_INSTALLATION_ID",
         "GITHUB_APP_TEST_PRIVATE_KEY",
@@ -42,7 +38,6 @@
     "local_dev_env": {
       "optional": [
         "GCS_BUCKET",
-        "BMT_BUCKET_PREFIX",
         "GCP_PROJECT",
         "GCP_ZONE",
         "BMT_VM_NAME"
@@ -51,15 +46,19 @@
   },
   "consistency_checks": {
     "repo_vs_vm_metadata": [
-      "GCS_BUCKET",
-      "BMT_BUCKET_PREFIX"
+      "GCS_BUCKET"
+    ],
+    "repo_var_vs_branch_required_status_context": [
+      {
+        "repo_var": "BMT_STATUS_CONTEXT",
+        "branch": "dev",
+        "context_substring": "bmt"
+      }
     ]
   },
   "defaults": {
-    "BMT_BUCKET_PREFIX": "",
     "BMT_PROJECTS": "all release runners",
     "BMT_STATUS_CONTEXT": "BMT Gate",
-    "BMT_DESCRIPTION_PENDING": "BMT running on VM; status will update when complete.",
     "BMT_HANDSHAKE_TIMEOUT_SEC": "180",
     "BMT_REPO_ROOT": "/opt/bmt"
   },

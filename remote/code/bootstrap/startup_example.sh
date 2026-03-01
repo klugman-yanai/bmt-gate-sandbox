@@ -7,12 +7,13 @@
 # Use as GCP "Startup script" (VM metadata) or from systemd. Set the variables
 # below, or set them via VM custom metadata (see setup_vm_startup.sh), or export
 # before running. Requires gcloud and the VM service account to have
-# roles/secretmanager.secretAccessor on the three secrets.
+# roles/secretmanager.secretAccessor on the configured GitHub App secrets.
 
 set -euo pipefail
 
 _self_stop_enabled="${BMT_SELF_STOP:-1}"
 
+# shellcheck disable=SC2329
 _stop_instance_best_effort() {
   local exit_code="$1"
   if [[ "${_self_stop_enabled}" != "1" ]]; then
@@ -38,6 +39,7 @@ _stop_instance_best_effort() {
   fi
 }
 
+# shellcheck disable=SC2329
 _on_exit() {
   local rc=$?
   trap - EXIT
@@ -56,30 +58,29 @@ _read_meta() {
 if [[ -z "${GCS_BUCKET:-}" ]]; then
   GCS_BUCKET=$(_read_meta "GCS_BUCKET")
 fi
-if [[ -z "${BMT_BUCKET_PREFIX:-}" ]]; then
-  BMT_BUCKET_PREFIX=$(_read_meta "BMT_BUCKET_PREFIX")
-fi
 if [[ -z "${BMT_REPO_ROOT:-}" ]]; then
   BMT_REPO_ROOT=$(_read_meta "BMT_REPO_ROOT")
+fi
+if [[ -z "${GCP_PROJECT:-}" ]]; then
+  GCP_PROJECT=$(_read_meta "GCP_PROJECT")
 fi
 
 # --- Configure these (or already set via VM metadata / env above) ---
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
 GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET or VM metadata GCS_BUCKET}"
-BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-}"
-HOME_DIR="${HOME:-/root}"
-if [[ -n "${BMT_WORKSPACE_ROOT:-}" ]]; then
-  BMT_WORKSPACE_ROOT="${BMT_WORKSPACE_ROOT}"
-elif [[ -d "${HOME_DIR}/sk_runtime" && ! -d "${HOME_DIR}/bmt_workspace" ]]; then
-  echo "Warning: using legacy workspace path ${HOME_DIR}/sk_runtime"
-  BMT_WORKSPACE_ROOT="${HOME_DIR}/sk_runtime"
-else
-  BMT_WORKSPACE_ROOT="${HOME_DIR}/bmt_workspace"
+if [[ -z "${GCP_PROJECT:-}" ]]; then
+  GCP_PROJECT=$(curl -sS -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/project/project-id" 2>/dev/null || true)
 fi
-# Secret Manager secret IDs (defaults match README)
-GITHUB_APP_SECRET_ID_APP="${GITHUB_APP_SECRET_ID_APP:-GITHUB_APP_ID}"
-GITHUB_APP_SECRET_ID_INSTALL="${GITHUB_APP_SECRET_ID_INSTALL:-GITHUB_APP_INSTALLATION_ID}"
-GITHUB_APP_SECRET_ID_KEY="${GITHUB_APP_SECRET_ID_KEY:-GITHUB_APP_PRIVATE_KEY}"
+HOME_DIR="${HOME:-/root}"
+if [[ -z "${BMT_WORKSPACE_ROOT:-}" ]]; then
+  if [[ -d "${HOME_DIR}/sk_runtime" && ! -d "${HOME_DIR}/bmt_workspace" ]]; then
+    echo "Warning: using legacy workspace path ${HOME_DIR}/sk_runtime"
+    BMT_WORKSPACE_ROOT="${HOME_DIR}/sk_runtime"
+  else
+    BMT_WORKSPACE_ROOT="${HOME_DIR}/bmt_workspace"
+  fi
+fi
 
 VENV="${BMT_REPO_ROOT}/.venv"
 WATCHER="${BMT_REPO_ROOT}/vm_watcher.py"
@@ -112,43 +113,75 @@ if [[ ! -d "$VENV" ]] || ! "${VENV}/bin/python" -c "import jwt" 2>/dev/null; the
   fi
 fi
 
-# 3. Fetch secrets and export
-# Fetch test repo GitHub App credentials (non-blocking if not configured)
-if gcloud secrets describe GITHUB_APP_TEST_ID &>/dev/null; then
-  echo "Fetching GitHub App credentials for test environment..."
-  GITHUB_APP_TEST_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_TEST_ID" 2>/dev/null || echo "")
-  GITHUB_APP_TEST_INSTALLATION_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_TEST_INSTALLATION_ID" 2>/dev/null || echo "")
-  GITHUB_APP_TEST_PRIVATE_KEY=$(gcloud secrets versions access latest --secret="GITHUB_APP_TEST_PRIVATE_KEY" 2>/dev/null || echo "")
-  export GITHUB_APP_TEST_ID GITHUB_APP_TEST_INSTALLATION_ID GITHUB_APP_TEST_PRIVATE_KEY
-  if [[ -n "$GITHUB_APP_TEST_ID" ]]; then
-    echo "✓ Loaded GitHub App credentials for test environment"
-  fi
+# 3. Fetch secrets and export.
+# Canonical groups only:
+#   - GITHUB_APP_TEST_*
+#   - GITHUB_APP_PROD_*
+
+# Regional secrets: configure gcloud to use the regional Secret Manager endpoint.
+# Set BMT_SECRETS_LOCATION to override; defaults to the VM zone's region.
+# When set, gcloud secrets commands route through the regional endpoint automatically.
+if [[ -z "${BMT_SECRETS_LOCATION:-}" ]]; then
+  _vm_zone=$(curl -sS -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/zone" 2>/dev/null | sed 's|.*/||' || true)
+  BMT_SECRETS_LOCATION="${_vm_zone%-*}"
 fi
 
-# Fetch prod repo GitHub App credentials (non-blocking if not configured)
-if gcloud secrets describe GITHUB_APP_PROD_ID &>/dev/null; then
-  echo "Fetching GitHub App credentials for prod environment..."
-  GITHUB_APP_PROD_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_PROD_ID" 2>/dev/null || echo "")
-  GITHUB_APP_PROD_INSTALLATION_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_PROD_INSTALLATION_ID" 2>/dev/null || echo "")
-  GITHUB_APP_PROD_PRIVATE_KEY=$(gcloud secrets versions access latest --secret="GITHUB_APP_PROD_PRIVATE_KEY" 2>/dev/null || echo "")
-  export GITHUB_APP_PROD_ID GITHUB_APP_PROD_INSTALLATION_ID GITHUB_APP_PROD_PRIVATE_KEY
-  if [[ -n "$GITHUB_APP_PROD_ID" ]]; then
-    echo "✓ Loaded GitHub App credentials for prod environment"
-  fi
+if [[ -n "${BMT_SECRETS_LOCATION:-}" ]]; then
+  gcloud config set api_endpoint_overrides/secretmanager \
+    "https://secretmanager.${BMT_SECRETS_LOCATION}.rep.googleapis.com/" 2>/dev/null
+  echo "Configured regional Secret Manager endpoint for ${BMT_SECRETS_LOCATION}"
 fi
 
-# Preserve PAT fallback (if set)
-if [[ -n "${GITHUB_STATUS_TOKEN:-}" ]]; then
-  export GITHUB_STATUS_TOKEN
-  echo "✓ PAT token available as fallback"
-fi
+_access_secret() {
+  local secret_name="$1"
+  gcloud secrets versions access latest \
+    --secret="$secret_name" \
+    --location="${BMT_SECRETS_LOCATION:-}" \
+    --project="${GCP_PROJECT}" 2>/dev/null
+}
+
+_load_github_app_credentials() {
+  local env_label="$1"
+  local prefix="$2"
+  local id_secret="${prefix}_ID"
+  local installation_secret="${prefix}_INSTALLATION_ID"
+  local key_secret="${prefix}_PRIVATE_KEY"
+
+  local app_id installation_id private_key
+  app_id=$(_access_secret "$id_secret" 2>/dev/null || true)
+  if [[ -z "$app_id" ]]; then
+    echo "Info: ${env_label}: GitHub App secrets not found/readable (${id_secret}) in project ${GCP_PROJECT:-<default>}."
+    return 0
+  fi
+
+  installation_id=$(_access_secret "$installation_secret" 2>/dev/null || true)
+  private_key=$(_access_secret "$key_secret" 2>/dev/null || true)
+  if [[ -z "$installation_id" || -z "$private_key" ]]; then
+    echo "Warning: ${env_label}: secret set ${prefix}_* partially available but values are missing/unreadable."
+    return 0
+  fi
+
+  local id_var="${prefix}_ID"
+  local installation_var="${prefix}_INSTALLATION_ID"
+  local key_var="${prefix}_PRIVATE_KEY"
+  printf -v "$id_var" "%s" "$app_id"
+  printf -v "$installation_var" "%s" "$installation_id"
+  printf -v "$key_var" "%s" "$private_key"
+  export "${id_var?}" "${installation_var?}" "${key_var?}"
+
+  echo "✓ Loaded GitHub App credentials for ${env_label} from ${prefix}_*"
+  return 0
+}
+
+_load_github_app_credentials "test environment" "GITHUB_APP_TEST"
+_load_github_app_credentials "prod environment" "GITHUB_APP_PROD"
 
 # 4. Run watcher once with uv-managed Python and always attempt self-stop afterwards.
 #    This prevents stale RUNNING VMs after failed runs/startup errors.
 WATCHER_EXIT=0
 if (cd "$BMT_REPO_ROOT" && "${UV_BIN}" run python vm_watcher.py \
   --bucket "$GCS_BUCKET" \
-  --bucket-prefix "$BMT_BUCKET_PREFIX" \
   --workspace-root "$BMT_WORKSPACE_ROOT" \
   --exit-after-run); then
   WATCHER_EXIT=0

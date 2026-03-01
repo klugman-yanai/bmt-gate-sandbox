@@ -20,8 +20,8 @@ def test_results_prefix_from_ci_verdict_uri_basic():
     assert watcher._results_prefix_from_ci_verdict_uri(bucket_root, uri) == "sk/results/false_rejects"
 
 
-def test_results_prefix_from_ci_verdict_uri_with_bucket_prefix():
-    """Derive results_prefix when bucket has a prefix."""
+def test_results_prefix_from_ci_verdict_uri_with_path_prefix():
+    """Derive results_prefix when URI path has a prefix under bucket root."""
     bucket_root = "gs://my-bucket/prefix"
     uri = "gs://my-bucket/prefix/sk/results/false_rejects/snapshots/run-456/ci_verdict.json"
     assert watcher._results_prefix_from_ci_verdict_uri(bucket_root, uri) == "sk/results/false_rejects"
@@ -149,3 +149,187 @@ def test_cleanup_legacy_result_history_deletes_archive_and_logs(monkeypatch):
         ("gs://b/p/sk/results/archive", True),
         ("gs://b/p/sk/results/logs/false_rejects", True),
     ]
+
+
+def test_process_run_trigger_rejects_missing_repository(monkeypatch, tmp_path: Path):
+    removed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+        },
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_rm",
+        lambda uri, recursive=False: removed.append((uri, recursive)) or True,
+    )
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]
+
+
+def test_process_run_trigger_rejects_when_auth_unavailable(monkeypatch, tmp_path: Path):
+    removed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "repository": "owner/repo",
+            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+        },
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_rm",
+        lambda uri, recursive=False: removed.append((uri, recursive)) or True,
+    )
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        tmp_path,
+        lambda _repository: None,
+    )
+
+    assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]
+
+
+def test_process_run_trigger_closed_pr_skips_pointer_promotion(monkeypatch, tmp_path: Path):
+    pointer_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "repository": "owner/repo",
+            "sha": "abc123",
+            "run_context": "pr",
+            "pull_request_number": 9,
+            "bucket": "bucket",
+            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+        },
+    )
+    monkeypatch.setattr(
+        watcher.github_pull_request,
+        "get_pr_state",
+        lambda *_args, **_kwargs: {
+            "state": "closed",
+            "merged": False,
+            "checked_at": "2026-02-26T00:00:00Z",
+            "error": None,
+        },
+    )
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.status_file, "write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.status_file, "read_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: pointer_calls.append(summary))
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert pointer_calls == []
+
+
+def test_process_run_trigger_superseded_mid_run_skips_pointer_promotion(monkeypatch, tmp_path: Path):
+    pointer_calls: list[dict[str, object]] = []
+    pr_states = iter(
+        [
+            {
+                "state": "open",
+                "merged": False,
+                "head_sha": "abc123",
+                "checked_at": "2026-02-26T00:00:00Z",
+                "error": None,
+            },
+            {
+                "state": "open",
+                "merged": False,
+                "head_sha": "abc123",
+                "checked_at": "2026-02-26T00:00:05Z",
+                "error": None,
+            },
+            {
+                "state": "open",
+                "merged": False,
+                "head_sha": "newsha456",
+                "checked_at": "2026-02-26T00:00:10Z",
+                "error": None,
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "repository": "owner/repo",
+            "sha": "abc123",
+            "run_context": "pr",
+            "pull_request_number": 9,
+            "bucket": "bucket",
+            "legs": [
+                {"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"},
+                {"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-2"},
+            ],
+        },
+    )
+    monkeypatch.setattr(watcher.github_pull_request, "get_pr_state", lambda *_args, **_kwargs: next(pr_states))
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.status_file, "write_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.status_file, "read_status", lambda *_args, **_kwargs: {"legs": [{}, {}]})
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(watcher, "_run_orchestrator", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
+    monkeypatch.setattr(
+        watcher,
+        "_load_manager_summary",
+        lambda _run_root: {
+            "status": "pass",
+            "project_id": "sk",
+            "bmt_id": "false_reject_namuh",
+            "run_id": "run-1",
+            "passed": True,
+            "ci_verdict_uri": "gs://bucket/runtime/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",
+            "bmt_results": {"results": []},
+            "orchestration_timing": {"duration_sec": 1},
+        },
+    )
+    monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 42)
+    monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: pointer_calls.append(summary))
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert pointer_calls == []

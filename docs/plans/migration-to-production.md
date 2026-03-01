@@ -122,7 +122,7 @@ just sync-remote
 
 ## Production Repo Changes
 
-### 1. Files to Copy (17 files)
+### 1. Files to Copy (16 files)
 
 Copy from dev repo `.github/scripts/` to prod repo `.github/scripts/`:
 
@@ -146,7 +146,6 @@ Copy from dev repo `.github/scripts/` to prod repo `.github/scripts/`:
 │       ├── upload_runner.py
 │       ├── wait_handshake.py
 │       └── verdict_gate.py
-└── requirements.txt
 ```
 
 ### 2. Create `.github/workflows/bmt.yml`
@@ -159,12 +158,11 @@ Copy from dev repo with these modifications:
 - name: Download BMT config from GCS
   run: |
     mkdir -p /tmp/bmt-config
-    ROOT="gs://${GCS_BUCKET}"
-    [ -n "${BMT_BUCKET_PREFIX:-}" ] && ROOT="${ROOT}/${BMT_BUCKET_PREFIX}"
-    
-    gcloud storage cp "${ROOT}/remote/bmt_projects.json" /tmp/bmt-config/ --quiet
-    gcloud storage cp -r "${ROOT}/remote/sk/config" /tmp/bmt-config/sk/ --quiet
-    
+    ROOT="gs://${GCS_BUCKET}/code"
+
+    gcloud storage cp "${ROOT}/bmt_projects.json" /tmp/bmt-config/ --quiet
+    gcloud storage cp -r "${ROOT}/sk/config" /tmp/bmt-config/sk/ --quiet
+
     echo "BMT_CONFIG_ROOT=/tmp/bmt-config" >>"$GITHUB_ENV"
 ```
 
@@ -178,7 +176,7 @@ Copy from dev repo with these modifications:
       --project-filter "${BMT_PROJECTS:-}"
 ```
 
-### 3. Modify `.github/workflows/core-main-workflow.yml`
+### 3. Modify `.github/workflows/build-and-test.yml`
 
 Add this job after the `build` job:
 
@@ -229,7 +227,6 @@ Add this job after the `build` job:
 | Variable | Value |
 |----------|-------|
 | `GCS_BUCKET` | `train-kws-202311-bmt-gate` |
-| `BMT_BUCKET_PREFIX` | `core-main` |
 | `GCP_WIF_PROVIDER` | `projects/416686035248/locations/global/workloadIdentityPools/bmt-gate-gha-dev/providers/github-oidc` |
 | `GCP_SA_EMAIL` | `bmt-runner-sa@train-kws-202311.iam.gserviceaccount.com` |
 | `GCP_ZONE` | `europe-west4-a` |
@@ -261,9 +258,9 @@ Settings → Branches → Branch protection rules → Add rule for `dev`:
 | 1 | Create `dispatch_workflow.py` command | Dev |
 | 2 | Register command in `ci_driver.py` | Dev |
 | 3 | Run `just sync-remote` | Dev |
-| 4 | Copy `.github/scripts/` (17 files) | Prod |
+| 4 | Copy `.github/scripts/` (16 files) | Prod |
 | 5 | Copy `.github/workflows/bmt.yml` | Prod |
-| 6 | Add `trigger-bmt` job to `core-main-workflow.yml` | Prod |
+| 6 | Add `trigger-bmt` job to `.github/workflows/build-and-test.yml` | Prod |
 | 7 | Configure GitHub variables (8) | Prod |
 | 8 | Configure GitHub secrets (2) | Prod |
 | 9 | Configure branch protection | Prod |
@@ -286,4 +283,4 @@ Settings → Branches → Branch protection rules → Add rule for `dev`:
 
 - The VM already has `GITHUB_APP_PROD_*` secrets in GCP Secret Manager for posting commit status
 - The CI workflow uses `actions/create-github-app-token` which auto-discovers installation ID
-- `BMT_BUCKET_PREFIX` isolates production data within the shared bucket
+- Code and runtime use fixed roots: `gs://<bucket>/code` and `gs://<bucket>/runtime`

@@ -1,6 +1,6 @@
 # Future Architecture (Planned)
 
-This document describes **planned** changes, not current behavior. The current implementation is CLI-first (gcloud subprocess, no Google Cloud SDK), uses dataclasses in CI and dict/JSON elsewhere, and implements GitHub App + PAT auth with Check Runs but **not** PR comments. See [../architecture.md](../architecture.md) and [../implementation.md](../implementation.md) for what is implemented today.
+This document describes **planned** changes, not current behavior. The current implementation is CLI-first (gcloud subprocess, no Google Cloud SDK), uses dataclasses in CI and dict/JSON elsewhere, and uses GitHub App auth with Check Runs but **not** PR comments. See [../architecture.md](../architecture.md) and [../implementation.md](../implementation.md) for what is implemented today.
 
 ## Current vs planned
 
@@ -26,7 +26,7 @@ This document describes **planned** changes, not current behavior. The current i
 
 - Single module for all GitHub API calls via **PyGithub** (replacing raw `urllib.request`/`requests` in watcher).
 - Functions: `get_github_client_from_app()`, `get_github_client_from_pat()`, `post_commit_status()`, `create_check_run()`, `post_pr_comment()`, `render_results_table()`.
-- GitHub App: fetch secrets via `google.cloud.secretmanager`, JWT with PyJWT, installation token via `GithubIntegration`. PAT fallback for commit status only (no check runs/PR comments without App).
+- GitHub App: fetch secrets via `google.cloud.secretmanager`, JWT with PyJWT, installation token via `GithubIntegration`.
 
 ---
 
@@ -68,7 +68,7 @@ Benefits: validation on load, typed access, JSON schema generation. Current code
 
 1. **Shared libs and Pydantic** — Add `bmt_lib` and `github_api`; define models; refactor watcher, orchestrator, manager to use them; remove `gcloud` subprocess from VM code (keep for runner binary execution only).
 2. **CI scripts** — Replace `ci/adapters/gcloud_cli.py` subprocess calls with Google Cloud SDK; use Pydantic (or aligned) models in trigger/wait/gate.
-3. **GitHub App auth** — Ensure App + PAT fallback; wire PR comment in watcher post-run.
+3. **GitHub App auth** — Harden App-only auth; wire PR comment in watcher post-run.
 4. **Deployment** — Sync script, systemd, end-to-end test (status + check run + PR comment).
 
 ---

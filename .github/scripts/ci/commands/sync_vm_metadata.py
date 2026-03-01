@@ -30,17 +30,35 @@ def _metadata_items(payload: dict[str, object]) -> dict[str, str]:
     return out
 
 
+def _build_desired_metadata(
+    bucket: str,
+    repo_root: str,
+    wrapper_path: Path,
+) -> tuple[dict[str, str], str]:
+    """Return (metadata_dict, startup_script_content)."""
+    metadata = {
+        "GCS_BUCKET": bucket,
+        "BMT_REPO_ROOT": repo_root,
+        "startup-script-url": "",
+    }
+    script_content = wrapper_path.read_text(encoding="utf-8")
+    return metadata, script_content
+
+
 @click.command("sync-vm-metadata")
-def command() -> None:
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force sync even if VM metadata already matches (default: skip when in sync).",
+)
+def command(*, force: bool) -> None:
     """Sync startup-critical VM metadata and inline startup wrapper from the repository."""
     project = _required_env("GCP_PROJECT")
     zone = _required_env("GCP_ZONE")
     instance_name = _required_env("BMT_VM_NAME")
     bucket = _required_env("GCS_BUCKET")
-    prefix = (os.environ.get("BMT_BUCKET_PREFIX") or "").strip("/")
     repo_root = (os.environ.get("BMT_REPO_ROOT") or "/opt/bmt").strip() or "/opt/bmt"
-    parent = models.parent_prefix(prefix)
-    code_root = models.code_bucket_root_uri(bucket, parent)
+    code_root = models.code_bucket_root_uri(bucket)
     repo_root_path = Path(__file__).resolve().parents[4]
     wrapper_path = repo_root_path / "remote" / "code" / "bootstrap" / "startup_wrapper.sh"
     if not wrapper_path.is_file():
@@ -64,9 +82,33 @@ def command() -> None:
             f"{joined}"
         )
 
+    # Fail-fast: reject non-empty legacy BMT_BUCKET_PREFIX in VM metadata
+    try:
+        described = gcloud_cli.vm_describe(project, zone, instance_name)
+    except gcloud_cli.GcloudError:
+        described = None
+    if described:
+        current = _metadata_items(described)
+        legacy_prefix = current.get("BMT_BUCKET_PREFIX", "").strip()
+        if legacy_prefix:
+            raise click.ClickException(
+                f"Legacy BMT_BUCKET_PREFIX='{legacy_prefix}' found in VM metadata for {instance_name}. "
+                "BMT_BUCKET_PREFIX has been removed. Clear the VM metadata key before proceeding."
+            )
+
+    desired_metadata, desired_script = _build_desired_metadata(bucket, repo_root, wrapper_path)
+
+    if not force and described:
+        current = _metadata_items(described)
+        if (
+            all(current.get(k) == v for k, v in desired_metadata.items())
+            and current.get("startup-script", "").strip() == desired_script.strip()
+        ):
+            print(f"VM metadata for {instance_name} already in sync; skipping. Use --force to re-sync.")
+            return
+
     metadata = {
         "GCS_BUCKET": bucket,
-        "BMT_BUCKET_PREFIX": prefix,
         "BMT_REPO_ROOT": repo_root,
         # Keep startup-script-url empty so only the inline wrapper executes
         # during workflow-driven runs.
@@ -88,8 +130,6 @@ def command() -> None:
     items = _metadata_items(described)
     if items.get("GCS_BUCKET", "").strip() != bucket:
         raise click.ClickException("VM metadata verification failed: GCS_BUCKET did not persist.")
-    if items.get("BMT_BUCKET_PREFIX", "").strip("/") != prefix:
-        raise click.ClickException("VM metadata verification failed: BMT_BUCKET_PREFIX did not persist.")
     if items.get("BMT_REPO_ROOT", "").strip() != repo_root:
         raise click.ClickException("VM metadata verification failed: BMT_REPO_ROOT did not persist.")
     if not (items.get("startup-script", "")).strip():
@@ -97,9 +137,5 @@ def command() -> None:
     if (items.get("startup-script-url", "")).strip():
         raise click.ClickException("VM metadata verification failed: startup-script-url is not cleared.")
 
-    prefix_rendered = prefix or "<none>"
-    print(
-        f"Synced VM metadata for {instance_name}: "
-        f"GCS_BUCKET={bucket} BMT_BUCKET_PREFIX={prefix_rendered} BMT_REPO_ROOT={repo_root}"
-    )
+    print(f"Synced VM metadata for {instance_name}: GCS_BUCKET={bucket} BMT_REPO_ROOT={repo_root}")
     print(f"Updated inline startup-script from {wrapper_path}")

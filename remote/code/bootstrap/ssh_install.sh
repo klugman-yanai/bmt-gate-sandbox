@@ -8,7 +8,6 @@
 #   BMT_VM_NAME   - VM instance name
 #   GCS_BUCKET    - GCS bucket name (required when vm image does not already have uv)
 #   BMT_REPO_ROOT - Path to repo on the VM (default: /opt/bmt)
-#   BMT_BUCKET_PREFIX - Optional parent bucket prefix
 #
 # Example:
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-vm GCS_BUCKET=my-bucket
@@ -18,7 +17,6 @@ set -euo pipefail
 
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
 GCS_BUCKET="${GCS_BUCKET:-}"
-BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-}"
 GCP_PROJECT="${GCP_PROJECT:-}"
 GCP_ZONE="${GCP_ZONE:-}"
 BMT_VM_NAME="${BMT_VM_NAME:-}"
@@ -36,6 +34,6 @@ gcloud compute ssh "$BMT_VM_NAME" \
   -- \
   "set -euo pipefail; \
    cd '${BMT_REPO_ROOT}'; \
-   export GCS_BUCKET='${GCS_BUCKET}' BMT_BUCKET_PREFIX='${BMT_BUCKET_PREFIX}' BMT_REPO_ROOT='${BMT_REPO_ROOT}'; \
+   export GCS_BUCKET='${GCS_BUCKET}' BMT_REPO_ROOT='${BMT_REPO_ROOT}'; \
    source ./bootstrap/ensure_uv.sh; \
    ./bootstrap/install_deps.sh '${BMT_REPO_ROOT}'"

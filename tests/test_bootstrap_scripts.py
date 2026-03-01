@@ -59,7 +59,7 @@ def test_install_deps_uses_uv_bin_override(tmp_path: Path) -> None:
         (
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "if [[ \"${1:-}\" == \"sync\" ]]; then\n"
+            'if [[ "${1:-}" == "sync" ]]; then\n'
             "  mkdir -p .venv/bin\n"
             "  cat > .venv/bin/python <<'PY'\n"
             "#!/usr/bin/env bash\n"
@@ -96,7 +96,7 @@ def test_install_deps_non_frozen_when_lock_missing(tmp_path: Path) -> None:
         (
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "if [[ \"${1:-}\" == \"sync\" ]]; then\n"
+            'if [[ "${1:-}" == "sync" ]]; then\n'
             "  mkdir -p .venv/bin\n"
             "  cat > .venv/bin/python <<'PY'\n"
             "#!/usr/bin/env bash\n"
@@ -159,7 +159,6 @@ def test_startup_example_handles_home_unset(tmp_path: Path) -> None:
     env.pop("HOME", None)
     env["BMT_REPO_ROOT"] = str(repo_root)
     env["GCS_BUCKET"] = "test-bucket"
-    env["BMT_BUCKET_PREFIX"] = ""
     env["BMT_UV_BIN"] = str(fake_uv)
     env["BMT_SELF_STOP"] = "0"
 
@@ -192,17 +191,17 @@ def test_ensure_uv_downloads_pinned_artifact_when_uv_missing(tmp_path: Path) -> 
         (
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "if [[ \"$1\" == \"storage\" && \"$2\" == \"cp\" ]]; then\n"
-            "  src=\"$3\"\n"
-            "  dst=\"$4\"\n"
+            'if [[ "$1" == "storage" && "$2" == "cp" ]]; then\n'
+            '  src="$3"\n'
+            '  dst="$4"\n'
             f"  root='{(tmp_path / 'bucket').as_posix()}'\n"
-            "  if [[ \"$src\" == gs://test-bucket/* ]]; then\n"
-            "    rel=\"${src#gs://test-bucket/}\"\n"
-            "    cp \"$root/$rel\" \"$dst\"\n"
+            '  if [[ "$src" == gs://test-bucket/* ]]; then\n'
+            '    rel="${src#gs://test-bucket/}"\n'
+            '    cp "$root/$rel" "$dst"\n'
             "    exit 0\n"
             "  fi\n"
             "fi\n"
-            "echo \"unsupported gcloud call: $*\" >&2\n"
+            'echo "unsupported gcloud call: $*" >&2\n'
             "exit 1\n"
         ),
     )
@@ -212,14 +211,13 @@ def test_ensure_uv_downloads_pinned_artifact_when_uv_missing(tmp_path: Path) -> 
     env = os.environ.copy()
     env["PATH"] = str(fake_bin)
     env["GCS_BUCKET"] = "test-bucket"
-    env["BMT_BUCKET_PREFIX"] = ""
     env["BMT_REPO_ROOT"] = str(install_root)
     env.pop("BMT_UV_BIN", None)
 
     cmd = (
         "set -euo pipefail; "
         f"source '{_bootstrap_path('ensure_uv.sh')}'; "
-        "test -x \"$UV_BIN\"; "
-        "test \"$UV_BIN\" = \"$BMT_REPO_ROOT/.tools/uv/linux-x86_64/uv\""
+        'test -x "$UV_BIN"; '
+        'test "$UV_BIN" = "$BMT_REPO_ROOT/.tools/uv/linux-x86_64/uv"'
     )
     subprocess.run(["/bin/bash", "-c", cmd], check=True, cwd=_repo_root(), env=env)
