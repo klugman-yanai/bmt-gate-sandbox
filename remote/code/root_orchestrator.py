@@ -25,11 +25,6 @@ class OrchestratorError(RuntimeError):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one project+BMT manager from bucket")
     _ = parser.add_argument("--bucket", required=True)
-    _ = parser.add_argument("--bucket-prefix-parent", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
-    _ = parser.add_argument("--code-prefix", default="")
-    _ = parser.add_argument("--runtime-prefix", default="")
-    # Compatibility for older watcher payloads.
-    _ = parser.add_argument("--bucket-prefix", default="")
     _ = parser.add_argument("--project", required=True)
     _ = parser.add_argument("--bmt-id", required=True)
     _ = parser.add_argument("--run-context", choices=["dev", "pr", "manual"], default="manual")
@@ -50,23 +45,12 @@ def _now_stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _normalize_prefix(prefix: str) -> str:
-    return prefix.strip("/")
+def _code_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/code"
 
 
-def _child_prefix(parent: str, leaf: str) -> str:
-    parent_clean = _normalize_prefix(parent)
-    leaf_clean = _normalize_prefix(leaf)
-    if not leaf_clean:
-        return parent_clean
-    return f"{parent_clean}/{leaf_clean}" if parent_clean else leaf_clean
-
-
-def _bucket_root_uri(bucket: str, prefix: str) -> str:
-    prefix = _normalize_prefix(prefix)
-    if prefix:
-        return f"gs://{bucket}/{prefix}"
-    return f"gs://{bucket}"
+def _runtime_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/runtime"
 
 
 def _bucket_uri(bucket_root: str, path_or_uri: str) -> str:
@@ -133,11 +117,8 @@ def main() -> int:
     run_id = args.run_id.strip()
     if args.run_context in {"dev", "pr"} and not run_id:
         raise OrchestratorError("--run-id is required for dev/pr runs")
-    parent_prefix = _normalize_prefix(args.bucket_prefix_parent or args.bucket_prefix)
-    runtime_prefix = _normalize_prefix(args.runtime_prefix) or _child_prefix(parent_prefix, "runtime")
-    code_prefix = _normalize_prefix(args.code_prefix) or _child_prefix(parent_prefix, "code")
-    code_bucket_root = _bucket_root_uri(args.bucket, code_prefix)
-    runtime_bucket_root = _bucket_root_uri(args.bucket, runtime_prefix)
+    code_bucket_root = _code_bucket_root(args.bucket)
+    runtime_bucket_root = _runtime_bucket_root(args.bucket)
 
     workspace_root = _resolve_workspace_root(args.workspace_root)
     workspace_root.mkdir(parents=True, exist_ok=True)
@@ -173,15 +154,6 @@ def main() -> int:
             str(local_manager),
             "--bucket",
             args.bucket,
-            "--bucket-prefix-parent",
-            parent_prefix,
-            "--code-prefix",
-            code_prefix,
-            "--runtime-prefix",
-            runtime_prefix,
-            # Compatibility for older manager versions.
-            "--bucket-prefix",
-            runtime_prefix,
             "--project-id",
             args.project,
             "--bmt-id",
@@ -204,7 +176,7 @@ def main() -> int:
         env = os.environ.copy()
         if args.leg_index is not None and args.workflow_run_id:
             env["BMT_STATUS_BUCKET"] = args.bucket
-            env["BMT_STATUS_RUNTIME_PREFIX"] = runtime_prefix
+            env["BMT_STATUS_RUNTIME_PREFIX"] = "runtime"
             env["BMT_STATUS_RUN_ID"] = str(args.workflow_run_id)
             env["BMT_STATUS_LEG_INDEX"] = str(args.leg_index)
 
@@ -221,10 +193,6 @@ def main() -> int:
         root_summary = {
             "timestamp": _now_iso(),
             "bucket": args.bucket,
-            "bucket_prefix_parent": parent_prefix,
-            "code_prefix": code_prefix,
-            "runtime_prefix": runtime_prefix,
-            "bucket_prefix": runtime_prefix,
             "project": args.project,
             "bmt_id": args.bmt_id,
             "run_context": args.run_context,

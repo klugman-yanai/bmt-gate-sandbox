@@ -15,7 +15,6 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch) -> None:
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
-    monkeypatch.setenv("BMT_BUCKET_PREFIX", "")
     monkeypatch.setenv("BMT_REPO_ROOT", "/opt/bmt")
 
     captured: dict[str, object] = {}
@@ -42,7 +41,6 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch) -> None:
             "metadata": {
                 "items": [
                     {"key": "GCS_BUCKET", "value": "train-kws-202311-bmt-gate"},
-                    {"key": "BMT_BUCKET_PREFIX", "value": ""},
                     {"key": "BMT_REPO_ROOT", "value": "/opt/bmt"},
                     {"key": "startup-script", "value": "#!/bin/bash\necho hi\n"},
                     {"key": "startup-script-url", "value": ""},
@@ -64,7 +62,6 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch) -> None:
     metadata = captured["metadata"]
     assert isinstance(metadata, dict)
     assert metadata["GCS_BUCKET"] == "train-kws-202311-bmt-gate"
-    assert metadata["BMT_BUCKET_PREFIX"] == ""
     assert metadata["BMT_REPO_ROOT"] == "/opt/bmt"
     assert metadata["startup-script-url"] == ""
 
@@ -83,7 +80,6 @@ def test_sync_vm_metadata_fails_when_required_code_object_missing(monkeypatch) -
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
-    monkeypatch.setenv("BMT_BUCKET_PREFIX", "")
 
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/bootstrap/startup_example.sh")
@@ -101,7 +97,6 @@ def test_sync_vm_metadata_fails_when_uv_artifact_missing(monkeypatch) -> None:
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
-    monkeypatch.setenv("BMT_BUCKET_PREFIX", "")
 
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/_tools/uv/linux-x86_64/uv")
@@ -120,7 +115,6 @@ def test_sync_vm_metadata_fails_when_runtime_pyproject_missing(monkeypatch) -> N
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
-    monkeypatch.setenv("BMT_BUCKET_PREFIX", "")
 
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/pyproject.toml")
@@ -131,3 +125,34 @@ def test_sync_vm_metadata_fails_when_runtime_pyproject_missing(monkeypatch) -> N
     assert result.exit_code != 0
     assert "Missing required code objects in bucket namespace" in result.output
     assert "/pyproject.toml" in result.output
+
+
+def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
+    monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
+    monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
+    monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
+
+    def _fake_exists(_uri: str) -> bool:
+        return True
+
+    def _fake_describe(_project: str, _zone: str, _instance_name: str) -> dict[str, object]:
+        return {
+            "metadata": {
+                "items": [
+                    {"key": "GCS_BUCKET", "value": "train-kws-202311-bmt-gate"},
+                    {"key": "BMT_BUCKET_PREFIX", "value": "team/env"},
+                    {"key": "BMT_REPO_ROOT", "value": "/opt/bmt"},
+                    {"key": "startup-script", "value": "#!/bin/bash\necho hi\n"},
+                    {"key": "startup-script-url", "value": ""},
+                ]
+            }
+        }
+
+    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "vm_describe", _fake_describe)
+
+    result = runner.invoke(sync_vm_metadata.command, [])
+    assert result.exit_code != 0
+    assert "Legacy BMT_BUCKET_PREFIX" in result.output

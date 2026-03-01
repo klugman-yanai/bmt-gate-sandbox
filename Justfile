@@ -14,7 +14,7 @@ lint:
     ruff format --check .
     basedpyright
 
-# Bucket sync / verify
+# Bucket sync / verify (safe to re-run: skip when already in sync; use --force to re-sync)
 sync-remote:
     uv run python devtools/bucket_sync_remote.py
 
@@ -25,6 +25,10 @@ verify-sync:
     uv run python devtools/bucket_verify_remote_sync.py
     uv run python devtools/bucket_verify_runtime_seed_sync.py
 
+# Remove Python/uv bloat from GCS (dry-run by default; use --execute to delete)
+clean-bloat *args:
+    uv run python devtools/bucket_clean_bloat.py {{args}}
+
 # Layout / policy
 validate-layout:
     uv run python devtools/remote_layout_policy.py
@@ -32,7 +36,7 @@ validate-layout:
 validate-repo-layout:
     uv run python devtools/repo_layout_policy.py
 
-# Bucket artifact ops
+# Bucket artifact ops (safe to re-run: skip when already in sync; use --force to re-upload)
 upload-runner:
     uv run python devtools/bucket_upload_runner.py
 
@@ -42,7 +46,7 @@ upload-wavs source_dir dest_prefix="sk/inputs/false_rejects":
 validate-bucket:
     uv run python devtools/bucket_validate_contract.py
 
-# VM control (manual debug/maintenance/testing only)
+# VM control (manual debug/maintenance/testing only; sync-vm-metadata: skip when in sync, use --force to re-sync)
 sync-vm-metadata:
     uv run python .github/scripts/ci_driver.py sync-vm-metadata
 
@@ -53,7 +57,6 @@ wait-handshake workflow_run_id timeout_sec="180":
     #!/usr/bin/env -S bash -eu
     uv run python .github/scripts/ci_driver.py wait-handshake \
       --bucket "${GCS_BUCKET:?Set GCS_BUCKET}" \
-      --bucket-prefix "${BMT_BUCKET_PREFIX:-}" \
       --workflow-run-id {{workflow_run_id}} \
       --timeout-sec {{timeout_sec}} \
       --project "${GCP_PROJECT:-}" \
@@ -67,13 +70,8 @@ monitor *args:
 gcs-trigger run_id:
     #!/usr/bin/env -S bash -eu
     GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET}"
-    PARENT="${BMT_BUCKET_PREFIX:-}"
-    PARENT="${PARENT#/}"
-    PARENT="${PARENT%/}"
     RID="{{run_id}}"
-    RUNTIME_PREFIX="runtime"
-    [ -n "$PARENT" ] && RUNTIME_PREFIX="$PARENT/runtime"
-    ROOT="gs://$GCS_BUCKET/$RUNTIME_PREFIX"
+    ROOT="gs://$GCS_BUCKET/runtime"
     echo "=== Trigger (workflow wrote this) ==="
     gcloud storage cat "$ROOT/triggers/runs/$RID.json" 2>/dev/null || echo "(not found or failed)"
     echo ""
@@ -96,7 +94,7 @@ check-vm-gcs run_id:
     ZONE="${GCP_ZONE:?Set GCP_ZONE}"
     gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" 2>/dev/null | tail -c 2048 || echo "(failed - check VM name/zone)"
 
-# Config / environment tooling
+# Config / environment tooling (repo-vars-apply: skip when vars match; use --force to re-set all)
 show-env:
     uv run python devtools/gh_show_env.py
 

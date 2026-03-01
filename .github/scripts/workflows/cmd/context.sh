@@ -32,6 +32,16 @@ bmt_cmd_validate_required_vars() {
   echo "Proceeding with BMT"
 }
 
+# Fail-fast if legacy BMT_BUCKET_PREFIX repo var is set (non-empty).
+# Used by the workflow with vars.BMT_BUCKET_PREFIX; unset or empty is OK.
+bmt_cmd_guard_no_legacy_prefix() {
+  local prefix="${BMT_BUCKET_PREFIX:-}"
+  if [[ -n "${prefix// /}" ]]; then
+    echo "::error::Legacy BMT_BUCKET_PREFIX='${prefix}' is set in repository variables. BMT_BUCKET_PREFIX has been removed; clear it in Settings → Secrets and variables → Actions → Variables."
+    exit 1
+  fi
+}
+
 bmt_cmd_resolve_failure_context() {
   local mode head_sha pr_number vm_handshake_result trigger_written
 

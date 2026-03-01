@@ -37,7 +37,13 @@ def _is_truthy(raw: str | None) -> bool:
 
 
 @click.command("start-vm")
-@click.option("--timeout-sec", default=180, show_default=True, type=int)
+@click.option(
+    "--timeout-sec",
+    default=180,
+    show_default=True,
+    type=int,
+    help="Must match config/env_contract.json defaults.BMT_HANDSHAKE_TIMEOUT_SEC when env unset.",
+)
 @click.option("--poll-interval-sec", default=5, show_default=True, type=int)
 @click.option(
     "--stabilization-sec",

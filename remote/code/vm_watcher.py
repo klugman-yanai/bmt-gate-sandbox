@@ -41,6 +41,9 @@ _shutdown = False
 _KEEP_RECENT_WORKFLOW_FILES = 2
 _KEEP_RECENT_LOCAL_RUNS = 2
 
+# Fallback when trigger payload omits status_context; normal path is run_trigger payload (workflow sets from repo vars).
+DEFAULT_STATUS_CONTEXT = "BMT Gate"
+
 
 def _handle_signal(signum: int, _frame: Any) -> None:
     global _shutdown
@@ -51,7 +54,6 @@ def _handle_signal(signum: int, _frame: Any) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Poll GCS for BMT trigger files")
     _ = parser.add_argument("--bucket", required=True)
-    _ = parser.add_argument("--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
     _ = parser.add_argument("--poll-interval-sec", type=int, default=10)
     _ = parser.add_argument("--workspace-root", default=os.environ.get("BMT_WORKSPACE_ROOT", ""))
     _ = parser.add_argument(
@@ -66,29 +68,12 @@ def _now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _normalize_prefix(prefix: str) -> str:
-    return prefix.strip("/")
+def _code_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/code"
 
 
-def _child_prefix(parent: str, leaf: str) -> str:
-    parent_clean = _normalize_prefix(parent)
-    leaf_clean = _normalize_prefix(leaf)
-    if not leaf_clean:
-        return parent_clean
-    return f"{parent_clean}/{leaf_clean}" if parent_clean else leaf_clean
-
-
-def _code_prefix(parent: str) -> str:
-    return _child_prefix(parent, "code")
-
-
-def _runtime_prefix(parent: str) -> str:
-    return _child_prefix(parent, "runtime")
-
-
-def _bucket_root_uri(bucket: str, prefix: str) -> str:
-    prefix = _normalize_prefix(prefix)
-    return f"gs://{bucket}/{prefix}" if prefix else f"gs://{bucket}"
+def _runtime_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/runtime"
 
 
 def _bucket_uri(bucket_root: str, path: str) -> str:
@@ -198,15 +183,6 @@ def _run_orchestrator(
         str(orchestrator_path),
         "--bucket",
         str(trigger["bucket"]),
-        "--bucket-prefix-parent",
-        str(trigger.get("bucket_prefix_parent", "")),
-        "--code-prefix",
-        str(trigger.get("code_prefix", "")),
-        "--runtime-prefix",
-        str(trigger.get("runtime_prefix", "")),
-        # Compatibility for older orchestrator versions.
-        "--bucket-prefix",
-        str(trigger.get("bucket_prefix", "")),
         "--project",
         str(trigger["project"]),
         "--bmt-id",
@@ -247,7 +223,7 @@ def _post_commit_status(
     description: str,
     target_url: str | None,
     token: str,
-    context: str = "BMT Gate",
+    context: str = DEFAULT_STATUS_CONTEXT,
 ) -> bool:
     """Post a commit status to GitHub. state: pending|success|failure|error."""
     if not token or not repository or not sha:
@@ -258,7 +234,7 @@ def _post_commit_status(
     url = f"https://api.github.com/repos/{owner}/{repo}/statuses/{sha}"
     body = {
         "state": state,
-        "context": (context or "BMT Gate").strip() or "BMT Gate",
+        "context": (context or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT,
         "description": description[:140],
     }
     if target_url:
@@ -656,9 +632,63 @@ def _aggregate_verdicts_from_summaries(summaries: list[dict[str, Any] | None]) -
     return "failure", f"BMT: {fail_count}/{total} failed, {pass_count} passed"
 
 
-def _format_bmt_comment(result: str, summary_line: str, details_line: str) -> str:
-    """Build PR comment body: heading + summary + details line."""
-    return f"## BMT result: {result}\n\n{summary_line}\n\n{details_line}"
+def _short_sha(sha: str, *, length: int = 12) -> str:
+    """Return short SHA for display while preserving the full hash elsewhere."""
+    clean = (sha or "").strip()
+    if not clean:
+        return "unknown"
+    return clean[: max(4, length)]
+
+
+def _commit_url(repository: str, sha: str) -> str:
+    """Build commit URL when repository and SHA are available."""
+    repo = (repository or "").strip()
+    clean_sha = (sha or "").strip()
+    if not repo or not clean_sha:
+        return ""
+    return f"https://github.com/{repo}/commit/{clean_sha}"
+
+
+def _commit_markdown_link(repository: str, sha: str) -> str:
+    """Render commit link markdown with short SHA text."""
+    url = _commit_url(repository, sha)
+    short = _short_sha(sha)
+    if not url:
+        return f"`{short}`"
+    return f"[`{short}`]({url})"
+
+
+def _comment_marker_for_sha(sha: str) -> str:
+    """Stable hidden marker used for commit-specific PR comment upsert."""
+    return f"<!-- bmt-vm-comment-sha:{(sha or '').strip()} -->"
+
+
+def _format_bmt_comment(
+    result: str,
+    summary_line: str,
+    details_line: str,
+    *,
+    repository: str,
+    tested_sha: str,
+    workflow_run_id: str | int | None,
+    superseding_sha: str | None = None,
+) -> str:
+    """Build PR comment body with commit linkage and stable marker for upsert."""
+    lines = [
+        _comment_marker_for_sha(tested_sha),
+        f"## BMT result: {result}",
+        "",
+        summary_line,
+        "",
+        details_line,
+        "",
+        f"- Tested commit: {_commit_markdown_link(repository, tested_sha)}",
+    ]
+    if superseding_sha:
+        lines.append(f"- Superseding commit: {_commit_markdown_link(repository, superseding_sha)}")
+    if workflow_run_id is not None:
+        lines.append(f"- Workflow run id: `{workflow_run_id}`")
+    return "\n".join(lines)
 
 
 def _human_readable_bmt_label(bmt_id: str) -> str:
@@ -781,7 +811,6 @@ def _process_run_trigger(  # noqa: PLR0911
     run_trigger_uri: str,
     default_code_bucket_root: str,
     default_runtime_bucket_root: str,
-    default_runtime_prefix: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
 ) -> None:
@@ -800,7 +829,7 @@ def _process_run_trigger(  # noqa: PLR0911
     sha = (run_payload.get("sha") or "").strip()
     run_context = str(run_payload.get("run_context", "manual"))
     workflow_run_id = run_payload.get("workflow_run_id", "?")
-    status_context = (run_payload.get("status_context") or "BMT Gate").strip() or "BMT Gate"
+    status_context = (run_payload.get("status_context") or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
     description_pending = (
         run_payload.get("description_pending") or ""
     ).strip() or "BMT running on VM; status will update when complete."
@@ -828,21 +857,11 @@ def _process_run_trigger(  # noqa: PLR0911
         return
 
     bucket = str(run_payload.get("bucket", "")).strip()
-    parent_prefix = _normalize_prefix(str(run_payload.get("bucket_prefix_parent") or ""))
-    runtime_prefix = _normalize_prefix(str(run_payload.get("runtime_prefix") or ""))
-    code_prefix = _normalize_prefix(str(run_payload.get("code_prefix") or ""))
-    legacy_bucket_prefix = _normalize_prefix(str(run_payload.get("bucket_prefix") or ""))
-    if not runtime_prefix:
-        runtime_prefix = legacy_bucket_prefix or _runtime_prefix(parent_prefix) or default_runtime_prefix
-    if not code_prefix:
-        code_prefix = _code_prefix(parent_prefix)
-    code_bucket_root = _bucket_root_uri(bucket, code_prefix) if bucket else default_code_bucket_root
-    runtime_bucket_root = _bucket_root_uri(bucket, runtime_prefix) if bucket else default_runtime_bucket_root
+    code_bucket_root = _code_bucket_root(bucket) if bucket else default_code_bucket_root
+    runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
+    runtime_prefix = "runtime"
 
-    print(
-        f"  Processing run {workflow_run_id} with {len(legs_raw)} leg(s) "
-        f"[parent={parent_prefix or '<none>'} code={code_prefix or '<none>'} runtime={runtime_prefix or '<none>'}]"
-    )
+    print(f"  Processing run {workflow_run_id} with {len(legs_raw)} leg(s)")
 
     run_id = str(workflow_run_id)
     workflow_run_id_str = str(workflow_run_id)
@@ -852,20 +871,36 @@ def _process_run_trigger(  # noqa: PLR0911
         print("  Warning: run_context=pr but pull_request_number is missing; fail-open (continuing run).")
 
     pr_state_at_pickup: dict[str, str | bool | None] | None = None
+    skip_before_pickup_reason: str | None = None
+    superseded_by_sha: str | None = None
     if should_check_pr_state and pr_number is not None:
         pr_state_at_pickup = github_pull_request.get_pr_state(github_token, repository, pr_number, attempts=3)
-        if pr_state_at_pickup.get("state") == "unknown":
+        state_at_pickup = str(pr_state_at_pickup.get("state"))
+        if state_at_pickup == "unknown":
             print(
                 f"  Warning: could not verify PR state at pickup (error={pr_state_at_pickup.get('error')}); "
                 "fail-open (continuing run)."
             )
+        elif state_at_pickup == "closed":
+            skip_before_pickup_reason = "pr_closed_before_pickup"
+        else:
+            pr_head_sha = pr_state_at_pickup.get("head_sha")
+            if isinstance(pr_head_sha, str):
+                pr_head_sha = pr_head_sha.strip() or None
+            else:
+                pr_head_sha = None
+            if sha and pr_head_sha and pr_head_sha != sha:
+                skip_before_pickup_reason = "superseded_by_new_commit"
+                superseded_by_sha = pr_head_sha
 
-    skip_before_pickup = bool(should_check_pr_state and pr_state_at_pickup and pr_state_at_pickup.get("state") == "closed")
+    skip_before_pickup = bool(skip_before_pickup_reason)
 
     accepted_legs: list[dict[str, str]] = []
     rejected_legs: list[dict[str, int | str]] = []
     if skip_before_pickup:
-        rejected_legs = [{"index": idx, "reason": "pr_closed_before_pickup"} for idx, _ in enumerate(legs_raw)]
+        rejected_legs = [
+            {"index": idx, "reason": skip_before_pickup_reason or "skipped"} for idx, _ in enumerate(legs_raw)
+        ]
     else:
         for idx, leg in enumerate(legs_raw):
             if not isinstance(leg, dict):
@@ -882,11 +917,36 @@ def _process_run_trigger(  # noqa: PLR0911
     stop_heartbeat = threading.Event()
     heartbeat_thread: threading.Thread | None = None
     check_run_id: int | None = None
-    cancelled_due_to_closed_pr = False
+    cancelled_due_to_pr_state = False
     cancel_reason: str | None = None
     pointer_promotion_allowed = True
     start_timestamp = time.time()
     leg_summaries: list[dict[str, Any] | None] = []
+
+    def _upsert_pr_comment(
+        *,
+        result: str,
+        summary_line: str,
+        details_line: str,
+        superseding_sha: str | None = None,
+    ) -> None:
+        nonlocal github_token
+        if pr_number is None or not repository or not sha or not github_token:
+            return
+        marker = _comment_marker_for_sha(sha)
+        body = _format_bmt_comment(
+            result,
+            summary_line,
+            details_line,
+            repository=repository,
+            tested_sha=sha,
+            workflow_run_id=workflow_run_id,
+            superseding_sha=superseding_sha,
+        )
+        if github_pr_comment.upsert_pr_comment_by_marker(github_token, repository, pr_number, marker, body):
+            print("  Upserted PR comment")
+        else:
+            print("  Could not upsert PR comment (non-fatal)")
 
     try:
         handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
@@ -902,10 +962,12 @@ def _process_run_trigger(  # noqa: PLR0911
             "accepted_legs": accepted_legs,
             "rejected_legs": rejected_legs,
             "run_disposition": "skipped" if skip_before_pickup else "accepted",
-            "skip_reason": "pr_closed_before_pickup" if skip_before_pickup else None,
+            "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
             "pr_state": pr_state_at_pickup.get("state") if pr_state_at_pickup else None,
             "pr_merged": pr_state_at_pickup.get("merged") if pr_state_at_pickup else None,
             "pr_state_checked_at": pr_state_at_pickup.get("checked_at") if pr_state_at_pickup else None,
+            "pr_head_sha": pr_state_at_pickup.get("head_sha") if pr_state_at_pickup else None,
+            "superseded_by_sha": superseded_by_sha,
             "vm": {
                 "hostname": os.uname().nodename,
                 "pid": os.getpid(),
@@ -927,7 +989,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     "bmt_id": bmt_id,
                     "run_id": leg_run_id,
                     "status": "skipped" if skip_before_pickup else "pending",
-                    "skip_reason": "pr_closed_before_pickup" if skip_before_pickup else None,
+                    "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
                     "started_at": None,
                     "completed_at": started_at if skip_before_pickup else None,
                     "duration_sec": None,
@@ -941,7 +1003,13 @@ def _process_run_trigger(  # noqa: PLR0911
             "workflow_run_id": workflow_run_id,
             "repository": repository,
             "sha": sha,
-            "vm_state": "skipped_pr_closed_before_pickup" if skip_before_pickup else "acknowledged",
+            "vm_state": (
+                "skipped_pr_closed_before_pickup"
+                if skip_before_pickup_reason == "pr_closed_before_pickup"
+                else "skipped_superseded_by_new_commit"
+                if skip_before_pickup_reason == "superseded_by_new_commit"
+                else "acknowledged"
+            ),
             "started_at": started_at,
             "last_heartbeat": started_at,
             "legs_total": len(legs_raw),
@@ -953,8 +1021,9 @@ def _process_run_trigger(  # noqa: PLR0911
             "last_run_duration_sec": None,
             "errors": [],
             "run_outcome": "skipped" if skip_before_pickup else "running",
-            "cancel_reason": "pr_closed_before_pickup" if skip_before_pickup else None,
+            "cancel_reason": skip_before_pickup_reason if skip_before_pickup else None,
             "cancelled_at": started_at if skip_before_pickup else None,
+            "superseded_by_sha": superseded_by_sha,
         }
         try:
             status_file.write_status(bucket, runtime_prefix, run_id, initial_status)
@@ -963,7 +1032,13 @@ def _process_run_trigger(  # noqa: PLR0911
             print(f"  Warning: Failed to write initial status file: {exc}")
 
         if skip_before_pickup:
-            print("  PR is already closed at pickup; skipping run without GitHub status/check updates.")
+            if skip_before_pickup_reason == "superseded_by_new_commit":
+                print(
+                    "  Run was superseded by newer PR head before pickup; "
+                    "skipping run without GitHub status/check updates."
+                )
+            else:
+                print("  PR is already closed at pickup; skipping run without GitHub status/check updates.")
             return
 
         heartbeat_thread = threading.Thread(
@@ -1032,12 +1107,11 @@ def _process_run_trigger(  # noqa: PLR0911
                     token_resolver=github_token_resolver,
                 )
                 if pr_number is not None:
-                    body = _format_bmt_comment(
-                        "Did not run",
-                        "The test runner could not start.",
-                        "For details, open the **Checks** tab on this PR.",
+                    _upsert_pr_comment(
+                        result="Did not run",
+                        summary_line="The test runner could not start.",
+                        details_line="For details, open the **Checks** tab on this PR.",
                     )
-                    github_pr_comment.post_pr_comment(github_token, repository, pr_number, body)
             return
 
         try:
@@ -1054,37 +1128,68 @@ def _process_run_trigger(  # noqa: PLR0911
                             f"  Warning: could not re-check PR state for leg {idx} "
                             f"(error={pr_state_now.get('error')}); fail-open (continuing)."
                         )
-                    elif state_now == "closed":
-                        cancelled_due_to_closed_pr = True
-                        cancel_reason = "pr_closed_during_run"
-                        pointer_promotion_allowed = False
-                        cancelled_at = _now_iso()
-                        print(f"  PR closed before leg {idx + 1}; cancelling remaining legs.")
-                        try:
-                            current_status = status_file.read_status(bucket, runtime_prefix, run_id)
-                            if current_status:
-                                current_status["vm_state"] = "cancelled_pr_closed_during_run"
-                                current_status["run_outcome"] = "cancelled"
-                                current_status["cancel_reason"] = cancel_reason
-                                current_status["cancelled_at"] = cancelled_at
-                                current_status["last_heartbeat"] = cancelled_at
-                                current_status["elapsed_sec"] = int(time.time() - start_timestamp)
-                                current_status["current_leg"] = None
-                                status_legs = current_status.get("legs")
-                                if isinstance(status_legs, list):
-                                    for rem_idx in range(idx, len(status_legs)):
-                                        row = status_legs[rem_idx]
-                                        if not isinstance(row, dict):
-                                            continue
-                                        if row.get("status") in {"pass", "fail", "warning"}:
-                                            continue
-                                        row["status"] = "skipped"
-                                        row["skip_reason"] = cancel_reason
-                                        row["completed_at"] = cancelled_at
-                                status_file.write_status(bucket, runtime_prefix, run_id, current_status)
-                        except Exception as exc:
-                            print(f"  Warning: Failed to update cancellation status: {exc}")
-                        break
+                    else:
+                        cancel_detected = False
+                        detected_reason: str | None = None
+                        detected_superseding_sha: str | None = None
+
+                        if state_now == "closed":
+                            cancel_detected = True
+                            detected_reason = "pr_closed_during_run"
+                        else:
+                            pr_head_sha_now = pr_state_now.get("head_sha")
+                            if isinstance(pr_head_sha_now, str):
+                                pr_head_sha_now = pr_head_sha_now.strip() or None
+                            else:
+                                pr_head_sha_now = None
+                            if sha and pr_head_sha_now and pr_head_sha_now != sha:
+                                cancel_detected = True
+                                detected_reason = "superseded_by_new_commit"
+                                detected_superseding_sha = pr_head_sha_now
+
+                        if cancel_detected:
+                            cancelled_due_to_pr_state = True
+                            cancel_reason = detected_reason
+                            pointer_promotion_allowed = False
+                            superseded_by_sha = detected_superseding_sha
+                            cancelled_at = _now_iso()
+                            if cancel_reason == "superseded_by_new_commit":
+                                print(
+                                    "  Run superseded before next leg; cancelling remaining legs. "
+                                    f"superseding_sha={superseded_by_sha or 'unknown'}"
+                                )
+                            else:
+                                print(f"  PR closed before leg {idx + 1}; cancelling remaining legs.")
+                            try:
+                                current_status = status_file.read_status(bucket, runtime_prefix, run_id)
+                                if current_status:
+                                    current_status["vm_state"] = (
+                                        "cancelled_pr_closed_during_run"
+                                        if cancel_reason == "pr_closed_during_run"
+                                        else "cancelled_superseded_by_new_commit"
+                                    )
+                                    current_status["run_outcome"] = "cancelled"
+                                    current_status["cancel_reason"] = cancel_reason
+                                    current_status["cancelled_at"] = cancelled_at
+                                    current_status["last_heartbeat"] = cancelled_at
+                                    current_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                                    current_status["current_leg"] = None
+                                    current_status["superseded_by_sha"] = superseded_by_sha
+                                    status_legs = current_status.get("legs")
+                                    if isinstance(status_legs, list):
+                                        for rem_idx in range(idx, len(status_legs)):
+                                            row = status_legs[rem_idx]
+                                            if not isinstance(row, dict):
+                                                continue
+                                            if row.get("status") in {"pass", "fail", "warning"}:
+                                                continue
+                                            row["status"] = "skipped"
+                                            row["skip_reason"] = cancel_reason
+                                            row["completed_at"] = cancelled_at
+                                    status_file.write_status(bucket, runtime_prefix, run_id, current_status)
+                            except Exception as exc:
+                                print(f"  Warning: Failed to update cancellation status: {exc}")
+                            break
 
                 try:
                     current_status = status_file.read_status(bucket, runtime_prefix, run_id)
@@ -1097,17 +1202,13 @@ def _process_run_trigger(  # noqa: PLR0911
                         current_status["run_outcome"] = "running"
                         current_status["cancel_reason"] = None
                         current_status["cancelled_at"] = None
+                        current_status["superseded_by_sha"] = None
                         status_file.write_status(bucket, runtime_prefix, run_id, current_status)
                 except Exception as exc:
                     print(f"  Warning: Failed to update status for leg {idx}: {exc}")
 
                 trigger = {
                     "bucket": bucket,
-                    "bucket_prefix_parent": parent_prefix,
-                    "code_prefix": code_prefix,
-                    "runtime_prefix": runtime_prefix,
-                    # Compatibility field for older orchestrator versions.
-                    "bucket_prefix": runtime_prefix,
                     "project": leg.get("project", "?"),
                     "bmt_id": leg.get("bmt_id", "?"),
                     "run_context": run_context,
@@ -1186,23 +1287,32 @@ def _process_run_trigger(  # noqa: PLR0911
                 except Exception as exc:
                     print(f"  Warning: Failed to update status after leg {idx}: {exc}")
 
-            if cancelled_due_to_closed_pr:
+            if cancelled_due_to_pr_state:
                 cancelled_at = _now_iso()
                 try:
                     final_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if final_status:
-                        final_status["vm_state"] = "cancelled_pr_closed_during_run"
+                        final_status["vm_state"] = (
+                            "cancelled_pr_closed_during_run"
+                            if cancel_reason == "pr_closed_during_run"
+                            else "cancelled_superseded_by_new_commit"
+                        )
                         final_status["run_outcome"] = "cancelled"
                         final_status["cancel_reason"] = cancel_reason or "pr_closed_during_run"
                         final_status["cancelled_at"] = final_status.get("cancelled_at") or cancelled_at
                         final_status["last_heartbeat"] = cancelled_at
                         final_status["elapsed_sec"] = int(time.time() - start_timestamp)
                         final_status["current_leg"] = None
+                        final_status["superseded_by_sha"] = superseded_by_sha
                         status_file.write_status(bucket, runtime_prefix, run_id, final_status)
                 except Exception as exc:
                     print(f"  Warning: Failed to finalize cancellation status file: {exc}")
 
                 if repository and sha and github_token:
+                    check_summary = "Cancelled: PR closed before completion."
+                    if cancel_reason == "superseded_by_new_commit":
+                        short_new = _short_sha(superseded_by_sha or "")
+                        check_summary = f"Cancelled: superseded by newer commit ({short_new})."
                     check_run_id, github_token, check_completed = _finalize_check_run_resilient(
                         token=github_token,
                         repository=repository,
@@ -1212,25 +1322,37 @@ def _process_run_trigger(  # noqa: PLR0911
                         conclusion="neutral",
                         output={
                             "title": "BMT Cancelled",
-                            "summary": "Cancelled: PR closed before completion.",
+                            "summary": check_summary,
                         },
                         token_resolver=github_token_resolver,
                     )
                     if check_completed:
-                        print("  Completed Check Run: neutral (PR closed)")
+                        print("  Completed Check Run: neutral (cancelled)")
 
                 if repository and sha and github_token:
+                    cancel_description = "BMT cancelled: PR closed before completion."
+                    if cancel_reason == "superseded_by_new_commit":
+                        cancel_description = "BMT cancelled: superseded by newer commit."
                     _post_commit_status_resilient(
                         repository,
                         sha,
                         "error",
-                        "BMT cancelled: PR closed before completion.",
+                        cancel_description,
                         None,
                         github_token,
                         context=status_context,
                         token_resolver=github_token_resolver,
                     )
-                print("  Cancelled run due to closed PR; skipping pointer promotion and PR comments.")
+                if cancel_reason == "superseded_by_new_commit":
+                    _upsert_pr_comment(
+                        result="Superseded",
+                        summary_line="This VM run was superseded by a newer commit on the PR.",
+                        details_line="A newer commit arrived before all legs completed; this run stopped before the next leg.",
+                        superseding_sha=superseded_by_sha,
+                    )
+                    print("  Cancelled run due to superseding commit; skipped pointer promotion.")
+                else:
+                    print("  Cancelled run due to closed PR; skipping pointer promotion and PR comments.")
                 return
 
             state, description = _aggregate_verdicts_from_summaries(leg_summaries)
@@ -1243,6 +1365,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     final_status["run_outcome"] = "completed"
                     final_status["cancel_reason"] = None
                     final_status["cancelled_at"] = None
+                    final_status["superseded_by_sha"] = None
                     final_status["last_heartbeat"] = _now_iso()
                     final_status["elapsed_sec"] = int(time.time() - start_timestamp)
                     status_file.write_status(bucket, runtime_prefix, run_id, final_status)
@@ -1299,13 +1422,17 @@ def _process_run_trigger(  # noqa: PLR0911
                 if pr_number is not None:
                     details = "For details, open the **Checks** tab on this PR."
                     if state == "success":
-                        body = _format_bmt_comment("Success", "All tests passed.", details)
+                        _upsert_pr_comment(
+                            result="Success",
+                            summary_line="All tests passed.",
+                            details_line=details,
+                        )
                     else:
-                        body = _format_bmt_comment("Failed", _failed_legs_display(leg_summaries), details)
-                    if github_pr_comment.post_pr_comment(github_token, repository, pr_number, body):
-                        print("  Posted PR comment")
-                    else:
-                        print("  Could not post PR comment (non-fatal)")
+                        _upsert_pr_comment(
+                            result="Failed",
+                            summary_line=_failed_legs_display(leg_summaries),
+                            details_line=details,
+                        )
         except Exception as exc:
             print(f"  Error during BMT run: {exc}")
             traceback.print_exc()
@@ -1336,15 +1463,11 @@ def _process_run_trigger(  # noqa: PLR0911
                 if not check_completed:
                     print("  Warning: Failed to complete Check Run on error")
                 if pr_number is not None:
-                    body = _format_bmt_comment(
-                        "Failed",
-                        "The test runner encountered an error.",
-                        "For details, open the **Checks** tab on this PR.",
+                    _upsert_pr_comment(
+                        result="Failed",
+                        summary_line="The test runner encountered an error.",
+                        details_line="For details, open the **Checks** tab on this PR.",
                     )
-                    if github_pr_comment.post_pr_comment(github_token, repository, pr_number, body):
-                        print("  Posted PR comment")
-                    else:
-                        print("  Could not post PR comment (non-fatal)")
             return
     except Exception as exc:
         print(f"  Warning: post-run finalization failed: {exc}")
@@ -1367,18 +1490,15 @@ def main() -> int:
     workspace_root = _resolve_workspace_root(args.workspace_root)
     workspace_root.mkdir(parents=True, exist_ok=True)
 
-    parent = _normalize_prefix(args.bucket_prefix)
-    code_prefix = _code_prefix(parent)
-    runtime_prefix = _runtime_prefix(parent)
-    code_bucket_root = _bucket_root_uri(args.bucket, code_prefix)
-    runtime_bucket_root = _bucket_root_uri(args.bucket, runtime_prefix)
+    code_bucket_root = _code_bucket_root(args.bucket)
+    runtime_bucket_root = _runtime_bucket_root(args.bucket)
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
     print(
         f"BMT Watcher started: bucket={args.bucket} "
-        f"parent={parent or '<none>'} code={code_prefix or '<none>'} runtime={runtime_prefix or '<none>'} "
+        f"code={code_bucket_root} runtime={runtime_bucket_root} "
         f"poll={args.poll_interval_sec}s"
     )
     print(f"Workspace: {workspace_root}")
@@ -1426,7 +1546,6 @@ def main() -> int:
                     run_trigger_uri,
                     code_bucket_root,
                     runtime_bucket_root,
-                    runtime_prefix,
                     workspace_root,
                     github_token_resolver,
                 )

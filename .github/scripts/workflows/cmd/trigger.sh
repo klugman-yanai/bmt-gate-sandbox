@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 
 bmt_cmd_preflight_trigger_queue() {
-  local run_id root runs_prefix current_uri
+  local run_id root runs_prefix current_uri run_context
   local -a existing blocking
   local uri removed failed rid count prefix_uri
 
   require_cmd gcloud
   run_id="$(current_run_id)"
+  run_context="${RUN_CONTEXT:-dev}"
   root="$(runtime_root)"
   runs_prefix="${root}/triggers/runs/"
   current_uri="${runs_prefix}${run_id}.json"
@@ -29,6 +30,7 @@ bmt_cmd_preflight_trigger_queue() {
   {
     echo "## Runtime Trigger Preflight"
     echo
+    echo "- Run context: \`${run_context}\`"
     echo "- Runtime root: \`${root}\`"
     echo "- Existing trigger files: **${#existing[@]}**"
     echo "- Blocking stale trigger files: **${#blocking[@]}**"
@@ -36,6 +38,21 @@ bmt_cmd_preflight_trigger_queue() {
 
   if [[ "${#blocking[@]}" -eq 0 ]]; then
     echo "- Action: no stale trigger cleanup required." >>"$GITHUB_STEP_SUMMARY"
+    exit 0
+  fi
+
+  if [[ "$run_context" == "pr" ]]; then
+    {
+      echo "- Action: observational only (PR queue mode); no trigger deletion, no forced VM restart."
+      echo
+      echo "### Existing queue entries"
+      echo
+      echo "| Trigger URI |"
+      echo "|------------|"
+    } >>"$GITHUB_STEP_SUMMARY"
+    for uri in "${blocking[@]}"; do
+      echo "| \`${uri}\` |" >>"$GITHUB_STEP_SUMMARY"
+    done
     exit 0
   fi
 
@@ -118,7 +135,6 @@ bmt_cmd_write_run_trigger() {
     ./.github/scripts/ci_driver.py trigger
     --config-root "$config_root"
     --bucket "$GCS_BUCKET"
-    --bucket-prefix "$BMT_BUCKET_PREFIX"
     --matrix-json "$matrix_json"
     --run-context "$run_context"
   )

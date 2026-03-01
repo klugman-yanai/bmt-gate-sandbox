@@ -58,17 +58,20 @@ _read_meta() {
 if [[ -z "${GCS_BUCKET:-}" ]]; then
   GCS_BUCKET=$(_read_meta "GCS_BUCKET")
 fi
-if [[ -z "${BMT_BUCKET_PREFIX:-}" ]]; then
-  BMT_BUCKET_PREFIX=$(_read_meta "BMT_BUCKET_PREFIX")
-fi
 if [[ -z "${BMT_REPO_ROOT:-}" ]]; then
   BMT_REPO_ROOT=$(_read_meta "BMT_REPO_ROOT")
+fi
+if [[ -z "${GCP_PROJECT:-}" ]]; then
+  GCP_PROJECT=$(_read_meta "GCP_PROJECT")
 fi
 
 # --- Configure these (or already set via VM metadata / env above) ---
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
 GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET or VM metadata GCS_BUCKET}"
-BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-}"
+if [[ -z "${GCP_PROJECT:-}" ]]; then
+  GCP_PROJECT=$(curl -sS -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/project/project-id" 2>/dev/null || true)
+fi
 HOME_DIR="${HOME:-/root}"
 if [[ -z "${BMT_WORKSPACE_ROOT:-}" ]]; then
   if [[ -d "${HOME_DIR}/sk_runtime" && ! -d "${HOME_DIR}/bmt_workspace" ]]; then
@@ -110,37 +113,56 @@ if [[ ! -d "$VENV" ]] || ! "${VENV}/bin/python" -c "import jwt" 2>/dev/null; the
   fi
 fi
 
-# 3. Fetch secrets and export
-# Fetch test repo GitHub App credentials (non-blocking if not configured)
-if gcloud secrets describe GITHUB_APP_TEST_ID &>/dev/null; then
-  echo "Fetching GitHub App credentials for test environment..."
-  GITHUB_APP_TEST_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_TEST_ID" 2>/dev/null || echo "")
-  GITHUB_APP_TEST_INSTALLATION_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_TEST_INSTALLATION_ID" 2>/dev/null || echo "")
-  GITHUB_APP_TEST_PRIVATE_KEY=$(gcloud secrets versions access latest --secret="GITHUB_APP_TEST_PRIVATE_KEY" 2>/dev/null || echo "")
-  export GITHUB_APP_TEST_ID GITHUB_APP_TEST_INSTALLATION_ID GITHUB_APP_TEST_PRIVATE_KEY
-  if [[ -n "$GITHUB_APP_TEST_ID" ]]; then
-    echo "✓ Loaded GitHub App credentials for test environment"
-  fi
+# 3. Fetch secrets and export.
+# Canonical groups only:
+#   - GITHUB_APP_TEST_*
+#   - GITHUB_APP_PROD_*
+_gcloud_project_args=()
+if [[ -n "${GCP_PROJECT:-}" ]]; then
+  _gcloud_project_args=(--project "$GCP_PROJECT")
 fi
 
-# Fetch prod repo GitHub App credentials (non-blocking if not configured)
-if gcloud secrets describe GITHUB_APP_PROD_ID &>/dev/null; then
-  echo "Fetching GitHub App credentials for prod environment..."
-  GITHUB_APP_PROD_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_PROD_ID" 2>/dev/null || echo "")
-  GITHUB_APP_PROD_INSTALLATION_ID=$(gcloud secrets versions access latest --secret="GITHUB_APP_PROD_INSTALLATION_ID" 2>/dev/null || echo "")
-  GITHUB_APP_PROD_PRIVATE_KEY=$(gcloud secrets versions access latest --secret="GITHUB_APP_PROD_PRIVATE_KEY" 2>/dev/null || echo "")
-  export GITHUB_APP_PROD_ID GITHUB_APP_PROD_INSTALLATION_ID GITHUB_APP_PROD_PRIVATE_KEY
-  if [[ -n "$GITHUB_APP_PROD_ID" ]]; then
-    echo "✓ Loaded GitHub App credentials for prod environment"
+_load_github_app_credentials() {
+  local env_label="$1"
+  local prefix="$2"
+  local id_secret="${prefix}_ID"
+  local installation_secret="${prefix}_INSTALLATION_ID"
+  local key_secret="${prefix}_PRIVATE_KEY"
+
+  if ! gcloud secrets describe "$id_secret" "${_gcloud_project_args[@]}" &>/dev/null; then
+    echo "Info: ${env_label}: GitHub App secrets not found/readable (${id_secret}) in project ${GCP_PROJECT:-<default>}."
+    return 0
   fi
-fi
+
+  local app_id installation_id private_key
+  app_id=$(gcloud secrets versions access latest --secret="$id_secret" "${_gcloud_project_args[@]}" 2>/dev/null || true)
+  installation_id=$(gcloud secrets versions access latest --secret="$installation_secret" "${_gcloud_project_args[@]}" 2>/dev/null || true)
+  private_key=$(gcloud secrets versions access latest --secret="$key_secret" "${_gcloud_project_args[@]}" 2>/dev/null || true)
+  if [[ -z "$app_id" || -z "$installation_id" || -z "$private_key" ]]; then
+    echo "Warning: ${env_label}: secret set ${prefix}_* exists but values are missing/unreadable."
+    return 0
+  fi
+
+  local id_var="${prefix}_ID"
+  local installation_var="${prefix}_INSTALLATION_ID"
+  local key_var="${prefix}_PRIVATE_KEY"
+  printf -v "$id_var" "%s" "$app_id"
+  printf -v "$installation_var" "%s" "$installation_id"
+  printf -v "$key_var" "%s" "$private_key"
+  export "${id_var?}" "${installation_var?}" "${key_var?}"
+
+  echo "✓ Loaded GitHub App credentials for ${env_label} from ${prefix}_*"
+  return 0
+}
+
+_load_github_app_credentials "test environment" "GITHUB_APP_TEST"
+_load_github_app_credentials "prod environment" "GITHUB_APP_PROD"
 
 # 4. Run watcher once with uv-managed Python and always attempt self-stop afterwards.
 #    This prevents stale RUNNING VMs after failed runs/startup errors.
 WATCHER_EXIT=0
 if (cd "$BMT_REPO_ROOT" && "${UV_BIN}" run python vm_watcher.py \
   --bucket "$GCS_BUCKET" \
-  --bucket-prefix "$BMT_BUCKET_PREFIX" \
   --workspace-root "$BMT_WORKSPACE_ROOT" \
   --exit-after-run); then
   WATCHER_EXIT=0

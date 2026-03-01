@@ -32,13 +32,14 @@ def test_get_pr_state_open(monkeypatch) -> None:
     monkeypatch.setattr(
         github_pull_request.urllib.request,
         "urlopen",
-        lambda _req, **_kwargs: _Resp(200, '{"state":"open","merged":false}'),
+        lambda _req, **_kwargs: _Resp(200, '{"state":"open","merged":false,"head":{"sha":"abc123def456"}}'),
     )
 
     result = github_pull_request.get_pr_state("token", "owner/repo", 12)
 
     assert result["state"] == "open"
     assert result["merged"] is False
+    assert result["head_sha"] == "abc123def456"
     assert result["error"] is None
 
 
@@ -46,13 +47,14 @@ def test_get_pr_state_closed(monkeypatch) -> None:
     monkeypatch.setattr(
         github_pull_request.urllib.request,
         "urlopen",
-        lambda _req, **_kwargs: _Resp(200, '{"state":"closed","merged":true}'),
+        lambda _req, **_kwargs: _Resp(200, '{"state":"closed","merged":true,"head":{"sha":"fedcba987654"}}'),
     )
 
     result = github_pull_request.get_pr_state("token", "owner/repo", 12)
 
     assert result["state"] == "closed"
     assert result["merged"] is True
+    assert result["head_sha"] == "fedcba987654"
     assert result["error"] is None
 
 
@@ -70,5 +72,6 @@ def test_get_pr_state_unknown_after_retries(monkeypatch) -> None:
     assert calls["n"] == 3
     assert result["state"] == "unknown"
     assert result["merged"] is None
+    assert result["head_sha"] is None
     assert isinstance(result["error"], str)
     assert "network_error" in str(result["error"])

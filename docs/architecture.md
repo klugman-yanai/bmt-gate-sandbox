@@ -1,23 +1,93 @@
 # Architecture
 
-Current architecture is trigger-and-stop with explicit storage split:
+Current architecture is trigger-and-stop with explicit storage split. See [implementation.md](implementation.md) for data flow, reliability behavior, and "not implemented" items.
 
-- `ci.yml` builds and dispatches `bmt.yml`
+- `dummy-build-and-test.yml` builds and dispatches `bmt.yml`
 - `bmt.yml` uploads runtime artifacts, writes run trigger, starts VM, waits for handshake, exits
 - VM watcher processes legs asynchronously and posts final status/check
 
+## Diagrams
+
+### End-to-end sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CI as GitHub Actions bmt.yml
+    participant GCS as GCS
+    participant VM as VM vm_watcher.py
+    participant GH as GitHub API
+
+    CI->>GCS: upload runners -> runtime/<project>/runners/<preset>/...
+    CI->>GCS: write runtime/triggers/runs/<workflow_run_id>.json
+    CI->>VM: start instance
+    CI->>GCS: wait runtime/triggers/acks/<workflow_run_id>.json
+    CI->>GH: post pending commit status
+    CI-->>CI: exit
+
+    VM->>GCS: read runtime trigger
+    VM->>GCS: write runtime/triggers/acks/<workflow_run_id>.json
+    VM->>GCS: write runtime/triggers/status/<workflow_run_id>.json
+    VM->>GCS: download code/root_orchestrator.py
+    VM->>GCS: orchestrator downloads code config + manager
+    VM->>GCS: manager writes runtime snapshots + verdicts
+    VM->>GCS: watcher updates runtime current.json
+    VM->>GH: finalize check run + commit status
+    VM->>GCS: delete runtime/triggers/runs/<workflow_run_id>.json
+```
+
+### Namespace split
+
+```mermaid
+flowchart LR
+    B[GCS_BUCKET] --> C[code root]
+    B --> R[runtime root]
+
+    subgraph CodeRoot[code root gs://bucket/code]
+      RC[remote sync mirror]
+      BOOT[bootstrap scripts]
+      ORCH[root_orchestrator.py]
+      CFG[bmt_projects and jobs config]
+    end
+
+    subgraph RuntimeRoot[runtime root gs://bucket/runtime]
+      TRIG[triggers runs/acks/status]
+      RUN[runner bundles]
+      DATA[input datasets]
+      RES[current.json plus snapshots]
+    end
+
+    RC --> ORCH
+    ORCH --> RES
+    TRIG --> RES
+```
+
+### VM execution flow
+
+```mermaid
+flowchart TD
+    A[Watcher boot] --> B[Scan runtime/triggers/runs]
+    B --> C{Trigger found}
+    C -->|No| B
+    C -->|Yes| D[Write ack + status]
+    D --> E[Download orchestrator from code root]
+    E --> F[Run one leg via orchestrator]
+    F --> G[Manager reads code template and runtime inputs]
+    G --> H[Manager writes runtime snapshots and verdict]
+    H --> I{More legs}
+    I -->|Yes| F
+    I -->|No| J[Update current.json + prune snapshots]
+    J --> K[Post final commit status/check]
+    K --> L[Delete trigger and trim metadata]
+    L --> B
+```
+
 ## Namespace model
 
-Use parent prefix only:
+Fixed roots (no parent prefix):
 
-- `parent = normalize(BMT_BUCKET_PREFIX)`
-- `code_prefix = <parent>/code` (or `code`)
-- `runtime_prefix = <parent>/runtime` (or `runtime`)
-
-Roots:
-
-- `code_root = gs://<bucket>/<code_prefix>`
-- `runtime_root = gs://<bucket>/<runtime_prefix>`
+- `code_root = gs://<bucket>/code`
+- `runtime_root = gs://<bucket>/runtime`
 
 Separation rules:
 
@@ -44,12 +114,12 @@ Separation rules:
 
 | File | Role |
 |---|---|
-| `.github/scripts/ci/models.py` | Prefix derivation + URI helpers (parent/code/runtime). |
+| `.github/scripts/ci/models.py` | Fixed code/runtime root URI helpers. |
 | `.github/scripts/ci/commands/run_trigger.py` | Trigger payload + runtime trigger write. |
 | `.github/scripts/ci/commands/start_vm.py` | Start + readiness verification. |
 | `.github/scripts/ci/commands/wait_handshake.py` | Handshake wait + diagnostics + reason codes. |
 | `.github/scripts/ci/commands/upload_runner.py` | Runtime runner upload. |
-| `.github/scripts/ci/commands/sync_vm_metadata.py` | Sync `GCS_BUCKET` + `BMT_BUCKET_PREFIX` metadata. |
+| `.github/scripts/ci/commands/sync_vm_metadata.py` | Sync `GCS_BUCKET` and `BMT_REPO_ROOT` metadata. |
 
 ### VM
 
@@ -82,18 +152,11 @@ Required fields:
 - `run_context`
 - `triggered_at`
 - `bucket`
-- `bucket_prefix_parent`
-- `code_prefix`
-- `runtime_prefix`
 - `legs[]`
-
-Compatibility field (during migration window):
-
-- `bucket_prefix` (currently set to runtime prefix)
 
 ## VM bootstrap contract
 
-- VM metadata contains `GCS_BUCKET`, `BMT_BUCKET_PREFIX`, `BMT_REPO_ROOT`
+- VM metadata contains `GCS_BUCKET`, `BMT_REPO_ROOT`
 - Workflow sync step writes inline `startup-script` from `remote/code/bootstrap/startup_wrapper.sh`
 - Wrapper syncs strictly from `code_root` and runs `bootstrap/startup_example.sh`
 - Startup resolves `uv` in this order: `BMT_UV_BIN` override, `uv` on PATH, pinned artifact `<code-root>/_tools/uv/linux-x86_64/uv` verified by `<code-root>/_tools/uv/linux-x86_64/uv.sha256`

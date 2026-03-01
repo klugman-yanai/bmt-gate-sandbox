@@ -1,5 +1,36 @@
 #!/usr/bin/env bash
 
+bmt_cmd_post_handoff_timeout_status() {
+  local repository head_sha github_token context
+
+  repository="${REPOSITORY:-${GITHUB_REPOSITORY:-}}"
+  head_sha="${HEAD_SHA:-}"
+  github_token="${GITHUB_TOKEN:-}"
+  context="${BMT_STATUS_CONTEXT:-BMT Gate}"
+
+  if [[ -z "$repository" || -z "$head_sha" || -z "$github_token" ]]; then
+    echo "::warning::Skipping fallback status post (missing repository/head_sha/token)."
+    return 0
+  fi
+
+  if ! gh_should_post_failure_status "$repository" "$head_sha" "$github_token" "$context"; then
+    echo "::notice::Fallback status skipped: '${context}' is already terminal for ${head_sha}."
+    return 0
+  fi
+
+  if gh_post_status \
+    "$repository" \
+    "$head_sha" \
+    "$github_token" \
+    "error" \
+    "$context" \
+    "BMT cancelled: VM handshake timeout before pickup."; then
+    echo "::notice::Posted fallback terminal status '${context}=error' for ${head_sha}."
+  else
+    echo "::warning::Failed to post fallback terminal status for ${head_sha}."
+  fi
+}
+
 bmt_cmd_cleanup_failed_trigger_artifacts() {
   local run_id root run_uri ack_uri status_uri prefix_uri count
 

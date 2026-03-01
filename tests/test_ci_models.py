@@ -90,38 +90,14 @@ def test_decision_exit_rejected_nonzero():
 # ── URI helpers ───────────────────────────────────────────────────────────────
 
 
-def test_bucket_root_uri_no_prefix():
-    assert models.bucket_root_uri("my-bucket", "") == "gs://my-bucket"
+def test_code_bucket_root_uri_fixed():
+    """Fixed code root: gs://<bucket>/code (no prefix argument)."""
+    assert models.code_bucket_root_uri("my-bucket") == "gs://my-bucket/code"
 
 
-def test_bucket_root_uri_with_prefix():
-    assert models.bucket_root_uri("my-bucket", "some/prefix") == "gs://my-bucket/some/prefix"
-
-
-def test_bucket_root_uri_strips_slashes():
-    assert models.bucket_root_uri("my-bucket", "/some/prefix/") == "gs://my-bucket/some/prefix"
-
-
-def test_derived_code_runtime_prefix_without_parent():
-    assert models.parent_prefix("") == ""
-    assert models.code_prefix("") == "code"
-    assert models.runtime_prefix("") == "runtime"
-
-
-def test_derived_code_runtime_prefix_with_parent():
-    assert models.parent_prefix("/team/env/") == "team/env"
-    assert models.code_prefix("team/env") == "team/env/code"
-    assert models.runtime_prefix("team/env") == "team/env/runtime"
-
-
-def test_runtime_bucket_root_uri():
-    assert models.runtime_bucket_root_uri("my-bucket", "") == "gs://my-bucket/runtime"
-    assert models.runtime_bucket_root_uri("my-bucket", "pfx") == "gs://my-bucket/pfx/runtime"
-
-
-def test_code_bucket_root_uri():
-    assert models.code_bucket_root_uri("my-bucket", "") == "gs://my-bucket/code"
-    assert models.code_bucket_root_uri("my-bucket", "pfx") == "gs://my-bucket/pfx/code"
+def test_runtime_bucket_root_uri_fixed():
+    """Fixed runtime root: gs://<bucket>/runtime (no prefix argument)."""
+    assert models.runtime_bucket_root_uri("my-bucket") == "gs://my-bucket/runtime"
 
 
 def test_snapshot_verdict_uri():

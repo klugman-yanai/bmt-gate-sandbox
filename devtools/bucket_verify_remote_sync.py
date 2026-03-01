@@ -16,11 +16,24 @@ from click_exit import run_click_command
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, code_bucket_root_uri, normalize_prefix
+from repo_paths import DEFAULT_CONFIG_ROOT
+from shared_bucket_env import bucket_option, code_bucket_root_uri
 
 DEFAULT_CODE_EXCLUDES = (
     r"(^|/)__pycache__(/|$)",
+    r"__pycache__",
     r"\.pyc$",
+    r"\.pyo$",
+    r"(^|/)\.venv(/|$)",
+    r"(^|/)venv(/|$)",
+    r"(^|/)\.uv(/|$)",
+    r"(^|/)\.mypy_cache(/|$)",
+    r"(^|/)\.pytest_cache(/|$)",
+    r"(^|/)\.ruff_cache(/|$)",
+    r"(^|/)\.tox(/|$)",
+    r"(^|/)\.eggs(/|$)",
+    r"(^|/)[^/]+\.egg-info(/|$)",
+    r"\.egg$",
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/inputs(/|$)",
     r"(^|/)sk/outputs(/|$)",
@@ -103,14 +116,13 @@ def _gcs_exists(uri: str) -> bool:
 
 @click.command()
 @bucket_option
-@bucket_prefix_option
-@click.option("--src-dir", default="remote/code", help="Source directory to verify")
+@click.option("--src-dir", default=DEFAULT_CONFIG_ROOT, help="Source directory to verify")
 @click.option(
     "--include-runtime-artifacts",
     is_flag=True,
     help="Include runtime-generated paths (triggers, inputs, outputs, results).",
 )
-def main(bucket: str, bucket_prefix: str, src_dir: str, include_runtime_artifacts: bool) -> int:
+def main(bucket: str, src_dir: str, include_runtime_artifacts: bool) -> int:
     if not bucket:
         click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
@@ -120,7 +132,7 @@ def main(bucket: str, bucket_prefix: str, src_dir: str, include_runtime_artifact
         click.echo(f"::error::Missing source directory: {src}", err=True)
         return 1
 
-    code_root = code_bucket_root_uri(bucket, normalize_prefix(bucket_prefix))
+    code_root = code_bucket_root_uri(bucket)
     manifest_uri = f"{code_root}/_meta/remote_manifest.json"
     local_digest, local_count = _local_digest(src, include_runtime_artifacts)
     manifest = _download_manifest(manifest_uri)

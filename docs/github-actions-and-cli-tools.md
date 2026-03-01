@@ -58,7 +58,7 @@ Only **GitHub Apps** can create/update check runs; OAuth/users have read-only. O
 
 To keep bucket and VM filesystem usage bounded, runtime artifacts are pruned automatically:
 
-- **Namespace:** runtime artifacts are under `<runtime-root> = gs://<bucket>/<parent>/runtime` (or `gs://<bucket>/runtime`).
+- **Namespace:** runtime artifacts are under `<runtime-root> = gs://<bucket>/runtime`.
 - **Snapshots:** for each BMT results prefix, only `current.json.latest` and `current.json.last_passing` snapshots are retained.
 - **Trigger metadata:** `<runtime-root>/triggers/acks/*.json` and `<runtime-root>/triggers/status/*.json` are trimmed to the most recent entries (current + previous).
 - **Run triggers:** `<runtime-root>/triggers/runs/<workflow_run_id>.json` is deleted when processing finishes (or fails).

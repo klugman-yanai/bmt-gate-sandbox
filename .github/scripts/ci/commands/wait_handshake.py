@@ -42,9 +42,14 @@ def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -
 
 @click.command("wait-handshake")
 @click.option("--bucket", required=True, envvar="GCS_BUCKET")
-@click.option("--bucket-prefix", default="", envvar="BMT_BUCKET_PREFIX")
 @click.option("--workflow-run-id", required=True, envvar="GITHUB_RUN_ID")
-@click.option("--timeout-sec", default=180, show_default=True, type=int)
+@click.option(
+    "--timeout-sec",
+    default=180,
+    show_default=True,
+    type=int,
+    help="Must match config/env_contract.json defaults.BMT_HANDSHAKE_TIMEOUT_SEC when env unset.",
+)
 @click.option("--poll-interval-sec", default=5, show_default=True, type=int)
 @click.option("--project", default="", envvar="GCP_PROJECT")
 @click.option("--zone", default="", envvar="GCP_ZONE")
@@ -52,7 +57,6 @@ def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -
 @click.option("--github-output", envvar="GITHUB_OUTPUT")
 def command(
     bucket: str,
-    bucket_prefix: str,
     workflow_run_id: str,
     timeout_sec: int,
     poll_interval_sec: int,
@@ -65,32 +69,19 @@ def command(
     if not github_output:
         raise RuntimeError("GITHUB_OUTPUT is required")
 
-    parent = models.parent_prefix(bucket_prefix)
-    runtime_bucket_root = models.runtime_bucket_root_uri(bucket, parent)
-    base_bucket_root = models.bucket_root_uri(bucket, "")
+    runtime_bucket_root = models.runtime_bucket_root_uri(bucket)
     ack_uri = models.run_handshake_uri(runtime_bucket_root, workflow_run_id)
     trigger_uri = models.run_trigger_uri(runtime_bucket_root, workflow_run_id)
     runtime_status_uri = models.run_status_uri(runtime_bucket_root, workflow_run_id)
-    legacy_status_uri = models.run_status_uri(base_bucket_root, workflow_run_id)
 
     print(f"Waiting for VM handshake ack at {ack_uri} (timeout={timeout_sec}s, poll every {poll_interval_sec}s)")
     print(f"Trigger file (VM reads this): {trigger_uri}")
     print(f"Expected runtime status path: {runtime_status_uri}")
-    print(
-        f"Runtime namespace root: {runtime_bucket_root} "
-        f"(parent={parent or '<none>'}, runtime={models.runtime_prefix(parent)})"
-    )
+    print(f"Runtime namespace root: {runtime_bucket_root}")
 
     trigger_exists_initially = gcloud_cli.gcs_exists(trigger_uri)
     if not trigger_exists_initially:
         raise RuntimeError(f"Trigger file missing before handshake wait: {trigger_uri}")
-    runtime_status_exists = gcloud_cli.gcs_exists(runtime_status_uri)
-    legacy_status_exists = gcloud_cli.gcs_exists(legacy_status_uri)
-    if legacy_status_exists and not runtime_status_exists:
-        raise RuntimeError(
-            "Status path mismatch detected before handshake wait: "
-            f"found legacy status file {legacy_status_uri} but expected runtime status at {runtime_status_uri}"
-        )
 
     deadline = time.monotonic() + timeout_sec
     payload: dict[str, Any] | None = None
@@ -109,12 +100,11 @@ def command(
             trigger_exists = gcloud_cli.gcs_exists(trigger_uri)
             last_vm_status = _vm_status(project, zone, instance_name)
             runtime_status_exists = gcloud_cli.gcs_exists(runtime_status_uri)
-            legacy_status_exists = gcloud_cli.gcs_exists(legacy_status_uri)
             remaining = max(0, int(deadline - time.monotonic()))
             print(
                 f"  ... waiting {int(elapsed)}s / {timeout_sec}s timeout (remaining ~{remaining}s) "
                 f"vm_status={last_vm_status} trigger_exists={trigger_exists} "
-                f"runtime_status_exists={runtime_status_exists} legacy_status_exists={legacy_status_exists}"
+                f"runtime_status_exists={runtime_status_exists}"
             )
             last_progress = elapsed
         remaining = deadline - time.monotonic()
@@ -125,12 +115,9 @@ def command(
         trigger_exists = gcloud_cli.gcs_exists(trigger_uri)
         last_vm_status = _vm_status(project, zone, instance_name)
         runtime_status_exists = gcloud_cli.gcs_exists(runtime_status_uri)
-        legacy_status_exists = gcloud_cli.gcs_exists(legacy_status_uri)
         reason = "unknown"
         if not trigger_exists:
             reason = "trigger_missing"
-        elif legacy_status_exists and not runtime_status_exists:
-            reason = "status_path_mismatch"
         elif last_vm_status != "RUNNING":
             reason = "vm_not_running"
         elif last_error:
@@ -142,7 +129,7 @@ def command(
         raise RuntimeError(
             f"Timed out waiting for VM handshake ack at {ack_uri}{details}; "
             f"reason={reason}; vm_status={last_vm_status}; trigger_exists={trigger_exists}; "
-            f"runtime_status_exists={runtime_status_exists}; legacy_status_exists={legacy_status_exists}\n"
+            f"runtime_status_exists={runtime_status_exists}\n"
             f"--- serial tail ---\n{serial}"
         )
 

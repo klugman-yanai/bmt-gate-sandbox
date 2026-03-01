@@ -35,10 +35,10 @@ The App must have at least the permissions below. If you use a single App for bo
 
 | Permission | Level | Why it's needed |
 |------------|--------|------------------|
-| **Actions: Read and write** | Repository | **CI (ci.yml)** uses an installation token from `create-github-app-token` with `permission-actions: write` to call **workflow_dispatch** on `bmt.yml`. Without this, the "Trigger BMT" step cannot start the BMT workflow and returns 403. |
-| **Commit statuses: Read and write** | Repository | **Commit status** is how the PR is gated (e.g. "BMT Gate"). Used by: (1) **bmt.yml** — posts pending/failure status from jobs 06 and 07; (2) **ci.yml** — posts failure status when "Trigger BMT" fails; (3) **VM (vm_watcher.py)** — posts pending then success/failure via `POST /repos/{owner}/{repo}/statuses/{sha}`. Branch protection typically requires this status to pass. |
+| **Actions: Read and write** | Repository | **CI (dummy-build-and-test.yml)** uses an installation token from `create-github-app-token` with `permission-actions: write` to call **workflow_dispatch** on `bmt.yml`. Without this, the "Trigger BMT" step cannot start the BMT workflow and returns 403. |
+| **Commit statuses: Read and write** | Repository | **Commit status** is how the PR is gated (e.g. "BMT Gate"). Used by: (1) **bmt.yml** — posts pending/failure status from jobs 06 and 07; (2) **dummy-build-and-test.yml** — posts failure status when "Trigger BMT" fails; (3) **VM (vm_watcher.py)** — posts pending then success/failure via `POST /repos/{owner}/{repo}/statuses/{sha}`. Branch protection typically requires this status to pass. |
 | **Checks: Read and write** | Repository | **Check Runs** are created and updated by the **VM (remote/code/lib/github_checks.py)** to show live BMT progress in the PR (create_check_run, update_check_run). Optional for gating (the gate is commit status) but needed for the progress table and final results in the check UI. |
-| **Issues: Read and write** (or **Pull requests: Read and write**) | Repository | **Planned:** PR comments would be posted by the VM after each run when associated with a PR. Not yet implemented. The workflow can post "Did not run" from failure-path jobs (bmt.yml 07/08, ci.yml trigger-bmt) using `GITHUB_TOKEN` with `issues: write`. |
+| **Issues: Read and write** (or **Pull requests: Read and write**) | Repository | **Planned:** PR comments would be posted by the VM after each run when associated with a PR. Not yet implemented. The workflow can post "Did not run" from failure-path jobs (bmt.yml 07/08, dummy-build-and-test.yml trigger-bmt) using `GITHUB_TOKEN` with `issues: write`. |
 
 ### Workflows permission — not required for BMT
 
@@ -75,14 +75,14 @@ What the workflow jobs actually use:
 
 | Workflow | Job(s) | Truly needed | Notes |
 |----------|--------|--------------|-------|
-| **ci.yml** | extract-presets, build | **contents: read** | Checkout only. Default token is enough. |
-| **ci.yml** | trigger-bmt | **statuses: write**, **issues: write** | Post status on failure; post PR comment when trigger fails and event is pull_request. |
+| **dummy-build-and-test.yml** | extract-presets, build | **contents: read** | Checkout only. Default token is enough. |
+| **dummy-build-and-test.yml** | trigger-bmt | **statuses: write**, **issues: write** | Post status on failure; post PR comment when trigger fails and event is pull_request. |
 | **bmt.yml** | all jobs | **contents: read**, **id-token: write**, **statuses: write**, **actions: read**, **issues: write** | Checkout; GCP WIF; post status; download-artifact; post PR comment on failure (jobs 07, 08). |
 | **bmt.yml** | — | ~~checks: write~~ | **Not used by any step.** Only the VM creates/updates Check Runs. You can remove `checks: write` from bmt.yml to minimize runner permissions. |
 
 So for **minimum** runner permissions:
 
-- **ci.yml**: For **trigger-bmt** only: `permissions: statuses: write, issues: write` (for failure status and PR comment).
+- **dummy-build-and-test.yml**: For **trigger-bmt** only: `permissions: statuses: write, issues: write` (for failure status and PR comment).
 - **bmt.yml**: `contents: read`, `id-token: write`, `statuses: write`, `actions: read`, `issues: write` (for failure-path PR comments).
 
 ### VM / GCS machine (GitHub App installation token)

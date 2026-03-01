@@ -55,7 +55,6 @@ bmt_cmd_wait_handshake() {
 
   uv run python ./.github/scripts/ci_driver.py wait-handshake \
     --bucket "$GCS_BUCKET" \
-    --bucket-prefix "$BMT_BUCKET_PREFIX" \
     --workflow-run-id "$run_id" \
     --timeout-sec "$timeout" \
     --poll-interval-sec 5

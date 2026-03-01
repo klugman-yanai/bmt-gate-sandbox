@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 from click_exit import run_click_command
+from repo_paths import DEFAULT_CONFIG_ROOT, DEFAULT_RUNTIME_ROOT
 
 ALLOWED_TRACKED_TOP_LEVEL = {
     ".cursorignore",
@@ -16,7 +17,6 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     ".gitignore",
     ".pre-commit-config.yaml",
     ".python-version",
-    "ARCHITECTURE.md",
     "CLAUDE.md",
     "CMakePresets.json",
     "Justfile",
@@ -24,6 +24,7 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     "config",
     "devtools",
     "docs",
+    "original_build-and-test.yml",
     "pyproject.toml",
     "pyrightconfig.json",
     "remote",
@@ -45,11 +46,10 @@ FORBIDDEN_EXISTING_TOP_LEVEL = {
 }
 
 REQUIRED_PATHS = (
-    ".github/workflows/ci.yml",
     ".github/workflows/bmt.yml",
-    "remote/code",
-    "remote/runtime",
-    "docs/reference/workflows/build-and-test.yml",
+    ".github/workflows/dummy-build-and-test.yml",
+    DEFAULT_CONFIG_ROOT,
+    DEFAULT_RUNTIME_ROOT,
     "scripts/hooks/pre-commit-sync-remote.sh",
 )
 

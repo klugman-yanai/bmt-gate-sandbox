@@ -7,21 +7,8 @@ require_cmd() {
   fi
 }
 
-normalize_prefix() {
-  local raw="${1:-}"
-  raw="${raw#/}"
-  raw="${raw%/}"
-  printf '%s' "$raw"
-}
-
 runtime_prefix() {
-  local parent
-  parent="$(normalize_prefix "${BMT_BUCKET_PREFIX:-}")"
-  if [[ -n "$parent" ]]; then
-    printf '%s/runtime' "$parent"
-  else
-    printf 'runtime'
-  fi
+  printf 'runtime'
 }
 
 runtime_root() {

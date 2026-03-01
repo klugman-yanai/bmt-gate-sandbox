@@ -34,7 +34,6 @@ bmt_cmd_upload_runner_to_gcs() {
 
   uv run python ./.github/scripts/ci_driver.py upload-runner \
     --bucket "$GCS_BUCKET" \
-    --bucket-prefix "$BMT_BUCKET_PREFIX" \
     --runner-dir "$runner_dir" \
     "${lib_arg[@]}" \
     --project "$project" \

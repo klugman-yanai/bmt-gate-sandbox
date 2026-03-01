@@ -42,7 +42,6 @@ _FORCED_WAV_PATH_KEYS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SK project BMT manager")
     _ = parser.add_argument("--bucket", required=True)
-    _ = parser.add_argument("--bucket-prefix", default=os.environ.get("BMT_BUCKET_PREFIX", ""))
     _ = parser.add_argument("--project-id", required=True)
     _ = parser.add_argument("--bmt-id", required=True)
     _ = parser.add_argument("--jobs-config", required=True)
@@ -67,13 +66,8 @@ def _now_stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _normalize_prefix(prefix: str) -> str:
-    return prefix.strip("/")
-
-
-def _bucket_root_uri(bucket: str, prefix: str) -> str:
-    p = _normalize_prefix(prefix)
-    return f"gs://{bucket}/{p}" if p else f"gs://{bucket}"
+def _runtime_bucket_root(bucket: str) -> str:
+    return f"gs://{bucket}/runtime"
 
 
 def _bucket_uri(bucket_root: str, path_or_uri: str) -> str:
@@ -341,7 +335,7 @@ def _run_one(
 
 def main() -> int:
     args = parse_args()
-    bucket_root = _bucket_root_uri(args.bucket, args.bucket_prefix)
+    bucket_root = _runtime_bucket_root(args.bucket)
 
     jobs_cfg = _load_json(Path(args.jobs_config))
     bmts = jobs_cfg.get("bmts", {})
