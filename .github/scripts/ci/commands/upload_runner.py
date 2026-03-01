@@ -10,12 +10,11 @@ from pathlib import Path
 import click
 
 from ci.adapters import gcloud_cli
-from ci.models import normalize_prefix, runtime_bucket_root_uri
+from ci.models import runtime_bucket_root_uri
 
 
 @click.command("upload-runner")
 @click.option("--bucket", required=True, envvar="GCS_BUCKET")
-@click.option("--bucket-prefix", default="", envvar="BMT_BUCKET_PREFIX")
 @click.option(
     "--runner-dir",
     required=True,
@@ -33,7 +32,6 @@ from ci.models import normalize_prefix, runtime_bucket_root_uri
 @click.option("--source-ref", default="", help="Git SHA or ref")
 def command(
     bucket: str,
-    bucket_prefix: str,
     runner_dir: Path,
     lib_dir: Path | None,
     project: str,
@@ -41,8 +39,7 @@ def command(
     source_ref: str,
 ) -> None:
     """Upload runner binary and project lib to GCS."""
-    parent = normalize_prefix(bucket_prefix)
-    root = runtime_bucket_root_uri(bucket, parent)
+    root = runtime_bucket_root_uri(bucket)
     dest_prefix = f"{project}/runners/{preset}"
 
     runner_binary = runner_dir / "kardome_runner"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Audit VM filesystem and GCS bucket layout; report bloat. Config from canonical env vars.
 # Requires: GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, GCS_BUCKET.
-# Optional: BMT_BUCKET_PREFIX, BMT_REPO_ROOT (default /opt/bmt).
+# Optional: BMT_REPO_ROOT (default /opt/bmt).
 #
 # Usage: set vars then run ./remote/code/bootstrap/audit_vm_and_bucket.sh
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=... GCS_BUCKET=...
@@ -13,7 +13,6 @@ GCP_PROJECT="${GCP_PROJECT:-}"
 BMT_VM_NAME="${BMT_VM_NAME:-}"
 GCP_ZONE="${GCP_ZONE:-}"
 GCS_BUCKET="${GCS_BUCKET:-}"
-BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-}"
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
 
 if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$BMT_VM_NAME" || -z "$GCS_BUCKET" ]]; then
@@ -21,16 +20,8 @@ if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$BMT_VM_NAME" || -z "$GCS_BUCKE
   exit 1
 fi
 
-PARENT_PREFIX="${BMT_BUCKET_PREFIX#/}"
-PARENT_PREFIX="${PARENT_PREFIX%/}"
-CODE_PREFIX="code"
-RUNTIME_PREFIX="runtime"
-if [[ -n "${PARENT_PREFIX}" ]]; then
-  CODE_PREFIX="${PARENT_PREFIX}/code"
-  RUNTIME_PREFIX="${PARENT_PREFIX}/runtime"
-fi
-CODE_ROOT="gs://${GCS_BUCKET}/${CODE_PREFIX}"
-RUNTIME_ROOT="gs://${GCS_BUCKET}/${RUNTIME_PREFIX}"
+CODE_ROOT="gs://${GCS_BUCKET}/code"
+RUNTIME_ROOT="gs://${GCS_BUCKET}/runtime"
 
 echo "=== VM filesystem audit (gcloud compute ssh) ==="
 gcloud compute ssh "$BMT_VM_NAME" \

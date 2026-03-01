@@ -26,6 +26,7 @@ def get_pr_state(
     Returns a dict with:
     - state: open|closed|unknown
     - merged: bool|None
+    - head_sha: str|None
     - checked_at: ISO8601 timestamp
     - error: error string|None
 
@@ -35,6 +36,7 @@ def get_pr_state(
     unknown = {
         "state": "unknown",
         "merged": None,
+        "head_sha": None,
         "checked_at": checked_at,
         "error": None,
     }
@@ -70,9 +72,16 @@ def get_pr_state(
                     raw_state = "unknown"
                 merged_raw = payload.get("merged")
                 merged = merged_raw if isinstance(merged_raw, bool) else None
+                head_raw = payload.get("head")
+                head_sha: str | None = None
+                if isinstance(head_raw, dict):
+                    head_sha_raw = head_raw.get("sha")
+                    if isinstance(head_sha_raw, str):
+                        head_sha = head_sha_raw.strip() or None
                 return {
                     "state": raw_state,
                     "merged": merged,
+                    "head_sha": head_sha,
                     "checked_at": checked_at,
                     "error": None,
                 }

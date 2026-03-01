@@ -159,7 +159,6 @@ def test_startup_example_handles_home_unset(tmp_path: Path) -> None:
     env.pop("HOME", None)
     env["BMT_REPO_ROOT"] = str(repo_root)
     env["GCS_BUCKET"] = "test-bucket"
-    env["BMT_BUCKET_PREFIX"] = ""
     env["BMT_UV_BIN"] = str(fake_uv)
     env["BMT_SELF_STOP"] = "0"
 
@@ -212,7 +211,6 @@ def test_ensure_uv_downloads_pinned_artifact_when_uv_missing(tmp_path: Path) -> 
     env = os.environ.copy()
     env["PATH"] = str(fake_bin)
     env["GCS_BUCKET"] = "test-bucket"
-    env["BMT_BUCKET_PREFIX"] = ""
     env["BMT_REPO_ROOT"] = str(install_root)
     env.pop("BMT_UV_BIN", None)
 

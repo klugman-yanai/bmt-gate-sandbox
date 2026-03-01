@@ -28,7 +28,31 @@ from whenever import Instant
 
 # Reuse existing helpers for GCS polling
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / ".github" / "scripts"))
+from repo_paths import DEFAULT_CONFIG_ROOT
+
 from ci.config import resolve_results_prefix
+
+# Fallback when github_repos.json missing or has no matching repo_env
+_DEFAULT_REPO_TEST = "klugman-yanai/bmt-gate-sandbox"
+_DEFAULT_REPO_PROD = "Kardome-org/core-main"
+
+
+def _repository_from_github_repos(config_root: Path, prod: bool) -> str:
+    """Resolve repository slug from config_root/config/github_repos.json by repo_env (test vs prod)."""
+    config_path = config_root / "config" / "github_repos.json"
+    if not config_path.is_file():
+        return _DEFAULT_REPO_PROD if prod else _DEFAULT_REPO_TEST
+    try:
+        with config_path.open() as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return _DEFAULT_REPO_PROD if prod else _DEFAULT_REPO_TEST
+    repos = data.get("repositories") or {}
+    target_env = "prod" if prod else "test"
+    for slug, entry in repos.items():
+        if isinstance(entry, dict) and entry.get("repo_env") == target_env and entry.get("enabled", True):
+            return slug
+    return _DEFAULT_REPO_PROD if prod else _DEFAULT_REPO_TEST
 
 
 @dataclass
@@ -52,8 +76,6 @@ class MonitorState:
     run_id: str
     repository: str
     bucket: str
-    bucket_prefix_parent: str
-    runtime_prefix: str
     vm_name: str
     zone: str
     config_root: Path
@@ -112,18 +134,8 @@ def run_text_cmd(cmd: list[str]) -> str | None:
         return None
 
 
-def _normalize_prefix(prefix: str) -> str:
-    return (prefix or "").strip("/")
-
-
-def _runtime_prefix(parent_prefix: str) -> str:
-    parent = _normalize_prefix(parent_prefix)
-    return f"{parent}/runtime" if parent else "runtime"
-
-
 def _runtime_root(state: MonitorState) -> str:
-    runtime = _normalize_prefix(state.runtime_prefix)
-    return f"gs://{state.bucket}/{runtime}" if runtime else f"gs://{state.bucket}"
+    return f"gs://{state.bucket}/runtime"
 
 
 def poll_workflow(run_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -429,9 +441,12 @@ def render_gcs_vm_debug(state: MonitorState) -> Panel:
         legs = len(state.handshake_data.get("accepted_legs", []))
         run_disposition = str(state.handshake_data.get("run_disposition", "")).strip().lower()
         skip_reason = state.handshake_data.get("skip_reason")
+        superseded_by_sha = state.handshake_data.get("superseded_by_sha")
         lines.append(f"  [green]✓[/green] Ack      [dim]{ack_uri}[/dim]")
         if run_disposition == "skipped":
             lines.append(f"         acknowledged at {ts}  (disposition=skipped, reason={skip_reason or '?'})")
+            if skip_reason == "superseded_by_new_commit" and superseded_by_sha:
+                lines.append(f"         superseded by: {superseded_by_sha}")
         else:
             lines.append(f"         acknowledged at {ts}  ({legs} legs)")
     else:
@@ -547,10 +562,15 @@ def render_vm(state: MonitorState) -> Panel:
         elapsed_sec = state.vm_status_data.get("elapsed_sec", 0)
         run_outcome = str(state.vm_status_data.get("run_outcome", "")).strip().lower()
         cancel_reason = state.vm_status_data.get("cancel_reason")
+        superseded_by_sha = state.vm_status_data.get("superseded_by_sha")
         if run_outcome == "skipped":
             lines.append(f"[yellow]Run outcome: skipped ({cancel_reason or 'n/a'})[/yellow]")
+            if cancel_reason == "superseded_by_new_commit" and superseded_by_sha:
+                lines.append(f"[yellow]Superseded by: {superseded_by_sha}[/yellow]")
         elif run_outcome == "cancelled":
             lines.append(f"[red]Run outcome: cancelled ({cancel_reason or 'n/a'})[/red]")
+            if cancel_reason == "superseded_by_new_commit" and superseded_by_sha:
+                lines.append(f"[red]Superseded by: {superseded_by_sha}[/red]")
         if eta_sec is not None:
             lines.append(f"ETA: ~{_format_duration_sec(eta_sec)}  Elapsed: {_format_duration_sec(elapsed_sec)}")
         elif elapsed_sec:
@@ -735,49 +755,51 @@ def auto_detect_run_id() -> str | None:
 @click.option(
     "--bucket",
     envvar="GCS_BUCKET",
-    default="train-kws-202311-bmt-gate",
-    help="GCS bucket name (default: train-kws-202311-bmt-gate)",
-)
-@click.option(
-    "--bucket-prefix",
-    envvar="BMT_BUCKET_PREFIX",
-    default="",
-    help="Parent bucket prefix (runtime path is derived as <parent>/runtime).",
+    required=False,
+    help="GCS bucket name (env: GCS_BUCKET)",
 )
 @click.option(
     "--vm-name",
     envvar="BMT_VM_NAME",
-    default="bmt-performance-gate",
-    help="VM instance name (default: bmt-performance-gate)",
+    required=False,
+    help="VM instance name (env: BMT_VM_NAME)",
 )
 @click.option(
     "--zone",
     envvar="GCP_ZONE",
-    default="europe-west4-a",
-    help="GCP zone (default: europe-west4-a)",
+    required=False,
+    help="GCP zone (env: GCP_ZONE)",
 )
-@click.option("--config-root", default="remote/code", help="Config root (default: remote/code)")
+@click.option("--config-root", default=DEFAULT_CONFIG_ROOT, help=f"Config root (default: {DEFAULT_CONFIG_ROOT})")
 @click.option("--interval", default=5, type=int, help="Poll interval in seconds")
 def main(
     run_id: str | None,
     auto: bool,
     prod: bool,
     repo: str | None,
-    bucket: str,
-    bucket_prefix: str,
-    vm_name: str,
-    zone: str,
+    bucket: str | None,
+    vm_name: str | None,
+    zone: str | None,
     config_root: str,
     interval: int,
 ) -> None:
     """Live BMT Monitor — TUI dashboard for workflow/VM/GCS/status polling."""
-    # Determine repository
+    if not bucket or not vm_name or not zone:
+        click.echo(
+            "Error: GCS_BUCKET, BMT_VM_NAME, and GCP_ZONE are required. "
+            "Set env vars or pass --bucket, --vm-name, --zone.",
+            err=True,
+        )
+        sys.exit(1)
+    config_path = Path(config_root).resolve()
+    if not config_path.is_dir():
+        click.echo(f"Error: Config root not found: {config_path}", err=True)
+        sys.exit(1)
+    # Determine repository: --repo overrides; else from github_repos.json by --prod (test vs prod)
     if repo:
         repository = repo
-    elif prod:
-        repository = "Kardome-org/core-main"
     else:
-        repository = "klugman-yanai/bmt-gate-sandbox"
+        repository = _repository_from_github_repos(config_path, prod)
 
     if auto:
         detected = auto_detect_run_id()
@@ -792,17 +814,10 @@ def main(
         click.echo("Error: --run-id or --auto is required", err=True)
         sys.exit(1)
 
-    config_path = Path(config_root).resolve()
-    if not config_path.is_dir():
-        click.echo(f"Error: Config root not found: {config_path}", err=True)
-        sys.exit(1)
-
     state = MonitorState(
         run_id=run_id,
         repository=repository,
         bucket=bucket,
-        bucket_prefix_parent=_normalize_prefix(bucket_prefix),
-        runtime_prefix=_runtime_prefix(bucket_prefix),
         vm_name=vm_name,
         zone=zone,
         config_root=config_path,

@@ -26,7 +26,6 @@ concurrency:
 
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
-  BMT_BUCKET_PREFIX: ${{ vars.BMT_BUCKET_PREFIX }}
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
@@ -69,7 +68,11 @@ jobs:
         run: bash .github/scripts/workflows/bmt_workflow.sh emit-bmt-context
 
       - name: Validate required configuration variables
-        run: bash .github/scripts/workflows/bmt_workflow.sh validate-required-vars
+        env:
+          BMT_BUCKET_PREFIX: ${{ vars.BMT_BUCKET_PREFIX }}
+        run: |
+          bash .github/scripts/workflows/bmt_workflow.sh guard-no-legacy-prefix
+          bash .github/scripts/workflows/bmt_workflow.sh validate-required-vars
 
       - name: Parse gcc_Release presets (filtered by BMT_PROJECTS)
         id: parse
@@ -270,6 +273,8 @@ jobs:
 
       - name: Preflight runtime trigger queue (stale cleanup)
         id: preflight
+        env:
+          RUN_CONTEXT: ${{ needs.prepare.outputs.head_event == 'pull_request' && 'pr' || 'dev' }}
         run: bash .github/scripts/workflows/bmt_workflow.sh preflight-trigger-queue
 
       - name: Write run trigger to GCS
@@ -285,7 +290,7 @@ jobs:
         run: uv run python ./.github/scripts/ci_driver.py sync-vm-metadata
 
       - name: Force clean VM restart after stale-trigger cleanup
-        if: steps.preflight.outputs.restart_vm == 'true'
+        if: steps.preflight.outputs.restart_vm == 'true' && needs.prepare.outputs.head_event != 'pull_request'
         env:
           STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
         run: bash .github/scripts/workflows/bmt_workflow.sh force-clean-vm-restart
@@ -352,6 +357,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      statuses: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -414,6 +420,15 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           install_uv: "false"
+
+      - name: Post terminal status on handshake timeout
+        if: steps.failctx.outputs.trigger_written == 'true' && steps.failctx.outputs.vm_handshake_result == 'failure'
+        env:
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+        run: bash .github/scripts/workflows/bmt_workflow.sh post-handoff-timeout-status
 
       - name: Cleanup failed trigger artifacts
         if: steps.failctx.outputs.trigger_written == 'true'

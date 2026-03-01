@@ -158,12 +158,11 @@ Copy from dev repo with these modifications:
 - name: Download BMT config from GCS
   run: |
     mkdir -p /tmp/bmt-config
-    ROOT="gs://${GCS_BUCKET}"
-    [ -n "${BMT_BUCKET_PREFIX:-}" ] && ROOT="${ROOT}/${BMT_BUCKET_PREFIX}"
-    
-    gcloud storage cp "${ROOT}/code/bmt_projects.json" /tmp/bmt-config/ --quiet
-    gcloud storage cp -r "${ROOT}/code/sk/config" /tmp/bmt-config/sk/ --quiet
-    
+    ROOT="gs://${GCS_BUCKET}/code"
+
+    gcloud storage cp "${ROOT}/bmt_projects.json" /tmp/bmt-config/ --quiet
+    gcloud storage cp -r "${ROOT}/sk/config" /tmp/bmt-config/sk/ --quiet
+
     echo "BMT_CONFIG_ROOT=/tmp/bmt-config" >>"$GITHUB_ENV"
 ```
 
@@ -228,7 +227,6 @@ Add this job after the `build` job:
 | Variable | Value |
 |----------|-------|
 | `GCS_BUCKET` | `train-kws-202311-bmt-gate` |
-| `BMT_BUCKET_PREFIX` | `core-main` |
 | `GCP_WIF_PROVIDER` | `projects/416686035248/locations/global/workloadIdentityPools/bmt-gate-gha-dev/providers/github-oidc` |
 | `GCP_SA_EMAIL` | `bmt-runner-sa@train-kws-202311.iam.gserviceaccount.com` |
 | `GCP_ZONE` | `europe-west4-a` |
@@ -285,4 +283,4 @@ Settings → Branches → Branch protection rules → Add rule for `dev`:
 
 - The VM already has `GITHUB_APP_PROD_*` secrets in GCP Secret Manager for posting commit status
 - The CI workflow uses `actions/create-github-app-token` which auto-discovers installation ID
-- `BMT_BUCKET_PREFIX` isolates production data within the shared bucket
+- Code and runtime use fixed roots: `gs://<bucket>/code` and `gs://<bucket>/runtime`

@@ -138,13 +138,13 @@ def _resolve_config_path(config_path: str | Path | None) -> Path:
     if preferred.is_file():
         return preferred
 
-    # Legacy fallback used before remote/code migration.
-    legacy = Path("/opt/bmt/remote/config/github_repos.json")
+    # VM fallbacks: /opt/bmt must match config/env_contract.json defaults.BMT_REPO_ROOT.
+    repo_root = os.environ.get("BMT_REPO_ROOT", "").strip() or "/opt/bmt"
+    legacy = Path(repo_root) / "remote" / "config" / "github_repos.json"
     if legacy.is_file():
         return legacy
 
-    # Final fallback: expected VM path even if file is currently absent.
-    return Path("/opt/bmt/config/github_repos.json")
+    return Path(repo_root) / "config" / "github_repos.json"
 
 
 def list_enabled_repositories(config_path: str | Path | None = None) -> list[str] | None:
@@ -227,19 +227,20 @@ def resolve_auth_for_repository(  # noqa: PLR0911
         print(f"  Error: No secret_prefix for '{repository}' (env: {repo_env}); cannot resolve GitHub App auth")
         return None
 
-    # Read App credentials from environment variables
+    # Read App credentials from canonical environment variables.
     app_id = os.environ.get(f"{secret_prefix}_ID", "").strip()
     installation_id = os.environ.get(f"{secret_prefix}_INSTALLATION_ID", "").strip()
     private_key = os.environ.get(f"{secret_prefix}_PRIVATE_KEY", "").strip()
 
     if not (app_id and installation_id and private_key):
-        print(f"  Error: Missing GitHub App credentials for '{repository}' (env: {repo_env})")
+        checked = f"{secret_prefix}_ID/{secret_prefix}_INSTALLATION_ID/{secret_prefix}_PRIVATE_KEY"
+        print(f"  Error: Missing GitHub App credentials for '{repository}' (env: {repo_env}). Checked: {checked}")
         return None
 
     # Try to get installation token
     token = get_installation_token_from_app(app_id, installation_id, private_key)
     if token:
-        print(f"  ✓ Using GitHub App auth for '{repository}' (env: {repo_env})")
+        print(f"  ✓ Using GitHub App auth for '{repository}' (env: {repo_env}, prefix: {secret_prefix})")
         return token
 
     print(f"  Error: Failed to generate GitHub App token for '{repository}' (env: {repo_env})")

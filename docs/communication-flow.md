@@ -31,6 +31,10 @@ This document describes the **current** communication model after the handoff-on
 5. If PR is closed:
    - Before pickup: VM acknowledges trigger as skipped and exits without leg execution.
    - During execution: VM stops before next leg, finalizes existing pending signals as cancelled (`check=neutral`, `status=error`), and skips PR comments.
+6. If a newer commit arrives on the PR:
+   - Older trigger SHA is treated as superseded (`superseded_by_new_commit`).
+   - VM completes the current leg, cancels remaining legs between legs, finalizes old SHA signals (`check=neutral`, `status=error`), and does not promote pointers for the superseded run.
+   - VM PR comments are upserted per tested SHA and include commit links (tested + superseding when applicable).
 
 ## What developers see
 
@@ -41,6 +45,7 @@ This document describes the **current** communication model after the handoff-on
 | Handoff failure | Failed `bmt.yml` run summary + diagnostics in Actions logs. |
 | BMT in progress/complete | PR **Checks** and PR **Comments** (VM-owned updates). |
 | PR closed during/after handoff | Runtime trigger ack/status shows skipped/cancelled PR-closure reason; no new PR comment is posted. |
+| New commit supersedes an in-flight run | Older SHA run shows cancelled/superseded, while gating continues on the latest PR head SHA context only. |
 
 ## Branch protection
 

@@ -7,7 +7,6 @@ GCP_ZONE="${GCP_ZONE:-}"
 GCP_PROJECT="${GCP_PROJECT:-}"
 GCS_BUCKET="${GCS_BUCKET:-}"
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
-BMT_BUCKET_PREFIX="${BMT_BUCKET_PREFIX:-}"
 
 if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$BMT_VM_NAME" || -z "$GCS_BUCKET" ]]; then
   echo "Set GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, and GCS_BUCKET." >&2
@@ -25,7 +24,7 @@ echo "Rolling back $BMT_VM_NAME to inline startup-script mode..."
 gcloud compute instances add-metadata "$BMT_VM_NAME" \
   --zone="$GCP_ZONE" \
   --project="$GCP_PROJECT" \
-  --metadata "GCS_BUCKET=${GCS_BUCKET},BMT_BUCKET_PREFIX=${BMT_BUCKET_PREFIX},BMT_REPO_ROOT=${BMT_REPO_ROOT},startup-script-url=" \
+  --metadata "GCS_BUCKET=${GCS_BUCKET},BMT_REPO_ROOT=${BMT_REPO_ROOT},startup-script-url=" \
   --metadata-from-file "startup-script=${WRAPPER}"
 
 echo "Rollback metadata applied."

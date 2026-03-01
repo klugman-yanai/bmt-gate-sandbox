@@ -33,19 +33,13 @@ class _StatusStore:
 
 
 def _run_payload(*, run_context: str = "pr", include_pr: bool = True, leg_count: int = 2) -> dict[str, Any]:
-    legs = [
-        {"project": "sk", "bmt_id": f"bmt_{idx}", "run_id": f"run-{idx}"}
-        for idx in range(leg_count)
-    ]
+    legs = [{"project": "sk", "bmt_id": f"bmt_{idx}", "run_id": f"run-{idx}"} for idx in range(leg_count)]
     payload: dict[str, Any] = {
         "workflow_run_id": "123",
         "repository": "owner/repo",
         "sha": "abc123",
         "run_context": run_context,
         "bucket": "bucket-a",
-        "bucket_prefix_parent": "",
-        "code_prefix": "code",
-        "runtime_prefix": "runtime",
         "status_context": "BMT Gate",
         "description_pending": "BMT running on VM; status will update when complete.",
         "legs": legs,
@@ -77,11 +71,24 @@ def test_closed_before_pickup_skips_run(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(
         watcher.github_pull_request,
         "get_pr_state",
-        lambda *_args, **_kwargs: {"state": "closed", "merged": False, "checked_at": "2026-02-26T00:00:00Z", "error": None},
+        lambda *_args, **_kwargs: {
+            "state": "closed",
+            "merged": False,
+            "checked_at": "2026-02-26T00:00:00Z",
+            "error": None,
+        },
     )
     monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: post_status_calls.append("x") or True)
-    monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected check run")))
-    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected orchestrator download")))
+    monkeypatch.setattr(
+        watcher.github_checks,
+        "create_check_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected check run")),
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_download_orchestrator",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected orchestrator download")),
+    )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
 
@@ -89,7 +96,6 @@ def test_closed_before_pickup_skips_run(monkeypatch: pytest.MonkeyPatch, tmp_pat
         run_trigger_uri,
         "gs://bucket-a/code",
         "gs://bucket-a/runtime",
-        "runtime",
         tmp_path,
         lambda _repository: "token",
     )
@@ -102,6 +108,73 @@ def test_closed_before_pickup_skips_run(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert status_store.payload is not None
     assert status_store.payload["vm_state"] == "skipped_pr_closed_before_pickup"
     assert status_store.payload["run_outcome"] == "skipped"
+    assert all(leg.get("status") == "skipped" for leg in status_store.payload["legs"])
+    assert post_status_calls == []
+    assert removed
+    assert removed[0][0] == run_trigger_uri
+
+
+def test_superseded_before_pickup_skips_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    status_store = _StatusStore()
+    handshake_payload: dict[str, Any] = {}
+    post_status_calls: list[str] = []
+    removed: list[tuple[str, bool]] = []
+
+    run_trigger_uri = "gs://bucket-a/runtime/triggers/runs/123.json"
+
+    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload())
+
+    def _capture_ack(_uri: str, payload: dict[str, Any]) -> bool:
+        handshake_payload.clear()
+        handshake_payload.update(payload)
+        return True
+
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", _capture_ack)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda uri, recursive=False: removed.append((uri, recursive)) or True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        watcher.github_pull_request,
+        "get_pr_state",
+        lambda *_args, **_kwargs: {
+            "state": "open",
+            "merged": False,
+            "head_sha": "newhead999999",
+            "checked_at": "2026-02-26T00:00:00Z",
+            "error": None,
+        },
+    )
+    monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: post_status_calls.append("x") or True)
+    monkeypatch.setattr(
+        watcher.github_checks,
+        "create_check_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected check run")),
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_download_orchestrator",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected orchestrator download")),
+    )
+    monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
+    monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+
+    watcher._process_run_trigger(
+        run_trigger_uri,
+        "gs://bucket-a/code",
+        "gs://bucket-a/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert handshake_payload["run_disposition"] == "skipped"
+    assert handshake_payload["skip_reason"] == "superseded_by_new_commit"
+    assert handshake_payload["superseded_by_sha"] == "newhead999999"
+    assert handshake_payload["accepted_leg_count"] == 0
+    assert len(handshake_payload["rejected_legs"]) == 2
+    assert status_store.payload is not None
+    assert status_store.payload["run_outcome"] == "skipped"
+    assert status_store.payload["cancel_reason"] == "superseded_by_new_commit"
+    assert status_store.payload["superseded_by_sha"] == "newhead999999"
     assert all(leg.get("status") == "skipped" for leg in status_store.payload["legs"])
     assert post_status_calls == []
     assert removed
@@ -133,7 +206,9 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
-    monkeypatch.setattr(watcher, "_run_orchestrator", lambda _path, trigger, _workspace: orchestrator_runs.append(trigger) or 0)
+    monkeypatch.setattr(
+        watcher, "_run_orchestrator", lambda _path, trigger, _workspace: orchestrator_runs.append(trigger) or 0
+    )
     monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
     monkeypatch.setattr(
         watcher,
@@ -149,7 +224,9 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
             "orchestration_timing": {"duration_sec": 1},
         },
     )
-    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: update_pointer_calls.append(summary))
+    monkeypatch.setattr(
+        watcher, "_update_pointer_and_cleanup", lambda _root, summary: update_pointer_calls.append(summary)
+    )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 88)
@@ -170,15 +247,14 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
     )
     monkeypatch.setattr(
         watcher.github_pr_comment,
-        "post_pr_comment",
-        lambda _token, _repo, issue, _body: pr_comment_calls.append(issue) or True,
+        "upsert_pr_comment_by_marker",
+        lambda _token, _repo, issue, _marker, _body: pr_comment_calls.append(issue) or True,
     )
 
     watcher._process_run_trigger(
         run_trigger_uri,
         "gs://bucket-a/code",
         "gs://bucket-a/runtime",
-        "runtime",
         tmp_path,
         lambda _repository: "token",
     )
@@ -193,6 +269,114 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
     assert any(call.get("conclusion") == "neutral" for call in check_updates)
     assert "error" in post_status_states
     assert pr_comment_calls == []
+
+
+def test_superseded_mid_run_cancels_between_legs_and_upserts_commit_comment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    status_store = _StatusStore()
+    run_trigger_uri = "gs://bucket-a/runtime/triggers/runs/123.json"
+    orchestrator_runs: list[dict[str, Any]] = []
+    update_pointer_calls: list[dict[str, Any]] = []
+    check_updates: list[dict[str, Any]] = []
+    post_status_states: list[str] = []
+    pr_comment_calls: list[tuple[int, str, str]] = []
+
+    pr_states = iter(
+        [
+            {
+                "state": "open",
+                "merged": False,
+                "head_sha": "abc123",
+                "checked_at": "2026-02-26T00:00:00Z",
+                "error": None,
+            },
+            {
+                "state": "open",
+                "merged": False,
+                "head_sha": "abc123",
+                "checked_at": "2026-02-26T00:00:05Z",
+                "error": None,
+            },
+            {
+                "state": "open",
+                "merged": False,
+                "head_sha": "def789",
+                "checked_at": "2026-02-26T00:00:10Z",
+                "error": None,
+            },
+        ]
+    )
+
+    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload())
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(
+        watcher, "_run_orchestrator", lambda _path, trigger, _workspace: orchestrator_runs.append(trigger) or 0
+    )
+    monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
+    monkeypatch.setattr(
+        watcher,
+        "_load_manager_summary",
+        lambda _run_root: {
+            "status": "pass",
+            "project_id": "sk",
+            "bmt_id": "bmt_0",
+            "run_id": "run-0",
+            "passed": True,
+            "ci_verdict_uri": "gs://bucket-a/runtime/sk/results/false_rejects/snapshots/run-0/ci_verdict.json",
+            "bmt_results": {"results": []},
+            "orchestration_timing": {"duration_sec": 1},
+        },
+    )
+    monkeypatch.setattr(
+        watcher, "_update_pointer_and_cleanup", lambda _root, summary: update_pointer_calls.append(summary)
+    )
+    monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
+    monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 88)
+    monkeypatch.setattr(
+        watcher.github_checks, "update_check_run", lambda *_args, **kwargs: check_updates.append(kwargs)
+    )
+    monkeypatch.setattr(watcher.github_pull_request, "get_pr_state", lambda *_args, **_kwargs: next(pr_states))
+    monkeypatch.setattr(
+        watcher,
+        "_post_commit_status",
+        lambda _repo, _sha, state, *_args, **_kwargs: post_status_states.append(state) or True,
+    )
+    monkeypatch.setattr(
+        watcher.github_pr_comment,
+        "upsert_pr_comment_by_marker",
+        lambda _token, _repo, issue, marker, body: pr_comment_calls.append((issue, marker, body)) or True,
+    )
+
+    watcher._process_run_trigger(
+        run_trigger_uri,
+        "gs://bucket-a/code",
+        "gs://bucket-a/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert len(orchestrator_runs) == 1
+    assert status_store.payload is not None
+    assert status_store.payload["run_outcome"] == "cancelled"
+    assert status_store.payload["cancel_reason"] == "superseded_by_new_commit"
+    assert status_store.payload["superseded_by_sha"] == "def789"
+    assert status_store.payload["legs"][1]["status"] == "skipped"
+    assert status_store.payload["legs"][1]["skip_reason"] == "superseded_by_new_commit"
+    assert update_pointer_calls == []
+    assert any(call.get("conclusion") == "neutral" for call in check_updates)
+    assert "error" in post_status_states
+    assert len(pr_comment_calls) == 1
+    _, marker, body = pr_comment_calls[0]
+    assert "bmt-vm-comment-sha:abc123" in marker
+    assert "BMT result: Superseded" in body
+    assert "/commit/abc123" in body
+    assert "/commit/def789" in body
 
 
 def test_closed_mid_run_posts_terminal_error_even_when_pending_status_fails(
@@ -244,13 +428,12 @@ def test_closed_mid_run_posts_terminal_error_even_when_pending_status_fails(
         return state != "pending"
 
     monkeypatch.setattr(watcher, "_post_commit_status", _post_status)
-    monkeypatch.setattr(watcher.github_pr_comment, "post_pr_comment", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
 
     watcher._process_run_trigger(
         "gs://bucket-a/runtime/triggers/runs/123.json",
         "gs://bucket-a/code",
         "gs://bucket-a/runtime",
-        "runtime",
         tmp_path,
         lambda _repository: "token",
     )
@@ -269,7 +452,9 @@ def test_final_check_run_is_created_at_completion_if_startup_creation_fails(
     create_calls: list[int] = []
     update_calls: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1))
+    monkeypatch.setattr(
+        watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
+    )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
@@ -313,13 +498,12 @@ def test_final_check_run_is_created_at_completion_if_startup_creation_fails(
         "get_pr_state",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected PR state check")),
     )
-    monkeypatch.setattr(watcher.github_pr_comment, "post_pr_comment", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
 
     watcher._process_run_trigger(
         "gs://bucket-a/runtime/triggers/runs/123.json",
         "gs://bucket-a/code",
         "gs://bucket-a/runtime",
-        "runtime",
         tmp_path,
         lambda _repository: "token",
     )
@@ -345,7 +529,9 @@ def test_pr_state_api_failure_fails_open_and_completes(
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
-    monkeypatch.setattr(watcher, "_run_orchestrator", lambda _path, trigger, _workspace: orchestrator_runs.append(trigger) or 0)
+    monkeypatch.setattr(
+        watcher, "_run_orchestrator", lambda _path, trigger, _workspace: orchestrator_runs.append(trigger) or 0
+    )
     monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
     monkeypatch.setattr(
         watcher,
@@ -361,7 +547,9 @@ def test_pr_state_api_failure_fails_open_and_completes(
             "orchestration_timing": {"duration_sec": 1},
         },
     )
-    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: update_pointer_calls.append(summary))
+    monkeypatch.setattr(
+        watcher, "_update_pointer_and_cleanup", lambda _root, summary: update_pointer_calls.append(summary)
+    )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 42)
@@ -381,13 +569,12 @@ def test_pr_state_api_failure_fails_open_and_completes(
         "_post_commit_status",
         lambda _repo, _sha, state, *_args, **_kwargs: post_status_states.append(state) or True,
     )
-    monkeypatch.setattr(watcher.github_pr_comment, "post_pr_comment", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
 
     watcher._process_run_trigger(
         "gs://bucket-a/runtime/triggers/runs/123.json",
         "gs://bucket-a/code",
         "gs://bucket-a/runtime",
-        "runtime",
         tmp_path,
         lambda _repository: "token",
     )
@@ -404,13 +591,17 @@ def test_non_pr_run_does_not_check_pr_state(monkeypatch: pytest.MonkeyPatch, tmp
     orchestrator_runs: list[dict[str, Any]] = []
     update_pointer_calls: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1))
+    monkeypatch.setattr(
+        watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
+    )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
-    monkeypatch.setattr(watcher, "_run_orchestrator", lambda _path, trigger, _workspace: orchestrator_runs.append(trigger) or 0)
+    monkeypatch.setattr(
+        watcher, "_run_orchestrator", lambda _path, trigger, _workspace: orchestrator_runs.append(trigger) or 0
+    )
     monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
     monkeypatch.setattr(
         watcher,
@@ -426,7 +617,9 @@ def test_non_pr_run_does_not_check_pr_state(monkeypatch: pytest.MonkeyPatch, tmp
             "orchestration_timing": {"duration_sec": 1},
         },
     )
-    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: update_pointer_calls.append(summary))
+    monkeypatch.setattr(
+        watcher, "_update_pointer_and_cleanup", lambda _root, summary: update_pointer_calls.append(summary)
+    )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 1)
@@ -442,7 +635,6 @@ def test_non_pr_run_does_not_check_pr_state(monkeypatch: pytest.MonkeyPatch, tmp
         "gs://bucket-a/runtime/triggers/runs/123.json",
         "gs://bucket-a/code",
         "gs://bucket-a/runtime",
-        "runtime",
         tmp_path,
         lambda _repository: "token",
     )

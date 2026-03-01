@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
+source "${SCRIPT_DIR}/github_api.sh"
+# shellcheck source=/dev/null
 source "${SCRIPT_DIR}/lib/common.sh"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/cmd/context.sh"
@@ -24,6 +26,7 @@ Usage: .github/scripts/workflows/bmt_workflow.sh <command>
 Commands:
   emit-bmt-context
   validate-required-vars
+  guard-no-legacy-prefix
   warn-artifact-missing
   upload-runner-to-gcs
   warn-upload-failed
@@ -38,6 +41,7 @@ Commands:
   handshake-timeout-diagnostics
   show-handshake-summary
   resolve-failure-context
+  post-handoff-timeout-status
   cleanup-failed-trigger-artifacts
   stop-vm-best-effort
   write-handoff-summary
@@ -47,6 +51,7 @@ USAGE
 declare -A COMMAND_HANDLERS=(
   [emit-bmt-context]=bmt_cmd_emit_bmt_context
   [validate-required-vars]=bmt_cmd_validate_required_vars
+  [guard-no-legacy-prefix]=bmt_cmd_guard_no_legacy_prefix
   [warn-artifact-missing]=bmt_cmd_warn_artifact_missing
   [upload-runner-to-gcs]=bmt_cmd_upload_runner_to_gcs
   [warn-upload-failed]=bmt_cmd_warn_upload_failed
@@ -61,6 +66,7 @@ declare -A COMMAND_HANDLERS=(
   [handshake-timeout-diagnostics]=bmt_cmd_handshake_timeout_diagnostics
   [show-handshake-summary]=bmt_cmd_show_handshake_summary
   [resolve-failure-context]=bmt_cmd_resolve_failure_context
+  [post-handoff-timeout-status]=bmt_cmd_post_handoff_timeout_status
   [cleanup-failed-trigger-artifacts]=bmt_cmd_cleanup_failed_trigger_artifacts
   [stop-vm-best-effort]=bmt_cmd_stop_vm_best_effort
   [write-handoff-summary]=bmt_cmd_write_handoff_summary

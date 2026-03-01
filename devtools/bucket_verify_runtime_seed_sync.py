@@ -16,7 +16,8 @@ from click_exit import run_click_command
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
-from shared_bucket_env import bucket_option, bucket_prefix_option, normalize_prefix, runtime_bucket_root_uri
+from repo_paths import DEFAULT_RUNTIME_ROOT
+from shared_bucket_env import bucket_option, runtime_bucket_root_uri
 
 FORBIDDEN_RUNTIME_SEED = (
     r"(^|/)triggers(/|$)",
@@ -66,14 +67,13 @@ def _download_manifest(uri: str) -> dict[str, object]:
 
 @click.command()
 @bucket_option
-@bucket_prefix_option
-@click.option("--src-dir", default="remote/runtime", help="Runtime seed source directory to verify")
+@click.option("--src-dir", default=DEFAULT_RUNTIME_ROOT, help="Runtime seed source directory to verify")
 @click.option(
     "--allow-generated-artifacts",
     is_flag=True,
     help="Include generated runtime artifacts (triggers/results/outputs) in digest.",
 )
-def main(bucket: str, bucket_prefix: str, src_dir: str, allow_generated_artifacts: bool) -> int:
+def main(bucket: str, src_dir: str, allow_generated_artifacts: bool) -> int:
     if not bucket:
         click.echo("::error::Set GCS_BUCKET (or pass --bucket)", err=True)
         return 1
@@ -83,7 +83,7 @@ def main(bucket: str, bucket_prefix: str, src_dir: str, allow_generated_artifact
         click.echo(f"::error::Missing source directory: {src}", err=True)
         return 1
 
-    runtime_root = runtime_bucket_root_uri(bucket, normalize_prefix(bucket_prefix))
+    runtime_root = runtime_bucket_root_uri(bucket)
     manifest_uri = f"{runtime_root}/{RUNTIME_SEED_MANIFEST}"
     local_digest, local_count = _local_digest(src, allow_generated_artifacts)
 

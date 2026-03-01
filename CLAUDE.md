@@ -33,7 +33,7 @@ Scripts organized by category prefix:
 | `gh_*` | GitHub/debug | Env inspection, app permissions |
 
 **Files:**
-- `shared_bucket_env.py` — Bucket URI helpers, click options for `--bucket`/`--bucket-prefix`
+- `shared_bucket_env.py` — Bucket URI helpers, click option for `--bucket`; fixed code/runtime roots.
 - `shared_time_utils.py` — UTC timestamp helpers (`now_iso`, `now_stamp`, `utc_epoch`)
 - `bucket_sync_remote.py` — Sync `remote/` to GCS
 - `bucket_upload_runner.py` — Upload runner binary with rotation
@@ -99,7 +99,6 @@ To exercise the **manager** (snapshot writes, pointer read for baseline) and opt
    # From repo root; workspace can be a local dir
    uv run python remote/code/sk/bmt_manager.py \
      --bucket "<bucket>" \
-     --bucket-prefix "" \
      --project-id sk \
      --bmt-id false_reject_namuh \
      --jobs-config remote/code/sk/config/bmt_jobs.json \
@@ -109,7 +108,7 @@ To exercise the **manager** (snapshot writes, pointer read for baseline) and opt
      --summary-out ./local_batch/manager_summary.json
    ```
 
-   Then inspect GCS: `gs://<bucket>/<results_prefix>/snapshots/<run_id>/` should contain `latest.json`, `ci_verdict.json`, and `logs/`. If you had written a `current.json` beforehand, the manager uses it for baseline.
+   Then inspect GCS: `gs://<bucket>/runtime/<results_prefix>/snapshots/<run_id>/` should contain `latest.json`, `ci_verdict.json`, and `logs/`. If you had written a `current.json` beforehand, the manager uses it for baseline.
 
 2. **Full E2E (trigger → VM → pointer)** — Run the real CI workflow (e.g. push to a branch or trigger manually). The workflow writes a run trigger; the VM (or a local process running `vm_watcher.py` with the same bucket and a local workspace) picks it up, runs the orchestrator per leg, then updates `current.json` and cleans snapshots. Verify in GCS: `current.json` at `results_prefix`, and only the latest/last-passing snapshot dirs under `snapshots/`.
 
@@ -140,7 +139,7 @@ python3 devtools/bmt_run_local.py \
 
 ### Devtools (bucket sync, runner/wav upload, contract validation)
 
-Bucket and prefix are read from canonical `GCS_BUCKET` and `BMT_BUCKET_PREFIX`; shared helpers live in `devtools/shared_bucket_env.py`. From repo root use `just sync-remote && just verify-sync` (with `GCS_BUCKET`) to update code root manually, and `just show-env` to print the env var names used by CI, VM, and local devtools.
+Bucket is read from canonical `GCS_BUCKET`; shared helpers live in `devtools/shared_bucket_env.py` (fixed code root `gs://<bucket>/code`, runtime root `gs://<bucket>/runtime`). From repo root use `just sync-remote && just verify-sync` (with `GCS_BUCKET`) to update code root manually, and `just show-env` to print the env var names used by CI, VM, and local devtools.
 
 **Pre-commit assist:** The prod workflow does not sync `remote/` to GCS. `.pre-commit-config.yaml` provides an advisory (non-blocking) `remote/` sync helper.
 
@@ -163,7 +162,7 @@ GCS_BUCKET="<bucket>" python3 devtools/bucket_validate_contract.py --require-run
 
 ## Architecture
 
-### CI Pipeline (trigger-and-stop — `.github/workflows/ci.yml`)
+### CI Pipeline (trigger-and-stop — `.github/workflows/dummy-build-and-test.yml`)
 
 The workflow uses **uv-managed Python**: `astral-sh/setup-uv`, then `uv sync` and `uv run python ... ci_driver.py`. The VM runs the watcher with `uv run python remote/vm_watcher.py` from the repo root (same uv-managed venv).
 
@@ -187,7 +186,7 @@ Python package co-located with `ci_driver.py` at `.github/scripts/`. `ci_driver.
 | `ci/adapters/gcloud_cli.py` | All GCP interaction via **subprocess** and **gcloud** CLI (upload/download/list, VM start); no Google Cloud SDK |
 | `ci/commands/job_matrix.py` | `matrix` subcommand |
 | `ci/commands/run_trigger.py` | `trigger` — writes one run trigger to runtime namespace (all legs; VM reports status to GitHub) |
-| `ci/commands/sync_vm_metadata.py` | `sync-vm-metadata` — pushes bucket/prefix from workflow to VM metadata |
+| `ci/commands/sync_vm_metadata.py` | `sync-vm-metadata` — pushes bucket and repo root from workflow to VM metadata |
 | `ci/commands/start_vm.py` | `start-vm` — starts the BMT VM (requires `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`) |
 | `ci/commands/wait_handshake.py` | `wait-handshake` — waits for VM ack at `runtime/triggers/acks/<workflow_run_id>.json` |
 | `ci/commands/upload_runner.py` | `upload-runner` — uploads runner artifacts to GCS |
@@ -254,7 +253,7 @@ gh variable set BMT_STATUS_CONTEXT "BMT Gate (test)"
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
 
-**Optional** (leave unset for defaults): `BMT_BUCKET_PREFIX` (empty), `BMT_PROJECTS` (`all release runners`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
+**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all release runners`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
 
 For **local** use (e.g. `remote/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 

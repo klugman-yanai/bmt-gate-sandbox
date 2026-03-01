@@ -75,9 +75,7 @@ def command(
         raise TypeError("full-matrix.include must be a JSON array")
 
     filtered_include = [
-        entry
-        for entry in include
-        if isinstance(entry, dict) and str(entry.get("project", "")).strip() in accepted_set
+        entry for entry in include if isinstance(entry, dict) and str(entry.get("project", "")).strip() in accepted_set
     ]
     filtered = {"include": filtered_include}
 
@@ -92,7 +90,9 @@ def command(
         has_legs = "false"
         print("::warning::No supported BMT projects in requested runner set; skipping BMT trigger/VM run.")
     elif legs == 0:
-        raise RuntimeError("Supported BMT projects exist, but no supported runner upload succeeded; cannot trigger BMT.")
+        raise RuntimeError(
+            "Supported BMT projects exist, but no supported runner upload succeeded; cannot trigger BMT."
+        )
     else:
         print(f"::notice::Triggering BMT for {legs} leg(s) (supported runners only).")
 

@@ -6,10 +6,11 @@ from pathlib import Path
 import click
 
 from ci import config
+from ci.repo_paths import DEFAULT_CONFIG_ROOT
 
 
 @click.command("matrix")
-@click.option("--config-root", default="remote/code", show_default=True)
+@click.option("--config-root", default=DEFAULT_CONFIG_ROOT, show_default=True)
 @click.option("--project-filter", default="", envvar="BMT_PROJECTS")
 @click.option("--output-key", default="matrix", show_default=True)
 @click.option("--github-output", envvar="GITHUB_OUTPUT")

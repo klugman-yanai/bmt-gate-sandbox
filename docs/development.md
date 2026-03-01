@@ -19,7 +19,6 @@ This document covers the **current** development workflow: setup, testing, lint/
 
    ```bash
    export GCS_BUCKET="<your-bucket>"   # for bucket_* and just sync-remote, validate-bucket, etc.
-   export BMT_BUCKET_PREFIX=""         # optional parent prefix (code/runtime are derived)
    ```
 
    Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` for VM serial, validate-vm-vars, and CI workflow.
@@ -63,7 +62,6 @@ Requires `gcloud` auth and a bucket with config/runner/dataset synced.
 ```bash
 uv run python remote/code/sk/bmt_manager.py \
   --bucket "<bucket>" \
-  --bucket-prefix "" \
   --project-id sk \
   --bmt-id false_reject_namuh \
   --jobs-config remote/code/sk/config/bmt_jobs.json \
@@ -73,7 +71,7 @@ uv run python remote/code/sk/bmt_manager.py \
   --summary-out ./local_batch/manager_summary.json
 ```
 
-Then inspect GCS: `gs://<bucket>/<parent>/runtime/<results_prefix>/snapshots/<run_id>/` should contain `latest.json`, `ci_verdict.json`, and `logs/` (use `runtime/` when parent is empty).
+Then inspect GCS: `gs://<bucket>/runtime/<results_prefix>/snapshots/<run_id>/` should contain `latest.json`, `ci_verdict.json`, and `logs/`.
 
 **2. Full E2E** — Run the real CI workflow (push or manual trigger). The workflow writes a trigger; the VM (or a local `vm_watcher.py` with the same bucket) picks it up, runs legs, updates `current.json`, and prunes. Verify in GCS: `current.json` at results prefix and only referenced snapshot dirs under `snapshots/`.
 
@@ -119,24 +117,27 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just test` | Unit tests (pytest). |
 | `just lint` | ruff check + format check + basedpyright. |
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --auto`). |
-| `just sync-remote` | Sync `remote/code` to `<code-root>` (requires `GCS_BUCKET`). |
-| `just sync-runtime-seed` | Sync `remote/runtime` to `<runtime-root>`. |
+| `just sync-remote` | Sync `remote/code` to `<code-root>` (requires `GCS_BUCKET`). Skip when already in sync; use `--force` to re-sync. |
+| `just sync-runtime-seed` | Sync `remote/runtime` to `<runtime-root>`. Skip when already in sync; use `--force` to re-sync. |
 | `just verify-sync` | Verify `remote/code` and `remote/runtime` match bucket manifests. |
+| `just clean-bloat [--scope code\|runtime\|both] [--execute]` | List/remove Python/uv bloat in GCS (dry-run by default). **Dangerous** with `--execute`. |
 | `just validate-layout` | Validate canonical `remote/` mirror policy. |
 | `just validate-repo-layout` | Validate repo top-level layout policy (root clutter + tracked path policy). |
-| `just upload-runner` | Upload runner to bucket. |
-| `just upload-wavs <source_dir>` | Upload wav dataset to bucket (explicit source path, e.g. `data/sk/inputs/false_rejects`). |
+| `just upload-runner` | Upload runner to bucket. Skip when size unchanged; use `--force` to re-upload. |
+| `just upload-wavs <source_dir>` | Upload wav dataset to bucket (explicit source path, e.g. `data/sk/inputs/false_rejects`). Skip when dest in sync; use `--force` to re-upload. |
 | `just validate-bucket` | Validate bucket contract (optional `--require-runner` via script). |
-| `just sync-vm-metadata` | Sync startup-critical VM metadata from repo configuration. |
+| `just sync-vm-metadata` | Sync startup-critical VM metadata from repo configuration. Skip when already in sync; use `--force` to re-sync. |
 | `just start-vm [args]` | Manual VM start wrapper for debug/maintenance/testing. |
 | `just wait-handshake <workflow_run_id>` | Wait for VM ack under runtime triggers. |
 | `just show-env` | Print env var names used by CI, VM, and devtools. |
-| `just repo-vars-check` | Check repo vars against contract + optional overrides. |
-| `just repo-vars-apply` | Apply vars to GitHub (with optional args). |
+| `just repo-vars-check` | Check repo vars against contract + optional overrides + branch-rule consistency (e.g. `BMT_STATUS_CONTEXT`). |
+| `just repo-vars-apply` | Apply vars to GitHub (with optional args). Skip when vars already match; use `--force` to re-set all managed vars. |
 | `just validate-vm-vars` | Ensure repo vars match VM metadata. |
 | `just gcs-trigger <run_id>` | Show trigger and ack JSON for a workflow run. |
 | `just vm-serial` | Stream VM serial output. |
 | `just check-vm-gcs <run_id>` | Trigger/ack + VM serial tail. |
+
+**Bootstrap / one-off safety:** The sync, upload, sync-vm-metadata, and repo-vars-apply commands are **idempotent**: they skip work when the target is already in sync (e.g. manifest or content matches). Re-running after bootstrap is safe. Use `--force` to re-sync or re-upload when you have intentionally changed content.
 
 ---
 
@@ -185,9 +186,23 @@ Dataset policy:
 
 CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `remote/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../remote/code/bootstrap/README.md](../remote/code/bootstrap/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
 
+### Cleaning GCS and VM of Python/uv bloat
+
+To remove existing `__pycache__`, `.pyc`, `.venv`, and similar bloat from the bucket (e.g. after fixing sync excludes):
+
+- **GCS:** Run a dry-run first, then execute:
+  ```bash
+  GCS_BUCKET="<bucket>" just clean-bloat              # default: code scope, dry-run
+  GCS_BUCKET="<bucket>" just clean-bloat --execute    # delete bloat under code
+  GCS_BUCKET="<bucket>" just clean-bloat --scope both --execute   # code + runtime
+  ```
+- **VM:** The startup wrapper removes bloat under `BMT_REPO_ROOT` after each code sync, so the next VM boot will clean the local tree. No extra step required.
+
 ## Bootstrap runbook
 
 Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/<run_id>.json`.
+
+**Before testing a live PR:** Sync the bucket first (`just sync-remote && just sync-runtime-seed && just verify-sync`), then commit and push your branch. Syncing before commit ensures the advisory pre-commit hook (`.pre-commit-config.yaml` / `scripts/hooks/pre-commit-sync-remote.sh`) sees the bucket in sync; the VM will then run the same code and config as your branch.
 
 1. **Validate local layout and code sync**
 
@@ -201,10 +216,10 @@ Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/
 
    ```bash
    GCS_BUCKET="<bucket>" uv run python devtools/bucket_validate_contract.py
-   gcloud storage ls "gs://<bucket>/<parent>/code/pyproject.toml"
-   gcloud storage ls "gs://<bucket>/<parent>/code/uv.lock"
-   gcloud storage ls "gs://<bucket>/<parent>/code/_tools/uv/linux-x86_64/uv"
-   gcloud storage cat "gs://<bucket>/<parent>/code/_tools/uv/linux-x86_64/uv.sha256"
+   gcloud storage ls "gs://<bucket>/code/pyproject.toml"
+   gcloud storage ls "gs://<bucket>/code/uv.lock"
+   gcloud storage ls "gs://<bucket>/code/_tools/uv/linux-x86_64/uv"
+   gcloud storage cat "gs://<bucket>/code/_tools/uv/linux-x86_64/uv.sha256"
    ```
 
 3. **Resync VM metadata and run controlled live check**
@@ -219,15 +234,18 @@ Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/
    - Set `BMT_UV_BIN` on VM metadata/runtime env to a known executable UV path.
    - Keep `BMT_SELF_STOP=1` unless explicitly doing maintenance with `BMT_SELF_STOP=0`.
 
-## PR closure behavior
+## PR closure and supersede behavior
 
-For `run_context=pr`, watcher performs PR-state checks:
+For `run_context=pr`, watcher performs PR-state/head checks:
 
 - **Closed before pickup:** run is skipped (no leg execution, no new PR check/comment writes).
+- **Superseded before pickup:** run is skipped with reason `superseded_by_new_commit`.
 - **Closed during execution:** current leg is allowed to finish, remaining legs are marked skipped, and pending GitHub signals are finalized as cancelled (`check_run=neutral`, `commit_status=error`).
+- **Superseded during execution:** current leg is allowed to finish, remaining legs are marked skipped, run is cancelled with `superseded_by_new_commit`, and pointer promotion is skipped.
 - **PR-state API failure:** fail-open (run continues).
+- **PR comments:** upsert one VM-owned comment per tested SHA, including commit links (and superseding SHA link when applicable).
 
-Use `just monitor --run-id <id>` to confirm `run_outcome` / `cancel_reason` from `<runtime-root>/triggers/status/<id>.json`.
+Use `just monitor --run-id <id>` to confirm `run_outcome` / `cancel_reason` / `superseded_by_sha` from `<runtime-root>/triggers/status/<id>.json`.
 
 ## VM start policy
 
