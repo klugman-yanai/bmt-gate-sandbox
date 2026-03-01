@@ -150,8 +150,8 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
     # Per-leg results
     lines.append("### Results by Leg")
     lines.append("")
-    lines.append("| Project | BMT | Verdict | Current | Baseline | Reason | Duration |")
-    lines.append("|---------|-----|---------|---------|----------|--------|----------|")
+    lines.append("| Project | BMT | Verdict | Current Score | Last Passing Score | Reason | Duration |")
+    lines.append("|---------|-----|---------|---------------|--------------------|---------|---------:|")
 
     for summary in leg_summaries:
         project = summary.get("project_id", "unknown")
