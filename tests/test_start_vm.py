@@ -164,26 +164,65 @@ def test_start_vm_allows_manual_with_flag(monkeypatch: pytest.MonkeyPatch) -> No
     start_vm.run_start()
 
 
-def test_start_vm_fails_when_status_drops_during_stabilization(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_vm_recovers_when_status_drops_during_stabilization(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "proj")
     monkeypatch.setenv("GCP_ZONE", "zone")
     monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
+    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
+    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
 
     describe_calls = iter(
         [
             {"status": "TERMINATED", "lastStartTimestamp": "old-ts"},
-            {"status": "RUNNING", "lastStartTimestamp": "new-ts"},
-            {"status": "STOPPING", "lastStartTimestamp": "new-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "STOPPING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "STAGING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-2"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-2"},
+        ]
+    )
+    started: list[bool] = []
+
+    def _fake_start(*_args, **_kwargs) -> None:
+        started.append(True)
+
+    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 100.0, 101.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+
+    start_vm.run_start()
+    assert len(started) == 2
+
+
+def test_start_vm_fails_when_recovery_attempts_are_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("GCP_ZONE", "zone")
+    monkeypatch.setenv("BMT_VM_NAME", "vm")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
+    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
+    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "1")
+
+    describe_calls = iter(
+        [
+            {"status": "TERMINATED", "lastStartTimestamp": "old-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "STOPPING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-2"},
+            {"status": "STOPPING", "lastStartTimestamp": "new-ts-2"},
         ]
     )
     monkeypatch.setattr(start_vm.gcloud, "vm_start", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
-    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4])
+    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
 
-    with pytest.raises(RuntimeError, match="became unstable during stabilization window"):
+    with pytest.raises(RuntimeError, match="recovery attempts were exhausted"):
         start_vm.run_start()

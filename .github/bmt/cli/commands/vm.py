@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from importlib import resources as importlib_resources
 import json
 import os
 import tempfile
 import time
+from importlib import resources as importlib_resources
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +92,8 @@ def run_start() -> None:
     """Start the BMT VM. Reads GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, BMT_ALLOW_MANUAL_VM_START from env."""
     timeout_sec = int(os.environ.get("BMT_VM_START_TIMEOUT_SEC", "180"))
     poll_interval_sec = 5
-    stabilization_sec = 45
+    stabilization_sec = int(os.environ.get("BMT_VM_STABILIZATION_SEC", "45"))
+    recovery_attempts_max = int(os.environ.get("BMT_VM_START_RECOVERY_ATTEMPTS", "2"))
 
     in_actions = _is_truthy(os.environ.get("GITHUB_ACTIONS"))
     if not in_actions and not _is_truthy(os.environ.get("BMT_ALLOW_MANUAL_VM_START")):
@@ -113,16 +114,35 @@ def run_start() -> None:
         before_last_start = _last_start_timestamp(before)
     except gcloud.GcloudError as exc:
         print(f"::warning::Could not describe VM before start: {exc}")
-    try:
-        gcloud.vm_start(project, zone, instance_name)
-    except gcloud.GcloudError as exc:
-        if "already running" in str(exc).lower():
-            print(f"::warning::{exc}")
-            print("VM already running; continuing readiness checks.")
-        else:
+
+    def _is_idempotent_start_error(exc: gcloud.GcloudError) -> bool:
+        text = str(exc).lower()
+        tokens = (
+            "already running",
+            "already started",
+            "is starting",
+            "being started",
+            "operation in progress",
+            "currently stopping",
+            "is stopping",
+            "resource not ready",
+            "please try again",
+        )
+        return any(token in text for token in tokens)
+
+    def _request_start(reason: str) -> None:
+        try:
+            gcloud.vm_start(project, zone, instance_name)
+        except gcloud.GcloudError as exc:
+            if _is_idempotent_start_error(exc):
+                print(f"::warning::{exc}")
+                print(f"VM start treated as idempotent while {reason}; continuing readiness checks.")
+                return
             print(f"::error::{exc}")
             raise
-    print(f"Start command submitted for VM {instance_name} (zone={zone})")
+        print(f"Start command submitted for VM {instance_name} (zone={zone}) [{reason}]")
+
+    _request_start("initial start")
     print(
         f"Waiting for RUNNING state (timeout={timeout_sec}s, poll={poll_interval_sec}s); "
         f"previous status={before_status or '<unknown>'} previous lastStart={before_last_start or '<none>'}"
@@ -131,6 +151,8 @@ def run_start() -> None:
     deadline = time.monotonic() + timeout_sec
     last_seen_status = ""
     last_seen_start: str | None = None
+    recovery_attempts = 0
+    recovery_pending = False
     while time.monotonic() < deadline:
         describe = gcloud.vm_describe(project, zone, instance_name)
         last_seen_status = _instance_status(describe)
@@ -140,7 +162,9 @@ def run_start() -> None:
             last_seen_start is not None and last_seen_start != before_last_start
         )
         already_running = before_status == "RUNNING" and running
-        if running and (start_advanced or already_running):
+        running_after_recovery = recovery_pending and running
+        if running and (start_advanced or already_running or running_after_recovery):
+            recovery_pending = False
             print(
                 f"VM ready: status={last_seen_status} lastStartTimestamp={last_seen_start or '<none>'} "
                 f"(previous={before_last_start or '<none>'})"
@@ -149,16 +173,33 @@ def run_start() -> None:
                 return
             print(f"Stabilizing RUNNING state for {stabilization_sec}s (poll={poll_interval_sec}s)")
             stable_deadline = time.monotonic() + stabilization_sec
+            unstable_status = ""
             while time.monotonic() < stable_deadline:
                 stable_describe = gcloud.vm_describe(project, zone, instance_name)
                 stable_status = _instance_status(stable_describe)
                 if stable_status != "RUNNING":
-                    raise RuntimeError(
-                        f"VM became unstable during stabilization window; status={stable_status or '<unknown>'}"
-                    )
+                    unstable_status = stable_status or "<unknown>"
+                    break
                 remaining = stable_deadline - time.monotonic()
                 if remaining > 0:
                     time.sleep(min(max(1, poll_interval_sec), remaining))
+            if unstable_status:
+                recovery_attempts += 1
+                if recovery_attempts > recovery_attempts_max:
+                    raise RuntimeError(
+                        "VM became unstable during stabilization window and recovery attempts were exhausted; "
+                        f"status={unstable_status}; max_recovery_attempts={recovery_attempts_max}"
+                    )
+                print(
+                    "::warning::"
+                    f"VM became unstable during stabilization window; status={unstable_status}; "
+                    f"attempting recovery start {recovery_attempts}/{recovery_attempts_max}"
+                )
+                before_status = unstable_status
+                before_last_start = last_seen_start
+                recovery_pending = True
+                _request_start(f"recovery attempt {recovery_attempts}")
+                continue
             print("VM stabilization passed.")
             return
         time.sleep(max(1, poll_interval_sec))

@@ -214,8 +214,14 @@ def test_all_commands_are_registered() -> None:
     result = _run("nonexistent-command", check=False)
     assert result.returncode != 0
     expected_commands = [
-        "matrix", "filter-supported-matrix", "parse-release-runners",
-        "trigger", "upload-runner", "start-vm", "sync-vm-metadata", "wait-handshake",
+        "matrix",
+        "filter-supported-matrix",
+        "parse-release-runners",
+        "trigger",
+        "upload-runner",
+        "start-vm",
+        "sync-vm-metadata",
+        "wait-handshake",
     ]
     for cmd in expected_commands:
         assert cmd in result.stderr, f"Command '{cmd}' not listed in usage output"

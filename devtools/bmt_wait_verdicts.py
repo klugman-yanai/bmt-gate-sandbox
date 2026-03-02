@@ -9,7 +9,7 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -226,7 +226,7 @@ def _write_aggregate_step_summary(
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _unknown_runner() -> RunnerIdentity:
@@ -470,7 +470,9 @@ def run(args: argparse.Namespace) -> None:
     deadline = time.monotonic() + args.timeout_sec
     print(f"Waiting for {len(pending)} verdict(s), timeout={args.timeout_sec}s, poll={args.poll_interval_sec}s")
 
-    collected = _poll_and_collect(pending, prefix_groups, bucket_root, bucket, deadline, args.poll_interval_sec, len(legs))
+    collected = _poll_and_collect(
+        pending, prefix_groups, bucket_root, bucket, deadline, args.poll_interval_sec, len(legs)
+    )
 
     decision, counts, rows, blocked_legs, blocked_reasons = _aggregate(collected)
 
@@ -484,7 +486,9 @@ def run(args: argparse.Namespace) -> None:
     )
 
     print(f"\nDecision: {decision}")
-    print(f"Counts: pass={counts['pass']} warning={counts['warning']} fail={counts['fail']} timeout={counts['timeout']}")
+    print(
+        f"Counts: pass={counts['pass']} warning={counts['warning']} fail={counts['fail']} timeout={counts['timeout']}"
+    )
 
     write_github_output(github_output, "decision", decision)
     write_github_output(github_output, "pass_count", str(counts[STATUS_PASS]))
