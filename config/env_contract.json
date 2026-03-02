@@ -14,7 +14,8 @@
       "optional": [
         "BMT_PROJECTS",
         "BMT_STATUS_CONTEXT",
-        "BMT_HANDSHAKE_TIMEOUT_SEC"
+        "BMT_HANDSHAKE_TIMEOUT_SEC",
+        "BMT_DISPATCH_APP_ID"
       ]
     },
     "vm_metadata": {
