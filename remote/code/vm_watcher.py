@@ -923,6 +923,15 @@ def _process_run_trigger(  # noqa: PLR0911
     start_timestamp = time.time()
     leg_summaries: list[dict[str, Any] | None] = []
 
+    def _stop_heartbeat_thread() -> None:
+        nonlocal heartbeat_thread
+        stop_heartbeat.set()
+        if heartbeat_thread is None:
+            return
+        heartbeat_thread.join(timeout=5)
+        print("  Stopped heartbeat thread")
+        heartbeat_thread = None
+
     def _upsert_pr_comment(
         *,
         result: str,
@@ -1082,6 +1091,32 @@ def _process_run_trigger(  # noqa: PLR0911
             orchestrator_path = _download_orchestrator(code_bucket_root, workspace_root)
         except subprocess.CalledProcessError as exc:
             print(f"  Failed to download orchestrator: {exc}")
+            _stop_heartbeat_thread()
+            try:
+                failed_at = _now_iso()
+                failed_status = status_file.read_status(bucket, runtime_prefix, run_id)
+                if failed_status:
+                    failed_status["vm_state"] = "failed"
+                    failed_status["run_outcome"] = "failed"
+                    failed_status["cancel_reason"] = None
+                    failed_status["cancelled_at"] = None
+                    failed_status["superseded_by_sha"] = None
+                    failed_status["current_leg"] = None
+                    failed_status["last_heartbeat"] = failed_at
+                    failed_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                    errors = failed_status.get("errors")
+                    if not isinstance(errors, list):
+                        errors = []
+                    errors.append(
+                        {
+                            "at": failed_at,
+                            "message": "Failed to download orchestrator on VM.",
+                        }
+                    )
+                    failed_status["errors"] = errors
+                    status_file.write_status(bucket, runtime_prefix, run_id, failed_status)
+            except Exception as status_exc:
+                print(f"  Warning: Failed to write terminal failure status: {status_exc}")
             if repository and sha and github_token:
                 _post_commit_status_resilient(
                     repository,
@@ -1289,6 +1324,7 @@ def _process_run_trigger(  # noqa: PLR0911
 
             if cancelled_due_to_pr_state:
                 cancelled_at = _now_iso()
+                _stop_heartbeat_thread()
                 try:
                     final_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if final_status:
@@ -1358,6 +1394,7 @@ def _process_run_trigger(  # noqa: PLR0911
             state, description = _aggregate_verdicts_from_summaries(leg_summaries)
             print(f"  Aggregate: {state} — {description}")
 
+            _stop_heartbeat_thread()
             try:
                 final_status = status_file.read_status(bucket, runtime_prefix, run_id)
                 if final_status:
@@ -1436,6 +1473,27 @@ def _process_run_trigger(  # noqa: PLR0911
         except Exception as exc:
             print(f"  Error during BMT run: {exc}")
             traceback.print_exc()
+            _stop_heartbeat_thread()
+            try:
+                failed_at = _now_iso()
+                failed_status = status_file.read_status(bucket, runtime_prefix, run_id)
+                if failed_status:
+                    failed_status["vm_state"] = "failed"
+                    failed_status["run_outcome"] = "failed"
+                    failed_status["cancel_reason"] = None
+                    failed_status["cancelled_at"] = None
+                    failed_status["superseded_by_sha"] = None
+                    failed_status["current_leg"] = None
+                    failed_status["last_heartbeat"] = failed_at
+                    failed_status["elapsed_sec"] = int(time.time() - start_timestamp)
+                    errors = failed_status.get("errors")
+                    if not isinstance(errors, list):
+                        errors = []
+                    errors.append({"at": failed_at, "message": f"Unhandled error: {exc!s}"})
+                    failed_status["errors"] = errors
+                    status_file.write_status(bucket, runtime_prefix, run_id, failed_status)
+            except Exception as status_exc:
+                print(f"  Warning: Failed to write terminal failure status: {status_exc}")
             if repository and sha and github_token:
                 _post_commit_status_resilient(
                     repository,
@@ -1472,10 +1530,7 @@ def _process_run_trigger(  # noqa: PLR0911
     except Exception as exc:
         print(f"  Warning: post-run finalization failed: {exc}")
     finally:
-        stop_heartbeat.set()
-        if heartbeat_thread is not None:
-            heartbeat_thread.join(timeout=5)
-            print("  Stopped heartbeat thread")
+        _stop_heartbeat_thread()
         _gcloud_rm(run_trigger_uri)
         _cleanup_workflow_artifacts(
             runtime_bucket_root=runtime_bucket_root,

@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+_TERMINAL_RUN_OUTCOMES = {"completed", "cancelled", "skipped", "failed", "error"}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -26,6 +28,14 @@ def _bucket_root(bucket: str, runtime_prefix: str) -> str:
 def status_uri(bucket: str, runtime_prefix: str, run_id: str) -> str:
     """Build GCS URI for one workflow status file."""
     return f"{_bucket_root(bucket, runtime_prefix)}/triggers/status/{run_id}.json"
+
+
+def _is_terminal_status(status: dict[str, Any]) -> bool:
+    run_outcome_raw = status.get("run_outcome")
+    if not isinstance(run_outcome_raw, str):
+        return False
+    run_outcome = run_outcome_raw.strip().lower()
+    return run_outcome in _TERMINAL_RUN_OUTCOMES
 
 
 def write_status(bucket: str, runtime_prefix: str, run_id: str, status: dict[str, Any]) -> None:
@@ -66,6 +76,8 @@ def update_heartbeat(bucket: str, runtime_prefix: str, run_id: str) -> None:
     status = read_status(bucket, runtime_prefix, run_id)
     if status is None:
         return
+    if _is_terminal_status(status):
+        return
     status["last_heartbeat"] = _now_iso()
     write_status(bucket, runtime_prefix, run_id, status)
 
@@ -81,6 +93,8 @@ def update_leg_progress(
     """Update per-leg file progress and heartbeat."""
     status = read_status(bucket, runtime_prefix, run_id)
     if status is None:
+        return
+    if _is_terminal_status(status):
         return
     legs = status.get("legs")
     if not isinstance(legs, list):
