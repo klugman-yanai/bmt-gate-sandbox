@@ -226,3 +226,43 @@ def test_start_vm_fails_when_recovery_attempts_are_exhausted(monkeypatch: pytest
 
     with pytest.raises(RuntimeError, match="recovery attempts were exhausted"):
         start_vm.run_start()
+
+
+def test_start_vm_treats_fingerprint_race_as_idempotent_recovery_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("GCP_ZONE", "zone")
+    monkeypatch.setenv("BMT_VM_NAME", "vm")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
+    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
+    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
+
+    describe_calls = iter(
+        [
+            {"status": "TERMINATED", "lastStartTimestamp": "old-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "STOPPING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "STAGING", "lastStartTimestamp": "new-ts-1"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-2"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts-2"},
+        ]
+    )
+    call_count = {"value": 0}
+
+    def _fake_start(*_args, **_kwargs) -> None:
+        call_count["value"] += 1
+        if call_count["value"] == 2:
+            raise start_vm.gcloud.GcloudError(
+                "Failed to start VM vm: The resource is not ready. "
+                "'The resource fingerprint changed during the start operation.'"
+            )
+
+    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 100.0, 101.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+
+    start_vm.run_start()
+    assert call_count["value"] == 2
