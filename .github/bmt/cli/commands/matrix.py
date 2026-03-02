@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from bmt import config
-from bmt.shared import DEFAULT_CONFIG_ROOT, require_env
+from cli import config
+from cli.shared import DEFAULT_CONFIG_ROOT, require_env
 
 # ---------------------------------------------------------------------------
 # matrix (build matrix JSON from remote config)

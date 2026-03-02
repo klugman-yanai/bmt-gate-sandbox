@@ -157,7 +157,7 @@ Required fields:
 ## VM bootstrap contract
 
 - VM metadata contains `GCS_BUCKET`, `BMT_REPO_ROOT`
-- Workflow sync step writes inline `startup-script` from `remote/code/bootstrap/startup_wrapper.sh`
+- Workflow sync step writes inline `startup-script` from packaged resource `cli.resources/startup_wrapper.sh`
 - Wrapper syncs strictly from `code_root` and runs `bootstrap/startup_example.sh`
 - Startup resolves `uv` in this order: `BMT_UV_BIN` override, `uv` on PATH, pinned artifact `<code-root>/_tools/uv/linux-x86_64/uv` verified by `<code-root>/_tools/uv/linux-x86_64/uv.sha256`
 - Dependency install contract is code-root `pyproject.toml` + `uv.lock` (`bootstrap/install_deps.sh` uses `uv sync --extra vm --frozen`)

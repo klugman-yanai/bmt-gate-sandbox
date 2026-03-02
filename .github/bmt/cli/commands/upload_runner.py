@@ -8,8 +8,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bmt import gcloud
-from bmt.shared import require_env, runtime_bucket_root_uri
+from cli import gcloud
+from cli.shared import require_env, runtime_bucket_root_uri
 
 
 def run() -> None:
@@ -48,9 +48,7 @@ def run() -> None:
         lib_file = lib_dir / "libKardome.so"
         if lib_file.is_file():
             lib_dest = f"{root}/{dest_prefix}/libKardome.so"
-            rc, err = gcloud.run_capture_retry(
-                ["gcloud", "storage", "cp", str(lib_file), lib_dest, "--quiet"]
-            )
+            rc, err = gcloud.run_capture_retry(["gcloud", "storage", "cp", str(lib_file), lib_dest, "--quiet"])
             if rc != 0:
                 raise RuntimeError(f"Failed to upload libKardome.so: {err}")
             uploaded.append({"name": "libKardome.so", "size": lib_file.stat().st_size})
@@ -67,9 +65,7 @@ def run() -> None:
         meta_path = Path(tmp_dir) / "runner_meta.json"
         meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         meta_dest = f"{root}/{dest_prefix}/runner_meta.json"
-        rc, err = gcloud.run_capture_retry(
-            ["gcloud", "storage", "cp", str(meta_path), meta_dest, "--quiet"]
-        )
+        rc, err = gcloud.run_capture_retry(["gcloud", "storage", "cp", str(meta_path), meta_dest, "--quiet"])
         if rc != 0:
             raise RuntimeError(f"Failed to upload runner_meta.json: {err}")
     print(f"Uploaded runner_meta.json -> {meta_dest}")

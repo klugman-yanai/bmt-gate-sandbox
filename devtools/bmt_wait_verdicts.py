@@ -9,12 +9,12 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from bmt import config, gcloud
-from bmt.shared import DEFAULT_CONFIG_ROOT, require_env, runtime_bucket_root_uri, write_github_output
+from cli import config, gcloud
+from cli.shared import DEFAULT_CONFIG_ROOT, require_env, runtime_bucket_root_uri, write_github_output
 
 # ── Status constants ────────────────────────────────────────────────────────────
 
@@ -226,7 +226,7 @@ def _write_aggregate_step_summary(
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _unknown_runner() -> RunnerIdentity:

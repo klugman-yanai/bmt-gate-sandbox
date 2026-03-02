@@ -1,12 +1,11 @@
-"""Tests for .github/bmt/commands/wait_handshake.py."""
+"""Tests for .github/bmt/cli/commands/wait_handshake."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-
-from bmt.commands import vm as wait_handshake
+from cli.commands import vm as wait_handshake
 
 
 def test_wait_handshake_success_uses_runtime_paths(

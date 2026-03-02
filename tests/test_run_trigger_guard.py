@@ -6,8 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-
-from bmt.commands import trigger as run_trigger
+from cli.commands import trigger as run_trigger
 
 
 def _set_required_env(monkeypatch: pytest.MonkeyPatch, output_file: Path, matrix: str, run_context: str) -> None:

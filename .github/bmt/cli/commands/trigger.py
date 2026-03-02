@@ -7,8 +7,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bmt import gcloud, models
-from bmt.shared import DEFAULT_ENV_CONTRACT_PATH, require_env, write_github_output
+from cli import gcloud, models
+from cli.shared import DEFAULT_ENV_CONTRACT_PATH, require_env, write_github_output
 
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
 DEFAULT_DESCRIPTION_PENDING = "BMT running on VM; status will update when complete."
@@ -127,5 +127,3 @@ def run_trigger() -> None:
     write_github_output(github_output, "requested_leg_count", str(len(legs)))
     write_github_output(github_output, "requested_legs", json.dumps(legs, separators=(",", ":")))
     print(f"Triggered run {workflow_run_id} with {len(legs)} leg(s); VM will report status to GitHub")
-
-

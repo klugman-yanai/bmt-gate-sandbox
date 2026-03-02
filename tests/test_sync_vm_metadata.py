@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from bmt.commands import vm as sync_vm_metadata
+from cli.commands import vm as sync_vm_metadata
 
 
 def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -31,6 +30,10 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
         captured["instance_name"] = instance_name
         captured["metadata"] = metadata
         captured["metadata_files"] = metadata_files
+        if metadata_files is not None and "startup-script" in metadata_files:
+            script_path = metadata_files["startup-script"]
+            captured["startup_script_path"] = script_path
+            captured["startup_script_content"] = script_path.read_text(encoding="utf-8")
 
     def _fake_exists(_uri: str) -> bool:
         return True
@@ -66,10 +69,19 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
     metadata_files = captured["metadata_files"]
     assert isinstance(metadata_files, dict)
     assert "startup-script" in metadata_files
-    script_path = metadata_files["startup-script"]
+    script_path = captured["startup_script_path"]
     assert isinstance(script_path, Path)
     assert script_path.name == "startup_wrapper.sh"
-    assert script_path.is_file()
+    script_content = captured["startup_script_content"]
+    assert isinstance(script_content, str)
+    assert script_content.startswith("#!/usr/bin/env bash")
+    assert "BMT_REPO_ROOT" in script_content
+
+
+def test_load_startup_wrapper_script_from_packaged_resource() -> None:
+    script_content = sync_vm_metadata._load_startup_wrapper_script()
+    assert script_content.startswith("#!/usr/bin/env bash")
+    assert "_read_meta" in script_content
 
 
 def test_sync_vm_metadata_fails_when_required_code_object_missing(monkeypatch: pytest.MonkeyPatch) -> None:

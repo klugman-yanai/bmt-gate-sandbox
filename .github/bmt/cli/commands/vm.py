@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from importlib import resources as importlib_resources
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
-from bmt import gcloud, models
-from bmt.shared import require_env, write_github_output
+from cli import gcloud, models
+from cli.shared import require_env, write_github_output
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -178,7 +180,7 @@ def run_start() -> None:
 def _build_desired_metadata(
     bucket: str,
     repo_root: str,
-    wrapper_path: Path,
+    startup_wrapper_script: str,
 ) -> tuple[dict[str, str], str]:
     """Return (metadata_dict, startup_script_content)."""
     metadata = {
@@ -186,23 +188,30 @@ def _build_desired_metadata(
         "BMT_REPO_ROOT": repo_root,
         "startup-script-url": "",
     }
-    script_content = wrapper_path.read_text(encoding="utf-8")
-    return metadata, script_content
+    return metadata, startup_wrapper_script
+
+
+def _load_startup_wrapper_script() -> str:
+    """Load packaged startup wrapper text shipped with the cli package."""
+    try:
+        wrapper = importlib_resources.files("cli.resources").joinpath("startup_wrapper.sh")
+        script_content = wrapper.read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError, OSError) as exc:
+        raise RuntimeError("Missing packaged startup wrapper resource: cli.resources/startup_wrapper.sh") from exc
+    if not script_content.strip():
+        raise RuntimeError("Packaged startup wrapper resource is empty: cli.resources/startup_wrapper.sh")
+    return script_content
 
 
 def run_sync_metadata() -> None:
-    """Sync startup-critical VM metadata and inline startup wrapper from the repository."""
+    """Sync startup-critical VM metadata and inline startup wrapper from package resources."""
     project = require_env("GCP_PROJECT")
     zone = require_env("GCP_ZONE")
     instance_name = require_env("BMT_VM_NAME")
     bucket = require_env("GCS_BUCKET")
     repo_root = (os.environ.get("BMT_REPO_ROOT") or "/opt/bmt").strip() or "/opt/bmt"
+    startup_wrapper_script = _load_startup_wrapper_script()
     code_root = models.code_bucket_root_uri(bucket)
-    # vm.py lives at .github/bmt/bmt/commands/vm.py; repo root is parents[4].
-    repo_root_path = Path(__file__).resolve().parents[4]
-    wrapper_path = repo_root_path / "remote" / "code" / "bootstrap" / "startup_wrapper.sh"
-    if not wrapper_path.is_file():
-        raise RuntimeError(f"Missing canonical startup wrapper in repo: {wrapper_path}")
 
     required_code_objects = (
         f"{code_root}/pyproject.toml",
@@ -236,7 +245,7 @@ def run_sync_metadata() -> None:
                 "BMT_BUCKET_PREFIX has been removed. Clear the VM metadata key before proceeding."
             )
 
-    desired_metadata, desired_script = _build_desired_metadata(bucket, repo_root, wrapper_path)
+    desired_metadata, desired_script = _build_desired_metadata(bucket, repo_root, startup_wrapper_script)
 
     force = _is_truthy(os.environ.get("BMT_FORCE_SYNC"))
     if not force and described:
@@ -254,13 +263,16 @@ def run_sync_metadata() -> None:
         "startup-script-url": "",
     }
     try:
-        gcloud.vm_add_metadata(
-            project,
-            zone,
-            instance_name,
-            metadata,
-            metadata_files={"startup-script": wrapper_path},
-        )
+        with tempfile.TemporaryDirectory(prefix="bmt_startup_wrapper_") as tmp_dir:
+            wrapper_path = Path(tmp_dir) / "startup_wrapper.sh"
+            wrapper_path.write_text(desired_script, encoding="utf-8")
+            gcloud.vm_add_metadata(
+                project,
+                zone,
+                instance_name,
+                metadata,
+                metadata_files={"startup-script": wrapper_path},
+            )
         described = gcloud.vm_describe(project, zone, instance_name)
     except gcloud.GcloudError as exc:
         print(f"::error::{exc}")
@@ -277,7 +289,7 @@ def run_sync_metadata() -> None:
         raise RuntimeError("VM metadata verification failed: startup-script-url is not cleared.")
 
     print(f"Synced VM metadata for {instance_name}: GCS_BUCKET={bucket} BMT_REPO_ROOT={repo_root}")
-    print(f"Updated inline startup-script from {wrapper_path}")
+    print("Updated inline startup-script from packaged resource cli.resources/startup_wrapper.sh")
 
 
 # ---------------------------------------------------------------------------
