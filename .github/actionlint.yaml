@@ -1,0 +1,5 @@
+# Variables used in workflows (repo/org variables). Keeps actionlint from flagging custom vars.
+config-variables:
+  - BMT_PROJECTS
+  - BMT_STATUS_CONTEXT
+  - BMT_DISPATCH_APP_ID

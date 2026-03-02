@@ -39,6 +39,7 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `BMT_PROJECTS` | `"all"` | Filter for BMT projects. Use `"all"` or a JSON array of project keys (e.g. `["sk"]`). |
 | `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. Effective value is sourced from branch rules via consistency checks. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for VM handshake wait. |
+| `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
 
 Omitted vars inherit from current GitHub repo context first, then from contract defaults (see `config/env_contract.json` and `devtools/gh_repo_vars.py`). Optional overrides can be declared in **config/repo_vars.toml** for local/tooling use.
 
@@ -86,14 +87,16 @@ Repository mapping is in **remote/code/config/github_repos.json**. See [../remot
 
 ---
 
-## Secrets (GitHub Actions)
+## Secrets and variables (GitHub Actions)
 
-| Secret | Purpose |
-|--------|---------|
-| `BMT_DISPATCH_APP_ID` | GitHub App ID used to mint a token for dispatching the BMT handoff workflow (`workflow_dispatch`). Same secret names in test and prod repos; each repo sets the value for the App installed on that repo. |
-| `BMT_DISPATCH_APP_PRIVATE_KEY` | GitHub App private key (PEM) used by the CI workflow with `actions/create-github-app-token@v2` to obtain that dispatch token. |
+| Name | Type | Purpose |
+|------|------|---------|
+| `BMT_DISPATCH_APP_ID` | **Variable** | GitHub App ID used to mint a token for dispatching the BMT handoff workflow (`workflow_dispatch`). Set in **Variables** (not Secrets); same name in test and prod repos. |
+| `BMT_DISPATCH_APP_PRIVATE_KEY` | **Secret** | GitHub App private key (PEM) used by the CI workflow with `actions/create-github-app-token@v2` to obtain that dispatch token. |
 
-**Migration:** If you previously used `APP_TEST_ID` / `APP_TEST_PRIVATE_KEY`, rename those repo secrets to `BMT_DISPATCH_APP_ID` and `BMT_DISPATCH_APP_PRIVATE_KEY` (same values). Prod repos use the same secret names with the prod App’s credentials.
+**IDE warning:** Editors using the GitHub Actions JSON schema may show “Context access might be invalid” for `vars.BMT_DISPATCH_APP_ID` and `secrets.BMT_DISPATCH_APP_PRIVATE_KEY`. The schema only knows built-in names (e.g. `GITHUB_TOKEN`); these custom names are valid at runtime once the variable and secret are set in **Settings → Variables and secrets → Actions**.
+
+**Migration:** If you previously used `APP_TEST_ID` / `APP_TEST_PRIVATE_KEY`, set **variable** `BMT_DISPATCH_APP_ID` and **secret** `BMT_DISPATCH_APP_PRIVATE_KEY` (same values). Prod repos use the same names with the prod App’s credentials.
 
 ---
 

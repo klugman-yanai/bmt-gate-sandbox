@@ -146,6 +146,10 @@ jobs:
       BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
       GITHUB_TOKEN: ${{ github.token }}
       GITHUB_SERVER_URL: ${{ github.server_url }}
+      # Custom repo variable and secret (Settings → Variables and secrets → Actions).
+      # IDE may warn "Context access might be invalid" — the schema only knows built-in names; these are valid at runtime.
+      BMT_DISPATCH_APP_ID: ${{ vars.BMT_DISPATCH_APP_ID }}
+      BMT_DISPATCH_APP_PRIVATE_KEY: ${{ secrets.BMT_DISPATCH_APP_PRIVATE_KEY }}
     steps:
       - name: Checkout source for BMT handoff helpers
         uses: actions/checkout@v4
@@ -157,8 +161,8 @@ jobs:
         continue-on-error: true
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.BMT_DISPATCH_APP_ID }}
-          private-key: ${{ secrets.BMT_DISPATCH_APP_PRIVATE_KEY }}
+          app-id: ${{ env.BMT_DISPATCH_APP_ID }}
+          private-key: ${{ env.BMT_DISPATCH_APP_PRIVATE_KEY }}
           permission-actions: write
 
       - name: Resolve dispatch token
