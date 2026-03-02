@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ _TERMINAL_RUN_OUTCOMES = {"completed", "cancelled", "skipped", "failed", "error"
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _normalize_prefix(prefix: str) -> str:
