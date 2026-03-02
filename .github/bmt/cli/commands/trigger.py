@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cli import gcloud, models
@@ -45,7 +45,7 @@ def _list_pending_trigger_uris(runtime_bucket_root: str) -> list[str]:
 
 
 def _default_run_id(project: str, bmt_id: str) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    now = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     sha = os.environ.get("GITHUB_SHA", "")[:12]
@@ -71,7 +71,7 @@ def run_trigger() -> None:
     ctx = (os.environ.get("BMT_STATUS_CONTEXT") or "").strip() or _default_status_context_from_contract()
 
     runtime_bucket_root = models.runtime_bucket_root_uri(bucket)
-    triggered_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    triggered_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     sha = os.environ.get("GITHUB_SHA", "")
     ref = os.environ.get("GITHUB_REF", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")

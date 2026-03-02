@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cli import gcloud
@@ -55,7 +55,7 @@ def run() -> None:
             print(f"Uploaded libKardome.so -> {lib_dest}")
 
     meta = {
-        "uploaded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "uploaded_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source_ref": source_ref,
         "project": project,
         "preset": preset,

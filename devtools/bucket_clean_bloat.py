@@ -44,7 +44,8 @@ BLOAT_PATTERNS = (
 )
 
 # Under code namespace we also remove errant triggers/sk paths if present.
-CODE_CLEAN_PATTERNS = BLOAT_PATTERNS + (
+CODE_CLEAN_PATTERNS = (
+    *BLOAT_PATTERNS,
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/inputs(/|$)",
     r"(^|/)sk/outputs(/|$)",
