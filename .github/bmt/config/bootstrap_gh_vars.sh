@@ -1,44 +1,222 @@
 #!/usr/bin/env bash
-# bootstrap_gh_vars.sh — Set required GitHub repository variables for bmt.yml.
+# bootstrap_gh_vars.sh — Apply BMT GitHub repo variables + secrets from an env file.
 #
 # Usage:
-#   bash .github/bmt/config/bootstrap_gh_vars.sh [--env-file <path>]
+#   bash .github/bmt/config/bootstrap_gh_vars.sh [--env-file <path>] [--repo <owner/repo>]
 #
-# Reads KEY=VALUE lines from the env file (default: .env in this config dir),
-# skips comments and blank lines, skips empty values, and calls:
-#   gh variable set KEY --body VALUE
-# for each non-empty entry.
+# Behavior:
+# - Applies known repository variables via `gh variable set`
+# - Applies known repository secrets via `gh secret set`
+# - Ignores unknown keys with a warning (to avoid accidental misconfiguration)
 #
-# Prerequisites: gh CLI authenticated with repo write permissions.
+# Prerequisites:
+# - gh CLI authenticated with repo write permissions
+# - For file-based secrets, the referenced file must exist
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
+TARGET_REPO=""
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  bash .github/bmt/config/bootstrap_gh_vars.sh [--env-file <path>] [--repo <owner/repo>]
+
+Options:
+  --env-file <path>   Path to env file (default: .github/bmt/config/.env)
+  --repo <owner/repo> Target repository (default: current gh repo context)
+USAGE
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env-file)
+      [[ $# -ge 2 ]] || {
+        echo "error: --env-file requires a value" >&2
+        exit 1
+      }
       ENV_FILE="$2"
       shift 2
       ;;
+    --repo)
+      [[ $# -ge 2 ]] || {
+        echo "error: --repo requires a value" >&2
+        exit 1
+      }
+      TARGET_REPO="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
     *)
-      echo "Unknown option: $1" >&2
-      echo "Usage: $0 [--env-file <path>]" >&2
+      echo "error: unknown option: $1" >&2
+      usage >&2
       exit 1
       ;;
   esac
 done
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "error: env file not found: $ENV_FILE" >&2
-  echo "Copy .env.example to .env in this directory and fill in your values, then re-run." >&2
+if ! command -v gh >/dev/null 2>&1; then
+  echo "error: gh CLI is required but not found in PATH" >&2
   exit 1
 fi
 
-REQUIRED=(
-  # Required for client/CI: GCP auth, bucket, and VM targeting. Optional vars
-  # (BMT_PROJECTS, BMT_STATUS_CONTEXT, BMT_HANDSHAKE_TIMEOUT_SEC) are not listed.
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "error: env file not found: $ENV_FILE" >&2
+  exit 1
+fi
+
+trim() {
+  local s="$1"
+  # Trim leading whitespace.
+  s="${s#"${s%%[![:space:]]*}"}"
+  # Trim trailing whitespace.
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+strip_outer_quotes() {
+  local s="$1"
+  if [[ "${#s}" -ge 2 ]]; then
+    if [[ "${s:0:1}" == '"' && "${s: -1}" == '"' ]]; then
+      s="${s:1:${#s}-2}"
+    elif [[ "${s:0:1}" == "'" && "${s: -1}" == "'" ]]; then
+      s="${s:1:${#s}-2}"
+    fi
+  fi
+  printf '%s' "$s"
+}
+
+contains_key() {
+  local needle="$1"
+  shift
+  local item=""
+  for item in "$@"; do
+    [[ "$item" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+resolve_secret_file() {
+  local raw="$1"
+  local env_dir=""
+  local repo_root=""
+
+  [[ -n "$raw" ]] || return 1
+
+  if [[ -f "$raw" ]]; then
+    printf '%s\n' "$raw"
+    return 0
+  fi
+
+  env_dir="$(cd "$(dirname "$ENV_FILE")" && pwd)"
+  if [[ -f "$env_dir/$raw" ]]; then
+    printf '%s\n' "$env_dir/$raw"
+    return 0
+  fi
+
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "$repo_root" && -f "$repo_root/$raw" ]]; then
+    printf '%s\n' "$repo_root/$raw"
+    return 0
+  fi
+
+  return 1
+}
+
+GH_SCOPE_ARGS=()
+if [[ -n "$TARGET_REPO" ]]; then
+  GH_SCOPE_ARGS=(-R "$TARGET_REPO")
+fi
+
+BOOTSTRAP_RETRIES="${BOOTSTRAP_RETRIES:-5}"
+BOOTSTRAP_RETRY_BASE_DELAY_SEC="${BOOTSTRAP_RETRY_BASE_DELAY_SEC:-1}"
+
+is_transient_gh_error() {
+  local msg="$1"
+  [[ "$msg" == *"HTTP 5"* ]] && return 0
+  [[ "$msg" == *"Bad Gateway"* ]] && return 0
+  [[ "$msg" == *"timed out"* ]] && return 0
+  [[ "$msg" == *"timeout"* ]] && return 0
+  [[ "$msg" == *"connection reset"* ]] && return 0
+  [[ "$msg" == *"temporary failure"* ]] && return 0
+  return 1
+}
+
+run_gh_with_retry() {
+  local op_desc="$1"
+  shift
+
+  local attempt=1
+  local delay="$BOOTSTRAP_RETRY_BASE_DELAY_SEC"
+  local out=""
+  local rc=0
+
+  while (( attempt <= BOOTSTRAP_RETRIES )); do
+    if out="$("$@" 2>&1)"; then
+      [[ -n "$out" ]] && echo "$out"
+      return 0
+    fi
+    rc=$?
+
+    if (( attempt < BOOTSTRAP_RETRIES )) && is_transient_gh_error "$out"; then
+      echo "warning: ${op_desc} failed (attempt ${attempt}/${BOOTSTRAP_RETRIES}) with transient error:" >&2
+      echo "  $out" >&2
+      echo "retrying in ${delay}s..." >&2
+      sleep "$delay"
+      delay=$(( delay * 2 ))
+      attempt=$(( attempt + 1 ))
+      continue
+    fi
+
+    echo "error: ${op_desc} failed after ${attempt} attempt(s):" >&2
+    echo "  $out" >&2
+    return "$rc"
+  done
+
+  return 1
+}
+
+run_gh_secret_from_file_with_retry() {
+  local op_desc="$1"
+  local secret_name="$2"
+  local secret_file="$3"
+
+  local attempt=1
+  local delay="$BOOTSTRAP_RETRY_BASE_DELAY_SEC"
+  local out=""
+  local rc=0
+
+  while (( attempt <= BOOTSTRAP_RETRIES )); do
+    if out="$(gh secret set "$secret_name" "${GH_SCOPE_ARGS[@]}" < "$secret_file" 2>&1)"; then
+      [[ -n "$out" ]] && echo "$out"
+      return 0
+    fi
+    rc=$?
+
+    if (( attempt < BOOTSTRAP_RETRIES )) && is_transient_gh_error "$out"; then
+      echo "warning: ${op_desc} failed (attempt ${attempt}/${BOOTSTRAP_RETRIES}) with transient error:" >&2
+      echo "  $out" >&2
+      echo "retrying in ${delay}s..." >&2
+      sleep "$delay"
+      delay=$(( delay * 2 ))
+      attempt=$(( attempt + 1 ))
+      continue
+    fi
+
+    echo "error: ${op_desc} failed after ${attempt} attempt(s):" >&2
+    echo "  $out" >&2
+    return "$rc"
+  done
+
+  return 1
+}
+
+REQUIRED_VARS=(
   GCS_BUCKET
   GCP_WIF_PROVIDER
   GCP_SA_EMAIL
@@ -47,35 +225,92 @@ REQUIRED=(
   BMT_VM_NAME
 )
 
-declare -A VARS
-while IFS='=' read -r key rest; do
+OPTIONAL_VARS=(
+  BMT_PROJECTS
+  BMT_STATUS_CONTEXT
+  BMT_HANDSHAKE_TIMEOUT_SEC
+  BMT_DISPATCH_APP_ID
+)
+
+SECRET_KEYS=(
+  BMT_DISPATCH_APP_PRIVATE_KEY
+)
+
+declare -A ENTRIES
+while IFS='=' read -r key rest || [[ -n "${key}${rest}" ]]; do
+  key="$(trim "${key:-}")"
   [[ -z "$key" || "$key" == \#* ]] && continue
-  # Strip inline comments and surrounding whitespace from the value
+
+  # Strip inline comments from value and normalize quotes/whitespace.
   value="${rest%%#*}"
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  [[ -n "$key" && -n "$value" ]] && VARS["$key"]="$value"
+  value="$(trim "$value")"
+  value="$(strip_outer_quotes "$value")"
+  [[ -n "$value" ]] && ENTRIES["$key"]="$value"
 done < "$ENV_FILE"
 
-# Validate required vars are all set
 missing=()
-for name in "${REQUIRED[@]}"; do
-  [[ -z "${VARS[$name]:-}" ]] && missing+=("$name")
+for name in "${REQUIRED_VARS[@]}"; do
+  [[ -z "${ENTRIES[$name]:-}" ]] && missing+=("$name")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
-  echo "error: the following required variables are not set in $ENV_FILE:" >&2
+  echo "error: required keys missing in $ENV_FILE:" >&2
   for name in "${missing[@]}"; do
     echo "  $name" >&2
   done
   exit 1
 fi
 
-echo "Setting GitHub repository variables from $ENV_FILE ..."
-for name in "${!VARS[@]}"; do
-  value="${VARS[$name]}"
-  gh variable set "$name" --body "$value"
-  echo "  set $name"
+for key in "${!ENTRIES[@]}"; do
+  if contains_key "$key" "${REQUIRED_VARS[@]}" || contains_key "$key" "${OPTIONAL_VARS[@]}" || contains_key "$key" "${SECRET_KEYS[@]}"; then
+    continue
+  fi
+  echo "warning: ignoring unknown key '$key' in $ENV_FILE" >&2
 done
 
+failures=()
+
+echo "Applying GitHub repository variables from $ENV_FILE ..."
+for name in "${REQUIRED_VARS[@]}" "${OPTIONAL_VARS[@]}"; do
+  value="${ENTRIES[$name]:-}"
+  [[ -n "$value" ]] || continue
+  if run_gh_with_retry "set variable $name" gh variable set "$name" "${GH_SCOPE_ARGS[@]}" --body "$value"; then
+    echo "  set variable $name"
+  else
+    failures+=("variable:$name")
+  fi
+done
+
+echo "Applying GitHub repository secrets from $ENV_FILE ..."
+for name in "${SECRET_KEYS[@]}"; do
+  value="${ENTRIES[$name]:-}"
+  [[ -n "$value" ]] || continue
+
+  if secret_file="$(resolve_secret_file "$value")"; then
+    if run_gh_secret_from_file_with_retry "set secret $name from file $secret_file" "$name" "$secret_file"; then
+      echo "  set secret $name from file $secret_file"
+    else
+      failures+=("secret:$name")
+    fi
+  else
+    if run_gh_with_retry "set secret $name from inline value" gh secret set "$name" "${GH_SCOPE_ARGS[@]}" --body "$value"; then
+      echo "  set secret $name from inline value"
+    else
+      failures+=("secret:$name")
+    fi
+  fi
+done
+
+if [[ ${#failures[@]} -gt 0 ]]; then
+  echo "" >&2
+  echo "error: bootstrap finished with failures:" >&2
+  for item in "${failures[@]}"; do
+    echo "  $item" >&2
+  done
+  echo "Re-run the command to retry transient failures." >&2
+  exit 1
+fi
+
 echo ""
-echo "Done. Verify with: gh variable list"
+echo "Done."
+echo "Verify variables with: gh variable list ${GH_SCOPE_ARGS[*]}"
+echo "Verify secrets with:   gh secret list ${GH_SCOPE_ARGS[*]}"

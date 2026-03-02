@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ dev ]
-  pull_request_target:
+  pull_request:
     branches: [ dev ]
 
 defaults:
@@ -21,8 +21,8 @@ jobs:
       - name: Checkout source for preset parsing
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref:        ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha        || github.sha }}
           fetch-depth: 1
 
       - name: Parse CMakePresets.json
@@ -55,8 +55,8 @@ jobs:
       - name: Checkout source to build
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref:        ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha        || github.sha }}
           fetch-depth: 1
           submodules: false
           lfs: false
@@ -134,10 +134,13 @@ jobs:
       # Capture log for greps, but compress immediately to avoid "No space left on device"
       - name: Build ( ${{ matrix.short }} )
         continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
         run: |
           set -euo pipefail
           cmake --build --preset "${{ matrix.build }}" 2>&1 | tee build.log
           gzip -9 build.log
+          bash .github/bmt/scripts/ci_workflow.sh stage-release-runner
 
       # ---- soft check for Xtensa/Hexagon (never fail) ----------------
       - name: Soft check (Xtensa/Hexagon)
@@ -168,6 +171,24 @@ jobs:
             exit 1
           fi
 
+      - name: Compute preset info
+        id: preset-info
+        if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: bash .github/bmt/scripts/ci_workflow.sh compute-preset-info
+
+      - name: Upload runner artifact
+        if: steps.preset-info.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-${{ steps.preset-info.outputs.preset }}
+          path: |
+            ${{ steps.preset-info.outputs.runners_dir }}/kardome_runner
+            ${{ steps.preset-info.outputs.lib_dir }}/libKardome.so
+          retention-days: 1
+          if-no-files-found: warn
+
       # ---- final disk report + cleanup (always) ----------------------
       - name: Disk space (after)
         if: always()
@@ -189,3 +210,81 @@ jobs:
           rm -rf ./**/CMakeFiles || true
           rm -rf ./**/CMakeCache.txt || true
           df -h
+
+  # ─────────────────────── 3) Trigger BMT via workflow_dispatch ───────────────────────
+  trigger-bmt:
+    name: Trigger BMT Handoff
+    needs: build
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      statuses: write
+      issues: write
+    env:
+      REPOSITORY: ${{ github.repository }}
+      EVENT_NAME: ${{ github.event_name }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      DEFAULT_HEAD_SHA: ${{ github.sha }}
+      DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
+      CI_RUN_ID: ${{ github.run_id }}
+      BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_SERVER_URL: ${{ github.server_url }}
+      BMT_DISPATCH_APP_ID: ${{ vars.BMT_DISPATCH_APP_ID }}
+      BMT_DISPATCH_APP_PRIVATE_KEY: ${{ secrets.BMT_DISPATCH_APP_PRIVATE_KEY }}
+    steps:
+      - name: Checkout source for BMT handoff helpers
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate GitHub App token for handoff dispatch
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ env.BMT_DISPATCH_APP_ID }}
+          private-key: ${{ env.BMT_DISPATCH_APP_PRIVATE_KEY }}
+          permission-actions: write
+
+      - name: Resolve dispatch token
+        id: dispatch-token
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          token="${APP_TOKEN:-${GITHUB_TOKEN}}"
+          if [[ -z "$token" ]]; then
+            echo "::error::No dispatch token available."
+            exit 1
+          fi
+          if [[ -n "${APP_TOKEN:-}" ]]; then
+            echo "::notice::Using GitHub App token for handoff dispatch."
+          else
+            echo "::warning::GitHub App secrets not configured; using GITHUB_TOKEN fallback for dispatch."
+          fi
+          echo "token=$token" >>"$GITHUB_OUTPUT"
+
+      - name: Resolve head context and dispatch BMT handoff
+        id: dispatch
+        env:
+          APP_TOKEN: ${{ steps.dispatch-token.outputs.token }}
+        run: bash .github/bmt/scripts/ci_workflow.sh handoff-dispatch-bmt
+
+      - name: Post BMT failure status/comment (handoff dispatch failed)
+        if: failure()
+        env:
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: bash .github/bmt/scripts/ci_workflow.sh post-trigger-failure-status
+
+      - name: Write handoff dispatch summary
+        if: always()
+        env:
+          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome || 'unknown' }}
+          HEAD_SHA: ${{ steps.dispatch.outputs.head_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
+          HEAD_BRANCH: ${{ steps.dispatch.outputs.head_branch || (github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name) }}
+          HEAD_EVENT: ${{ steps.dispatch.outputs.head_event || (github.event_name == 'pull_request' && 'pull_request' || 'push') }}
+        run: bash .github/bmt/scripts/ci_workflow.sh write-handoff-dispatch-summary
