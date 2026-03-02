@@ -36,9 +36,10 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BMT_PROJECTS` | `"all release runners"` | Filter for BMT projects (e.g. non-embedded `*_gcc_Release` presets). |
+| `BMT_PROJECTS` | `"all"` | Filter for BMT projects. Use `"all"` or a JSON array of project keys (e.g. `["sk"]`). |
 | `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. Effective value is sourced from branch rules via consistency checks. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for VM handshake wait. |
+| `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
 
 Omitted vars inherit from current GitHub repo context first, then from contract defaults (see `config/env_contract.json` and `devtools/gh_repo_vars.py`). Optional overrides can be declared in **config/repo_vars.toml** for local/tooling use.
 
@@ -62,7 +63,7 @@ The workflow syncs **VM metadata** from repo config so the VM uses the same buck
 
 - **GCS_BUCKET** (required)
 - **BMT_REPO_ROOT** (optional; default `/opt/bmt`)
-- **startup-script** (set from `remote/code/bootstrap/startup_wrapper.sh` by `sync-vm-metadata`)
+- **startup-script** (set from packaged `cli.resources/startup_wrapper.sh` by `sync-vm-metadata`)
 - **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `remote/code/bootstrap/setup_vm_startup.sh`)
 
 `sync-vm-metadata` also validates that required bootstrap code objects exist in `<code-root>` before starting the VM.
@@ -86,12 +87,16 @@ Repository mapping is in **remote/code/config/github_repos.json**. See [../remot
 
 ---
 
-## Secrets (GitHub Actions)
+## Secrets and variables (GitHub Actions)
 
-| Secret | Purpose |
-|--------|---------|
-| `APP_TEST_ID` | GitHub App ID used by `dummy-build-and-test.yml` (`actions/create-github-app-token@v2`). |
-| `APP_TEST_PRIVATE_KEY` | GitHub App private key used by `dummy-build-and-test.yml` to mint dispatch token for `workflow_dispatch`. |
+| Name | Type | Purpose |
+|------|------|---------|
+| `BMT_DISPATCH_APP_ID` | **Variable** | GitHub App ID used to mint a token for dispatching the BMT handoff workflow (`workflow_dispatch`). Set in **Variables** (not Secrets); same name in test and prod repos. |
+| `BMT_DISPATCH_APP_PRIVATE_KEY` | **Secret** | GitHub App private key (PEM) used by the CI workflow with `actions/create-github-app-token@v2` to obtain that dispatch token. |
+
+**IDE warning:** Editors using the GitHub Actions JSON schema may show “Context access might be invalid” for `vars.BMT_DISPATCH_APP_ID` and `secrets.BMT_DISPATCH_APP_PRIVATE_KEY`. The schema only knows built-in names (e.g. `GITHUB_TOKEN`); these custom names are valid at runtime once the variable and secret are set in **Settings → Variables and secrets → Actions**.
+
+**Migration:** If you previously used `APP_TEST_ID` / `APP_TEST_PRIVATE_KEY`, set **variable** `BMT_DISPATCH_APP_ID` and **secret** `BMT_DISPATCH_APP_PRIVATE_KEY` (same values). Prod repos use the same names with the prod App’s credentials.
 
 ---
 
