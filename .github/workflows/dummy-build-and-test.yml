@@ -130,6 +130,8 @@ jobs:
     if: success()
     runs-on: ubuntu-latest
     permissions:
+      actions: write
+      contents: read
       statuses: write
       issues: write
     env:
@@ -152,16 +154,34 @@ jobs:
 
       - name: Generate GitHub App token for handoff dispatch
         id: app-token
+        if: ${{ secrets.BMT_DISPATCH_APP_ID != '' && secrets.BMT_DISPATCH_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.BMT_DISPATCH_APP_ID }}
           private-key: ${{ secrets.BMT_DISPATCH_APP_PRIVATE_KEY }}
           permission-actions: write
 
+      - name: Resolve dispatch token
+        id: dispatch-token
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          token="${APP_TOKEN:-${GITHUB_TOKEN}}"
+          if [[ -z "$token" ]]; then
+            echo "::error::No dispatch token available."
+            exit 1
+          fi
+          if [[ -n "${APP_TOKEN:-}" ]]; then
+            echo "::notice::Using GitHub App token for handoff dispatch."
+          else
+            echo "::warning::GitHub App secrets not configured; using GITHUB_TOKEN fallback for dispatch."
+          fi
+          echo "token=$token" >>"$GITHUB_OUTPUT"
+
       - name: Resolve head context and dispatch BMT handoff
         id: dispatch
         env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.dispatch-token.outputs.token }}
         run: bash .github/dev/ci_workflow.sh handoff-dispatch-bmt
 
       - name: Post BMT failure status/comment (handoff dispatch failed)
