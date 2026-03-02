@@ -57,7 +57,7 @@
     ]
   },
   "defaults": {
-    "BMT_PROJECTS": "all release runners",
+    "BMT_PROJECTS": "all",
     "BMT_STATUS_CONTEXT": "BMT Gate",
     "BMT_HANDSHAKE_TIMEOUT_SEC": "180",
     "BMT_REPO_ROOT": "/opt/bmt"

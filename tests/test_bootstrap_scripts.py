@@ -16,6 +16,10 @@ def _bootstrap_path(rel: str) -> Path:
     return _repo_root() / "remote" / "code" / "bootstrap" / rel
 
 
+def _metadata_wrapper_path() -> Path:
+    return _repo_root() / ".github" / "bmt" / "cli" / "resources" / "startup_wrapper.sh"
+
+
 def _write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
@@ -26,6 +30,8 @@ def test_bootstrap_scripts_parse_with_bash_n() -> None:
         _bootstrap_path("ensure_uv.sh"),
         _bootstrap_path("startup_example.sh"),
         _bootstrap_path("install_deps.sh"),
+        _bootstrap_path("startup_wrapper.sh"),
+        _metadata_wrapper_path(),
     )
     for script in scripts:
         subprocess.run(["bash", "-n", str(script)], check=True)
@@ -221,3 +227,10 @@ def test_ensure_uv_downloads_pinned_artifact_when_uv_missing(tmp_path: Path) -> 
         'test "$UV_BIN" = "$BMT_REPO_ROOT/.tools/uv/linux-x86_64/uv"'
     )
     subprocess.run(["/bin/bash", "-c", cmd], check=True, cwd=_repo_root(), env=env)
+
+
+def test_startup_wrapper_keeps_runtime_venv() -> None:
+    wrapper_sources = (_bootstrap_path("startup_wrapper.sh"), _metadata_wrapper_path())
+    for path in wrapper_sources:
+        content = path.read_text(encoding="utf-8")
+        assert "-name '.venv'" not in content, f"{path} should not delete persistent .venv"

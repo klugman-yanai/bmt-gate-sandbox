@@ -494,7 +494,7 @@ def main(
         return 0
 
     if missing or changed or force:
-        to_set = set(missing + changed) if not force else set(n for n in ordered_names if desired.get(n) != "")
+        to_set = set(missing + changed) if not force else {n for n in ordered_names if desired.get(n) != ""}
         if to_set:
             click.echo("")
             click.echo("Applying managed repo vars...")

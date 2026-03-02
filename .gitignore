@@ -40,6 +40,6 @@ compile_commands.json
 .DS_Store
 Thumbs.db
 
-# Local credentials and env (copy .env.example to .env)
+# Local credentials and env (copy .github/bmt/config/.env.example to .github/bmt/config/.env)
 gcp-key.json
 .env
