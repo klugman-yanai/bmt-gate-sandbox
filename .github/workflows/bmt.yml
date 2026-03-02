@@ -48,6 +48,11 @@ jobs:
       pr_number: ${{ steps.prepare.outputs.pr_number }}
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
       - id: prepare
         uses: ./.github/actions/bmt-prepare
         with:
@@ -143,6 +148,11 @@ jobs:
       head_event: ${{ needs.prepare.outputs.head_event }}
       pr_number: ${{ needs.prepare.outputs.pr_number }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+
       - id: classify
         uses: ./.github/actions/bmt-classify-handoff
         with:
@@ -159,6 +169,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+
       - uses: ./.github/actions/bmt-write-summary
         with:
           mode: skip
@@ -188,6 +203,11 @@ jobs:
       handshake_uri: ${{ steps.run.outputs.handshake_uri }}
       vm_started: ${{ steps.run.outputs.vm_started }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+
       - id: run
         uses: ./.github/actions/bmt-handoff-run
         with:
@@ -211,6 +231,11 @@ jobs:
       id-token: write
       statuses: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
+
       - uses: ./.github/actions/bmt-failure-fallback
         with:
           prepare_result: ${{ needs.prepare.result }}
