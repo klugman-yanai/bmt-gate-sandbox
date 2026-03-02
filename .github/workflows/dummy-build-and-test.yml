@@ -154,7 +154,7 @@ jobs:
 
       - name: Generate GitHub App token for handoff dispatch
         id: app-token
-        if: ${{ secrets.BMT_DISPATCH_APP_ID != '' && secrets.BMT_DISPATCH_APP_PRIVATE_KEY != '' }}
+        continue-on-error: true
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.BMT_DISPATCH_APP_ID }}
