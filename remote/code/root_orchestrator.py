@@ -13,7 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,11 +38,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _now_stamp() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _code_bucket_root(bucket: str) -> str:
