@@ -125,7 +125,9 @@ def run_start() -> None:
             "operation in progress",
             "currently stopping",
             "is stopping",
+            "not ready",
             "resource not ready",
+            "resource fingerprint changed",
             "please try again",
         )
         return any(token in text for token in tokens)
