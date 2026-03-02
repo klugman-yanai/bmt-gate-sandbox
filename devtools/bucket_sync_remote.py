@@ -212,19 +212,6 @@ def _upload_pinned_uv_artifact(src: Path, dest_root: str) -> dict[str, str]:
     }
 
 
-def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
-    with tempfile.TemporaryDirectory(prefix="remote_manifest_") as tmp_dir:
-        path = Path(tmp_dir) / "remote_manifest.json"
-        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        uri = f"{dest_root}/_meta/remote_manifest.json"
-        click.echo(f"Uploading sync manifest -> {uri}")
-        proc = subprocess.run(
-            ["gcloud", "storage", "cp", str(path), uri, "--quiet"],
-            check=False,
-        )
-        return proc.returncode
-
-
 @click.command()
 @bucket_option
 @click.option("--src-dir", default=DEFAULT_CONFIG_ROOT, help="Source directory to sync (canonical code mirror)")

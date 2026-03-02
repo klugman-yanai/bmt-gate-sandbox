@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
-source "${SCRIPT_DIR}/../bmt/scripts/github_api.sh"
+source "${SCRIPT_DIR}/github_api.sh"
 
 HEAD_SHA_RESOLVED=""
 HEAD_BRANCH_RESOLVED=""
