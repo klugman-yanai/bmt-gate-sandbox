@@ -1,0 +1,92 @@
+name: BMT Write Handoff Summary
+description: Write handoff summary to GITHUB_STEP_SUMMARY. Pass all context as inputs.
+
+inputs:
+  mode:
+    description: Summary mode (e.g. skip, run_success, failure)
+    required: true
+  repository:
+    description: GitHub repository (e.g. owner/repo)
+    required: true
+  head_sha:
+    description: Head commit SHA
+    required: true
+  head_branch:
+    description: Head branch name
+    required: true
+  head_event:
+    description: Event that triggered CI (pull_request or push)
+    required: true
+  pr_number:
+    description: PR number when head_event is pull_request
+    required: false
+    default: ""
+  routing_decision:
+    description: Handoff path (run, skip_no_legs, unknown)
+    required: false
+    default: "unknown"
+  runner_matrix:
+    description: JSON runner matrix
+    required: false
+    default: '{"include":[]}'
+  accepted_projects:
+    description: JSON array of accepted project names
+    required: false
+    default: "[]"
+  filtered_matrix:
+    description: JSON filtered matrix
+    required: false
+    default: '{"include":[]}'
+  trigger_written:
+    description: Whether run trigger was written
+    required: false
+    default: "false"
+  vm_started:
+    description: Whether BMT VM was started
+    required: false
+    default: "false"
+  handshake_ok:
+    description: Whether VM acknowledged trigger
+    required: false
+    default: "false"
+  handshake_uri:
+    description: GCS URI of handshake ack
+    required: false
+    default: ""
+  handoff_state_line:
+    description: One-line handoff state for summary
+    required: false
+    default: ""
+  failure_reason:
+    description: Failure reason when mode is failure
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Write handoff summary
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        REPOSITORY: ${{ inputs.repository }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        HEAD_BRANCH: ${{ inputs.head_branch }}
+        HEAD_EVENT: ${{ inputs.head_event }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        ROUTING_DECISION: ${{ inputs.routing_decision }}
+        RUNNER_MATRIX: ${{ inputs.runner_matrix }}
+        ACCEPTED_PROJECTS: ${{ inputs.accepted_projects }}
+        FILTERED_MATRIX: ${{ inputs.filtered_matrix }}
+        TRIGGER_WRITTEN: ${{ inputs.trigger_written }}
+        VM_STARTED: ${{ inputs.vm_started }}
+        HANDSHAKE_OK: ${{ inputs.handshake_ok }}
+        HANDSHAKE_URI: ${{ inputs.handshake_uri }}
+        HANDOFF_STATE_LINE: ${{ inputs.handoff_state_line }}
+        FAILURE_REASON: ${{ inputs.failure_reason }}
+      run: bash .github/bmt/scripts/bmt_workflow.sh write-handoff-summary

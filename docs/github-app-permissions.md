@@ -28,14 +28,14 @@ The script calls `GET https://api.github.com/app` with JWT auth and prints the a
 
 The BMT flow uses the GitHub App in **two places**:
 
-1. **CI workflow (Actions)** — to trigger the BMT workflow and post status on failure.
+1. **CI workflow (Actions)** — Uses repo secrets `BMT_DISPATCH_APP_ID` and `BMT_DISPATCH_APP_PRIVATE_KEY` with `create-github-app-token` to obtain a token that triggers the BMT handoff workflow and (on failure) to post status.
 2. **BMT VM (watcher)** — to post commit status and create/update Check Runs.
 
 The App must have at least the permissions below. If you use a single App for both CI and VM, grant all of them at the App level (or per repository).
 
 | Permission | Level | Why it's needed |
 |------------|--------|------------------|
-| **Actions: Read and write** | Repository | **CI (dummy-build-and-test.yml)** uses an installation token from `create-github-app-token` with `permission-actions: write` to call **workflow_dispatch** on `bmt.yml`. Without this, the "Trigger BMT" step cannot start the BMT workflow and returns 403. |
+| **Actions: Read and write** | Repository | **CI (dummy-build-and-test.yml)** uses repo secrets `BMT_DISPATCH_APP_ID` and `BMT_DISPATCH_APP_PRIVATE_KEY` with `create-github-app-token` (permission-actions: write) to call **workflow_dispatch** on `bmt.yml`. Without this, the "Trigger BMT" step cannot start the BMT workflow and returns 403. |
 | **Commit statuses: Read and write** | Repository | **Commit status** is how the PR is gated (e.g. "BMT Gate"). Used by: (1) **bmt.yml** — posts pending/failure status from jobs 06 and 07; (2) **dummy-build-and-test.yml** — posts failure status when "Trigger BMT" fails; (3) **VM (vm_watcher.py)** — posts pending then success/failure via `POST /repos/{owner}/{repo}/statuses/{sha}`. Branch protection typically requires this status to pass. |
 | **Checks: Read and write** | Repository | **Check Runs** are created and updated by the **VM (remote/code/lib/github_checks.py)** to show live BMT progress in the PR (create_check_run, update_check_run). Optional for gating (the gate is commit status) but needed for the progress table and final results in the check UI. |
 | **Issues: Read and write** (or **Pull requests: Read and write**) | Repository | **Planned:** PR comments would be posted by the VM after each run when associated with a PR. Not yet implemented. The workflow can post "Did not run" from failure-path jobs (bmt.yml 07/08, dummy-build-and-test.yml trigger-bmt) using `GITHUB_TOKEN` with `issues: write`. |

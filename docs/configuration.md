@@ -36,7 +36,7 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BMT_PROJECTS` | `"all release runners"` | Filter for BMT projects (e.g. non-embedded `*_gcc_Release` presets). |
+| `BMT_PROJECTS` | `"all"` | Filter for BMT projects. Use `"all"` or a JSON array of project keys (e.g. `["sk"]`). |
 | `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. Effective value is sourced from branch rules via consistency checks. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for VM handshake wait. |
 
@@ -90,8 +90,10 @@ Repository mapping is in **remote/code/config/github_repos.json**. See [../remot
 
 | Secret | Purpose |
 |--------|---------|
-| `APP_TEST_ID` | GitHub App ID used by `dummy-build-and-test.yml` (`actions/create-github-app-token@v2`). |
-| `APP_TEST_PRIVATE_KEY` | GitHub App private key used by `dummy-build-and-test.yml` to mint dispatch token for `workflow_dispatch`. |
+| `BMT_DISPATCH_APP_ID` | GitHub App ID used to mint a token for dispatching the BMT handoff workflow (`workflow_dispatch`). Same secret names in test and prod repos; each repo sets the value for the App installed on that repo. |
+| `BMT_DISPATCH_APP_PRIVATE_KEY` | GitHub App private key (PEM) used by the CI workflow with `actions/create-github-app-token@v2` to obtain that dispatch token. |
+
+**Migration:** If you previously used `APP_TEST_ID` / `APP_TEST_PRIVATE_KEY`, rename those repo secrets to `BMT_DISPATCH_APP_ID` and `BMT_DISPATCH_APP_PRIVATE_KEY` (same values). Prod repos use the same secret names with the prod App’s credentials.
 
 ---
 
