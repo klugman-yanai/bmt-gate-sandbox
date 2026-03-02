@@ -169,7 +169,12 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
         current_score = float(summary.get("aggregate_score", 0) or 0)
         gate = summary.get("gate", {}) if isinstance(summary.get("gate"), dict) else {}
         last_score = gate.get("last_score")
-        baseline_str = f"{last_score:.1f}" if last_score is not None else "—"
+        if last_score is None:
+            last_score = summary.get("last_score")
+        if isinstance(last_score, (int, float)):
+            baseline_str = f"{float(last_score):.1f}"
+        else:
+            baseline_str = "—"
         reason_code = summary.get("reason_code", "")
 
         # Duration from orchestration_timing.
