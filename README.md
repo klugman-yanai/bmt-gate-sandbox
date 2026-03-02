@@ -107,7 +107,7 @@ See [remote/README.md](remote/README.md) for canonical mirror policy.
 ## Notes
 
 - Ad-hoc diagnostics: use `.local/diagnostics/` only; do not commit.
-- `ci_driver.py wait` and `ci_driver.py gate` exist for manual/local use only; not used by `bmt.yml`.
+- `uv run bmt ...` commands are for manual/local use only; `bmt.yml` drives normal CI execution.
 - Manual VM start: `just start-vm` (debug/maintenance/testing only); routine starts come from `bmt.yml`.
 
 ## Test vs production

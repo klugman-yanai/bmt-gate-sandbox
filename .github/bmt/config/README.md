@@ -1,8 +1,8 @@
 # BMT config
 
-- **`.env.example`** — Template for repo variables. Copy to `.env` and fill in values.
+- **`.env.example`** — Template for repo variables/secrets. Copy to `.env` and fill in values.
 - **`.env.dev`** / **`.env.prod`** — Pre-filled env files for dev and prod; use with `--env-file`.
-- **`bootstrap_gh_vars.sh`** — Sets GitHub repository variables from an env file (`gh variable set`).
+- **`bootstrap_gh_vars.sh`** — Sets GitHub repository variables and known secrets from an env file (`gh variable set` / `gh secret set`).
 - **`secrets/`** — Place `*.pem` (e.g. GitHub App private keys) here; directory is gitignored for `*.pem`.
 
 Run from repo root:
