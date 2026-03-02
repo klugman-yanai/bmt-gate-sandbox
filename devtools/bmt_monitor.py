@@ -28,9 +28,8 @@ from whenever import Instant
 
 # Reuse existing helpers for GCS polling
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / ".github" / "scripts"))
-from repo_paths import DEFAULT_CONFIG_ROOT
-
 from ci.config import resolve_results_prefix
+from repo_paths import DEFAULT_CONFIG_ROOT
 
 # Fallback when github_repos.json missing or has no matching repo_env
 _DEFAULT_REPO_TEST = "klugman-yanai/bmt-gate-sandbox"

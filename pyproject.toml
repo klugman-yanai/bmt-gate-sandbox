@@ -1,18 +1,29 @@
 
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.10.7,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# Workspace root: minimal stub package so uv_build has one module; real code is in workspace member .github/bmt.
+module-name = "bmt_cloud_dev"
+module-root = "src"
 
 [project]
 name = "bmt-cloud-dev"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "click>=8.0",
+    "bmt",
     "rich>=13.0",
     "requests>=2.31.0",
     "whenever>=0.9.5",
 ]
+
+[tool.uv.sources]
+bmt = { workspace = true }
+
+[tool.uv.workspace]
+members = [".github/bmt"]
 
 [project.optional-dependencies]
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
@@ -20,11 +31,8 @@ vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 # For live BMT monitor TUI (install with: pip install -e ".[monitor]")
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
-[tool.setuptools.packages.find]
-# ci/ lives at .github/scripts/ci/ — tell setuptools to look there.
-where = [".github/scripts"]
-
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
+# bmt is a workspace member (.github/bmt); root no longer builds it via setuptools find.
 
 [tool.basedpyright]
 include = ["."]
@@ -32,7 +40,7 @@ exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime"
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
-extraPaths = [".github/scripts"]
+extraPaths = [".github"]
 # Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
 reportExplicitAny = false
 reportAny = false

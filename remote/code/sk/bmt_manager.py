@@ -20,7 +20,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,11 +63,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _now_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _code_bucket_root(bucket: str) -> str:
@@ -637,7 +637,7 @@ def main() -> int:
     if cache_enabled and dataset_meta_path.is_file() and cache_dataset_dir.is_dir():
         dataset_meta = _load_json(dataset_meta_path)
         last_sync_epoch = float(dataset_meta.get("last_sync_epoch", 0.0) or 0.0)
-        age = datetime.now(timezone.utc).timestamp() - last_sync_epoch
+        age = datetime.now(UTC).timestamp() - last_sync_epoch
         dataset_hit = str(dataset_meta.get("source_uri", "")) == dataset_uri and age <= float(dataset_ttl_sec)
 
     if cache_enabled:
@@ -650,7 +650,7 @@ def main() -> int:
                 {
                     "timestamp": _now_iso(),
                     "source_uri": dataset_uri,
-                    "last_sync_epoch": datetime.now(timezone.utc).timestamp(),
+                    "last_sync_epoch": datetime.now(UTC).timestamp(),
                     "dataset_ttl_sec": dataset_ttl_sec,
                 },
             )

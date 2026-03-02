@@ -21,8 +21,8 @@ def test_post_handoff_timeout_status_posts_error_when_allowed(tmp_path: Path) ->
     calls_file = tmp_path / "calls.txt"
     script = f"""
 set -euo pipefail
-source .github/scripts/workflows/github_api.sh
-source .github/scripts/workflows/cmd/failure.sh
+source .github/bmt/scripts/github_api.sh
+source .github/bmt/scripts/cmd/failure.sh
 gh_should_post_failure_status() {{ return 0; }}
 gh_post_status() {{ printf '%s\\n' "$*" > "{calls_file}"; return 0; }}
 bmt_cmd_post_handoff_timeout_status
@@ -52,8 +52,8 @@ def test_post_handoff_timeout_status_skips_when_context_already_terminal(tmp_pat
     calls_file = tmp_path / "calls.txt"
     script = f"""
 set -euo pipefail
-source .github/scripts/workflows/github_api.sh
-source .github/scripts/workflows/cmd/failure.sh
+source .github/bmt/scripts/github_api.sh
+source .github/bmt/scripts/cmd/failure.sh
 gh_should_post_failure_status() {{ return 1; }}
 gh_post_status() {{ printf 'called' > "{calls_file}"; return 0; }}
 bmt_cmd_post_handoff_timeout_status

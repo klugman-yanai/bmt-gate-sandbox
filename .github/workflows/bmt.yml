@@ -41,46 +41,21 @@ jobs:
     permissions:
       contents: read
     outputs:
-      run_id: ${{ steps.ctx.outputs.run_id }}
-      head_sha: ${{ steps.ctx.outputs.head_sha }}
-      head_branch: ${{ steps.ctx.outputs.head_branch }}
-      head_event: ${{ steps.ctx.outputs.head_event }}
-      pr_number: ${{ steps.ctx.outputs.pr_number }}
-      runner_matrix: ${{ steps.parse.outputs.runner_matrix }}
+      run_id: ${{ steps.prepare.outputs.run_id }}
+      head_sha: ${{ steps.prepare.outputs.head_sha }}
+      head_branch: ${{ steps.prepare.outputs.head_branch }}
+      head_event: ${{ steps.prepare.outputs.head_event }}
+      pr_number: ${{ steps.prepare.outputs.pr_number }}
+      runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - id: prepare
+        uses: ./.github/actions/bmt-prepare
         with:
-          ref: ${{ github.event.inputs.head_sha || github.sha }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          python-version: "3.12"
-
-      - id: ctx
-        env:
-          DISPATCH_CI_RUN_ID: ${{ github.event.inputs.ci_run_id }}
-          DISPATCH_HEAD_SHA: ${{ github.event.inputs.head_sha }}
-          DISPATCH_HEAD_BRANCH: ${{ github.event.inputs.head_branch }}
-          DISPATCH_HEAD_EVENT: ${{ github.event.inputs.head_event }}
-          DISPATCH_PR_NUMBER: ${{ github.event.inputs.pr_number }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh emit-bmt-context
-
-      - name: Validate required configuration variables
-        env:
-          BMT_BUCKET_PREFIX: ${{ vars.BMT_BUCKET_PREFIX }}
-        run: |
-          bash .github/scripts/workflows/bmt_workflow.sh guard-no-legacy-prefix
-          bash .github/scripts/workflows/bmt_workflow.sh validate-required-vars
-
-      - name: Parse gcc_Release presets (filtered by BMT_PROJECTS)
-        id: parse
-        run: |
-          uv run python ./.github/scripts/ci_driver.py parse-release-runners \
-            --output-format bmt \
-            --output-key runner_matrix \
-            --project-filter "${BMT_PROJECTS:-}"
+          ci_run_id: ${{ github.event.inputs.ci_run_id }}
+          head_sha: ${{ github.event.inputs.head_sha || github.sha }}
+          head_branch: ${{ github.event.inputs.head_branch }}
+          head_event: ${{ github.event.inputs.head_event }}
+          pr_number: ${{ github.event.inputs.pr_number }}
 
   upload-runners:
     name: 02 Upload Runners • ${{ matrix.project }}
@@ -115,7 +90,7 @@ jobs:
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh warn-artifact-missing
+        run: bash .github/bmt/scripts/bmt_workflow.sh warn-artifact-missing
 
       - name: Setup GCP and uv
         if: steps.download.outcome == 'success'
@@ -132,7 +107,7 @@ jobs:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
           SOURCE_REF: ${{ needs.prepare.outputs.head_sha }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh upload-runner-to-gcs
+        run: bash .github/bmt/scripts/bmt_workflow.sh upload-runner-to-gcs
         continue-on-error: true
 
       - name: Warn if GCS upload failed
@@ -140,14 +115,14 @@ jobs:
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh warn-upload-failed
+        run: bash .github/bmt/scripts/bmt_workflow.sh warn-upload-failed
 
       - name: Record uploaded project marker
         if: steps.download.outcome == 'success' && steps.upload.outcome == 'success'
         env:
           WORKFLOW_RUN_ID: ${{ github.run_id }}
           PROJECT: ${{ matrix.project }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh record-uploaded-project-marker
+        run: bash .github/bmt/scripts/bmt_workflow.sh record-uploaded-project-marker
 
   classify-handoff:
     name: 03 Classify Handoff Path
@@ -158,65 +133,23 @@ jobs:
       contents: read
       id-token: write
     outputs:
-      path: ${{ steps.route.outputs.path }}
-      has_legs: ${{ steps.filter.outputs.has_legs || 'false' }}
-      accepted_projects: ${{ steps.list.outputs.accepted_projects || '[]' }}
-      filtered_matrix: ${{ steps.filter.outputs.matrix || '{"include":[]}' }}
+      path: ${{ steps.classify.outputs.path }}
+      has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
+      accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
+      filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
       runner_matrix: ${{ needs.prepare.outputs.runner_matrix }}
       head_sha: ${{ needs.prepare.outputs.head_sha }}
       head_branch: ${{ needs.prepare.outputs.head_branch }}
       head_event: ${{ needs.prepare.outputs.head_event }}
       pr_number: ${{ needs.prepare.outputs.pr_number }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - id: classify
+        uses: ./.github/actions/bmt-classify-handoff
         with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
-
-      - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
-        with:
+          head_sha: ${{ needs.prepare.outputs.head_sha }}
+          runner_matrix: ${{ needs.prepare.outputs.runner_matrix }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
-          python_version: "3.12"
-
-      - name: Resolve uploaded runners
-        id: list
-        run: bash .github/scripts/workflows/bmt_workflow.sh resolve-uploaded-projects
-
-      - name: Build BMT matrix
-        id: matrix
-        run: uv run python ./.github/scripts/ci_driver.py matrix --config-root remote/code --project-filter "${BMT_PROJECTS:-}"
-
-      - name: Filter matrix to supported uploaded runners
-        id: filter
-        env:
-          RUNNER_MATRIX: ${{ needs.prepare.outputs.runner_matrix }}
-          FULL_MATRIX: ${{ steps.matrix.outputs.matrix }}
-          ACCEPTED_PROJECTS: ${{ steps.list.outputs.accepted_projects }}
-        run: |
-          uv run python ./.github/scripts/ci_driver.py filter-supported-matrix \
-            --runner-matrix-json "${RUNNER_MATRIX}" \
-            --full-matrix-json "${FULL_MATRIX}" \
-            --accepted-projects-json "${ACCEPTED_PROJECTS:-[]}" \
-            --output-key matrix \
-            --has-legs-key has_legs
-
-      - name: Decide handoff path
-        id: route
-        run: |
-          if [[ "${{ steps.filter.outputs.has_legs }}" == "true" ]]; then
-            echo "path=run" >>"$GITHUB_OUTPUT"
-          else
-            echo "path=skip_no_legs" >>"$GITHUB_OUTPUT"
-          fi
-
-      - name: Show matrix classification details
-        env:
-          RUNNER_MATRIX: ${{ needs.prepare.outputs.runner_matrix }}
-          ACCEPTED: ${{ steps.list.outputs.accepted_projects }}
-          FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh summarize-matrix-handshake
 
   handoff-skip:
     name: 04A Handoff Skip (No Legs)
@@ -226,23 +159,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Write handoff summary (skip)
-        env:
-          MODE: skip
-          REPOSITORY: ${{ github.repository }}
-          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          HEAD_BRANCH: ${{ needs.prepare.outputs.head_branch }}
-          HEAD_EVENT: ${{ needs.prepare.outputs.head_event }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          ROUTING_DECISION: skip_no_legs
-          RUNNER_MATRIX: ${{ needs.classify-handoff.outputs.runner_matrix }}
-          ACCEPTED_PROJECTS: ${{ needs.classify-handoff.outputs.accepted_projects }}
-          FILTERED_MATRIX: ${{ needs.classify-handoff.outputs.filtered_matrix }}
-          TRIGGER_WRITTEN: "false"
-          VM_STARTED: "false"
-          HANDSHAKE_OK: "false"
-          HANDOFF_STATE_LINE: "Handoff complete: no supported uploaded legs to hand off."
-        run: bash .github/scripts/workflows/bmt_workflow.sh write-handoff-summary
+      - uses: ./.github/actions/bmt-write-summary
+        with:
+          mode: skip
+          repository: ${{ github.repository }}
+          head_sha: ${{ needs.prepare.outputs.head_sha }}
+          head_branch: ${{ needs.prepare.outputs.head_branch }}
+          head_event: ${{ needs.prepare.outputs.head_event }}
+          pr_number: ${{ needs.prepare.outputs.pr_number }}
+          routing_decision: skip_no_legs
+          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix }}
+          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
+          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
+          handoff_state_line: "Handoff complete: no supported uploaded legs to hand off."
 
   handoff-run:
     name: 04B Handoff Run (Trigger + VM Ack)
@@ -254,100 +183,23 @@ jobs:
       id-token: write
       actions: read
     outputs:
-      trigger_written: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
-      handshake_ok: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
-      handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
-      vm_started: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
+      trigger_written: ${{ steps.run.outputs.trigger_written }}
+      handshake_ok: ${{ steps.run.outputs.handshake_ok }}
+      handshake_uri: ${{ steps.run.outputs.handshake_uri }}
+      vm_started: ${{ steps.run.outputs.vm_started }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - id: run
+        uses: ./.github/actions/bmt-handoff-run
         with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
-
-      - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
-        with:
+          head_sha: ${{ needs.prepare.outputs.head_sha }}
+          head_branch: ${{ needs.prepare.outputs.head_branch }}
+          head_event: ${{ needs.prepare.outputs.head_event }}
+          pr_number: ${{ needs.prepare.outputs.pr_number }}
+          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
+          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix }}
+          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
-          python_version: "3.12"
-
-      - name: Preflight runtime trigger queue (stale cleanup)
-        id: preflight
-        env:
-          RUN_CONTEXT: ${{ needs.prepare.outputs.head_event == 'pull_request' && 'pr' || 'dev' }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh preflight-trigger-queue
-
-      - name: Write run trigger to GCS
-        id: trigger
-        env:
-          FILTERED_MATRIX_JSON: ${{ needs.classify-handoff.outputs.filtered_matrix }}
-          RUN_CONTEXT: ${{ needs.prepare.outputs.head_event == 'pull_request' && 'pr' || 'dev' }}
-          HEAD_EVENT: ${{ needs.prepare.outputs.head_event }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh write-run-trigger
-
-      - name: Sync VM metadata from workflow config
-        run: uv run python ./.github/scripts/ci_driver.py sync-vm-metadata
-
-      - name: Force clean VM restart after stale-trigger cleanup
-        if: steps.preflight.outputs.restart_vm == 'true' && needs.prepare.outputs.head_event != 'pull_request'
-        env:
-          STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh force-clean-vm-restart
-
-      - name: Start BMT VM
-        id: start-vm
-        run: uv run python ./.github/scripts/ci_driver.py start-vm
-
-      - name: Show handshake guidance
-        env:
-          RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
-          STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh show-handshake-guidance
-
-      - name: Wait for VM handshake ack
-        id: handshake
-        env:
-          WORKFLOW_RUN_ID: ${{ github.run_id }}
-          RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
-          STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh wait-handshake
-
-      - name: Handshake timeout diagnostics
-        if: ${{ always() && steps.handshake.outcome == 'failure' }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh handshake-timeout-diagnostics
-
-      - name: Show VM handshake summary
-        if: steps.handshake.outcome == 'success'
-        env:
-          ACK_PAYLOAD: ${{ steps.handshake.outputs.handshake_payload }}
-          HANDSHAKE_URI: ${{ steps.handshake.outputs.handshake_uri }}
-          HANDSHAKE_REQUESTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_requested_leg_count }}
-          HANDSHAKE_ACCEPTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_accepted_leg_count }}
-          RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
-          STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh show-handshake-summary
-
-      - name: Write handoff summary
-        if: always()
-        env:
-          MODE: ${{ steps.handshake.outcome == 'success' && 'run_success' || 'failure' }}
-          REPOSITORY: ${{ github.repository }}
-          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          HEAD_BRANCH: ${{ needs.prepare.outputs.head_branch }}
-          HEAD_EVENT: ${{ needs.prepare.outputs.head_event }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          ROUTING_DECISION: run
-          RUNNER_MATRIX: ${{ needs.classify-handoff.outputs.runner_matrix }}
-          ACCEPTED_PROJECTS: ${{ needs.classify-handoff.outputs.accepted_projects }}
-          FILTERED_MATRIX: ${{ needs.classify-handoff.outputs.filtered_matrix }}
-          TRIGGER_WRITTEN: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
-          VM_STARTED: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
-          HANDSHAKE_OK: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
-          HANDSHAKE_URI: ${{ steps.handshake.outputs.handshake_uri }}
-          HANDOFF_STATE_LINE: "${{ steps.handshake.outcome == 'success' && 'Handoff complete: VM acknowledged trigger.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
-          FAILURE_REASON: ${{ steps.handshake.outcome != 'success' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh write-handoff-summary
 
   failure-fallback:
     name: 05 Failure Fallback
@@ -359,81 +211,28 @@ jobs:
       id-token: write
       statuses: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: ./.github/actions/bmt-failure-fallback
         with:
-          ref: ${{ needs.prepare.outputs.head_sha || github.event.inputs.head_sha || github.sha }}
-
-      - name: Resolve fallback context
-        id: failctx
-        env:
-          PREPARE_RESULT: ${{ needs.prepare.result }}
-          PREPARE_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          PREPARE_PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          ORCH_HAS_LEGS: ${{ needs.classify-handoff.outputs.has_legs }}
-          ORCH_HANDSHAKE_OK: ${{ needs.handoff-run.outputs.handshake_ok }}
-          ORCH_TRIGGER_WRITTEN: ${{ needs.handoff-run.outputs.trigger_written }}
-          DISPATCH_HEAD_SHA: ${{ github.event.inputs.head_sha }}
-          DISPATCH_PR_NUMBER: ${{ github.event.inputs.pr_number }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh resolve-failure-context
-
-      - name: Classify failure reason
-        id: reason
-        run: |
-          reason="Handoff failed for an unknown reason."
-          if [[ "${{ needs.prepare.result }}" != "success" ]]; then
-            reason="Preparation failed before handoff context was established."
-          elif [[ "${{ needs.classify-handoff.result }}" == "failure" ]]; then
-            reason="Handoff path classification failed."
-          elif [[ "${{ needs.handoff-run.result }}" == "failure" ]]; then
-            reason="VM did not acknowledge trigger within handshake timeout."
-          elif [[ "${{ needs.handoff-skip.result }}" == "failure" ]]; then
-            reason="No-legs handoff path failed unexpectedly."
-          fi
-          echo "reason=${reason}" >>"$GITHUB_OUTPUT"
-
-      - name: Write handoff summary (failure)
-        if: always()
-        env:
-          MODE: failure
-          REPOSITORY: ${{ github.repository }}
-          HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
-          HEAD_BRANCH: ${{ needs.prepare.outputs.head_branch || github.event.inputs.head_branch }}
-          HEAD_EVENT: ${{ needs.prepare.outputs.head_event || github.event.inputs.head_event }}
-          PR_NUMBER: ${{ steps.failctx.outputs.pr_number }}
-          ROUTING_DECISION: ${{ needs.classify-handoff.outputs.path || 'unknown' }}
-          RUNNER_MATRIX: ${{ needs.classify-handoff.outputs.runner_matrix || needs.prepare.outputs.runner_matrix }}
-          ACCEPTED_PROJECTS: ${{ needs.classify-handoff.outputs.accepted_projects || '[]' }}
-          FILTERED_MATRIX: ${{ needs.classify-handoff.outputs.filtered_matrix || '{"include":[]}' }}
-          TRIGGER_WRITTEN: ${{ steps.failctx.outputs.trigger_written }}
-          VM_STARTED: ${{ needs.handoff-run.outputs.vm_started || 'false' }}
-          HANDSHAKE_OK: ${{ needs.handoff-run.outputs.handshake_ok || 'false' }}
-          HANDSHAKE_URI: ${{ needs.handoff-run.outputs.handshake_uri }}
-          HANDOFF_STATE_LINE: "Handoff failed: VM did not acknowledge trigger."
-          FAILURE_REASON: ${{ steps.reason.outputs.reason }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh write-handoff-summary
-
-      - name: Setup GCP for cleanup
-        if: steps.failctx.outputs.trigger_written == 'true'
-        uses: ./.github/actions/setup-gcp-uv
-        with:
+          prepare_result: ${{ needs.prepare.result }}
+          prepare_head_sha: ${{ needs.prepare.outputs.head_sha }}
+          prepare_head_branch: ${{ needs.prepare.outputs.head_branch }}
+          prepare_head_event: ${{ needs.prepare.outputs.head_event }}
+          prepare_pr_number: ${{ needs.prepare.outputs.pr_number }}
+          prepare_runner_matrix: ${{ needs.prepare.outputs.runner_matrix }}
+          classify_path: ${{ needs.classify-handoff.outputs.path }}
+          classify_has_legs: ${{ needs.classify-handoff.outputs.has_legs }}
+          classify_accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
+          classify_filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
+          classify_result: ${{ needs.classify-handoff.result }}
+          handoff_run_trigger_written: ${{ needs.handoff-run.outputs.trigger_written }}
+          handoff_run_vm_started: ${{ needs.handoff-run.outputs.vm_started }}
+          handoff_run_handshake_ok: ${{ needs.handoff-run.outputs.handshake_ok }}
+          handoff_run_handshake_uri: ${{ needs.handoff-run.outputs.handshake_uri }}
+          handoff_run_result: ${{ needs.handoff-run.result }}
+          handoff_skip_result: ${{ needs.handoff-skip.result }}
+          dispatch_head_sha: ${{ github.event.inputs.head_sha }}
+          dispatch_pr_number: ${{ github.event.inputs.pr_number }}
+          fallback_ref: ${{ github.sha }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
-          install_uv: "false"
-
-      - name: Post terminal status on handshake timeout
-        if: steps.failctx.outputs.trigger_written == 'true' && steps.failctx.outputs.vm_handshake_result == 'failure'
-        env:
-          REPOSITORY: ${{ github.repository }}
-          HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
-          GITHUB_TOKEN: ${{ github.token }}
-          BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
-        run: bash .github/scripts/workflows/bmt_workflow.sh post-handoff-timeout-status
-
-      - name: Cleanup failed trigger artifacts
-        if: steps.failctx.outputs.trigger_written == 'true'
-        run: bash .github/scripts/workflows/bmt_workflow.sh cleanup-failed-trigger-artifacts
-
-      - name: Stop VM after workflow failure
-        if: steps.failctx.outputs.trigger_written == 'true'
-        run: bash .github/scripts/workflows/bmt_workflow.sh stop-vm-best-effort
+          bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}

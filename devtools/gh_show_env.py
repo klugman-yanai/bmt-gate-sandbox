@@ -39,8 +39,8 @@ class SecretHint:
 
 
 APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (
-    SecretHint("APP_TEST_ID", "*** (repo secret)"),
-    SecretHint("APP_TEST_PRIVATE_KEY", "*** (repo secret)"),
+    SecretHint("BMT_DISPATCH_APP_ID", "*** (repo secret)"),
+    SecretHint("BMT_DISPATCH_APP_PRIVATE_KEY", "*** (repo secret)"),
 )
 
 

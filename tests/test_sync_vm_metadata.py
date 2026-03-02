@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from click.testing import CliRunner
+import pytest
 
-from ci.commands import sync_vm_metadata
+from bmt.commands import vm as sync_vm_metadata
 
 
-def test_sync_vm_metadata_sets_startup_script(monkeypatch) -> None:
-    runner = CliRunner()
+def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
@@ -48,12 +47,11 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch) -> None:
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "gcs_exists", _fake_exists)
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "vm_add_metadata", _fake_add_metadata)
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "vm_describe", _fake_describe)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "vm_add_metadata", _fake_add_metadata)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "vm_describe", _fake_describe)
 
-    result = runner.invoke(sync_vm_metadata.command, [])
-    assert result.exit_code == 0
+    sync_vm_metadata.run_sync_metadata()
 
     assert captured["project"] == "train-kws-202311"
     assert captured["zone"] == "europe-west4-a"
@@ -74,8 +72,7 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch) -> None:
     assert script_path.is_file()
 
 
-def test_sync_vm_metadata_fails_when_required_code_object_missing(monkeypatch) -> None:
-    runner = CliRunner()
+def test_sync_vm_metadata_fails_when_required_code_object_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
@@ -84,15 +81,13 @@ def test_sync_vm_metadata_fails_when_required_code_object_missing(monkeypatch) -
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/bootstrap/startup_example.sh")
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
 
-    result = runner.invoke(sync_vm_metadata.command, [])
-    assert result.exit_code != 0
-    assert "Missing required code objects in bucket namespace" in result.output
+    with pytest.raises(RuntimeError, match="Missing required code objects"):
+        sync_vm_metadata.run_sync_metadata()
 
 
-def test_sync_vm_metadata_fails_when_uv_artifact_missing(monkeypatch) -> None:
-    runner = CliRunner()
+def test_sync_vm_metadata_fails_when_uv_artifact_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
@@ -101,16 +96,13 @@ def test_sync_vm_metadata_fails_when_uv_artifact_missing(monkeypatch) -> None:
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/_tools/uv/linux-x86_64/uv")
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
 
-    result = runner.invoke(sync_vm_metadata.command, [])
-    assert result.exit_code != 0
-    assert "Missing required code objects in bucket namespace" in result.output
-    assert "_tools/uv/linux-x86_64/uv" in result.output
+    with pytest.raises(RuntimeError, match="Missing required code objects"):
+        sync_vm_metadata.run_sync_metadata()
 
 
-def test_sync_vm_metadata_fails_when_runtime_pyproject_missing(monkeypatch) -> None:
-    runner = CliRunner()
+def test_sync_vm_metadata_fails_when_runtime_pyproject_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
@@ -119,16 +111,13 @@ def test_sync_vm_metadata_fails_when_runtime_pyproject_missing(monkeypatch) -> N
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/pyproject.toml")
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
 
-    result = runner.invoke(sync_vm_metadata.command, [])
-    assert result.exit_code != 0
-    assert "Missing required code objects in bucket namespace" in result.output
-    assert "/pyproject.toml" in result.output
+    with pytest.raises(RuntimeError, match="Missing required code objects"):
+        sync_vm_metadata.run_sync_metadata()
 
 
-def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch) -> None:
-    runner = CliRunner()
+def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
@@ -150,9 +139,8 @@ def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch) -> None:
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "gcs_exists", _fake_exists)
-    monkeypatch.setattr(sync_vm_metadata.gcloud_cli, "vm_describe", _fake_describe)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.gcloud, "vm_describe", _fake_describe)
 
-    result = runner.invoke(sync_vm_metadata.command, [])
-    assert result.exit_code != 0
-    assert "Legacy BMT_BUCKET_PREFIX" in result.output
+    with pytest.raises(RuntimeError, match="Legacy BMT_BUCKET_PREFIX"):
+        sync_vm_metadata.run_sync_metadata()

@@ -14,7 +14,7 @@ defaults:
     shell: bash
 
 env:
-  # One build job per project; default "all release runners". Set repo var BMT_PROJECTS to override.
+  # One build job per project; default "all". Set repo var BMT_PROJECTS to override (e.g. ["sk"]).
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
 
       - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
         id: parse
-        run: bash .github/scripts/workflows/ci_workflow.sh parse-presets
+        run: bash .github/dev/ci_workflow.sh parse-presets
 
   # ─────────────────────── 2) build every preset (dummy/no-op except runner staging + upload) ────────────────────────
   build:
@@ -87,7 +87,7 @@ jobs:
         continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
         env:
           MATRIX_CONFIGURE: ${{ matrix.configure }}
-        run: bash .github/scripts/workflows/ci_workflow.sh stage-release-runner
+        run: bash .github/dev/ci_workflow.sh stage-release-runner
 
       - name: Soft check (Xtensa/Hexagon) (dummy)
         if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
@@ -102,7 +102,7 @@ jobs:
         if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
         env:
           MATRIX_CONFIGURE: ${{ matrix.configure }}
-        run: bash .github/scripts/workflows/ci_workflow.sh compute-preset-info
+        run: bash .github/dev/ci_workflow.sh compute-preset-info
 
       - name: Upload runner artifact
         if: steps.preset-info.outcome == 'success'
@@ -154,21 +154,21 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.APP_TEST_ID }}
-          private-key: ${{ secrets.APP_TEST_PRIVATE_KEY }}
+          app-id: ${{ secrets.BMT_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.BMT_DISPATCH_APP_PRIVATE_KEY }}
           permission-actions: write
 
       - name: Resolve head context and dispatch BMT handoff
         id: dispatch
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: bash .github/scripts/workflows/ci_workflow.sh handoff-dispatch-bmt
+        run: bash .github/dev/ci_workflow.sh handoff-dispatch-bmt
 
       - name: Post BMT failure status/comment (handoff dispatch failed)
         if: failure()
         env:
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        run: bash .github/scripts/workflows/ci_workflow.sh post-trigger-failure-status
+        run: bash .github/dev/ci_workflow.sh post-trigger-failure-status
 
       - name: Write handoff dispatch summary
         if: always()
@@ -177,4 +177,4 @@ jobs:
           HEAD_SHA: ${{ steps.dispatch.outputs.head_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
           HEAD_BRANCH: ${{ steps.dispatch.outputs.head_branch || (github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name) }}
           HEAD_EVENT: ${{ steps.dispatch.outputs.head_event || (github.event_name == 'pull_request' && 'pull_request' || 'push') }}
-        run: bash .github/scripts/workflows/ci_workflow.sh write-handoff-dispatch-summary
+        run: bash .github/dev/ci_workflow.sh write-handoff-dispatch-summary

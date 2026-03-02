@@ -1,0 +1,148 @@
+name: BMT Handoff Run
+description: Preflight, write trigger, sync VM metadata, start VM, wait handshake, write summary. Requires job env GCS_BUCKET, GCP_*, BMT_*.
+
+inputs:
+  head_sha:
+    description: Head commit SHA
+    required: true
+  head_branch:
+    description: Head branch name
+    required: true
+  head_event:
+    description: Event that triggered CI (pull_request or push)
+    required: true
+  pr_number:
+    description: PR number when head_event is pull_request
+    required: false
+    default: ""
+  filtered_matrix:
+    description: JSON matrix of legs to run (from classify-handoff)
+    required: true
+  runner_matrix:
+    description: Full runner matrix from prepare
+    required: true
+  accepted_projects:
+    description: JSON array of projects with uploaded runners
+    required: true
+  workload_identity_provider:
+    description: GCP Workload Identity Federation provider
+    required: true
+  service_account:
+    description: GCP service account email for WIF
+    required: true
+
+outputs:
+  trigger_written:
+    description: Whether the run trigger was written to GCS
+    value: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
+  handshake_ok:
+    description: Whether the VM acknowledged the trigger
+    value: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
+  handshake_uri:
+    description: GCS URI of the handshake ack artifact
+    value: ${{ steps.handshake.outputs.handshake_uri }}
+  vm_started:
+    description: Whether the BMT VM was started
+    value: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.head_sha }}
+
+    - name: Setup GCP and uv
+      uses: ./.github/actions/setup-gcp-uv
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+        python_version: "3.12"
+
+    - name: Preflight runtime trigger queue (stale cleanup)
+      id: preflight
+      shell: bash
+      env:
+        RUN_CONTEXT: ${{ inputs.head_event == 'pull_request' && 'pr' || 'dev' }}
+      run: bash .github/bmt/scripts/bmt_workflow.sh preflight-trigger-queue
+
+    - name: Write run trigger to GCS
+      id: trigger
+      shell: bash
+      env:
+        FILTERED_MATRIX_JSON: ${{ inputs.filtered_matrix }}
+        RUN_CONTEXT: ${{ inputs.head_event == 'pull_request' && 'pr' || 'dev' }}
+        HEAD_EVENT: ${{ inputs.head_event }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: bash .github/bmt/scripts/bmt_workflow.sh write-run-trigger
+
+    - name: Sync VM metadata from workflow config
+      shell: bash
+      run: uv run bmt sync-vm-metadata
+
+    - name: Force clean VM restart after stale-trigger cleanup
+      if: steps.preflight.outputs.restart_vm == 'true' && inputs.head_event != 'pull_request'
+      shell: bash
+      env:
+        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
+      run: bash .github/bmt/scripts/bmt_workflow.sh force-clean-vm-restart
+
+    - name: Start BMT VM
+      id: start-vm
+      shell: bash
+      run: uv run bmt start-vm
+
+    - name: Show handshake guidance
+      shell: bash
+      env:
+        RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
+        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
+      run: bash .github/bmt/scripts/bmt_workflow.sh show-handshake-guidance
+
+    - name: Wait for VM handshake ack
+      id: handshake
+      shell: bash
+      env:
+        WORKFLOW_RUN_ID: ${{ github.run_id }}
+        RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
+        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
+      run: bash .github/bmt/scripts/bmt_workflow.sh wait-handshake
+
+    - name: Handshake timeout diagnostics
+      if: ${{ always() && steps.handshake.outcome == 'failure' }}
+      shell: bash
+      run: bash .github/bmt/scripts/bmt_workflow.sh handshake-timeout-diagnostics
+
+    - name: Show VM handshake summary
+      if: steps.handshake.outcome == 'success'
+      shell: bash
+      env:
+        ACK_PAYLOAD: ${{ steps.handshake.outputs.handshake_payload }}
+        HANDSHAKE_URI: ${{ steps.handshake.outputs.handshake_uri }}
+        HANDSHAKE_REQUESTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_requested_leg_count }}
+        HANDSHAKE_ACCEPTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_accepted_leg_count }}
+        RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
+        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
+      run: bash .github/bmt/scripts/bmt_workflow.sh show-handshake-summary
+
+    - name: Write handoff summary
+      if: always()
+      uses: ./.github/actions/bmt-write-summary
+      with:
+        mode: ${{ steps.handshake.outcome == 'success' && 'run_success' || 'failure' }}
+        repository: ${{ github.repository }}
+        head_sha: ${{ inputs.head_sha }}
+        head_branch: ${{ inputs.head_branch }}
+        head_event: ${{ inputs.head_event }}
+        pr_number: ${{ inputs.pr_number }}
+        routing_decision: run
+        runner_matrix: ${{ inputs.runner_matrix }}
+        accepted_projects: ${{ inputs.accepted_projects }}
+        filtered_matrix: ${{ inputs.filtered_matrix }}
+        trigger_written: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
+        vm_started: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
+        handshake_ok: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
+        handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
+        handoff_state_line: "${{ steps.handshake.outcome == 'success' && 'Handoff complete: VM acknowledged trigger.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
+        failure_reason: "${{ steps.handshake.outcome != 'success' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"
