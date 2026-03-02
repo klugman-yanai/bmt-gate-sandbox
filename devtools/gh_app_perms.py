@@ -22,7 +22,13 @@ except ImportError:
 
 
 def get_app_id_from_env() -> str:
-    return os.environ.get("GITHUB_APP_TEST_ID") or os.environ.get("GITHUB_APP_PROD_ID") or ""
+    return (
+        os.environ.get("GH_APP_TEST_ID")
+        or os.environ.get("GH_APP_PROD_ID")
+        or os.environ.get("GITHUB_APP_TEST_ID")
+        or os.environ.get("GITHUB_APP_PROD_ID")
+        or ""
+    )
 
 
 def fetch_app_metadata(app_id: str, private_key: str) -> dict:
@@ -55,7 +61,10 @@ def extract_path(data: dict, path: str) -> dict | None:
 
 @click.command()
 @click.argument("private_key_path", required=False, type=click.Path(exists=True))
-@click.option("--app-id", help="GitHub App ID (numeric). Or set GITHUB_APP_TEST_ID / GITHUB_APP_PROD_ID")
+@click.option(
+    "--app-id",
+    help="GitHub App ID (numeric). Or set GH_APP_TEST_ID / GH_APP_PROD_ID (legacy GITHUB_APP_* also supported)",
+)
 @click.option("--private-key", "private_key_path_opt", type=click.Path(exists=True), help="Path to app private key PEM")
 @click.option("--jq", "jq_path", help="Optional jq-style path to print (e.g. .permissions)")
 def main(
@@ -63,7 +72,10 @@ def main(
 ) -> int:
     app_id = app_id or get_app_id_from_env()
     if not app_id:
-        click.echo("Set --app-id or GITHUB_APP_TEST_ID / GITHUB_APP_PROD_ID", err=True)
+        click.echo(
+            "Set --app-id or GH_APP_TEST_ID / GH_APP_PROD_ID (legacy GITHUB_APP_* also supported)",
+            err=True,
+        )
         return 1
 
     key_path = private_key_path_opt or private_key_path

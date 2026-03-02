@@ -2,11 +2,23 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[manifest]
+members = [
+    "bmt",
+    "bmt-cloud-dev",
+]
+
+[[package]]
+name = "bmt"
+version = "0.1.0"
+source = { editable = ".github/bmt" }
+
 [[package]]
 name = "bmt-cloud-dev"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "bmt" },
     { name = "click" },
     { name = "requests" },
     { name = "rich" },
@@ -33,7 +45,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = ">=8.0" },
+    { name = "bmt", editable = ".github/bmt" },
+    { name = "click", specifier = ">=8.1.0" },
     { name = "cryptography", marker = "extra == 'vm'", specifier = ">=41.0" },
     { name = "pyjwt", marker = "extra == 'vm'", specifier = ">=2.0" },
     { name = "requests", specifier = ">=2.31.0" },

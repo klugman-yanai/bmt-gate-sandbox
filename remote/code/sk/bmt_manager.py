@@ -907,6 +907,8 @@ def main() -> int:
         "reason": gate.get("reason"),
         "aggregate_score": aggregate_score,
         "raw_aggregate_score": raw_score,
+        "last_score": gate.get("last_score"),
+        "gate": gate,
         "delta_from_previous": delta_from_previous,
         "failed_count": failed_count,
         "latest_json": str(latest_local),

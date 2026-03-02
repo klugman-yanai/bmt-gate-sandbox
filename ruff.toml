@@ -95,7 +95,7 @@ extend-ignore = [
 ]
 
 [lint.isort]
-known-first-party = ["ci"]
+known-first-party = ["bmt"]
 combine-as-imports = true
 force-single-line = false
 force-wrap-aliases = false
@@ -120,10 +120,14 @@ max-complexity = 10
     "RUF059",  # unpacked variable unused OK (e.g. status, _ = f())
     "PLC0415", # imports in test functions OK
     "FBT001",  # boolean args OK in tests
+    "FBT002",  # boolean defaults OK in tests
     "F401",    # imports in try/except for availability
+    "S108",    # /tmp paths OK in tests
     "S110",    # try/except/pass OK in tests
+    "B007",    # unused loop variable OK in tests
     "B017",    # broad exception assertions OK in tests
     "PT011",   # broad pytest.raises OK in tests
+    "PT018",   # compound assertions OK in tests
     "SLF001",  # private member access OK in tests
 ]
 "devtools/**" = [
@@ -142,9 +146,10 @@ max-complexity = 10
     "ARG001",  # unused args OK (interface compliance)
     "SIM117",  # nested with OK (mock/patch patterns)
 ]
-".github/scripts/**" = [
-    "T20",     # print OK for CLI (ci_driver)
-    "ARG001",  # unused args OK (click command interface)
+".github/bmt/**" = [
+    "T20",     # print OK for CLI (driver)
+    "ARG001",  # unused args OK (command interface)
+    "PLC0415", # lazy imports OK in driver.py
     "C901",    # complexity OK in wait_verdicts
     "PLR0912", # many branches OK
     "PLR0915", # many statements OK

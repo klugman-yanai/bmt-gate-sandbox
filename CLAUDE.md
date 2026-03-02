@@ -253,7 +253,7 @@ gh variable set BMT_STATUS_CONTEXT "BMT Gate (test)"
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
 
-**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all release runners`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
+**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all` or a JSON array e.g. `["sk"]`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
 
 For **local** use (e.g. `remote/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 
@@ -261,8 +261,8 @@ For **local** use (e.g. `remote/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_ins
 
 | Secret | Purpose |
 | ------ | ------- |
-| `APP_TEST_ID` | GitHub App ID used by `build-and-test.yml` to mint a dispatch token. |
-| `APP_TEST_PRIVATE_KEY` | GitHub App private key used by `build-and-test.yml` for `workflow_dispatch` token minting. |
+| `BMT_DISPATCH_APP_ID` | GitHub App ID used to mint a token for dispatching the BMT handoff workflow. Same names in test and prod repos; each repo sets the App installed on that repo. |
+| `BMT_DISPATCH_APP_PRIVATE_KEY` | GitHub App private key (PEM) for `workflow_dispatch` token minting. |
 
 ### VM-side (for trigger-and-stop gating)
 
