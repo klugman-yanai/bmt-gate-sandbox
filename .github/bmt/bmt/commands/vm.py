@@ -198,7 +198,8 @@ def run_sync_metadata() -> None:
     bucket = require_env("GCS_BUCKET")
     repo_root = (os.environ.get("BMT_REPO_ROOT") or "/opt/bmt").strip() or "/opt/bmt"
     code_root = models.code_bucket_root_uri(bucket)
-    repo_root_path = Path(__file__).resolve().parents[3]
+    # vm.py lives at .github/bmt/bmt/commands/vm.py; repo root is parents[4].
+    repo_root_path = Path(__file__).resolve().parents[4]
     wrapper_path = repo_root_path / "remote" / "code" / "bootstrap" / "startup_wrapper.sh"
     if not wrapper_path.is_file():
         raise RuntimeError(f"Missing canonical startup wrapper in repo: {wrapper_path}")
