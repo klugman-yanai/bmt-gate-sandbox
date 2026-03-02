@@ -63,7 +63,7 @@ The workflow syncs **VM metadata** from repo config so the VM uses the same buck
 
 - **GCS_BUCKET** (required)
 - **BMT_REPO_ROOT** (optional; default `/opt/bmt`)
-- **startup-script** (set from `remote/code/bootstrap/startup_wrapper.sh` by `sync-vm-metadata`)
+- **startup-script** (set from packaged `cli.resources/startup_wrapper.sh` by `sync-vm-metadata`)
 - **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `remote/code/bootstrap/setup_vm_startup.sh`)
 
 `sync-vm-metadata` also validates that required bootstrap code objects exist in `<code-root>` before starting the VM.

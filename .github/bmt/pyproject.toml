@@ -2,9 +2,9 @@
 requires = ["uv_build>=0.10.7,<0.11.0"]
 build-backend = "uv_build"
 
-# Portable: copy this file and the `bmt/` directory to any repo (e.g. prod); run `uv sync` in this directory.
+# Portable: copy this file and the `cli/` directory to any repo (e.g. prod); run `uv sync` in this directory.
 [tool.uv.build-backend]
-module-name = "bmt"
+module-name = "cli"
 module-root = ""
 
 [project]
@@ -15,4 +15,4 @@ description = "BMT CI driver: matrix discovery, trigger, VM lifecycle, and runne
 # No third-party dependencies — stdlib only.
 
 [project.scripts]
-bmt = "bmt.driver:main"
+bmt = "cli.driver:main"

@@ -1,8 +1,7 @@
-"""Tests for .github/bmt/shared/__init__.py — pure functions only, no I/O."""
+"""Tests for .github/bmt/cli/shared/__init__.py — pure functions only, no I/O."""
 
 import pytest
-
-from bmt import shared as models
+from cli import shared as models
 
 # ── sanitize_run_id ───────────────────────────────────────────────────────────
 

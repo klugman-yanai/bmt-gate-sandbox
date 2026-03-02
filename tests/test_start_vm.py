@@ -1,12 +1,11 @@
-"""Tests for .github/bmt/commands/vm.py start-vm env resolution."""
+"""Tests for .github/bmt/cli/commands/vm.py start-vm env resolution."""
 
 import time
 
 import pytest
-
-from bmt.commands import vm as start_vm
-from bmt.commands.vm import _is_truthy
-from bmt.shared import require_env as _required_env
+from cli.commands import vm as start_vm
+from cli.commands.vm import _is_truthy
+from cli.shared import require_env as _required_env
 
 
 def test_required_env_returns_trimmed_value(monkeypatch: pytest.MonkeyPatch) -> None:

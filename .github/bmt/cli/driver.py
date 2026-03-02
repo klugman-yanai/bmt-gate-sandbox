@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Ensure repo root is on sys.path so `bmt` package resolves when run as a script.
+# Ensure repo root is on sys.path so `cli` package resolves when run as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from .commands import matrix, trigger, upload_runner, vm
