@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -643,3 +644,98 @@ def test_non_pr_run_does_not_check_pr_state(monkeypatch: pytest.MonkeyPatch, tmp
     assert len(update_pointer_calls) == 1
     assert status_store.payload is not None
     assert status_store.payload["run_outcome"] == "completed"
+
+
+def test_completed_status_wins_against_late_heartbeat_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    status_store = _StatusStore()
+
+    monkeypatch.setattr(
+        watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
+    )
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(watcher, "_run_orchestrator", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
+    monkeypatch.setattr(
+        watcher,
+        "_load_manager_summary",
+        lambda _run_root: {
+            "status": "pass",
+            "project_id": "sk",
+            "bmt_id": "bmt_0",
+            "run_id": "run-0",
+            "passed": True,
+            "ci_verdict_uri": "gs://bucket-a/runtime/sk/results/false_rejects/snapshots/run-0/ci_verdict.json",
+            "bmt_results": {"results": []},
+            "orchestration_timing": {"duration_sec": 1},
+        },
+    )
+    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
+    monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
+
+    def _late_heartbeat(_bucket: str, _runtime_prefix: str, _run_id: str, stop_event: Any) -> None:
+        stop_event.wait()
+        payload = status_store.read("", "", "")
+        if payload is None:
+            return
+        payload["vm_state"] = "acknowledged"
+        payload["run_outcome"] = "running"
+        payload["last_heartbeat"] = "2099-01-01T00:00:00Z"
+        status_store.write("", "", "", payload)
+
+    monkeypatch.setattr(watcher, "_heartbeat_loop", _late_heartbeat)
+
+    watcher._process_run_trigger(
+        "gs://bucket-a/runtime/triggers/runs/123.json",
+        "gs://bucket-a/code",
+        "gs://bucket-a/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert status_store.payload is not None
+    assert status_store.payload["vm_state"] == "completed"
+    assert status_store.payload["run_outcome"] == "completed"
+
+
+def test_orchestrator_download_failure_marks_status_failed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    status_store = _StatusStore()
+
+    monkeypatch.setattr(
+        watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
+    )
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        watcher,
+        "_download_orchestrator",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            subprocess.CalledProcessError(returncode=1, cmd="gcloud storage cp")
+        ),
+    )
+    monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
+    monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
+
+    watcher._process_run_trigger(
+        "gs://bucket-a/runtime/triggers/runs/123.json",
+        "gs://bucket-a/code",
+        "gs://bucket-a/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert status_store.payload is not None
+    assert status_store.payload["vm_state"] == "failed"
+    assert status_store.payload["run_outcome"] == "failed"
