@@ -164,7 +164,6 @@ def test_cleanup_legacy_result_history_deletes_archive_and_logs(monkeypatch):
 def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_path: Path):
     status_store: dict[str, object] = {}
     posted_resilient: list[tuple[str, str]] = []
-    posted_progress: list[tuple[str, str]] = []
     created_check_names: list[str] = []
     finalized_check_names: list[str] = []
     pointer_calls: list[dict[str, object]] = []
@@ -269,7 +268,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
     monkeypatch.setattr(
         watcher,
         "_post_commit_status",
-        lambda _r, _s, state, _d, _u, _t, *, context="": posted_progress.append((state, context)) or True,
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
 
@@ -281,10 +280,8 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
         lambda _repository: "token",
     )
 
-    # Runtime context owns in-progress reporting.
-    assert ("pending", "BMT Runtime") in posted_resilient
-    assert any(state == "pending" and ctx == "BMT Runtime" for state, ctx in posted_progress)
-    assert ("success", "BMT Runtime") in posted_resilient
+    # Runtime context is check-run only.
+    assert all(context != "BMT Runtime" for _, context in posted_resilient)
     assert created_check_names == ["BMT Runtime"]
     assert finalized_check_names == ["BMT Runtime"]
 
