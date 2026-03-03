@@ -201,6 +201,20 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
     monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
     monkeypatch.setattr(
         watcher,
+        "_resolve_requested_legs",
+        lambda **_kwargs: [
+            {
+                "index": 0,
+                "project": "sk",
+                "bmt_id": "false_reject_namuh",
+                "run_id": "run-1",
+                "decision": "accepted",
+                "reason": None,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        watcher,
         "_load_manager_summary",
         lambda _run_root: {
             "status": "pass",
@@ -340,6 +354,46 @@ def test_process_run_trigger_rejects_when_auth_unavailable(monkeypatch, tmp_path
         "gs://bucket/runtime",
         tmp_path,
         lambda _repository: None,
+    )
+
+    assert removed == []
+
+
+def test_process_run_trigger_defers_on_transient_download_error(monkeypatch, tmp_path: Path):
+    removed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: (None, "download_failed"))
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_rm",
+        lambda uri, recursive=False: removed.append((uri, recursive)) or True,
+    )
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    assert removed == []
+
+
+def test_process_run_trigger_removes_malformed_trigger(monkeypatch, tmp_path: Path):
+    removed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: (None, "invalid_json"))
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_rm",
+        lambda uri, recursive=False: removed.append((uri, recursive)) or True,
+    )
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        tmp_path,
+        lambda _repository: "token",
     )
 
     assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]

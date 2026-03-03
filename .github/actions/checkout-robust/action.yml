@@ -28,6 +28,17 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Detect pinned SHA ref
+      id: refkind
+      shell: bash
+      run: |
+        ref="${{ inputs.ref }}"
+        if [[ "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
+          echo "is_sha=true" >>"$GITHUB_OUTPUT"
+        else
+          echo "is_sha=false" >>"$GITHUB_OUTPUT"
+        fi
+
     - name: Checkout (attempt 1, depth=1)
       id: attempt1
       uses: actions/checkout@v4
@@ -79,15 +90,19 @@ runs:
         lfs: ${{ inputs.lfs }}
         persist-credentials: ${{ inputs.persist_credentials }}
 
-    - name: Fail when SHA retries are exhausted and no fallback ref is set
-      if: steps.attempt3.outcome == 'failure' && inputs.fallback_ref == ''
+    - name: Fail when retries are exhausted for pinned SHA or no fallback ref is set
+      if: steps.attempt3.outcome == 'failure' && (steps.refkind.outputs.is_sha == 'true' || inputs.fallback_ref == '')
       shell: bash
       run: |
-        echo "::error::Checkout failed after 3 attempts and fallback_ref is empty."
+        if [[ "${{ steps.refkind.outputs.is_sha }}" == "true" ]]; then
+          echo "::error::Checkout failed after 3 attempts for pinned commit ${{ inputs.ref }}. Ref fallback is disabled for pinned SHAs to avoid running the wrong commit."
+        else
+          echo "::error::Checkout failed after 3 attempts and fallback_ref is empty."
+        fi
         exit 1
 
     - name: Checkout (attempt 4, fallback ref)
-      if: steps.attempt3.outcome == 'failure' && inputs.fallback_ref != ''
+      if: steps.attempt3.outcome == 'failure' && inputs.fallback_ref != '' && steps.refkind.outputs.is_sha != 'true'
       uses: actions/checkout@v4
       timeout-minutes: 10
       with:
@@ -97,3 +112,15 @@ runs:
         submodules: ${{ inputs.submodules }}
         lfs: ${{ inputs.lfs }}
         persist-credentials: ${{ inputs.persist_credentials }}
+
+    - name: Verify checked out pinned SHA
+      if: steps.refkind.outputs.is_sha == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        expected="${{ inputs.ref }}"
+        actual="$(git rev-parse HEAD)"
+        if [[ "$actual" != "$expected" ]]; then
+          echo "::error::Checkout mismatch. expected=${expected} actual=${actual}"
+          exit 1
+        fi

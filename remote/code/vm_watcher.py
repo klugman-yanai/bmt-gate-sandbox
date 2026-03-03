@@ -126,8 +126,14 @@ def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
-def _gcloud_download_json(uri: str) -> dict[str, Any] | None:
-    """Download a JSON object from GCS."""
+def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Download a JSON object from GCS.
+
+    Returns:
+      (payload, None) on success.
+      (None, "download_failed") on transient download failures.
+      (None, "invalid_json") when object exists but payload is malformed.
+    """
     with tempfile.TemporaryDirectory(prefix="vm_watcher_") as tmp_dir:
         local_path = Path(tmp_dir) / "trigger.json"
         proc = subprocess.run(
@@ -138,12 +144,16 @@ def _gcloud_download_json(uri: str) -> dict[str, Any] | None:
         )
         if proc.returncode != 0:
             print(f"  Failed to download {uri}: {proc.stderr.strip()}")
-            return None
+            return None, "download_failed"
         try:
-            return json.loads(local_path.read_text(encoding="utf-8"))
+            payload = json.loads(local_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             print(f"  Failed to parse {uri}: {exc}")
-            return None
+            return None, "invalid_json"
+        if not isinstance(payload, dict):
+            print(f"  Invalid JSON payload type for {uri}: expected object")
+            return None, "invalid_json"
+        return payload, None
 
 
 def _gcloud_upload_json(uri: str, payload: dict[str, Any]) -> bool:
@@ -922,10 +932,22 @@ def _process_run_trigger(  # noqa: PLR0911
     github_token_resolver: Callable[[str], str | None],
 ) -> None:
     """Download run trigger, run each leg, aggregate, post commit status, release locks, delete trigger."""
-    run_payload = _gcloud_download_json(run_trigger_uri)
+    downloaded = _gcloud_download_json(run_trigger_uri)
+    if (
+        isinstance(downloaded, tuple)
+        and len(downloaded) == 2
+        and (downloaded[0] is None or isinstance(downloaded[0], dict))
+    ):
+        run_payload, run_payload_error = downloaded
+    else:
+        run_payload = downloaded if isinstance(downloaded, dict) else None
+        run_payload_error = None
     if run_payload is None:
-        print(f"  Skipping unparseable run trigger: {run_trigger_uri}")
-        _gcloud_rm(run_trigger_uri)
+        if run_payload_error == "invalid_json":
+            print(f"  Removing malformed run trigger: {run_trigger_uri}")
+            _gcloud_rm(run_trigger_uri)
+        else:
+            print(f"  Deferring run trigger after transient download/auth issue: {run_trigger_uri}")
         return
 
     legs_raw = run_payload.get("legs") or []
@@ -954,8 +976,10 @@ def _process_run_trigger(  # noqa: PLR0911
 
     github_token = github_token_resolver(repository)
     if not github_token:
-        print(f"  Error: GitHub App auth could not be resolved for {repository}; refusing to process trigger")
-        _gcloud_rm(run_trigger_uri)
+        print(
+            f"  Error: GitHub App auth could not be resolved for {repository}; "
+            "keeping trigger for retry"
+        )
         return
 
     if not legs_raw:

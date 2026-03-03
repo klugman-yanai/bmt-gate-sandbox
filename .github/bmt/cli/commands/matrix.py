@@ -121,8 +121,9 @@ def run_filter() -> None:
         has_legs = "false"
         print("::warning::No supported BMT projects in requested runner set; skipping BMT trigger/VM run.")
     elif legs == 0:
-        has_legs = "false"
-        print("::warning::No uploaded runner artifacts are available for supported BMT projects; skipping VM handoff.")
+        raise RuntimeError(
+            "Supported BMT projects exist, but no supported runner upload succeeded; refusing to skip VM handoff silently."
+        )
     else:
         print(f"::notice::Triggering BMT for {legs} leg(s) (supported runners only).")
 
