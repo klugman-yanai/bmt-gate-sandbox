@@ -64,6 +64,7 @@ jobs:
             const repoSlug = process.env.GITHUB_REPOSITORY || "";
             const [owner, repo] = repoSlug.split("/");
             const testBranchPattern = /^test\/check-bmt-gate-.+/;
+            const requiredBaseBranch = "ci/check-bmt-gate";
 
             if (!testBranchPattern.test(refName)) {
               core.setOutput("head_event", "push");
@@ -83,18 +84,18 @@ jobs:
               head: `${owner}:${refName}`,
               per_page: 100,
             });
-            const pulls = resp.data || [];
+            const pulls = (resp.data || []).filter((pr) => pr.base?.ref === requiredBaseBranch);
 
             if (pulls.length === 0) {
               throw new Error(
-                `Branch '${refName}' matches test/check-bmt-gate-* but has no open PR into ci/check-bmt-gate. ` +
+                `Branch '${refName}' matches test/check-bmt-gate-* but has no open PR into ${requiredBaseBranch}. ` +
                 "Open a PR first, then push a new commit for PR-context validation."
               );
             }
             if (pulls.length > 1) {
-              const list = pulls.map((pr) => `#${pr.number}`).join(", ");
+              const list = pulls.map((pr) => `#${pr.number} (base=${pr.base?.ref || "unknown"})`).join(", ");
               throw new Error(
-                `Branch '${refName}' has multiple open PRs (${list}). ` +
+                `Branch '${refName}' has multiple open PRs into ${requiredBaseBranch} (${list}). ` +
                 "Close extras so exactly one PR maps to this validation branch."
               );
             }
