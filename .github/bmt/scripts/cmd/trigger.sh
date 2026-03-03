@@ -119,7 +119,8 @@ bmt_cmd_preflight_trigger_queue() {
     "${root}/triggers/runs/" \
     "${root}/triggers/acks/" \
     "${root}/triggers/status/"; do
-    count="$(gcloud storage ls "$prefix_uri" 2>/dev/null | wc -l | tr -d ' ')"
+    # gcloud returns non-zero when a prefix has no objects; treat that as count=0.
+    count="$(gcloud storage ls "$prefix_uri" 2>/dev/null | wc -l | tr -d ' ' || true)"
     count="${count:-0}"
     echo "- ${prefix_uri} count after cleanup: ${count}" >>"$GITHUB_STEP_SUMMARY"
   done
