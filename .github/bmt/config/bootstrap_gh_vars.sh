@@ -216,6 +216,38 @@ run_gh_secret_from_file_with_retry() {
   return 1
 }
 
+validate_wif_provider() {
+  local provider="$1"
+  local project_id="$2"
+  local provider_project_number=""
+  local actual_project_number=""
+
+  if [[ ! "$provider" =~ ^projects/([0-9]+)/locations/global/workloadIdentityPools/([^/]+)/providers/([^/]+)$ ]]; then
+    echo "error: GCP_WIF_PROVIDER has invalid format: '$provider'" >&2
+    echo "expected: projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>" >&2
+    return 1
+  fi
+  provider_project_number="${BASH_REMATCH[1]}"
+
+  if command -v gcloud >/dev/null 2>&1; then
+    actual_project_number="$(gcloud projects describe "$project_id" --format='value(projectNumber)' 2>/dev/null || true)"
+    if [[ -z "$actual_project_number" ]]; then
+      echo "warning: could not resolve project number for GCP_PROJECT='$project_id'; skipping strict WIF alignment check." >&2
+      return 0
+    fi
+    if [[ "$provider_project_number" != "$actual_project_number" ]]; then
+      echo "error: GCP_WIF_PROVIDER project number mismatch for GCP_PROJECT='$project_id':" >&2
+      echo "  provider project number: $provider_project_number" >&2
+      echo "  project number from gcloud: $actual_project_number" >&2
+      return 1
+    fi
+  else
+    echo "warning: gcloud not found; skipping strict WIF project-number alignment check." >&2
+  fi
+
+  return 0
+}
+
 REQUIRED_VARS=(
   GCS_BUCKET
   GCP_WIF_PROVIDER
@@ -228,7 +260,11 @@ REQUIRED_VARS=(
 OPTIONAL_VARS=(
   BMT_PROJECTS
   BMT_STATUS_CONTEXT
+  BMT_RUNTIME_CONTEXT
   BMT_HANDSHAKE_TIMEOUT_SEC
+  BMT_PREEMPT_ON_PR_STALE_QUEUE
+  BMT_TRIGGER_STALE_SEC
+  BMT_TRIGGER_METADATA_KEEP_RECENT
   BMT_DISPATCH_APP_ID
 )
 
@@ -257,6 +293,10 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   for name in "${missing[@]}"; do
     echo "  $name" >&2
   done
+  exit 1
+fi
+
+if ! validate_wif_provider "${ENTRIES[GCP_WIF_PROVIDER]}" "${ENTRIES[GCP_PROJECT]}"; then
   exit 1
 fi
 

@@ -60,6 +60,34 @@ runs:
         service_account: ${{ inputs.service_account }}
         python_version: "3.12"
 
+    - name: Validate WIF/provider consistency
+      shell: bash
+      run: |
+        set -euo pipefail
+        provider="${GCP_WIF_PROVIDER:-}"
+        project_id="${GCP_PROJECT:-}"
+        if [[ -z "$provider" || -z "$project_id" ]]; then
+          echo "::error::GCP_WIF_PROVIDER and GCP_PROJECT must be set."
+          exit 1
+        fi
+        if [[ ! "$provider" =~ ^projects/([0-9]+)/locations/global/workloadIdentityPools/([^/]+)/providers/([^/]+)$ ]]; then
+          echo "::error::Invalid GCP_WIF_PROVIDER format: '$provider'"
+          echo "::error::Expected: projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>"
+          exit 1
+        fi
+        provider_project_number="${BASH_REMATCH[1]}"
+        actual_project_number="$(gcloud projects describe "$project_id" --format='value(projectNumber)' 2>/dev/null || true)"
+        if [[ -z "$actual_project_number" ]]; then
+          echo "::error::Could not resolve project number for GCP_PROJECT='$project_id'."
+          exit 1
+        fi
+        if [[ "$provider_project_number" != "$actual_project_number" ]]; then
+          echo "::error::GCP_WIF_PROVIDER project number mismatch."
+          echo "::error::provider=$provider_project_number project=$actual_project_number"
+          exit 1
+        fi
+        echo "Validated GCP_WIF_PROVIDER project-number alignment."
+
     - name: Preflight runtime trigger queue (stale cleanup)
       id: preflight
       shell: bash
@@ -82,7 +110,7 @@ runs:
       run: uv run bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
-      if: steps.preflight.outputs.restart_vm == 'true' && inputs.head_event != 'pull_request'
+      if: steps.preflight.outputs.restart_vm == 'true'
       shell: bash
       env:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}

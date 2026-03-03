@@ -2,12 +2,15 @@
 
 bmt_cmd_preflight_trigger_queue() {
   local run_id root runs_prefix current_uri run_context
+  local preempt_on_pr_raw preempt_on_pr stale_sec
   local -a existing blocking
   local uri removed failed rid count prefix_uri
 
   require_cmd gcloud
   run_id="$(current_run_id)"
   run_context="${RUN_CONTEXT:-dev}"
+  preempt_on_pr_raw="${BMT_PREEMPT_ON_PR_STALE_QUEUE:-1}"
+  stale_sec="${BMT_TRIGGER_STALE_SEC:-900}"
   root="$(runtime_root)"
   runs_prefix="${root}/triggers/runs/"
   current_uri="${runs_prefix}${run_id}.json"
@@ -20,6 +23,11 @@ bmt_cmd_preflight_trigger_queue() {
   echo "restart_vm=false" >>"$GITHUB_OUTPUT"
   echo "stale_cleanup_count=0" >>"$GITHUB_OUTPUT"
 
+  case "${preempt_on_pr_raw,,}" in
+    1|true|yes|on) preempt_on_pr="true" ;;
+    *) preempt_on_pr="false" ;;
+  esac
+
   mapfile -t existing < <(gcloud storage ls "$runs_prefix" 2>/dev/null | sed '/\/$/d' | grep '\.json$' || true)
   blocking=()
   for uri in "${existing[@]}"; do
@@ -31,6 +39,8 @@ bmt_cmd_preflight_trigger_queue() {
     echo "## Runtime Trigger Preflight"
     echo
     echo "- Run context: \`${run_context}\`"
+    echo "- Preempt PR stale queue: \`${preempt_on_pr}\`"
+    echo "- Stale trigger threshold (seconds): \`${stale_sec}\`"
     echo "- Runtime root: \`${root}\`"
     echo "- Existing trigger files: **${#existing[@]}**"
     echo "- Blocking stale trigger files: **${#blocking[@]}**"
@@ -41,9 +51,9 @@ bmt_cmd_preflight_trigger_queue() {
     exit 0
   fi
 
-  if [[ "$run_context" == "pr" ]]; then
+  if [[ "$run_context" == "pr" && "$preempt_on_pr" != "true" ]]; then
     {
-      echo "- Action: observational only (PR queue mode); no trigger deletion, no forced VM restart."
+      echo "- Action: observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); no trigger deletion, no forced VM restart."
       echo
       echo "### Existing queue entries"
       echo

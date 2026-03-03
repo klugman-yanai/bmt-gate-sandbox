@@ -360,6 +360,7 @@ def run_wait_handshake() -> None:
     print(f"Trigger file (VM reads this): {trigger_uri}")
     print(f"Expected runtime status path: {runtime_status_uri}")
     print(f"Runtime namespace root: {runtime_bucket_root}")
+    print("Handshake confirms VM pickup only; final BMT Gate status updates after VM execution completes.")
 
     trigger_exists_initially = gcloud.gcs_exists(trigger_uri)
     if not trigger_exists_initially:
