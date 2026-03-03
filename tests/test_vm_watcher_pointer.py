@@ -284,6 +284,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
     # Runtime context owns in-progress reporting.
     assert ("pending", "BMT Runtime") in posted_resilient
     assert any(state == "pending" and ctx == "BMT Runtime" for state, ctx in posted_progress)
+    assert ("success", "BMT Runtime") in posted_resilient
     assert created_check_names == ["BMT Runtime"]
     assert finalized_check_names == ["BMT Runtime"]
 
