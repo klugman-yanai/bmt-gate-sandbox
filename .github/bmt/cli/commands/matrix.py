@@ -93,9 +93,24 @@ def run_filter() -> None:
     if not isinstance(include, list):
         raise TypeError("FULL_MATRIX.include must be a JSON array")
 
-    filtered_include = [
-        entry for entry in include if isinstance(entry, dict) and str(entry.get("project", "")).strip() in accepted_set
-    ]
+    filtered_include: list[dict[str, Any]] = []
+    for entry in include:
+        if not isinstance(entry, dict):
+            continue
+        project = str(entry.get("project", "")).strip()
+        if project not in accepted_set:
+            continue
+        row: dict[str, Any] = dict(entry)
+        if not str(row.get("bmt_id", "")).strip():
+            preset = str(row.get("preset", "")).strip()
+            configure = str(row.get("configure", "")).strip()
+            if preset:
+                row["bmt_id"] = preset
+            elif configure:
+                row["bmt_id"] = configure.lower()
+            else:
+                row["bmt_id"] = f"{project}_default"
+        filtered_include.append(row)
     filtered = {"include": filtered_include}
 
     supported_legs = len(include)
@@ -106,9 +121,8 @@ def run_filter() -> None:
         has_legs = "false"
         print("::warning::No supported BMT projects in requested runner set; skipping BMT trigger/VM run.")
     elif legs == 0:
-        raise RuntimeError(
-            "Supported BMT projects exist, but no supported runner upload succeeded; cannot trigger BMT."
-        )
+        has_legs = "false"
+        print("::warning::No uploaded runner artifacts are available for supported BMT projects; skipping VM handoff.")
     else:
         print(f"::notice::Triggering BMT for {legs} leg(s) (supported runners only).")
 
@@ -207,6 +221,7 @@ def _build_bmt_rows(presets: list[dict[str, Any]], allowed: set[str]) -> dict[st
                 "configure": name,
                 "preset": name_lower,
                 "project": project,
+                "bmt_id": name_lower,
                 "binary_dir": binary_dir,
             }
         )

@@ -55,7 +55,7 @@ bmt_cmd_wait_handshake() {
   fi
 
   BMT_HANDSHAKE_TIMEOUT_SEC="$timeout" \
-  uv run bmt wait-handshake
+  uv run --project .github/bmt bmt wait-handshake
 }
 
 bmt_cmd_handshake_timeout_diagnostics() {
@@ -94,7 +94,7 @@ bmt_cmd_handshake_timeout_diagnostics() {
 }
 
 bmt_cmd_show_handshake_summary() {
-  local ack_payload handshake_uri requested_count accepted_count restart_vm stale_count
+  local ack_payload handshake_uri requested_count accepted_count restart_vm stale_count support_version run_disposition
 
   require_cmd jq
   ack_payload="${ACK_PAYLOAD:-}"
@@ -103,6 +103,8 @@ bmt_cmd_show_handshake_summary() {
   accepted_count="${HANDSHAKE_ACCEPTED_LEG_COUNT:-0}"
   restart_vm="${RESTART_VM:-false}"
   stale_count="${STALE_CLEANUP_COUNT:-0}"
+  support_version="$(echo "$ack_payload" | jq -r '.support_resolution_version // "v1"' 2>/dev/null || echo "v1")"
+  run_disposition="$(echo "$ack_payload" | jq -r '.run_disposition // "accepted"' 2>/dev/null || echo "accepted")"
 
   if [[ -z "$ack_payload" ]]; then
     echo "::error::ACK_PAYLOAD is required"
@@ -121,21 +123,22 @@ bmt_cmd_show_handshake_summary() {
     echo "- Ack URI: \`${handshake_uri}\`"
     echo "- Requested legs: **${requested_count}**"
     echo "- Accepted legs: **${accepted_count}**"
+    echo "- Support resolution version: \`${support_version}\`"
+    echo "- Run disposition: \`${run_disposition}\`"
     echo
-    echo "| Project | BMT ID | Run ID |"
-    echo "|---------|--------|--------|"
+    echo "| Project | BMT ID | Run ID | Status |"
+    echo "|---------|--------|--------|--------|"
   } >>"$GITHUB_STEP_SUMMARY"
 
-  echo "$ack_payload" | jq -r '.accepted_legs[] | "| \(.project) | \(.bmt_id) | \(.run_id) |"' >>"$GITHUB_STEP_SUMMARY"
-
-  if echo "$ack_payload" | jq -e '.rejected_legs | length > 0' >/dev/null; then
-    {
-      echo
-      echo "### Rejected Legs"
-      echo
-      echo "| Index | Reason |"
-      echo "|-------|--------|"
-    } >>"$GITHUB_STEP_SUMMARY"
-    echo "$ack_payload" | jq -r '.rejected_legs[] | "| \(.index) | \(.reason) |"' >>"$GITHUB_STEP_SUMMARY"
+  if echo "$ack_payload" | jq -e '.requested_legs | type == "array" and length > 0' >/dev/null; then
+    echo "$ack_payload" | jq -r '
+      .requested_legs[]
+      | "| \(.project // "?") | \(.bmt_id // "?") | \(.run_id // "?") | " +
+        (if .decision == "accepted" then "Will run" else "Will skip: \(.reason // "unknown")" end) +
+        " |"
+    ' >>"$GITHUB_STEP_SUMMARY"
+  else
+    echo "$ack_payload" | jq -r '.accepted_legs[]? | "| \(.project // "?") | \(.bmt_id // "?") | \(.run_id // "?") | Will run |"' >>"$GITHUB_STEP_SUMMARY"
+    echo "$ack_payload" | jq -r '.rejected_legs[]? | "| \(.project // "?") | \(.bmt_id // "?") | \(.run_id // "?") | Will skip: \(.reason // "unknown") |"' >>"$GITHUB_STEP_SUMMARY"
   fi
 }

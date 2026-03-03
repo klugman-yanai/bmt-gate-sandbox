@@ -55,6 +55,10 @@ def test_wait_handshake_success_uses_runtime_paths(
     assert "Handshake confirms VM pickup only" in captured.out
     content = output_file.read_text(encoding="utf-8")
     assert f"handshake_uri={runtime_root}/triggers/acks/{run_id}.json" in content
+    assert "handshake_support_resolution_version=v1" in content
+    assert "handshake_run_disposition=accepted" in content
+    assert "handshake_requested_legs=" in content
+    assert "handshake_rejected_legs=" in content
 
 
 def test_wait_handshake_fails_fast_on_status_path_mismatch(
@@ -82,3 +86,64 @@ def test_wait_handshake_fails_fast_on_status_path_mismatch(
 
     with pytest.raises(RuntimeError, match="Timed out waiting for VM handshake ack"):
         wait_handshake.run_wait_handshake()
+
+
+def test_wait_handshake_preserves_v2_support_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_file = tmp_path / "github_output.txt"
+
+    bucket = "bucket-a"
+    run_id = "123456"
+    runtime_root = f"gs://{bucket}/runtime"
+    trigger_uri = f"{runtime_root}/triggers/runs/{run_id}.json"
+
+    monkeypatch.setenv("GCS_BUCKET", bucket)
+    monkeypatch.setenv("GITHUB_RUN_ID", run_id)
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("BMT_HANDSHAKE_TIMEOUT_SEC", "5")
+
+    monkeypatch.setattr(wait_handshake.gcloud, "gcs_exists", lambda uri: uri == trigger_uri)
+    monkeypatch.setattr(
+        wait_handshake.gcloud,
+        "download_json",
+        lambda _uri: (
+            {
+                "support_resolution_version": "v2",
+                "run_disposition": "accepted_but_empty",
+                "requested_leg_count": 2,
+                "accepted_leg_count": 0,
+                "requested_legs": [
+                    {
+                        "index": 0,
+                        "project": "foo",
+                        "bmt_id": "foo_release",
+                        "run_id": "r1",
+                        "decision": "rejected",
+                        "reason": "manager_missing",
+                    }
+                ],
+                "accepted_legs": [],
+                "rejected_legs": [
+                    {
+                        "index": 0,
+                        "project": "foo",
+                        "bmt_id": "foo_release",
+                        "run_id": "r1",
+                        "reason": "manager_missing",
+                    }
+                ],
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(wait_handshake.gcloud, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
+
+    wait_handshake.run_wait_handshake()
+
+    content = output_file.read_text(encoding="utf-8")
+    assert "handshake_support_resolution_version=v2" in content
+    assert "handshake_run_disposition=accepted_but_empty" in content
+    assert '"decision":"rejected"' in content
+    assert '"reason":"manager_missing"' in content

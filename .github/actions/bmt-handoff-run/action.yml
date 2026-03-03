@@ -44,15 +44,13 @@ outputs:
   vm_started:
     description: Whether the BMT VM was started
     value: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
+  handoff_reason:
+    description: Handoff result reason (ok, no_runtime_supported_legs, handshake_timeout)
+    value: ${{ steps.handoff-reason.outputs.handoff_reason || (steps.handshake.outcome == 'success' && 'ok' || 'handshake_timeout') }}
 
 runs:
   using: composite
   steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.head_sha }}
-
     - name: Setup GCP and uv
       uses: ./.github/actions/setup-gcp-uv
       with:
@@ -107,7 +105,7 @@ runs:
 
     - name: Sync VM metadata from workflow config
       shell: bash
-      run: uv run bmt sync-vm-metadata
+      run: uv run --project .github/bmt bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
       if: steps.preflight.outputs.restart_vm == 'true'
@@ -119,7 +117,7 @@ runs:
     - name: Start BMT VM
       id: start-vm
       shell: bash
-      run: uv run bmt start-vm
+      run: uv run --project .github/bmt bmt start-vm
 
     - name: Show handshake guidance
       shell: bash
@@ -154,11 +152,40 @@ runs:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
       run: bash .github/bmt/scripts/bmt_workflow.sh show-handshake-summary
 
+    - name: Fail when VM accepts zero runtime-supported legs
+      id: accept-guard
+      if: steps.handshake.outcome == 'success'
+      shell: bash
+      env:
+        HANDSHAKE_ACCEPTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_accepted_leg_count }}
+      run: |
+        set -euo pipefail
+        accepted="${HANDSHAKE_ACCEPTED_LEG_COUNT:-0}"
+        if [[ "$accepted" =~ ^[0-9]+$ ]] && [[ "$accepted" -ge 1 ]]; then
+          echo "VM accepted ${accepted} leg(s)."
+          exit 0
+        fi
+        echo "::error::no_runtime_supported_legs: VM acknowledged trigger but accepted zero runtime-supported legs."
+        exit 1
+
+    - name: Resolve handoff reason
+      id: handoff-reason
+      if: always()
+      shell: bash
+      run: |
+        reason="ok"
+        if [[ "${{ steps.handshake.outcome }}" != "success" ]]; then
+          reason="handshake_timeout"
+        elif [[ "${{ steps.accept-guard.outcome }}" == "failure" ]]; then
+          reason="no_runtime_supported_legs"
+        fi
+        echo "handoff_reason=${reason}" >>"$GITHUB_OUTPUT"
+
     - name: Write handoff summary
       if: always()
       uses: ./.github/actions/bmt-write-summary
       with:
-        mode: ${{ steps.handshake.outcome == 'success' && 'run_success' || 'failure' }}
+        mode: ${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'run_success' || 'failure' }}
         repository: ${{ github.repository }}
         head_sha: ${{ inputs.head_sha }}
         head_branch: ${{ inputs.head_branch }}
@@ -172,5 +199,5 @@ runs:
         vm_started: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
         handshake_ok: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
         handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
-        handoff_state_line: "${{ steps.handshake.outcome == 'success' && 'Handoff complete: VM acknowledged trigger.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
-        failure_reason: "${{ steps.handshake.outcome != 'success' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"
+        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
+        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"

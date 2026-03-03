@@ -1,0 +1,99 @@
+name: Checkout Robust
+description: Checkout with retry/backoff and depth fallback for transient Git fetch failures.
+
+inputs:
+  repository:
+    description: Repository to checkout (owner/repo)
+    required: true
+  ref:
+    description: Preferred commit SHA or ref
+    required: true
+  fallback_ref:
+    description: Branch/tag ref used only if SHA checkout fails all retries
+    required: false
+    default: ""
+  submodules:
+    description: Checkout submodules
+    required: false
+    default: "false"
+  lfs:
+    description: Checkout LFS files
+    required: false
+    default: "false"
+  persist_credentials:
+    description: Persist checkout credentials
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout (attempt 1, depth=1)
+      id: attempt1
+      uses: actions/checkout@v4
+      continue-on-error: true
+      timeout-minutes: 5
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        fetch-depth: 1
+        submodules: ${{ inputs.submodules }}
+        lfs: ${{ inputs.lfs }}
+        persist-credentials: ${{ inputs.persist_credentials }}
+
+    - name: Backoff before checkout retry 2
+      if: steps.attempt1.outcome == 'failure'
+      shell: bash
+      run: sleep 10
+
+    - name: Checkout (attempt 2, depth=1)
+      id: attempt2
+      if: steps.attempt1.outcome == 'failure'
+      uses: actions/checkout@v4
+      continue-on-error: true
+      timeout-minutes: 5
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        fetch-depth: 1
+        submodules: ${{ inputs.submodules }}
+        lfs: ${{ inputs.lfs }}
+        persist-credentials: ${{ inputs.persist_credentials }}
+
+    - name: Backoff before checkout retry 3
+      if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+      shell: bash
+      run: sleep 20
+
+    - name: Checkout (attempt 3, depth=0)
+      id: attempt3
+      if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+      uses: actions/checkout@v4
+      continue-on-error: true
+      timeout-minutes: 10
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        fetch-depth: 0
+        submodules: ${{ inputs.submodules }}
+        lfs: ${{ inputs.lfs }}
+        persist-credentials: ${{ inputs.persist_credentials }}
+
+    - name: Fail when SHA retries are exhausted and no fallback ref is set
+      if: steps.attempt3.outcome == 'failure' && inputs.fallback_ref == ''
+      shell: bash
+      run: |
+        echo "::error::Checkout failed after 3 attempts and fallback_ref is empty."
+        exit 1
+
+    - name: Checkout (attempt 4, fallback ref)
+      if: steps.attempt3.outcome == 'failure' && inputs.fallback_ref != ''
+      uses: actions/checkout@v4
+      timeout-minutes: 10
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.fallback_ref }}
+        fetch-depth: 1
+        submodules: ${{ inputs.submodules }}
+        lfs: ${{ inputs.lfs }}
+        persist-credentials: ${{ inputs.persist_credentials }}

@@ -1,5 +1,5 @@
 name: BMT Handoff
-run-name: "BMT Handoff • ${{ github.event.inputs.head_branch }} • ${{ github.event.inputs.head_sha }}"
+run-name: "BMT Handoff • ${{ inputs.head_branch || github.event.inputs.head_branch }} • ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
 
 on:
   workflow_dispatch:
@@ -20,9 +20,33 @@ on:
       pr_number:
         description: "PR number (if head_event is pull_request)"
         required: false
+  workflow_call:
+    inputs:
+      ci_run_id:
+        description: "CI workflow run ID (for artifact download)"
+        required: true
+        type: string
+      head_sha:
+        description: "Head commit SHA"
+        required: true
+        type: string
+      head_branch:
+        description: "Head branch name"
+        required: true
+        type: string
+      head_event:
+        description: "Event that triggered CI (pull_request or push)"
+        required: false
+        type: string
+        default: "push"
+      pr_number:
+        description: "PR number (if head_event is pull_request)"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
-  group: bmt-${{ github.event.inputs.head_sha }}
+  group: bmt-${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
 
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
@@ -33,11 +57,7 @@ env:
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
-  BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
   BMT_HANDSHAKE_TIMEOUT_SEC: ${{ vars.BMT_HANDSHAKE_TIMEOUT_SEC }}
-  BMT_PREEMPT_ON_PR_STALE_QUEUE: ${{ vars.BMT_PREEMPT_ON_PR_STALE_QUEUE }}
-  BMT_TRIGGER_STALE_SEC: ${{ vars.BMT_TRIGGER_STALE_SEC }}
-  BMT_TRIGGER_METADATA_KEEP_RECENT: ${{ vars.BMT_TRIGGER_METADATA_KEEP_RECENT }}
 
 jobs:
   prepare:
@@ -54,18 +74,23 @@ jobs:
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: ./.github/actions/checkout-robust
         with:
+          repository: ${{ github.repository }}
           ref: ${{ github.sha }}
+          fallback_ref: ${{ github.ref_name }}
+          submodules: "false"
+          lfs: "false"
+          persist_credentials: "false"
 
       - id: prepare
         uses: ./.github/actions/bmt-prepare
         with:
-          ci_run_id: ${{ github.event.inputs.ci_run_id }}
-          head_sha: ${{ github.event.inputs.head_sha || github.sha }}
-          head_branch: ${{ github.event.inputs.head_branch }}
-          head_event: ${{ github.event.inputs.head_event }}
-          pr_number: ${{ github.event.inputs.pr_number }}
+          ci_run_id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+          head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
+          head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
+          pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
 
   upload-runners:
     name: 02 Upload Runners • ${{ matrix.project }}
@@ -81,9 +106,14 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.runner_matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: ./.github/actions/checkout-robust
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fallback_ref: ${{ needs.prepare.outputs.head_branch }}
+          submodules: "false"
+          lfs: "false"
+          persist_credentials: "false"
 
       - name: Download runner artifact
         uses: actions/download-artifact@v4
@@ -154,9 +184,14 @@ jobs:
       pr_number: ${{ needs.prepare.outputs.pr_number }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: ./.github/actions/checkout-robust
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fallback_ref: ${{ needs.prepare.outputs.head_branch }}
+          submodules: "false"
+          lfs: "false"
+          persist_credentials: "false"
 
       - id: classify
         uses: ./.github/actions/bmt-classify-handoff
@@ -175,9 +210,14 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: ./.github/actions/checkout-robust
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fallback_ref: ${{ needs.prepare.outputs.head_branch }}
+          submodules: "false"
+          lfs: "false"
+          persist_credentials: "false"
 
       - uses: ./.github/actions/bmt-write-summary
         with:
@@ -207,11 +247,17 @@ jobs:
       handshake_ok: ${{ steps.run.outputs.handshake_ok }}
       handshake_uri: ${{ steps.run.outputs.handshake_uri }}
       vm_started: ${{ steps.run.outputs.vm_started }}
+      handoff_reason: ${{ steps.run.outputs.handoff_reason }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: ./.github/actions/checkout-robust
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fallback_ref: ${{ needs.prepare.outputs.head_branch }}
+          submodules: "false"
+          lfs: "false"
+          persist_credentials: "false"
 
       - id: run
         uses: ./.github/actions/bmt-handoff-run
@@ -237,9 +283,14 @@ jobs:
       statuses: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: ./.github/actions/checkout-robust
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
+          fallback_ref: ${{ needs.prepare.outputs.head_branch || github.ref_name }}
+          submodules: "false"
+          lfs: "false"
+          persist_credentials: "false"
 
       - uses: ./.github/actions/bmt-failure-fallback
         with:
@@ -258,10 +309,11 @@ jobs:
           handoff_run_vm_started: ${{ needs.handoff-run.outputs.vm_started }}
           handoff_run_handshake_ok: ${{ needs.handoff-run.outputs.handshake_ok }}
           handoff_run_handshake_uri: ${{ needs.handoff-run.outputs.handshake_uri }}
+          handoff_run_handoff_reason: ${{ needs.handoff-run.outputs.handoff_reason }}
           handoff_run_result: ${{ needs.handoff-run.result }}
           handoff_skip_result: ${{ needs.handoff-skip.result }}
-          dispatch_head_sha: ${{ github.event.inputs.head_sha }}
-          dispatch_pr_number: ${{ github.event.inputs.pr_number }}
+          dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
+          dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
           fallback_ref: ${{ github.sha }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}

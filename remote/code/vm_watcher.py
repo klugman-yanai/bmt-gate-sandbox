@@ -177,6 +177,118 @@ def _gcloud_rm(uri: str, recursive: bool = False) -> bool:
     return proc.returncode == 0
 
 
+def _gcloud_exists(uri: str) -> bool:
+    """Return True when a GCS object exists."""
+    proc = subprocess.run(
+        ["gcloud", "storage", "ls", uri],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
+def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Load per-project jobs config from code bucket.
+
+    Returns (payload, error_reason_code).
+    """
+    jobs_rel = f"{project}/config/bmt_jobs.json"
+    jobs_uri = _bucket_uri(code_bucket_root, jobs_rel)
+    if not _gcloud_exists(jobs_uri):
+        return None, "jobs_config_missing"
+
+    with tempfile.TemporaryDirectory(prefix="vm_watcher_jobs_") as tmp_dir:
+        local_jobs = Path(tmp_dir) / "bmt_jobs.json"
+        proc = subprocess.run(
+            ["gcloud", "storage", "cp", jobs_uri, str(local_jobs), "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            print(f"  Warning: Failed to download jobs config for {project}: {proc.stderr.strip()}")
+            return None, "jobs_config_missing"
+        try:
+            payload = json.loads(local_jobs.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None, "jobs_schema_invalid"
+
+    if not isinstance(payload, dict):
+        return None, "jobs_schema_invalid"
+    bmts = payload.get("bmts")
+    if not isinstance(bmts, dict):
+        return None, "jobs_schema_invalid"
+    return payload, None
+
+
+def _resolve_requested_legs(
+    *,
+    legs_raw: list[Any],
+    code_bucket_root: str,
+) -> list[dict[str, Any]]:
+    """Resolve each requested leg against VM runtime support by convention files."""
+    requested_legs: list[dict[str, Any]] = []
+    manager_exists_cache: dict[str, bool] = {}
+    jobs_cache: dict[str, tuple[dict[str, Any] | None, str | None]] = {}
+
+    for idx, leg in enumerate(legs_raw):
+        project = "?"
+        bmt_id = "?"
+        run_id = "?"
+        reason: str | None = None
+        decision = "rejected"
+
+        if not isinstance(leg, dict):
+            reason = "invalid_leg_type"
+        else:
+            project = str(leg.get("project", "")).strip() or "?"
+            bmt_id = str(leg.get("bmt_id", "")).strip() or "?"
+            run_id = str(leg.get("run_id", "")).strip() or "?"
+            if "?" in {project, bmt_id, run_id}:
+                reason = "invalid_leg_type"
+
+        if reason is None:
+            if project not in manager_exists_cache:
+                manager_uri = _bucket_uri(code_bucket_root, f"{project}/bmt_manager.py")
+                manager_exists_cache[project] = _gcloud_exists(manager_uri)
+            if not manager_exists_cache[project]:
+                reason = "manager_missing"
+
+        if reason is None:
+            if project not in jobs_cache:
+                jobs_cache[project] = _load_jobs_config_from_gcs(code_bucket_root, project)
+            jobs_payload, jobs_error = jobs_cache[project]
+            if jobs_error is not None or jobs_payload is None:
+                reason = jobs_error or "jobs_schema_invalid"
+            else:
+                bmts = jobs_payload.get("bmts")
+                if not isinstance(bmts, dict):
+                    reason = "jobs_schema_invalid"
+                else:
+                    bmt_cfg = bmts.get(bmt_id)
+                    if not isinstance(bmt_cfg, dict):
+                        reason = "bmt_not_defined"
+                    elif bmt_cfg.get("enabled", True) is False:
+                        reason = "bmt_disabled"
+
+        if reason is None:
+            decision = "accepted"
+
+        requested_legs.append(
+            {
+                "index": idx,
+                "project": project,
+                "bmt_id": bmt_id,
+                "run_id": run_id,
+                "decision": decision,
+                "reason": reason,
+            }
+        )
+
+    return requested_legs
+
+
 def _download_orchestrator(code_bucket_root: str, workspace_root: Path) -> Path:
     """Download root_orchestrator.py from the code namespace."""
     orchestrator_uri = _bucket_uri(code_bucket_root, "root_orchestrator.py")
@@ -856,7 +968,7 @@ def _process_run_trigger(  # noqa: PLR0911
     runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
     runtime_prefix = "runtime"
 
-    print(f"  Processing run {workflow_run_id} with {len(legs_raw)} leg(s)")
+    print(f"  Processing run {workflow_run_id} with {len(legs_raw)} requested leg(s)")
 
     run_id = str(workflow_run_id)
     workflow_run_id_str = str(workflow_run_id)
@@ -890,24 +1002,47 @@ def _process_run_trigger(  # noqa: PLR0911
 
     skip_before_pickup = bool(skip_before_pickup_reason)
 
-    accepted_legs: list[dict[str, str]] = []
-    rejected_legs: list[dict[str, int | str]] = []
+    requested_legs = _resolve_requested_legs(
+        legs_raw=legs_raw,
+        code_bucket_root=code_bucket_root,
+    )
     if skip_before_pickup:
-        rejected_legs = [
-            {"index": idx, "reason": skip_before_pickup_reason or "skipped"} for idx, _ in enumerate(legs_raw)
-        ]
-    else:
-        for idx, leg in enumerate(legs_raw):
-            if not isinstance(leg, dict):
-                rejected_legs.append({"index": idx, "reason": "invalid_leg_type"})
-                continue
-            accepted_legs.append(
-                {
-                    "project": str(leg.get("project", "?")),
-                    "bmt_id": str(leg.get("bmt_id", "?")),
-                    "run_id": str(leg.get("run_id", "?")),
-                }
-            )
+        for leg in requested_legs:
+            leg["decision"] = "rejected"
+            leg["reason"] = skip_before_pickup_reason or "skipped"
+
+    accepted_legs: list[dict[str, str]] = [
+        {
+            "project": str(leg.get("project", "?")),
+            "bmt_id": str(leg.get("bmt_id", "?")),
+            "run_id": str(leg.get("run_id", "?")),
+        }
+        for leg in requested_legs
+        if leg.get("decision") == "accepted"
+    ]
+    rejected_legs: list[dict[str, int | str]] = [
+        {
+            "index": int(leg.get("index", -1)),
+            "project": str(leg.get("project", "?")),
+            "bmt_id": str(leg.get("bmt_id", "?")),
+            "run_id": str(leg.get("run_id", "?")),
+            "reason": str(leg.get("reason") or "invalid_leg_type"),
+        }
+        for leg in requested_legs
+        if leg.get("decision") != "accepted"
+    ]
+    accepted_exec_legs: list[dict[str, str | int]] = [
+        {
+            "index": int(leg.get("index", -1)),
+            "project": str(leg.get("project", "?")),
+            "bmt_id": str(leg.get("bmt_id", "?")),
+            "run_id": str(leg.get("run_id", "?")),
+        }
+        for leg in requested_legs
+        if leg.get("decision") == "accepted"
+    ]
+    accepted_leg_count = len(accepted_exec_legs)
+    print(f"  Runtime support resolution: accepted={accepted_leg_count} rejected={len(rejected_legs)}")
 
     stop_heartbeat = threading.Event()
     heartbeat_thread: threading.Thread | None = None
@@ -954,18 +1089,27 @@ def _process_run_trigger(  # noqa: PLR0911
 
     try:
         handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
+        if skip_before_pickup:
+            run_disposition = "skipped"
+        elif accepted_leg_count == 0:
+            run_disposition = "accepted_but_empty"
+        else:
+            run_disposition = "accepted"
+
         handshake_payload: dict[str, Any] = {
+            "support_resolution_version": "v2",
             "workflow_run_id": str(workflow_run_id),
             "received_at": _now_iso(),
             "repository": repository,
             "sha": sha,
             "run_context": run_context,
             "run_trigger_uri": run_trigger_uri,
-            "requested_leg_count": len(legs_raw),
-            "accepted_leg_count": len(accepted_legs),
+            "requested_leg_count": len(requested_legs),
+            "accepted_leg_count": accepted_leg_count,
+            "requested_legs": requested_legs,
             "accepted_legs": accepted_legs,
             "rejected_legs": rejected_legs,
-            "run_disposition": "skipped" if skip_before_pickup else "accepted",
+            "run_disposition": run_disposition,
             "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
             "pr_state": pr_state_at_pickup.get("state") if pr_state_at_pickup else None,
             "pr_merged": pr_state_at_pickup.get("merged") if pr_state_at_pickup else None,
@@ -982,20 +1126,24 @@ def _process_run_trigger(  # noqa: PLR0911
 
         started_at = _now_iso()
         initial_legs: list[dict[str, Any]] = []
-        for idx, leg in enumerate(legs_raw):
-            project = str(leg.get("project", "?")) if isinstance(leg, dict) else "?"
-            bmt_id = str(leg.get("bmt_id", "?")) if isinstance(leg, dict) else "?"
-            leg_run_id = str(leg.get("run_id", "?")) if isinstance(leg, dict) else "?"
+        for leg in requested_legs:
+            idx = int(leg.get("index", -1))
+            project = str(leg.get("project", "?"))
+            bmt_id = str(leg.get("bmt_id", "?"))
+            leg_run_id = str(leg.get("run_id", "?"))
+            decision = str(leg.get("decision", "rejected"))
+            reason = str(leg.get("reason")) if leg.get("reason") is not None else None
+            is_skipped = skip_before_pickup or decision != "accepted"
             initial_legs.append(
                 {
                     "index": idx,
                     "project": project,
                     "bmt_id": bmt_id,
                     "run_id": leg_run_id,
-                    "status": "skipped" if skip_before_pickup else "pending",
-                    "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
+                    "status": "skipped" if is_skipped else "pending",
+                    "skip_reason": (skip_before_pickup_reason if skip_before_pickup else reason) if is_skipped else None,
                     "started_at": None,
-                    "completed_at": started_at if skip_before_pickup else None,
+                    "completed_at": started_at if is_skipped else None,
                     "duration_sec": None,
                     "files_total": None,
                     "files_completed": 0,
@@ -1012,11 +1160,13 @@ def _process_run_trigger(  # noqa: PLR0911
                 if skip_before_pickup_reason == "pr_closed_before_pickup"
                 else "skipped_superseded_by_new_commit"
                 if skip_before_pickup_reason == "superseded_by_new_commit"
+                else "accepted_but_empty"
+                if accepted_leg_count == 0
                 else "acknowledged"
             ),
             "started_at": started_at,
             "last_heartbeat": started_at,
-            "legs_total": len(legs_raw),
+            "legs_total": len(requested_legs),
             "legs_completed": 0,
             "current_leg": None,
             "legs": initial_legs,
@@ -1024,9 +1174,15 @@ def _process_run_trigger(  # noqa: PLR0911
             "elapsed_sec": 0,
             "last_run_duration_sec": None,
             "errors": [],
-            "run_outcome": "skipped" if skip_before_pickup else "running",
-            "cancel_reason": skip_before_pickup_reason if skip_before_pickup else None,
-            "cancelled_at": started_at if skip_before_pickup else None,
+            "run_outcome": "skipped" if (skip_before_pickup or accepted_leg_count == 0) else "running",
+            "cancel_reason": (
+                skip_before_pickup_reason
+                if skip_before_pickup
+                else "no_runtime_supported_legs"
+                if accepted_leg_count == 0
+                else None
+            ),
+            "cancelled_at": started_at if (skip_before_pickup or accepted_leg_count == 0) else None,
             "superseded_by_sha": superseded_by_sha,
         }
         try:
@@ -1045,6 +1201,10 @@ def _process_run_trigger(  # noqa: PLR0911
                 print("  PR is already closed at pickup; skipping run without GitHub status/check updates.")
             return
 
+        if accepted_leg_count == 0:
+            print("  No runtime-supported legs were accepted by VM; marking run as accepted_but_empty.")
+            return
+
         heartbeat_thread = threading.Thread(
             target=_heartbeat_loop,
             args=(bucket, runtime_prefix, run_id, stop_heartbeat),
@@ -1061,8 +1221,8 @@ def _process_run_trigger(  # noqa: PLR0911
                 name=runtime_status_context,
                 status="in_progress",
                 output={
-                    "title": f"BMT Execution Started ({len(legs_raw)} legs)",
-                    "summary": f"Running BMT for {len(legs_raw)} project configurations...",
+                    "title": f"BMT Execution Started ({accepted_leg_count} legs)",
+                    "summary": f"Running BMT for {accepted_leg_count} runtime-supported project configurations...",
                 },
                 token_resolver=github_token_resolver,
             )
@@ -1132,17 +1292,15 @@ def _process_run_trigger(  # noqa: PLR0911
             return
 
         try:
-            for idx, leg in enumerate(legs_raw):
-                if not isinstance(leg, dict):
-                    leg_summaries.append(None)
-                    continue
-
+            accepted_completed = 0
+            for exec_idx, leg in enumerate(accepted_exec_legs):
+                status_idx = int(leg["index"])
                 if should_check_pr_state and pr_number is not None:
                     pr_state_now = github_pull_request.get_pr_state(github_token, repository, pr_number, attempts=3)
                     state_now = str(pr_state_now.get("state"))
                     if state_now == "unknown":
                         print(
-                            f"  Warning: could not re-check PR state for leg {idx} "
+                            f"  Warning: could not re-check PR state for leg {status_idx} "
                             f"(error={pr_state_now.get('error')}); fail-open (continuing)."
                         )
                     else:
@@ -1176,7 +1334,7 @@ def _process_run_trigger(  # noqa: PLR0911
                                     f"superseding_sha={superseded_by_sha or 'unknown'}"
                                 )
                             else:
-                                print(f"  PR closed before leg {idx + 1}; cancelling remaining legs.")
+                                print(f"  PR closed before leg {exec_idx + 1}; cancelling remaining legs.")
                             try:
                                 current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                                 if current_status:
@@ -1194,7 +1352,10 @@ def _process_run_trigger(  # noqa: PLR0911
                                     current_status["superseded_by_sha"] = superseded_by_sha
                                     status_legs = current_status.get("legs")
                                     if isinstance(status_legs, list):
-                                        for rem_idx in range(idx, len(status_legs)):
+                                        for pending_leg in accepted_exec_legs[exec_idx:]:
+                                            rem_idx = int(pending_leg["index"])
+                                            if rem_idx < 0 or rem_idx >= len(status_legs):
+                                                continue
                                             row = status_legs[rem_idx]
                                             if not isinstance(row, dict):
                                                 continue
@@ -1211,10 +1372,10 @@ def _process_run_trigger(  # noqa: PLR0911
                 try:
                     current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if current_status:
-                        current_status["legs"][idx]["status"] = "running"
-                        current_status["legs"][idx]["skip_reason"] = None
-                        current_status["legs"][idx]["started_at"] = _now_iso()
-                        current_status["current_leg"] = current_status["legs"][idx].copy()
+                        current_status["legs"][status_idx]["status"] = "running"
+                        current_status["legs"][status_idx]["skip_reason"] = None
+                        current_status["legs"][status_idx]["started_at"] = _now_iso()
+                        current_status["current_leg"] = current_status["legs"][status_idx].copy()
                         current_status["elapsed_sec"] = int(time.time() - start_timestamp)
                         current_status["run_outcome"] = "running"
                         current_status["cancel_reason"] = None
@@ -1222,50 +1383,52 @@ def _process_run_trigger(  # noqa: PLR0911
                         current_status["superseded_by_sha"] = None
                         status_file.write_status(bucket, runtime_prefix, run_id, current_status)
                 except Exception as exc:
-                    print(f"  Warning: Failed to update status for leg {idx}: {exc}")
+                    print(f"  Warning: Failed to update status for leg {status_idx}: {exc}")
 
                 trigger = {
                     "bucket": bucket,
-                    "project": leg.get("project", "?"),
-                    "bmt_id": leg.get("bmt_id", "?"),
+                    "project": str(leg.get("project", "?")),
+                    "bmt_id": str(leg.get("bmt_id", "?")),
                     "run_context": run_context,
-                    "run_id": leg.get("run_id", "?"),
-                    "leg_index": idx,
+                    "run_id": str(leg.get("run_id", "?")),
+                    "leg_index": status_idx,
                     "workflow_run_id": workflow_run_id,
                 }
                 leg_start_time = time.time()
                 exit_code = _run_orchestrator(orchestrator_path, trigger, workspace_root)
                 leg_duration = int(time.time() - leg_start_time)
                 state = "PASS" if exit_code == 0 else "FAIL"
-                print(f"  Leg {idx + 1}/{len(legs_raw)} {trigger['project']}.{trigger['bmt_id']} -> {state}")
+                print(f"  Leg {exec_idx + 1}/{accepted_leg_count} {trigger['project']}.{trigger['bmt_id']} -> {state}")
                 run_root = _latest_run_root(workspace_root, trigger["project"], trigger["bmt_id"])
                 summary = _load_manager_summary(run_root)
                 leg_summaries.append(summary)
+                accepted_completed += 1
 
                 try:
                     current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if current_status:
                         leg_status = "pass" if exit_code == 0 else "fail"
-                        current_status["legs"][idx]["status"] = leg_status
-                        current_status["legs"][idx]["skip_reason"] = None
-                        current_status["legs"][idx]["completed_at"] = _now_iso()
-                        current_status["legs"][idx]["duration_sec"] = leg_duration
+                        current_status["legs"][status_idx]["status"] = leg_status
+                        current_status["legs"][status_idx]["skip_reason"] = None
+                        current_status["legs"][status_idx]["completed_at"] = _now_iso()
+                        current_status["legs"][status_idx]["duration_sec"] = leg_duration
 
                         if summary:
                             bmt_results = summary.get("bmt_results", {})
                             results = bmt_results.get("results", [])
-                            current_status["legs"][idx]["files_total"] = len(results)
-                            current_status["legs"][idx]["files_completed"] = len(results)
+                            current_status["legs"][status_idx]["files_total"] = len(results)
+                            current_status["legs"][status_idx]["files_completed"] = len(results)
 
                             orchestration_timing = summary.get("orchestration_timing", {})
                             if "duration_sec" in orchestration_timing:
-                                current_status["legs"][idx]["duration_sec"] = orchestration_timing["duration_sec"]
+                                current_status["legs"][status_idx]["duration_sec"] = orchestration_timing["duration_sec"]
 
-                        current_status["legs_completed"] = idx + 1
+                        current_status["legs_completed"] = accepted_completed
                         current_status["elapsed_sec"] = int(time.time() - start_timestamp)
 
-                        if idx + 1 < len(legs_raw):
-                            current_status["current_leg"] = current_status["legs"][idx + 1].copy()
+                        if exec_idx + 1 < accepted_leg_count:
+                            next_idx = int(accepted_exec_legs[exec_idx + 1]["index"])
+                            current_status["current_leg"] = current_status["legs"][next_idx].copy()
                         else:
                             current_status["current_leg"] = None
 
@@ -1278,7 +1441,7 @@ def _process_run_trigger(  # noqa: PLR0911
                                 check_run_id,
                                 token_resolver=github_token_resolver,
                                 output={
-                                    "title": f"BMT Progress: {idx + 1}/{len(legs_raw)} legs complete",
+                                    "title": f"BMT Progress: {accepted_completed}/{accepted_leg_count} legs complete",
                                     "summary": github_checks.render_progress_markdown(
                                         current_status["legs"],
                                         elapsed_sec=current_status["elapsed_sec"],
@@ -1288,7 +1451,7 @@ def _process_run_trigger(  # noqa: PLR0911
                                 attempts=2,
                             )
                 except Exception as exc:
-                    print(f"  Warning: Failed to update status after leg {idx}: {exc}")
+                    print(f"  Warning: Failed to update status after leg {status_idx}: {exc}")
 
             if cancelled_due_to_pr_state:
                 cancelled_at = _now_iso()

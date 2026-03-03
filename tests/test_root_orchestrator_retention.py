@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
 import root_orchestrator as orchestrator
 
 
@@ -54,3 +55,34 @@ def test_prune_workspace_keeps_two_per_bmt(tmp_path: Path) -> None:
     remaining_b = sorted(p.name for p in bmt_b.iterdir() if p.is_dir() and p.name.startswith("run_"))
     assert remaining_a == ["run_a2", "run_a3"]
     assert remaining_b == ["run_b2", "run_b3"]
+
+
+def test_convention_paths_use_project_layout() -> None:
+    assert orchestrator._manager_rel_path("sk") == "sk/bmt_manager.py"
+    assert orchestrator._jobs_rel_path("sk") == "sk/config/bmt_jobs.json"
+
+
+def test_validate_jobs_config_requires_defined_enabled_bmt(tmp_path: Path) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    jobs_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(orchestrator.OrchestratorError, match="missing object key 'bmts'"):
+        orchestrator._validate_jobs_config({}, project="sk", bmt_id="foo", jobs_path=jobs_path)
+
+    with pytest.raises(orchestrator.OrchestratorError, match="not defined"):
+        orchestrator._validate_jobs_config({"bmts": {}}, project="sk", bmt_id="foo", jobs_path=jobs_path)
+
+    with pytest.raises(orchestrator.OrchestratorError, match="is disabled"):
+        orchestrator._validate_jobs_config(
+            {"bmts": {"foo": {"enabled": False}}},
+            project="sk",
+            bmt_id="foo",
+            jobs_path=jobs_path,
+        )
+
+    orchestrator._validate_jobs_config(
+        {"bmts": {"foo": {"enabled": True}}},
+        project="sk",
+        bmt_id="foo",
+        jobs_path=jobs_path,
+    )
