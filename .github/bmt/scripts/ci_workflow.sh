@@ -112,10 +112,11 @@ shift || true
 case "$cmd" in
   parse-presets)
     require_cmd uv
+    uv sync --project .github/bmt
     BMT_OUTPUT_FORMAT="ci" \
     BMT_OUTPUT_KEY="presets" \
     BMT_PROJECTS="${BMT_PROJECTS:-all}" \
-      uv run bmt parse-release-runners
+      uv run --project .github/bmt bmt parse-release-runners
     ;;
 
   stage-release-runner)
