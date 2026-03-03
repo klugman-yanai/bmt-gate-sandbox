@@ -608,29 +608,6 @@ def _results_prefix_from_ci_verdict_uri(bucket_root: str, ci_verdict_uri: str) -
     return rel or None
 
 
-def _progress_description(legs: list[dict[str, Any]], elapsed_sec: int) -> str:
-    """Build short commit-status description for PR (max 140 chars) so devs see progress in the browser."""
-    total = len(legs)
-    completed = sum(1 for leg in legs if leg.get("status") not in ("pending", "running"))
-    pass_n = sum(1 for leg in legs if leg.get("status") == "pass")
-    fail_n = sum(1 for leg in legs if leg.get("status") == "fail")
-    running_n = sum(1 for leg in legs if leg.get("status") == "running")
-    elapsed_str = f"{elapsed_sec // 60}m" if elapsed_sec >= 60 else f"{elapsed_sec}s"
-    # Prefer one-line summary that fits; fall back to compact counts
-    summary_parts = []
-    if pass_n:
-        summary_parts.append(f"{pass_n} pass")
-    if fail_n:
-        summary_parts.append(f"{fail_n} fail")
-    if running_n:
-        summary_parts.append(f"{running_n} running")
-    if completed < total and not running_n:
-        summary_parts.append(f"{total - completed} pending")
-    line = ", ".join(summary_parts) if summary_parts else "running"
-    desc = f"BMT: {completed}/{total} legs · {line} — {elapsed_str}"
-    return desc[:140]
-
-
 def _aggregate_verdicts_from_summaries(summaries: list[dict[str, Any] | None]) -> tuple[str, str]:
     """Compute (state, description) from manager summaries. state: success|failure."""
     pass_count = 0
@@ -851,9 +828,6 @@ def _process_run_trigger(  # noqa: PLR0911
     runtime_status_context = (
         run_payload.get("runtime_status_context") or DEFAULT_RUNTIME_STATUS_CONTEXT
     ).strip() or DEFAULT_RUNTIME_STATUS_CONTEXT
-    description_pending = (
-        run_payload.get("description_pending") or ""
-    ).strip() or "BMT running on VM; status will update when complete."
 
     pr_number: int | None = None
     pr_raw = run_payload.get("pull_request_number")
@@ -1095,19 +1069,6 @@ def _process_run_trigger(  # noqa: PLR0911
             if check_run_id is not None:
                 print(f"  Created GitHub Check Run: {check_run_id}")
 
-        if repository and sha and github_token:
-            _post_commit_status_resilient(
-                repository,
-                sha,
-                "pending",
-                description_pending,
-                None,
-                github_token,
-                context=runtime_status_context,
-                token_resolver=github_token_resolver,
-                attempts=2,
-            )
-
         try:
             orchestrator_path = _download_orchestrator(code_bucket_root, workspace_root)
         except subprocess.CalledProcessError as exc:
@@ -1161,17 +1122,6 @@ def _process_run_trigger(  # noqa: PLR0911
                         "summary": "Failed to download orchestrator on VM.",
                     },
                     token_resolver=github_token_resolver,
-                )
-                _post_commit_status_resilient(
-                    repository,
-                    sha,
-                    "failure",
-                    "BMT VM: failed to download orchestrator",
-                    None,
-                    github_token,
-                    context=runtime_status_context,
-                    token_resolver=github_token_resolver,
-                    attempts=4,
                 )
                 if pr_number is not None:
                     _upsert_pr_comment(
@@ -1337,20 +1287,6 @@ def _process_run_trigger(  # noqa: PLR0911
                                 },
                                 attempts=2,
                             )
-                        if repository and sha and github_token:
-                            desc = _progress_description(
-                                current_status["legs"],
-                                current_status["elapsed_sec"],
-                            )
-                            _post_commit_status(
-                                repository,
-                                sha,
-                                "pending",
-                                desc,
-                                None,
-                                github_token,
-                                context=runtime_status_context,
-                            )
                 except Exception as exc:
                     print(f"  Warning: Failed to update status after leg {idx}: {exc}")
 
@@ -1411,17 +1347,6 @@ def _process_run_trigger(  # noqa: PLR0911
                         context=gate_status_context,
                         token_resolver=github_token_resolver,
                     )
-                    _post_commit_status_resilient(
-                        repository,
-                        sha,
-                        "error",
-                        cancel_description,
-                        None,
-                        github_token,
-                        context=runtime_status_context,
-                        token_resolver=github_token_resolver,
-                        attempts=4,
-                    )
                 if cancel_reason == "superseded_by_new_commit":
                     _upsert_pr_comment(
                         result="Superseded",
@@ -1479,17 +1404,6 @@ def _process_run_trigger(  # noqa: PLR0911
                     print(f"  Completed Check Run: {conclusion}")
                 else:
                     print("  Could not finalize Check Run")
-                _post_commit_status_resilient(
-                    repository,
-                    sha,
-                    state,
-                    description,
-                    None,
-                    github_token,
-                    context=runtime_status_context,
-                    token_resolver=github_token_resolver,
-                    attempts=4,
-                )
 
             if pointer_promotion_allowed:
                 for summary in leg_summaries:
@@ -1574,17 +1488,6 @@ def _process_run_trigger(  # noqa: PLR0911
                 )
                 if not check_completed:
                     print("  Warning: Failed to complete Check Run on error")
-                _post_commit_status_resilient(
-                    repository,
-                    sha,
-                    "failure",
-                    f"BMT VM error: {exc!s}"[:140],
-                    None,
-                    github_token,
-                    context=runtime_status_context,
-                    token_resolver=github_token_resolver,
-                    attempts=4,
-                )
                 if pr_number is not None:
                     _upsert_pr_comment(
                         result="Failed",

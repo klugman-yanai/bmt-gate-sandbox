@@ -12,7 +12,7 @@ Summary of official docs and tools useful for BMT workflows, status/checks, and 
 | **Re-run** | Re-run all jobs, failed jobs only, or specific jobs (up to 30 days). Uses same SHA/ref. | Devs can re-run the BMT workflow from the Actions tab without pushing again. |
 | **Workflow run logs** | Each run has logs per job/step. | Primary place for debugging when status says "Check Actions logs." |
 | **Debug logging** | Enable runner diagnostic logging and step debug logging when re-running. | Useful when debugging handshake or runner upload failures. |
-| **Commit statuses** | Workflows/apps can post status via API; branch protection can require a status. | BMT keeps merge gating in `BMT_STATUS_CONTEXT` (default `BMT Gate`) and uses `BMT_RUNTIME_CONTEXT` (default `BMT Runtime`) for runtime progress plus terminal runtime outcome. |
+| **Commit statuses** | Workflows/apps can post status via API; branch protection can require a status. | BMT keeps merge gating in `BMT_STATUS_CONTEXT` (default `BMT Gate`). Runtime progress is shown via a separate check run in `BMT_RUNTIME_CONTEXT` (default `BMT Runtime`). |
 
 ---
 
@@ -48,7 +48,7 @@ Only **GitHub Apps** can create/update check runs; OAuth/users have read-only. O
 ## Commit statuses API
 
 - **Description** is limited to **140 characters** (we truncate in BMT).
-- `BMT_RUNTIME_CONTEXT` is used for pending/progress runtime updates and final runtime terminal state.
+- `BMT_RUNTIME_CONTEXT` names the VM-owned runtime check run (progress + terminal runtime outcome).
 - `BMT_STATUS_CONTEXT` is used for terminal gate outcomes (`success`/`failure`/`error`).
 - Used for the **merge gate**; check runs/runtime status are supplementary for detail.
 - See `docs/communication-flow.md` for when we post status and what devs see.

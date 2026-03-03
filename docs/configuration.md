@@ -38,7 +38,7 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 |----------|---------|---------|
 | `BMT_PROJECTS` | `"all"` | Filter for BMT projects. Use `"all"` or a JSON array of project keys (e.g. `["sk"]`). |
 | `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. Effective value is sourced from branch rules via consistency checks. |
-| `BMT_RUNTIME_CONTEXT` | `"BMT Runtime"` | Non-gating runtime status/check context for live progress and terminal VM runtime outcome. |
+| `BMT_RUNTIME_CONTEXT` | `"BMT Runtime"` | Non-gating runtime check-run context for live progress and terminal VM runtime outcome. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for VM handshake wait. |
 | `BMT_PREEMPT_ON_PR_STALE_QUEUE` | `"1"` | If stale queue files exist for PR runs, preflight cleanup may force clean VM restart to avoid stalled handoffs. |
 | `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
