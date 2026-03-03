@@ -38,7 +38,11 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 |----------|---------|---------|
 | `BMT_PROJECTS` | `"all"` | Filter for BMT projects. Use `"all"` or a JSON array of project keys (e.g. `["sk"]`). |
 | `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. Effective value is sourced from branch rules via consistency checks. |
+| `BMT_RUNTIME_CONTEXT` | `"BMT Runtime"` | Non-gating runtime progress status/check context used while VM work is still running. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for VM handshake wait. |
+| `BMT_PREEMPT_ON_PR_STALE_QUEUE` | `"1"` | If stale queue files exist for PR runs, preflight cleanup may force clean VM restart to avoid stalled handoffs. |
+| `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
+| `BMT_TRIGGER_METADATA_KEEP_RECENT` | `"2"` | Number of recent trigger metadata files (`acks/status`) retained after cleanup. |
 | `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
 
 Omitted vars inherit from current GitHub repo context first, then from contract defaults (see `config/env_contract.json` and `devtools/gh_repo_vars.py`). Optional overrides can be declared in **config/repo_vars.toml** for local/tooling use.
@@ -81,6 +85,8 @@ On the VM, these are the runtime credentials expected by `vm_watcher.py`. For ev
 |----------|---------|
 | `GITHUB_APP_TEST_ID`, `GITHUB_APP_TEST_INSTALLATION_ID`, `GITHUB_APP_TEST_PRIVATE_KEY` | GitHub App credentials (test). |
 | `GITHUB_APP_PROD_ID`, `GITHUB_APP_PROD_INSTALLATION_ID`, `GITHUB_APP_PROD_PRIVATE_KEY` | GitHub App credentials (production). |
+| `GH_APP_TEST_ID`, `GH_APP_TEST_INSTALLATION_ID`, `GH_APP_TEST_PRIVATE_KEY` | Alias fallback names accepted by VM/runtime tooling (canonical `GITHUB_APP_*` takes precedence). |
+| `GH_APP_PROD_ID`, `GH_APP_PROD_INSTALLATION_ID`, `GH_APP_PROD_PRIVATE_KEY` | Alias fallback names accepted by VM/runtime tooling (canonical `GITHUB_APP_*` takes precedence). |
 | `BMT_UV_BIN` | Optional debug override for uv binary path on VM (bootstrap default is self-heal from pinned code artifact). |
 
 Repository mapping is in **remote/code/config/github_repos.json**. See [../remote/code/lib/github_auth.py](../remote/code/lib/github_auth.py) for resolution logic.
@@ -131,7 +137,8 @@ Pointer semantics and retention: [architecture.md](architecture.md#results-contr
 
 ## Branch protection
 
-Require the **commit status** named by `BMT_STATUS_CONTEXT` (default: **BMT Gate**) to pass before merge. The Check Run is for visibility; the gate is the commit status.
+Require the **commit status** named by `BMT_STATUS_CONTEXT` (default: **BMT Gate**) to pass before merge.
+`BMT_RUNTIME_CONTEXT` is for in-progress visibility only and must not be used as a protected merge gate.
 
 GitHub branch rules are the source of truth for that context. Keep branch rules and repo vars aligned via:
 

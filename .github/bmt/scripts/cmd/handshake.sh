@@ -30,6 +30,7 @@ bmt_cmd_show_handshake_guidance() {
     echo "### Check VM / GCS while waiting"
     echo "- **Trigger file** (VM reads this): \`${trigger_uri}\`"
     echo "- **Ack file** (VM writes this when ready): \`${ack_uri}\`"
+    echo "- Handshake confirms VM pickup only; final \`${BMT_STATUS_CONTEXT:-BMT Gate}\` status is posted after VM completion."
     echo "- **GCS:** \`gcloud storage cat \"${ack_uri}\"\` (after VM writes ack)"
     echo "- **VM serial output:** \`gcloud compute instances get-serial-port-output ${BMT_VM_NAME} --zone=${GCP_ZONE}\`"
     echo "- **Local TUI monitor:** \`just monitor --run-id ${run_id}\` or \`uv run python devtools/bmt_monitor.py --run-id ${run_id} --bucket ${GCS_BUCKET}\`"

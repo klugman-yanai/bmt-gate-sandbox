@@ -38,11 +38,29 @@ import github_pull_request  # type: ignore[import-not-found]  # noqa: E402
 import status_file  # type: ignore[import-not-found]  # noqa: E402
 
 _shutdown = False
-_KEEP_RECENT_WORKFLOW_FILES = 2
 _KEEP_RECENT_LOCAL_RUNS = 2
 
-# Fallback when trigger payload omits status_context; normal path is run_trigger payload (workflow sets from repo vars).
+# Fallback when trigger payload omits contexts; normal path is run_trigger payload (workflow sets from repo vars).
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
+DEFAULT_RUNTIME_STATUS_CONTEXT = "BMT Runtime"
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError:
+            print(f"Warning: invalid integer for {name}={raw!r}; using default {default}.")
+            value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    return value
+
+
+_KEEP_RECENT_WORKFLOW_FILES = _env_int("BMT_TRIGGER_METADATA_KEEP_RECENT", 2, minimum=0)
 
 
 def _handle_signal(signum: int, _frame: Any) -> None:
@@ -829,7 +847,10 @@ def _process_run_trigger(  # noqa: PLR0911
     sha = (run_payload.get("sha") or "").strip()
     run_context = str(run_payload.get("run_context", "manual"))
     workflow_run_id = run_payload.get("workflow_run_id", "?")
-    status_context = (run_payload.get("status_context") or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
+    gate_status_context = (run_payload.get("status_context") or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
+    runtime_status_context = (
+        run_payload.get("runtime_status_context") or DEFAULT_RUNTIME_STATUS_CONTEXT
+    ).strip() or DEFAULT_RUNTIME_STATUS_CONTEXT
     description_pending = (
         run_payload.get("description_pending") or ""
     ).strip() or "BMT running on VM; status will update when complete."
@@ -1063,7 +1084,7 @@ def _process_run_trigger(  # noqa: PLR0911
                 github_token,
                 repository,
                 sha,
-                name=status_context,
+                name=runtime_status_context,
                 status="in_progress",
                 output={
                     "title": f"BMT Execution Started ({len(legs_raw)} legs)",
@@ -1082,7 +1103,7 @@ def _process_run_trigger(  # noqa: PLR0911
                 description_pending,
                 None,
                 github_token,
-                context=status_context,
+                context=runtime_status_context,
                 token_resolver=github_token_resolver,
                 attempts=2,
             )
@@ -1125,14 +1146,14 @@ def _process_run_trigger(  # noqa: PLR0911
                     "BMT VM: failed to download orchestrator",
                     None,
                     github_token,
-                    context=status_context,
+                    context=gate_status_context,
                     token_resolver=github_token_resolver,
                 )
                 check_run_id, github_token, _ = _finalize_check_run_resilient(
                     token=github_token,
                     repository=repository,
                     sha=sha,
-                    status_context=status_context,
+                    status_context=runtime_status_context,
                     check_run_id=check_run_id,
                     conclusion="failure",
                     output={
@@ -1317,7 +1338,7 @@ def _process_run_trigger(  # noqa: PLR0911
                                 desc,
                                 None,
                                 github_token,
-                                context=status_context,
+                                context=runtime_status_context,
                             )
                 except Exception as exc:
                     print(f"  Warning: Failed to update status after leg {idx}: {exc}")
@@ -1353,7 +1374,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         token=github_token,
                         repository=repository,
                         sha=sha,
-                        status_context=status_context,
+                        status_context=runtime_status_context,
                         check_run_id=check_run_id,
                         conclusion="neutral",
                         output={
@@ -1376,7 +1397,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         cancel_description,
                         None,
                         github_token,
-                        context=status_context,
+                        context=gate_status_context,
                         token_resolver=github_token_resolver,
                     )
                 if cancel_reason == "superseded_by_new_commit":
@@ -1416,7 +1437,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     token=github_token,
                     repository=repository,
                     sha=sha,
-                    status_context=status_context,
+                    status_context=runtime_status_context,
                     check_run_id=check_run_id,
                     conclusion=conclusion,
                     output={
@@ -1450,7 +1471,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     description,
                     None,
                     github_token,
-                    context=status_context,
+                    context=gate_status_context,
                     token_resolver=github_token_resolver,
                 ):
                     print(f"  Posted commit status: {state}")
@@ -1502,14 +1523,14 @@ def _process_run_trigger(  # noqa: PLR0911
                     f"BMT VM error: {exc!s}"[:140],
                     None,
                     github_token,
-                    context=status_context,
+                    context=gate_status_context,
                     token_resolver=github_token_resolver,
                 )
                 check_run_id, github_token, check_completed = _finalize_check_run_resilient(
                     token=github_token,
                     repository=repository,
                     sha=sha,
-                    status_context=status_context,
+                    status_context=runtime_status_context,
                     check_run_id=check_run_id,
                     conclusion="failure",
                     output={

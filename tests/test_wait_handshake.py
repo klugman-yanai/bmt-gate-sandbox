@@ -52,6 +52,7 @@ def test_wait_handshake_success_uses_runtime_paths(
 
     captured = capsys.readouterr()
     assert f"Expected runtime status path: {runtime_status_uri}" in captured.out
+    assert "Handshake confirms VM pickup only" in captured.out
     content = output_file.read_text(encoding="utf-8")
     assert f"handshake_uri={runtime_root}/triggers/acks/{run_id}.json" in content
 

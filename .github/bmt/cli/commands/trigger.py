@@ -11,11 +11,12 @@ from cli import gcloud, models
 from cli.shared import DEFAULT_ENV_CONTRACT_PATH, require_env, write_github_output
 
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
+DEFAULT_RUNTIME_CONTEXT = "BMT Runtime"
 DEFAULT_DESCRIPTION_PENDING = "BMT running on VM; status will update when complete."
 
 
-def _default_status_context_from_contract() -> str:
-    """Read BMT_STATUS_CONTEXT default from config/env_contract.json when present."""
+def _default_context_from_contract(var_name: str, fallback: str) -> str:
+    """Read an env-contract default value when present."""
     for base in (Path.cwd(), Path(__file__).resolve().parents[3]):
         contract_path = base / DEFAULT_ENV_CONTRACT_PATH
         if contract_path.is_file():
@@ -23,13 +24,13 @@ def _default_status_context_from_contract() -> str:
                 with contract_path.open() as f:
                     contract = json.load(f)
                 defaults = contract.get("defaults") or {}
-                ctx = defaults.get("BMT_STATUS_CONTEXT")
+                ctx = defaults.get(var_name)
                 if ctx and str(ctx).strip():
                     return str(ctx).strip()
             except (OSError, json.JSONDecodeError, TypeError):
                 pass
             break
-    return DEFAULT_STATUS_CONTEXT
+    return fallback
 
 
 def _list_pending_trigger_uris(runtime_bucket_root: str) -> list[str]:
@@ -68,7 +69,14 @@ def run_trigger() -> None:
     if not rows:
         raise RuntimeError("Empty matrix — nothing to trigger")
 
-    ctx = (os.environ.get("BMT_STATUS_CONTEXT") or "").strip() or _default_status_context_from_contract()
+    ctx = (os.environ.get("BMT_STATUS_CONTEXT") or "").strip() or _default_context_from_contract(
+        "BMT_STATUS_CONTEXT",
+        DEFAULT_STATUS_CONTEXT,
+    )
+    runtime_ctx = (os.environ.get("BMT_RUNTIME_CONTEXT") or "").strip() or _default_context_from_contract(
+        "BMT_RUNTIME_CONTEXT",
+        DEFAULT_RUNTIME_CONTEXT,
+    )
 
     runtime_bucket_root = models.runtime_bucket_root_uri(bucket)
     triggered_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -94,6 +102,7 @@ def run_trigger() -> None:
         "bucket": bucket,
         "legs": legs,
         "status_context": ctx,
+        "runtime_status_context": runtime_ctx,
         "description_pending": DEFAULT_DESCRIPTION_PENDING,
     }
     if pr_number is not None:
@@ -102,18 +111,13 @@ def run_trigger() -> None:
     run_trigger_uri_str = models.run_trigger_uri(runtime_bucket_root, workflow_run_id)
     pending_trigger_uris = _list_pending_trigger_uris(runtime_bucket_root)
     blocking_triggers = [uri for uri in pending_trigger_uris if uri != run_trigger_uri_str]
-    if blocking_triggers and run_context != "pr":
+    if blocking_triggers:
         sample = ", ".join(blocking_triggers[:3])
         extra = "" if len(blocking_triggers) <= 3 else f" (+{len(blocking_triggers) - 3} more)"
         raise RuntimeError(
             "VM runtime is busy: pending run trigger(s) already exist under runtime root. "
             f"Blocking triggers: {sample}{extra}. "
             "Wait for the active run to finish or clean stale trigger files before retrying."
-        )
-    if blocking_triggers and run_context == "pr":
-        print(
-            "PR queue mode: existing trigger(s) detected; "
-            f"enqueuing run {workflow_run_id} behind {len(blocking_triggers)} pending trigger(s)."
         )
     try:
         gcloud.upload_json(run_trigger_uri_str, run_payload)

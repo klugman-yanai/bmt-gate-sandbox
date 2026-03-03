@@ -176,6 +176,78 @@ def test_startup_example_handles_home_unset(tmp_path: Path) -> None:
     )
 
 
+def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    bootstrap_dir = repo_root / "bootstrap"
+    bootstrap_dir.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy2(_bootstrap_path("startup_example.sh"), bootstrap_dir / "startup_example.sh")
+    shutil.copy2(_bootstrap_path("install_deps.sh"), bootstrap_dir / "install_deps.sh")
+    shutil.copy2(_bootstrap_path("ensure_uv.sh"), bootstrap_dir / "ensure_uv.sh")
+    (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
+
+    venv_python = repo_root / ".venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True, exist_ok=True)
+    _write_executable(venv_python, "#!/usr/bin/env bash\nexit 0\n")
+
+    fake_uv = tmp_path / "uv"
+    _write_executable(fake_uv, "#!/usr/bin/env bash\nexit 0\n")
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir(parents=True, exist_ok=True)
+    stop_log = tmp_path / "stop-url.log"
+
+    fake_gcloud = fake_bin / "gcloud"
+    _write_executable(
+        fake_gcloud,
+        "#!/usr/bin/env bash\n"
+        "exit 1\n",
+    )
+
+    fake_curl = fake_bin / "curl"
+    _write_executable(
+        fake_curl,
+        (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "url=\"${@: -1}\"\n"
+            "case \"$url\" in\n"
+            "  *'/instance/name') echo 'vm-test' ;;\n"
+            "  *'/instance/zone') echo 'projects/1/zones/europe-west4-a' ;;\n"
+            "  *'/project/project-id') echo 'proj-test' ;;\n"
+            "  *'/service-accounts/default/token') echo '{\"access_token\":\"token-test\"}' ;;\n"
+            "  *'compute.googleapis.com/compute/v1/projects/proj-test/zones/europe-west4-a/instances/vm-test/stop')\n"
+            "    printf '%s\\n' \"$url\" >> \"${STOP_LOG:?}\"\n"
+            "    echo '200'\n"
+            "    ;;\n"
+            "  *)\n"
+            "    exit 1\n"
+            "    ;;\n"
+            "esac\n"
+        ),
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+    env["STOP_LOG"] = str(stop_log)
+    env["BMT_REPO_ROOT"] = str(repo_root)
+    env["GCS_BUCKET"] = "test-bucket"
+    env["BMT_UV_BIN"] = str(fake_uv)
+    env["BMT_SELF_STOP"] = "1"
+
+    proc = subprocess.run(
+        ["bash", str(bootstrap_dir / "startup_example.sh")],
+        check=False,
+        cwd=repo_root,
+        env=env,
+    )
+    assert proc.returncode != 0
+    assert stop_log.exists(), "Expected Compute API fallback stop call to be recorded"
+    assert "compute.googleapis.com/compute/v1/projects/proj-test/zones/europe-west4-a/instances/vm-test/stop" in (
+        stop_log.read_text(encoding="utf-8")
+    )
+
+
 def test_ensure_uv_downloads_pinned_artifact_when_uv_missing(tmp_path: Path) -> None:
     fake_bucket = tmp_path / "bucket" / "code" / "_tools" / "uv" / "linux-x86_64"
     fake_bucket.mkdir(parents=True, exist_ok=True)

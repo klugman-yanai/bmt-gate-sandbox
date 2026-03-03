@@ -23,6 +23,39 @@ try:
 except ImportError:
     HAS_JWT = False
 
+_ALIAS_WARNING_EMITTED: set[tuple[str, str]] = set()
+
+
+def _resolve_env_value(
+    *,
+    canonical_prefix: str,
+    suffix: str,
+    repository: str,
+    repo_env: str,
+) -> tuple[str, str]:
+    """Resolve canonical env var first, then GH_APP alias fallback."""
+    canonical_name = f"{canonical_prefix}_{suffix}"
+    value = os.environ.get(canonical_name, "").strip()
+    if value:
+        return value, canonical_name
+
+    if canonical_prefix.startswith("GITHUB_APP_"):
+        alias_prefix = f"GH_APP_{canonical_prefix[len('GITHUB_APP_'):]}"
+        alias_name = f"{alias_prefix}_{suffix}"
+        alias_value = os.environ.get(alias_name, "").strip()
+        if alias_value:
+            warning_key = (repository, canonical_prefix)
+            if warning_key not in _ALIAS_WARNING_EMITTED:
+                print(
+                    "  Warning: Using alias GitHub App env prefix "
+                    f"'{alias_prefix}_*' for '{repository}' (env: {repo_env}); "
+                    f"prefer canonical '{canonical_prefix}_*'."
+                )
+                _ALIAS_WARNING_EMITTED.add(warning_key)
+            return alias_value, alias_name
+
+    return "", canonical_name
+
 
 def get_installation_token_from_app(  # noqa: PLR0911
     app_id: str,
@@ -227,13 +260,28 @@ def resolve_auth_for_repository(  # noqa: PLR0911
         print(f"  Error: No secret_prefix for '{repository}' (env: {repo_env}); cannot resolve GitHub App auth")
         return None
 
-    # Read App credentials from canonical environment variables.
-    app_id = os.environ.get(f"{secret_prefix}_ID", "").strip()
-    installation_id = os.environ.get(f"{secret_prefix}_INSTALLATION_ID", "").strip()
-    private_key = os.environ.get(f"{secret_prefix}_PRIVATE_KEY", "").strip()
+    # Read App credentials from canonical env vars with GH_APP_* alias fallback.
+    app_id, app_id_var = _resolve_env_value(
+        canonical_prefix=secret_prefix,
+        suffix="ID",
+        repository=repository,
+        repo_env=repo_env,
+    )
+    installation_id, installation_id_var = _resolve_env_value(
+        canonical_prefix=secret_prefix,
+        suffix="INSTALLATION_ID",
+        repository=repository,
+        repo_env=repo_env,
+    )
+    private_key, private_key_var = _resolve_env_value(
+        canonical_prefix=secret_prefix,
+        suffix="PRIVATE_KEY",
+        repository=repository,
+        repo_env=repo_env,
+    )
 
     if not (app_id and installation_id and private_key):
-        checked = f"{secret_prefix}_ID/{secret_prefix}_INSTALLATION_ID/{secret_prefix}_PRIVATE_KEY"
+        checked = f"{app_id_var}/{installation_id_var}/{private_key_var}"
         print(f"  Error: Missing GitHub App credentials for '{repository}' (env: {repo_env}). Checked: {checked}")
         return None
 

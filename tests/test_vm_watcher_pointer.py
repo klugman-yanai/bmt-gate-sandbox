@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import json
 import sys
 from pathlib import Path
 
@@ -134,6 +136,14 @@ def test_cleanup_workflow_artifacts_targets_prefixed_and_base_status(monkeypatch
     assert all(c[2] == watcher._KEEP_RECENT_WORKFLOW_FILES for c in calls)
 
 
+def test_keep_recent_workflow_files_from_env(monkeypatch):
+    monkeypatch.setenv("BMT_TRIGGER_METADATA_KEEP_RECENT", "5")
+    reloaded = importlib.reload(watcher)
+    assert reloaded._KEEP_RECENT_WORKFLOW_FILES == 5
+    monkeypatch.delenv("BMT_TRIGGER_METADATA_KEEP_RECENT", raising=False)
+    importlib.reload(watcher)
+
+
 def test_cleanup_legacy_result_history_deletes_archive_and_logs(monkeypatch):
     removed: list[tuple[str, bool]] = []
 
@@ -149,6 +159,137 @@ def test_cleanup_legacy_result_history_deletes_archive_and_logs(monkeypatch):
         ("gs://b/p/sk/results/archive", True),
         ("gs://b/p/sk/results/logs/false_rejects", True),
     ]
+
+
+def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_path: Path):
+    status_store: dict[str, object] = {}
+    posted_resilient: list[tuple[str, str]] = []
+    posted_progress: list[tuple[str, str]] = []
+    created_check_names: list[str] = []
+    finalized_check_names: list[str] = []
+    pointer_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        watcher,
+        "_gcloud_download_json",
+        lambda _uri: {
+            "workflow_run_id": "123",
+            "repository": "owner/repo",
+            "sha": "abc123",
+            "run_context": "dev",
+            "bucket": "bucket",
+            "status_context": "BMT Gate",
+            "runtime_status_context": "BMT Runtime",
+            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+        },
+    )
+    monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda *_args, **_kwargs: True)
+
+    def _write_status(_bucket: str, _runtime_prefix: str, _run_id: str, payload: dict[str, object]) -> None:
+        status_store.clear()
+        status_store.update(json.loads(json.dumps(payload)))
+
+    def _read_status(_bucket: str, _runtime_prefix: str, _run_id: str) -> dict[str, object]:
+        return json.loads(json.dumps(status_store))
+
+    monkeypatch.setattr(watcher.status_file, "write_status", _write_status)
+    monkeypatch.setattr(watcher.status_file, "read_status", _read_status)
+    monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
+    monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(watcher, "_run_orchestrator", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
+    monkeypatch.setattr(
+        watcher,
+        "_load_manager_summary",
+        lambda _run_root: {
+            "status": "pass",
+            "project_id": "sk",
+            "bmt_id": "false_reject_namuh",
+            "run_id": "run-1",
+            "passed": True,
+            "ci_verdict_uri": "gs://bucket/runtime/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",
+            "bmt_results": {"results": []},
+            "orchestration_timing": {"duration_sec": 1},
+        },
+    )
+    monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: pointer_calls.append(summary))
+
+    def _create_check(
+        token: str,
+        repository: str,
+        sha: str,
+        name: str,
+        status: str,
+        output: dict[str, object],
+        token_resolver,
+    ) -> tuple[int | None, str]:
+        del token, repository, sha, status, output, token_resolver
+        created_check_names.append(name)
+        return 42, "token"
+
+    monkeypatch.setattr(watcher, "_create_check_run_resilient", _create_check)
+    monkeypatch.setattr(watcher, "_update_check_run_resilient", lambda *_args, **_kwargs: (42, "token"))
+
+    def _finalize_check(
+        *,
+        token: str,
+        repository: str,
+        sha: str,
+        status_context: str,
+        check_run_id: int | None,
+        conclusion: str,
+        output: dict[str, object],
+        token_resolver,
+    ) -> tuple[int | None, str, bool]:
+        del token, repository, sha, check_run_id, conclusion, output, token_resolver
+        finalized_check_names.append(status_context)
+        return 42, "token", True
+
+    monkeypatch.setattr(watcher, "_finalize_check_run_resilient", _finalize_check)
+
+    def _post_resilient(
+        repository: str,
+        sha: str,
+        state: str,
+        description: str,
+        target_url: str | None,
+        token: str,
+        *,
+        context: str,
+        token_resolver,
+        attempts: int = 2,
+    ) -> bool:
+        del repository, sha, description, target_url, token, token_resolver, attempts
+        posted_resilient.append((state, context))
+        return True
+
+    monkeypatch.setattr(watcher, "_post_commit_status_resilient", _post_resilient)
+    monkeypatch.setattr(
+        watcher,
+        "_post_commit_status",
+        lambda _r, _s, state, _d, _u, _t, *, context="": posted_progress.append((state, context)) or True,
+    )
+    monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
+
+    watcher._process_run_trigger(
+        "gs://bucket/runtime/triggers/runs/123.json",
+        "gs://bucket/code",
+        "gs://bucket/runtime",
+        tmp_path,
+        lambda _repository: "token",
+    )
+
+    # Runtime context owns in-progress reporting.
+    assert ("pending", "BMT Runtime") in posted_resilient
+    assert any(state == "pending" and ctx == "BMT Runtime" for state, ctx in posted_progress)
+    assert created_check_names == ["BMT Runtime"]
+    assert finalized_check_names == ["BMT Runtime"]
+
+    # Gate context receives terminal result only.
+    assert ("success", "BMT Gate") in posted_resilient
+    assert pointer_calls, "Expected pointer promotion on successful run"
 
 
 def test_process_run_trigger_rejects_missing_repository(monkeypatch, tmp_path: Path):

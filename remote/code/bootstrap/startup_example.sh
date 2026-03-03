@@ -20,10 +20,6 @@ _stop_instance_best_effort() {
     echo "Self-stop disabled (BMT_SELF_STOP=${_self_stop_enabled}); leaving VM running."
     return
   fi
-  if ! command -v gcloud >/dev/null 2>&1; then
-    echo "Warning: gcloud not found; cannot self-stop VM (exit=${exit_code})." >&2
-    return
-  fi
   local instance zone project
   instance=$(curl -sS -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/name" || true)
@@ -33,7 +29,35 @@ _stop_instance_best_effort() {
     "http://metadata.google.internal/computeMetadata/v1/project/project-id" || true)
   if [[ -n "$instance" && -n "$zone" && -n "$project" ]]; then
     echo "Stopping VM $instance (zone=$zone project=$project), script exit=${exit_code}."
-    gcloud compute instances stop "$instance" --zone "$zone" --project "$project" || true
+    if command -v gcloud >/dev/null 2>&1; then
+      if gcloud compute instances stop "$instance" --zone "$zone" --project "$project"; then
+        echo "Self-stop succeeded via gcloud CLI."
+        return
+      fi
+      echo "Warning: gcloud stop command failed; attempting Compute API fallback." >&2
+    fi
+
+    # Fallback path: call Compute Engine stop API directly with metadata token.
+    # This avoids hard dependency on gcloud path/install during failure handling.
+    local token_json access_token stop_url http_code
+    token_json="$(curl -sS -H "Metadata-Flavor: Google" \
+      "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" || true)"
+    access_token="$(printf '%s' "$token_json" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("access_token") or "").strip())' 2>/dev/null || true)"
+    if [[ -z "$access_token" ]]; then
+      echo "Warning: unable to obtain metadata access token for API self-stop." >&2
+      return
+    fi
+    stop_url="https://compute.googleapis.com/compute/v1/projects/${project}/zones/${zone}/instances/${instance}/stop"
+    http_code="$(curl -sS -o /tmp/bmt-self-stop-response.json -w '%{http_code}' \
+      -X POST \
+      -H "Authorization: Bearer ${access_token}" \
+      -H "Content-Type: application/json" \
+      "$stop_url" || true)"
+    if [[ "$http_code" =~ ^2[0-9][0-9]$ || "$http_code" == "409" ]]; then
+      echo "Self-stop succeeded via Compute API fallback (HTTP ${http_code})."
+      return
+    fi
+    echo "Warning: Compute API self-stop failed (HTTP ${http_code})." >&2
   else
     echo "Warning: Could not resolve instance metadata for self-stop (exit=${exit_code})." >&2
   fi
@@ -114,9 +138,12 @@ if [[ ! -d "$VENV" ]] || ! "${VENV}/bin/python" -c "import jwt" 2>/dev/null; the
 fi
 
 # 3. Fetch secrets and export.
-# Canonical groups only:
+# Canonical groups:
 #   - GITHUB_APP_TEST_*
 #   - GITHUB_APP_PROD_*
+# Alias compatibility groups (fallback only):
+#   - GH_APP_TEST_*
+#   - GH_APP_PROD_*
 
 # Regional secrets: configure gcloud to use the regional Secret Manager endpoint.
 # Set BMT_SECRETS_LOCATION to override; defaults to the VM zone's region.
@@ -144,22 +171,58 @@ _access_secret() {
 _load_github_app_credentials() {
   local env_label="$1"
   local prefix="$2"
-  local id_secret="${prefix}_ID"
-  local installation_secret="${prefix}_INSTALLATION_ID"
-  local key_secret="${prefix}_PRIVATE_KEY"
+  local alias_prefix=""
+  local -a candidate_prefixes=()
+  local selected_prefix=""
+
+  if [[ "$prefix" == GITHUB_APP_* ]]; then
+    alias_prefix="GH_APP_${prefix#GITHUB_APP_}"
+  fi
+
+  candidate_prefixes=("$prefix")
+  if [[ -n "$alias_prefix" && "$alias_prefix" != "$prefix" ]]; then
+    candidate_prefixes+=("$alias_prefix")
+  fi
 
   local app_id installation_id private_key
-  app_id=$(_access_secret "$id_secret" 2>/dev/null || true)
+  app_id=""
+  installation_id=""
+  private_key=""
+
+  local candidate
+  for candidate in "${candidate_prefixes[@]}"; do
+    app_id=$(_access_secret "${candidate}_ID" 2>/dev/null || true)
+    if [[ -n "$app_id" ]]; then
+      selected_prefix="$candidate"
+      break
+    fi
+  done
   if [[ -z "$app_id" ]]; then
-    echo "Info: ${env_label}: GitHub App secrets not found/readable (${id_secret}) in project ${GCP_PROJECT:-<default>}."
+    echo "Info: ${env_label}: GitHub App secrets not found/readable (${prefix}_ID) in project ${GCP_PROJECT:-<default>}."
     return 0
   fi
 
-  installation_id=$(_access_secret "$installation_secret" 2>/dev/null || true)
-  private_key=$(_access_secret "$key_secret" 2>/dev/null || true)
+  for candidate in "${candidate_prefixes[@]}"; do
+    installation_id=$(_access_secret "${candidate}_INSTALLATION_ID" 2>/dev/null || true)
+    if [[ -n "$installation_id" ]]; then
+      [[ -z "$selected_prefix" ]] && selected_prefix="$candidate"
+      break
+    fi
+  done
+  for candidate in "${candidate_prefixes[@]}"; do
+    private_key=$(_access_secret "${candidate}_PRIVATE_KEY" 2>/dev/null || true)
+    if [[ -n "$private_key" ]]; then
+      [[ -z "$selected_prefix" ]] && selected_prefix="$candidate"
+      break
+    fi
+  done
   if [[ -z "$installation_id" || -z "$private_key" ]]; then
     echo "Warning: ${env_label}: secret set ${prefix}_* partially available but values are missing/unreadable."
     return 0
+  fi
+
+  if [[ -n "$selected_prefix" && "$selected_prefix" != "$prefix" ]]; then
+    echo "Warning: ${env_label}: using alias secret prefix ${selected_prefix}_*; prefer canonical ${prefix}_*."
   fi
 
   local id_var="${prefix}_ID"
