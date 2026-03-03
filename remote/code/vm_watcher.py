@@ -1162,6 +1162,17 @@ def _process_run_trigger(  # noqa: PLR0911
                     },
                     token_resolver=github_token_resolver,
                 )
+                _post_commit_status_resilient(
+                    repository,
+                    sha,
+                    "failure",
+                    "BMT VM: failed to download orchestrator",
+                    None,
+                    github_token,
+                    context=runtime_status_context,
+                    token_resolver=github_token_resolver,
+                    attempts=2,
+                )
                 if pr_number is not None:
                     _upsert_pr_comment(
                         result="Did not run",
@@ -1400,6 +1411,17 @@ def _process_run_trigger(  # noqa: PLR0911
                         context=gate_status_context,
                         token_resolver=github_token_resolver,
                     )
+                    _post_commit_status_resilient(
+                        repository,
+                        sha,
+                        "error",
+                        cancel_description,
+                        None,
+                        github_token,
+                        context=runtime_status_context,
+                        token_resolver=github_token_resolver,
+                        attempts=2,
+                    )
                 if cancel_reason == "superseded_by_new_commit":
                     _upsert_pr_comment(
                         result="Superseded",
@@ -1457,6 +1479,17 @@ def _process_run_trigger(  # noqa: PLR0911
                     print(f"  Completed Check Run: {conclusion}")
                 else:
                     print("  Could not finalize Check Run")
+                _post_commit_status_resilient(
+                    repository,
+                    sha,
+                    state,
+                    description,
+                    None,
+                    github_token,
+                    context=runtime_status_context,
+                    token_resolver=github_token_resolver,
+                    attempts=2,
+                )
 
             if pointer_promotion_allowed:
                 for summary in leg_summaries:
@@ -1541,6 +1574,17 @@ def _process_run_trigger(  # noqa: PLR0911
                 )
                 if not check_completed:
                     print("  Warning: Failed to complete Check Run on error")
+                _post_commit_status_resilient(
+                    repository,
+                    sha,
+                    "failure",
+                    f"BMT VM error: {exc!s}"[:140],
+                    None,
+                    github_token,
+                    context=runtime_status_context,
+                    token_resolver=github_token_resolver,
+                    attempts=2,
+                )
                 if pr_number is not None:
                     _upsert_pr_comment(
                         result="Failed",
