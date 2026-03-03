@@ -1171,7 +1171,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     github_token,
                     context=runtime_status_context,
                     token_resolver=github_token_resolver,
-                    attempts=2,
+                    attempts=4,
                 )
                 if pr_number is not None:
                     _upsert_pr_comment(
@@ -1420,7 +1420,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         github_token,
                         context=runtime_status_context,
                         token_resolver=github_token_resolver,
-                        attempts=2,
+                        attempts=4,
                     )
                 if cancel_reason == "superseded_by_new_commit":
                     _upsert_pr_comment(
@@ -1488,7 +1488,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     github_token,
                     context=runtime_status_context,
                     token_resolver=github_token_resolver,
-                    attempts=2,
+                    attempts=4,
                 )
 
             if pointer_promotion_allowed:
@@ -1583,7 +1583,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     github_token,
                     context=runtime_status_context,
                     token_resolver=github_token_resolver,
-                    attempts=2,
+                    attempts=4,
                 )
                 if pr_number is not None:
                     _upsert_pr_comment(
