@@ -114,7 +114,7 @@ def download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
     """Download a GCS object as JSON; return (payload, None) or (None, error_message)."""
     with tempfile.TemporaryDirectory(prefix="ci_verdict_") as tmp_dir:
         local_path = Path(tmp_dir) / "payload.json"
-        rc, err = run_capture_retry(["gcloud", "storage", "cp", uri, str(local_path), "--quiet"])
+        rc, err = run_capture_retry(["gcloud", "storage", "cp", uri, str(local_path)])
         if rc != 0:
             return None, err
         try:
@@ -131,7 +131,7 @@ def upload_json(uri: str, payload: dict[str, Any]) -> None:
     with tempfile.TemporaryDirectory(prefix="ci_trigger_") as tmp_dir:
         local_path = Path(tmp_dir) / "payload.json"
         local_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        rc, err = run_capture_retry(["gcloud", "storage", "cp", str(local_path), uri, "--quiet"])
+        rc, err = run_capture_retry(["gcloud", "storage", "cp", str(local_path), uri])
         if rc != 0:
             raise GcloudError(f"Failed to upload {uri}: {err}")
 
