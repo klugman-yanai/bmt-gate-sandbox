@@ -30,6 +30,7 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     "remote",
     "ruff.toml",
     "scripts",
+    "src",
     "tests",
     "uv.lock",
 }

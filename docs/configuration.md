@@ -43,7 +43,7 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `BMT_CLOUD_RUN_JOB` | — | Cloud Run Job name when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
 | `BMT_CLOUD_RUN_REGION` | — | Cloud Run region when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for runtime handshake wait. |
-| `BMT_PREEMPT_ON_PR_STALE_QUEUE` | `"1"` | If stale queue files exist for PR runs, preflight cleanup may force clean runtime restart to avoid stalled handoffs. |
+| `BMT_PREEMPT_ON_PR_STALE_QUEUE` | `"1"` | For PR runs, allow preflight cleanup/restart only for stale triggers from the **same PR**. Triggers from different PRs are preserved for isolation. |
 | `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
 | `BMT_TRIGGER_METADATA_KEEP_RECENT` | `"2"` | Number of recent trigger metadata files (`acks/status`) retained after cleanup. |
 | `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |

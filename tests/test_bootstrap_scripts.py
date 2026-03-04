@@ -200,8 +200,7 @@ def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(t
     fake_gcloud = fake_bin / "gcloud"
     _write_executable(
         fake_gcloud,
-        "#!/usr/bin/env bash\n"
-        "exit 1\n",
+        "#!/usr/bin/env bash\nexit 1\n",
     )
 
     fake_curl = fake_bin / "curl"
@@ -210,14 +209,14 @@ def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(t
         (
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "url=\"${@: -1}\"\n"
-            "case \"$url\" in\n"
+            'url="${@: -1}"\n'
+            'case "$url" in\n'
             "  *'/instance/name') echo 'vm-test' ;;\n"
             "  *'/instance/zone') echo 'projects/1/zones/europe-west4-a' ;;\n"
             "  *'/project/project-id') echo 'proj-test' ;;\n"
             "  *'/service-accounts/default/token') echo '{\"access_token\":\"token-test\"}' ;;\n"
             "  *'compute.googleapis.com/compute/v1/projects/proj-test/zones/europe-west4-a/instances/vm-test/stop')\n"
-            "    printf '%s\\n' \"$url\" >> \"${STOP_LOG:?}\"\n"
+            '    printf \'%s\\n\' "$url" >> "${STOP_LOG:?}"\n'
             "    echo '200'\n"
             "    ;;\n"
             "  *)\n"

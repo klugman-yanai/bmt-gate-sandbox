@@ -25,6 +25,22 @@ bmt__trigger_payload_is_valid() {
   ' >/dev/null 2>&1
 }
 
+bmt__trigger_payload_identity() {
+  local uri payload
+  uri="$1"
+  payload="$(gcloud storage cat "$uri" 2>/dev/null || true)"
+  if [[ -z "$payload" ]]; then
+    return 1
+  fi
+  echo "$payload" | jq -r '
+    [
+      (.repository // ""),
+      (.run_context // ""),
+      ((.pull_request_number // "") | tostring)
+    ] | @tsv
+  ' 2>/dev/null
+}
+
 bmt__trim_trigger_family_keep_recent() {
   local family_prefix keep_recent
   local -a uris run_ids keep_ids
@@ -74,7 +90,8 @@ bmt__trim_trigger_family_keep_recent() {
 bmt_cmd_preflight_trigger_queue() {
   local run_id root runs_prefix current_uri run_context
   local preempt_on_pr_raw preempt_on_pr stale_sec keep_recent
-  local -a existing blocking invalid
+  local current_pr_number current_repo trigger_repo trigger_context trigger_pr_number identity_tsv
+  local -a existing blocking invalid same_pr_blocking preserved_blocking remaining_runs
   local uri removed failed invalid_removed invalid_failed rid count prefix_uri trimmed
   local trim_runs trim_acks trim_status
 
@@ -111,6 +128,8 @@ bmt_cmd_preflight_trigger_queue() {
   mapfile -t existing < <(gcloud storage ls "$runs_prefix" 2>/dev/null | sed '/\/$/d' | grep '\.json$' || true)
   invalid=()
   blocking=()
+  same_pr_blocking=()
+  preserved_blocking=()
   for uri in "${existing[@]}"; do
     [[ "$uri" == "$current_uri" ]] && continue
     if bmt__trigger_payload_is_valid "$uri"; then
@@ -163,19 +182,112 @@ bmt_cmd_preflight_trigger_queue() {
 
   if [[ "${#blocking[@]}" -eq 0 ]]; then
     echo "- Action: no blocking trigger cleanup required." >>"$GITHUB_STEP_SUMMARY"
-  elif [[ "$run_context" == "pr" && "$preempt_on_pr" != "true" ]]; then
-    {
-      echo "- Action: observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); no trigger deletion, no forced VM restart."
-      echo
-      echo "### Existing queue entries"
-      echo
-      echo "| Trigger URI |"
-      echo "|------------|"
-    } >>"$GITHUB_STEP_SUMMARY"
-    for uri in "${blocking[@]}"; do
-      echo "| \`${uri}\` |" >>"$GITHUB_STEP_SUMMARY"
+  elif [[ "$run_context" == "pr" ]]; then
+    current_pr_number="${PR_NUMBER:-}"
+    current_repo="${GITHUB_REPOSITORY:-}"
+
+    if [[ "$preempt_on_pr" != "true" ]]; then
+      {
+        echo "- Action: observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); no trigger deletion, no forced VM restart."
+        echo
+        echo "### Existing queue entries"
+        echo
+        echo "| Trigger URI |"
+        echo "|------------|"
+      } >>"$GITHUB_STEP_SUMMARY"
+      for uri in "${blocking[@]}"; do
+        echo "| \`${uri}\` |" >>"$GITHUB_STEP_SUMMARY"
+      done
+      exit 0
+    fi
+
+    if [[ -z "$current_pr_number" || -z "$current_repo" ]]; then
+      preserved_blocking=("${blocking[@]}")
+      {
+        echo "- Action: PR run missing identity metadata (\`PR_NUMBER\` or \`GITHUB_REPOSITORY\`); preserving existing queue entries."
+      } >>"$GITHUB_STEP_SUMMARY"
+    else
+      for uri in "${blocking[@]}"; do
+        identity_tsv="$(bmt__trigger_payload_identity "$uri" || true)"
+        if [[ -z "$identity_tsv" ]]; then
+          preserved_blocking+=("$uri")
+          continue
+        fi
+        IFS=$'\t' read -r trigger_repo trigger_context trigger_pr_number <<<"$identity_tsv"
+        if [[ "$trigger_context" == "pr" && "$trigger_repo" == "$current_repo" && "$trigger_pr_number" == "$current_pr_number" ]]; then
+          same_pr_blocking+=("$uri")
+        else
+          preserved_blocking+=("$uri")
+        fi
+      done
+    fi
+
+    if [[ "${#same_pr_blocking[@]}" -gt 0 ]]; then
+      {
+        echo
+        echo "### Same-PR stale triggers found (to remove)"
+        echo
+        echo "| Trigger URI |"
+        echo "|------------|"
+      } >>"$GITHUB_STEP_SUMMARY"
+      for uri in "${same_pr_blocking[@]}"; do
+        echo "| \`${uri}\` |" >>"$GITHUB_STEP_SUMMARY"
+      done
+    else
+      echo "- Action: no same-PR stale trigger cleanup required." >>"$GITHUB_STEP_SUMMARY"
+    fi
+
+    if [[ "${#preserved_blocking[@]}" -gt 0 ]]; then
+      {
+        echo
+        echo "### Preserved queue entries (different PR/run context)"
+        echo
+        echo "| Trigger URI |"
+        echo "|------------|"
+      } >>"$GITHUB_STEP_SUMMARY"
+      for uri in "${preserved_blocking[@]}"; do
+        echo "| \`${uri}\` |" >>"$GITHUB_STEP_SUMMARY"
+      done
+      echo "- Isolation policy: different PRs are never preempted by this run." >>"$GITHUB_STEP_SUMMARY"
+    fi
+
+    removed=0
+    failed=0
+    for uri in "${same_pr_blocking[@]}"; do
+      if gcloud storage rm "$uri" >/dev/null 2>&1; then
+        removed=$((removed + 1))
+        rid="$(basename "$uri")"
+        rid="${rid%.json}"
+        gcloud storage rm "${root}/triggers/acks/${rid}.json" >/dev/null 2>&1 || true
+        gcloud storage rm "${root}/triggers/status/${rid}.json" >/dev/null 2>&1 || true
+      else
+        failed=$((failed + 1))
+      fi
     done
-    exit 0
+
+    echo "stale_cleanup_count=${removed}" >>"$GITHUB_OUTPUT"
+    if [[ "$removed" -gt 0 ]]; then
+      echo "restart_vm=true" >>"$GITHUB_OUTPUT"
+    fi
+
+    {
+      echo
+      echo "### Preflight cleanup result"
+      echo
+      echo "- Removed same-PR stale run triggers: **${removed}**"
+      echo "- Failed removals: **${failed}**"
+      echo "- Preserved queue entries: **${#preserved_blocking[@]}**"
+      if [[ "$removed" -gt 0 ]]; then
+        echo "- Requested VM clean restart before handshake: **yes**"
+      else
+        echo "- Requested VM clean restart before handshake: **no**"
+      fi
+    } >>"$GITHUB_STEP_SUMMARY"
+
+    if [[ "$failed" -gt 0 ]]; then
+      echo "::error::Failed to remove ${failed} same-PR stale trigger file(s) under ${runs_prefix}."
+      exit 1
+    fi
   else
     {
       echo
@@ -227,7 +339,13 @@ bmt_cmd_preflight_trigger_queue() {
     fi
   fi
 
-  trim_runs="$(bmt__trim_trigger_family_keep_recent "${root}/triggers/runs/" "$keep_recent")"
+  mapfile -t remaining_runs < <(gcloud storage ls "$runs_prefix" 2>/dev/null | sed '/\/$/d' | grep '\.json$' || true)
+  if [[ "${#remaining_runs[@]}" -gt 0 ]]; then
+    trim_runs=0
+    echo "- Skipped trigger-run metadata trim: queue entries still exist and are preserved for isolation." >>"$GITHUB_STEP_SUMMARY"
+  else
+    trim_runs="$(bmt__trim_trigger_family_keep_recent "${root}/triggers/runs/" "$keep_recent")"
+  fi
   trim_acks="$(bmt__trim_trigger_family_keep_recent "${root}/triggers/acks/" "$keep_recent")"
   trim_status="$(bmt__trim_trigger_family_keep_recent "${root}/triggers/status/" "$keep_recent")"
   trimmed=$((trim_runs + trim_acks + trim_status))

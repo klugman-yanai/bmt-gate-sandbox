@@ -264,20 +264,22 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
 
   handoff:
-    name: 04 Handoff (Skip/Run Branch)
+    name: 04 Handoff (Run or Skip)
     needs: [prepare, classify-handoff]
-    if: ${{ needs.prepare.result == 'success' }}
+    if: ${{ always() && needs.prepare.result != 'cancelled' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
       id-token: write
       actions: read
     outputs:
-      trigger_written: ${{ steps.run.outputs.trigger_written }}
-      handshake_ok: ${{ steps.run.outputs.handshake_ok }}
-      handshake_uri: ${{ steps.run.outputs.handshake_uri }}
-      vm_started: ${{ steps.run.outputs.vm_started }}
-      handoff_reason: ${{ steps.run.outputs.handoff_reason }}
+      path: ${{ steps.route.outputs.path }}
+      trigger_written: ${{ steps.normalize.outputs.trigger_written }}
+      handshake_ok: ${{ steps.normalize.outputs.handshake_ok }}
+      handshake_uri: ${{ steps.normalize.outputs.handshake_uri }}
+      vm_started: ${{ steps.normalize.outputs.vm_started }}
+      handoff_reason: ${{ steps.normalize.outputs.handoff_reason }}
+      run_step_outcome: ${{ steps.normalize.outputs.run_step_outcome }}
     steps:
       - name: Checkout (attempt 1)
         id: checkout-handoff-1
@@ -285,7 +287,7 @@ jobs:
         continue-on-error: true
         with:
           repository: ${{ github.repository }}
-          ref: ${{ needs.prepare.outputs.head_sha }}
+          ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
           fetch-depth: 1
           submodules: false
           lfs: false
@@ -300,59 +302,110 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
-          ref: ${{ needs.prepare.outputs.head_sha }}
+          ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
           fetch-depth: 0
           submodules: false
           lfs: false
           persist-credentials: false
 
-      - name: Validate classified handoff path
+      - name: Resolve classified handoff path
+        id: route
         shell: bash
         run: |
-          set -euo pipefail
           path="${{ needs.classify-handoff.outputs.path }}"
+          if [[ -z "$path" ]]; then
+            path="unknown"
+          fi
           case "$path" in
-            run|skip_no_legs) ;;
+            run|skip_no_legs|unknown) ;;
             *)
-              echo "::error::Unexpected classify-handoff path: '${path}'"
-              exit 1
+              echo "::warning::Unexpected classify-handoff path '${path}'. Treating as unknown."
+              path="unknown"
               ;;
           esac
+          echo "path=${path}" >>"$GITHUB_OUTPUT"
+          echo "::notice::Handoff route=${path} classify_result=${{ needs.classify-handoff.result }}"
 
       - name: Write skip summary (No Legs)
-        if: ${{ needs.classify-handoff.outputs.path == 'skip_no_legs' }}
+        if: ${{ steps.route.outputs.path == 'skip_no_legs' }}
         uses: ./.github/actions/bmt-write-summary
         with:
           mode: skip
           repository: ${{ github.repository }}
-          head_sha: ${{ needs.prepare.outputs.head_sha }}
-          head_branch: ${{ needs.prepare.outputs.head_branch }}
-          head_event: ${{ needs.prepare.outputs.head_event }}
-          pr_number: ${{ needs.prepare.outputs.pr_number }}
+          head_sha: ${{ needs.prepare.outputs.head_sha || inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          head_branch: ${{ needs.prepare.outputs.head_branch || inputs.head_branch || github.event.inputs.head_branch || github.ref_name }}
+          head_event: ${{ needs.prepare.outputs.head_event || inputs.head_event || github.event.inputs.head_event || 'push' }}
+          pr_number: ${{ needs.prepare.outputs.pr_number || inputs.pr_number || github.event.inputs.pr_number }}
           routing_decision: skip_no_legs
-          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix }}
-          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
-          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
+          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix || needs.prepare.outputs.runner_matrix || '{"include":[]}' }}
+          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects || '[]' }}
+          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix || '{"include":[]}' }}
           handoff_state_line: "Handoff complete: no supported uploaded legs to hand off."
 
-      - id: run
-        if: ${{ needs.classify-handoff.outputs.path == 'run' }}
+      - name: Run handoff (Trigger + VM Ack)
+        id: run
+        if: ${{ steps.route.outputs.path == 'run' }}
+        continue-on-error: true
         uses: ./.github/actions/bmt-handoff-run
         with:
-          head_sha: ${{ needs.prepare.outputs.head_sha }}
-          head_branch: ${{ needs.prepare.outputs.head_branch }}
-          head_event: ${{ needs.prepare.outputs.head_event }}
-          pr_number: ${{ needs.prepare.outputs.pr_number }}
-          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
-          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix }}
-          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
+          head_sha: ${{ needs.prepare.outputs.head_sha || inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          head_branch: ${{ needs.prepare.outputs.head_branch || inputs.head_branch || github.event.inputs.head_branch || github.ref_name }}
+          head_event: ${{ needs.prepare.outputs.head_event || inputs.head_event || github.event.inputs.head_event || 'push' }}
+          pr_number: ${{ needs.prepare.outputs.pr_number || inputs.pr_number || github.event.inputs.pr_number }}
+          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix || '{"include":[]}' }}
+          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix || needs.prepare.outputs.runner_matrix || '{"include":[]}' }}
+          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects || '[]' }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
 
-  failure-fallback:
-    name: 05 Failure Fallback
+      - name: Normalize handoff outputs
+        id: normalize
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          path="${{ steps.route.outputs.path }}"
+          trigger_written="false"
+          handshake_ok="false"
+          handshake_uri=""
+          vm_started="false"
+          handoff_reason=""
+          run_step_outcome="${{ steps.run.outcome || 'skipped' }}"
+
+          if [[ "$path" == "run" ]]; then
+            trigger_written="${{ steps.run.outputs.trigger_written || 'false' }}"
+            handshake_ok="${{ steps.run.outputs.handshake_ok || 'false' }}"
+            handshake_uri="${{ steps.run.outputs.handshake_uri || '' }}"
+            vm_started="${{ steps.run.outputs.vm_started || 'false' }}"
+            handoff_reason="${{ steps.run.outputs.handoff_reason || '' }}"
+            if [[ -z "$handoff_reason" ]]; then
+              if [[ "$run_step_outcome" == "success" ]]; then
+                handoff_reason="ok"
+              else
+                handoff_reason="handoff_run_failed"
+              fi
+            fi
+          elif [[ "$path" == "skip_no_legs" ]]; then
+            handoff_reason="skip_no_legs"
+            run_step_outcome="skipped"
+          else
+            handoff_reason="invalid_route"
+            run_step_outcome="skipped"
+          fi
+
+          {
+            echo "trigger_written=${trigger_written}"
+            echo "handshake_ok=${handshake_ok}"
+            echo "handshake_uri=${handshake_uri}"
+            echo "vm_started=${vm_started}"
+            echo "handoff_reason=${handoff_reason}"
+            echo "run_step_outcome=${run_step_outcome}"
+          } >>"$GITHUB_OUTPUT"
+
+  finalize:
+    name: 05 Finalize BMT
     needs: [prepare, classify-handoff, handoff]
-    if: ${{ failure() && needs.prepare.result != 'cancelled' }}
+    if: ${{ always() && needs.prepare.result != 'cancelled' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -360,7 +413,7 @@ jobs:
       statuses: write
     steps:
       - name: Checkout (attempt 1)
-        id: checkout-fallback-1
+        id: checkout-finalize-1
         uses: actions/checkout@v4
         continue-on-error: true
         with:
@@ -372,11 +425,11 @@ jobs:
           persist-credentials: false
 
       - name: Backoff before checkout retry
-        if: steps.checkout-fallback-1.outcome == 'failure'
+        if: steps.checkout-finalize-1.outcome == 'failure'
         run: sleep 10
 
       - name: Checkout (attempt 2, full clone)
-        if: steps.checkout-fallback-1.outcome == 'failure'
+        if: steps.checkout-finalize-1.outcome == 'failure'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
@@ -386,7 +439,60 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      - uses: ./.github/actions/bmt-failure-fallback
+      - name: Compute final state
+        id: final
+        shell: bash
+        run: |
+          set -euo pipefail
+          should_fail="false"
+          path="${{ needs.handoff.outputs.path || 'unknown' }}"
+          run_step_outcome="${{ needs.handoff.outputs.run_step_outcome || 'skipped' }}"
+          handoff_reason="${{ needs.handoff.outputs.handoff_reason || '' }}"
+
+          if [[ "${{ needs.prepare.result }}" != "success" ]]; then
+            should_fail="true"
+          fi
+          if [[ "${{ needs.classify-handoff.result }}" == "failure" ]]; then
+            should_fail="true"
+          fi
+          if [[ "$path" == "run" && "$run_step_outcome" != "success" ]]; then
+            should_fail="true"
+          fi
+          if [[ "$path" == "unknown" ]]; then
+            should_fail="true"
+          fi
+
+          {
+            echo "should_fail=${should_fail}"
+            echo "path=${path}"
+            echo "run_step_outcome=${run_step_outcome}"
+            echo "handoff_reason=${handoff_reason}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Write canonical final summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## BMT Final State"
+            echo
+            echo "| Signal | Value |"
+            echo "|---|---|"
+            echo "| prepare_result | \`${{ needs.prepare.result }}\` |"
+            echo "| classify_result | \`${{ needs.classify-handoff.result }}\` |"
+            echo "| routing_path | \`${{ steps.final.outputs.path }}\` |"
+            echo "| handoff_step_outcome | \`${{ steps.final.outputs.run_step_outcome }}\` |"
+            echo "| handoff_reason | \`${{ steps.final.outputs.handoff_reason || 'n/a' }}\` |"
+            echo "| trigger_written | \`${{ needs.handoff.outputs.trigger_written || 'false' }}\` |"
+            echo "| vm_started | \`${{ needs.handoff.outputs.vm_started || 'false' }}\` |"
+            echo "| handshake_ok | \`${{ needs.handoff.outputs.handshake_ok || 'false' }}\` |"
+            echo "| handshake_uri | \`${{ needs.handoff.outputs.handshake_uri || 'n/a' }}\` |"
+            echo "| final_result | \`${{ steps.final.outputs.should_fail == 'true' && 'failure' || 'success' }}\` |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Failure fallback
+        if: steps.final.outputs.should_fail == 'true'
+        uses: ./.github/actions/bmt-failure-fallback
         with:
           prepare_result: ${{ needs.prepare.result }}
           prepare_head_sha: ${{ needs.prepare.outputs.head_sha }}
@@ -394,21 +500,31 @@ jobs:
           prepare_head_event: ${{ needs.prepare.outputs.head_event }}
           prepare_pr_number: ${{ needs.prepare.outputs.pr_number }}
           prepare_runner_matrix: ${{ needs.prepare.outputs.runner_matrix }}
-          classify_path: ${{ needs.classify-handoff.outputs.path }}
-          classify_has_legs: ${{ needs.classify-handoff.outputs.has_legs }}
-          classify_accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
-          classify_filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
+          classify_path: ${{ needs.handoff.outputs.path || needs.classify-handoff.outputs.path || 'unknown' }}
+          classify_has_legs: ${{ needs.classify-handoff.outputs.has_legs || 'false' }}
+          classify_accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects || '[]' }}
+          classify_filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix || '{"include":[]}' }}
           classify_result: ${{ needs.classify-handoff.result }}
-          handoff_run_trigger_written: ${{ needs.handoff.outputs.trigger_written }}
-          handoff_run_vm_started: ${{ needs.handoff.outputs.vm_started }}
-          handoff_run_handshake_ok: ${{ needs.handoff.outputs.handshake_ok }}
-          handoff_run_handshake_uri: ${{ needs.handoff.outputs.handshake_uri }}
-          handoff_run_handoff_reason: ${{ needs.handoff.outputs.handoff_reason }}
-          handoff_run_result: ${{ needs.classify-handoff.outputs.path == 'run' && needs.handoff.result || 'success' }}
-          handoff_skip_result: ${{ needs.classify-handoff.outputs.path == 'skip_no_legs' && needs.handoff.result || 'success' }}
+          handoff_run_trigger_written: ${{ needs.handoff.outputs.trigger_written || 'false' }}
+          handoff_run_vm_started: ${{ needs.handoff.outputs.vm_started || 'false' }}
+          handoff_run_handshake_ok: ${{ needs.handoff.outputs.handshake_ok || 'false' }}
+          handoff_run_handshake_uri: ${{ needs.handoff.outputs.handshake_uri || '' }}
+          handoff_run_handoff_reason: ${{ needs.handoff.outputs.handoff_reason || '' }}
+          handoff_run_result: ${{ needs.handoff.outputs.path == 'run' && needs.handoff.outputs.run_step_outcome == 'success' && 'success' || needs.handoff.outputs.path == 'run' && 'failure' || 'success' }}
+          handoff_skip_result: ${{ needs.handoff.outputs.path == 'skip_no_legs' && 'success' || 'success' }}
           dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
           dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
           fallback_ref: ${{ github.sha }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
+
+      - name: Set final result
+        if: always()
+        shell: bash
+        run: |
+          if [[ "${{ steps.final.outputs.should_fail }}" == "true" ]]; then
+            echo "::error::BMT finalize marked this handoff flow as failed."
+            exit 1
+          fi
+          echo "::notice::BMT finalize marked this handoff flow as successful."

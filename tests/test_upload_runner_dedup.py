@@ -41,7 +41,7 @@ def test_upload_runner_uploads_all_when_remote_meta_missing(monkeypatch: pytest.
     monkeypatch.setattr(
         upload_runner.gcloud,
         "run_capture_retry",
-        lambda cmd: (cp_calls.append(cmd) or (0, "")),
+        lambda cmd: cp_calls.append(cmd) or (0, ""),
     )
 
     upload_runner.run()
@@ -68,7 +68,7 @@ def test_upload_runner_skips_when_remote_hashes_match(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         upload_runner.gcloud,
         "run_capture_retry",
-        lambda cmd: (cp_calls.append(cmd) or (0, "")),
+        lambda cmd: cp_calls.append(cmd) or (0, ""),
     )
 
     upload_runner.run()
@@ -92,7 +92,7 @@ def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(
         upload_runner.gcloud,
         "run_capture_retry",
-        lambda cmd: (cp_calls.append(cmd) or (0, "")),
+        lambda cmd: cp_calls.append(cmd) or (0, ""),
     )
 
     upload_runner.run()

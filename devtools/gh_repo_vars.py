@@ -338,8 +338,7 @@ def _validate_wif_provider_consistency(desired: dict[str, str]) -> list[str]:
     actual_project_number = result.stdout.strip()
     if not actual_project_number:
         warnings.append(
-            "gcloud returned empty project number for "
-            f"GCP_PROJECT={project_id!r}; skipped strict WIF alignment check."
+            f"gcloud returned empty project number for GCP_PROJECT={project_id!r}; skipped strict WIF alignment check."
         )
         return warnings
 

@@ -45,6 +45,7 @@ This document describes the **current** communication model after the handoff-on
 | Handoff success | Green `bmt.yml` run summary confirms VM acknowledged trigger. |
 | Handoff failed (`no_runtime_supported_legs`) | VM acknowledged trigger but accepted zero runtime-supported legs; gate fails with explicit reason. |
 | Handoff failure | Failed `bmt.yml` run summary + diagnostics in Actions logs. |
+| Another PR already has queued/active runtime work | Different-PR trigger files are preserved (not preempted); this run will not cancel the other PR's VM work. |
 | BMT in progress/complete | PR **Checks** and PR **Comments** (VM-owned updates). |
 | PR closed during/after handoff | Runtime trigger ack/status shows skipped/cancelled PR-closure reason; no new PR comment is posted. |
 | New commit supersedes an in-flight run | Older SHA run shows cancelled/superseded, while gating continues on the latest PR head SHA context only. |
