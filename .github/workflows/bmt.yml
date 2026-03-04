@@ -123,6 +123,7 @@ jobs:
   upload-runners:
     name: 02 Upload Runners • ${{ matrix.project }}
     needs: prepare
+    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.runner_matrix != '{"include":[]}' }}
     runs-on: ubuntu-22.04
     continue-on-error: true
     permissions:
