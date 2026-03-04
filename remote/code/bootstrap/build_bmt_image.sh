@@ -50,6 +50,27 @@ tmp_dir="$(mktemp -d -t bmt-image-build-XXXXXX)"
 builder_created=0
 builder_deleted=0
 
+wait_for_ssh() {
+  local instance="$1"
+  local retries="${2:-30}"
+  local delay_sec="${3:-5}"
+  local attempt
+  for attempt in $(seq 1 "$retries"); do
+    if gcloud compute ssh "$instance" \
+      --project="$GCP_PROJECT" \
+      --zone="$GCP_ZONE" \
+      --quiet \
+      --command "echo ready" >/dev/null 2>&1; then
+      echo "SSH ready on ${instance} (attempt ${attempt}/${retries})."
+      return 0
+    fi
+    echo "Waiting for SSH on ${instance} (${attempt}/${retries})..."
+    sleep "$delay_sec"
+  done
+  echo "::error::SSH did not become ready on ${instance} within timeout." >&2
+  return 1
+}
+
 cleanup() {
   if [[ "$BMT_KEEP_IMAGE_BUILDER" != "1" && "$builder_created" -eq 1 && "$builder_deleted" -eq 0 ]]; then
     echo "Cleaning up builder VM ${BMT_IMAGE_BUILDER_VM_NAME}..."
@@ -102,6 +123,8 @@ fi
 echo "Creating builder VM ${BMT_IMAGE_BUILDER_VM_NAME}..."
 "${create_cmd[@]}"
 builder_created=1
+
+wait_for_ssh "$BMT_IMAGE_BUILDER_VM_NAME"
 
 echo "Syncing bucket code locally from gs://${GCS_BUCKET}/code ..."
 mkdir -p "${tmp_dir}/code"
