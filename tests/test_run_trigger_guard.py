@@ -14,7 +14,7 @@ def _set_required_env(monkeypatch: pytest.MonkeyPatch, output_file: Path, matrix
     monkeypatch.setenv("GCS_BUCKET", "bucket-a")
     monkeypatch.setenv("GITHUB_RUN_ID", "10001")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
-    monkeypatch.setenv("GITHUB_SHA", "abcdef1234567890")
+    monkeypatch.setenv("GITHUB_SHA", "abcdef1234567890abcdef1234567890abcdef12")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/dev")
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("BMT_STATUS_CONTEXT", "BMT Gate")

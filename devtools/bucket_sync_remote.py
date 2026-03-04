@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -53,6 +52,11 @@ DEFAULT_CODE_EXCLUDES = (
 
 UV_ARTIFACT_REL = "_tools/uv/linux-x86_64/uv"
 UV_CHECKSUM_REL = "_tools/uv/linux-x86_64/uv.sha256"
+
+# Pinned uv binary used for bucket upload. Lives outside remote/ so it is not
+# synced to the bucket as source code. BMT_UV_TOOL_PATH overrides for CI/testing.
+_REPO_ROOT = _path.parent
+_DEFAULT_UV_PATH = _REPO_ROOT / ".local" / "pinned-uv"
 
 
 def _matches(patterns: tuple[str, ...], rel: str) -> bool:
@@ -178,13 +182,7 @@ def _upload_pinned_uv_artifact(src: Path, dest_root: str) -> dict[str, str]:
         raise RuntimeError(f"Invalid uv checksum file (missing digest): {sha_file}")
 
     uv_path_raw = (os.environ.get("BMT_UV_TOOL_PATH") or "").strip()
-    if uv_path_raw:
-        uv_tool_path = Path(uv_path_raw)
-    else:
-        uv_on_path = shutil.which("uv")
-        if not uv_on_path:
-            raise RuntimeError("uv binary not found. Set BMT_UV_TOOL_PATH or install uv locally.")
-        uv_tool_path = Path(uv_on_path)
+    uv_tool_path = Path(uv_path_raw) if uv_path_raw else _DEFAULT_UV_PATH
     if not uv_tool_path.is_file():
         raise RuntimeError(f"Configured uv artifact path is not a file: {uv_tool_path}")
 

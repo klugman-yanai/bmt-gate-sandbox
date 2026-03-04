@@ -40,7 +40,7 @@ def _resolve_env_value(
         return value, canonical_name
 
     if canonical_prefix.startswith("GITHUB_APP_"):
-        alias_prefix = f"GH_APP_{canonical_prefix[len('GITHUB_APP_'):]}"
+        alias_prefix = f"GH_APP_{canonical_prefix[len('GITHUB_APP_') :]}"
         alias_name = f"{alias_prefix}_{suffix}"
         alias_value = os.environ.get(alias_name, "").strip()
         if alias_value:

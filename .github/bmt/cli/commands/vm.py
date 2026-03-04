@@ -424,7 +424,10 @@ def run_wait_handshake() -> None:
         rejected_legs = []
 
     requested_legs_raw = payload.get("requested_legs")
-    requested_count = _as_int(payload.get("requested_leg_count"), len(requested_legs_raw) if isinstance(requested_legs_raw, list) else len(accepted_legs))
+    requested_count = _as_int(
+        payload.get("requested_leg_count"),
+        len(requested_legs_raw) if isinstance(requested_legs_raw, list) else len(accepted_legs),
+    )
     accepted_count = _as_int(payload.get("accepted_leg_count"), len(accepted_legs))
     requested_legs: list[dict[str, Any]]
     if isinstance(requested_legs_raw, list):
@@ -460,12 +463,10 @@ def run_wait_handshake() -> None:
             )
 
     support_resolution_version = str(
-        payload.get("support_resolution_version")
-        or ("v2" if isinstance(requested_legs_raw, list) else "v1")
+        payload.get("support_resolution_version") or ("v2" if isinstance(requested_legs_raw, list) else "v1")
     )
     run_disposition = str(
-        payload.get("run_disposition")
-        or ("accepted" if accepted_count > 0 else "accepted_but_empty")
+        payload.get("run_disposition") or ("accepted" if accepted_count > 0 else "accepted_but_empty")
     )
 
     write_github_output(github_output, "handshake_uri", ack_uri)

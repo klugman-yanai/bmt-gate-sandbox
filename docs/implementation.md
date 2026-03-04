@@ -77,7 +77,7 @@ Ownership:
   - Partial support (`accepted_leg_count >= 1`) runs accepted legs only.
   - Zero support (`accepted_leg_count == 0`) returns `run_disposition=accepted_but_empty` without orchestrator execution.
 - PR closure/head-state handling is fail-open for PR-state API errors (`unknown` state does not block execution).
-- PR triggers are queueable; stale-trigger deletion/restart preflight is non-destructive for PR context.
+- PR triggers are queueable; PR preflight can preempt stale triggers for the same PR only, while preserving different-PR queue entries for isolation.
 
 ## Not implemented
 

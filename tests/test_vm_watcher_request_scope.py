@@ -72,4 +72,3 @@ def test_resolve_requested_legs_keeps_explicit_bmt_mode(monkeypatch):
     assert resolved[0]["bmt_id"] == "false_reject_namuh"
     assert resolved[0]["decision"] == "accepted"
     assert resolved[0]["reason"] is None
-
