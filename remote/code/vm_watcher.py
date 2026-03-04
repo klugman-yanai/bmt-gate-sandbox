@@ -13,6 +13,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -24,7 +25,7 @@ import traceback
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,7 @@ _KEEP_RECENT_LOCAL_RUNS = 2
 # Fallback when trigger payload omits contexts; normal path is run_trigger payload (workflow sets from repo vars).
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
 DEFAULT_RUNTIME_STATUS_CONTEXT = "BMT Runtime"
+PROJECT_WIDE_BMT_IDS = frozenset({"", "*", "__all__", "all", "project_all", "__project_wide__"})
 
 
 def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
@@ -83,7 +85,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _code_bucket_root(bucket: str) -> str:
@@ -232,68 +234,181 @@ def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dic
     return payload, None
 
 
+_RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _safe_run_token(raw: str) -> str:
+    token = _RUN_ID_SAFE.sub("-", raw.strip())
+    token = token.strip("-._")
+    return token or "bmt"
+
+
+def _derive_leg_run_id(base_run_id: str, bmt_id: str, used: set[str]) -> str:
+    """Build a deterministic unique run_id for one expanded BMT leg."""
+    base = _safe_run_token(base_run_id) if base_run_id.strip() else "leg"
+    suffix = _safe_run_token(bmt_id) if bmt_id.strip() else "bmt"
+    candidate = f"{base}-{suffix}"
+    if candidate not in used:
+        used.add(candidate)
+        return candidate
+    idx = 2
+    while True:
+        alt = f"{candidate}-{idx}"
+        if alt not in used:
+            used.add(alt)
+            return alt
+        idx += 1
+
+
+def _append_resolved_leg(
+    requested_legs: list[dict[str, Any]],
+    *,
+    project: str,
+    bmt_id: str,
+    run_id: str,
+    reason: str | None,
+) -> None:
+    decision = "accepted" if reason is None else "rejected"
+    requested_legs.append(
+        {
+            "index": len(requested_legs),
+            "project": project,
+            "bmt_id": bmt_id,
+            "run_id": run_id,
+            "decision": decision,
+            "reason": reason,
+        }
+    )
+
+
 def _resolve_requested_legs(
     *,
     legs_raw: list[Any],
     code_bucket_root: str,
 ) -> list[dict[str, Any]]:
-    """Resolve each requested leg against VM runtime support by convention files."""
+    """Resolve requested legs against VM runtime support by convention files.
+
+    Supports project-wide request legs (request_scope=project_wide or bmt_id sentinel),
+    expanding each project into all BMT entries from jobs config.
+    """
     requested_legs: list[dict[str, Any]] = []
     manager_exists_cache: dict[str, bool] = {}
     jobs_cache: dict[str, tuple[dict[str, Any] | None, str | None]] = {}
+    used_run_ids: set[str] = set()
 
-    for idx, leg in enumerate(legs_raw):
+    for raw_idx, leg in enumerate(legs_raw):
         project = "?"
-        bmt_id = "?"
-        run_id = "?"
-        reason: str | None = None
-        decision = "rejected"
+        bmt_id_raw = ""
+        run_id_base = ""
 
         if not isinstance(leg, dict):
-            reason = "invalid_leg_type"
-        else:
-            project = str(leg.get("project", "")).strip() or "?"
-            bmt_id = str(leg.get("bmt_id", "")).strip() or "?"
-            run_id = str(leg.get("run_id", "")).strip() or "?"
-            if "?" in {project, bmt_id, run_id}:
-                reason = "invalid_leg_type"
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id="?",
+                run_id=f"leg-{raw_idx + 1}",
+                reason="invalid_leg_type",
+            )
+            continue
 
-        if reason is None:
-            if project not in manager_exists_cache:
-                manager_uri = _bucket_uri(code_bucket_root, f"{project}/bmt_manager.py")
-                manager_exists_cache[project] = _gcloud_exists(manager_uri)
-            if not manager_exists_cache[project]:
-                reason = "manager_missing"
+        project = str(leg.get("project", "")).strip() or "?"
+        bmt_id_raw = str(leg.get("bmt_id", "")).strip()
+        run_id_base = str(leg.get("run_id", "")).strip() or f"leg-{raw_idx + 1}-{project}"
+        request_scope = str(leg.get("request_scope", "")).strip().lower()
+        project_wide = request_scope == "project_wide" or bmt_id_raw.lower() in PROJECT_WIDE_BMT_IDS
 
-        if reason is None:
-            if project not in jobs_cache:
-                jobs_cache[project] = _load_jobs_config_from_gcs(code_bucket_root, project)
-            jobs_payload, jobs_error = jobs_cache[project]
-            if jobs_error is not None or jobs_payload is None:
-                reason = jobs_error or "jobs_schema_invalid"
-            else:
-                bmts = jobs_payload.get("bmts")
-                if not isinstance(bmts, dict):
+        if project == "?":
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "invalid", used_run_ids),
+                reason="invalid_leg_type",
+            )
+            continue
+
+        if project not in manager_exists_cache:
+            manager_uri = _bucket_uri(code_bucket_root, f"{project}/bmt_manager.py")
+            manager_exists_cache[project] = _gcloud_exists(manager_uri)
+        if not manager_exists_cache[project]:
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "manager-missing", used_run_ids),
+                reason="manager_missing",
+            )
+            continue
+
+        if project not in jobs_cache:
+            jobs_cache[project] = _load_jobs_config_from_gcs(code_bucket_root, project)
+        jobs_payload, jobs_error = jobs_cache[project]
+        if jobs_error is not None or jobs_payload is None:
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-error", used_run_ids),
+                reason=jobs_error or "jobs_schema_invalid",
+            )
+            continue
+
+        bmts = jobs_payload.get("bmts")
+        if not isinstance(bmts, dict):
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-schema", used_run_ids),
+                reason="jobs_schema_invalid",
+            )
+            continue
+
+        if project_wide:
+            if not bmts:
+                _append_resolved_leg(
+                    requested_legs,
+                    project=project,
+                    bmt_id="?",
+                    run_id=_derive_leg_run_id(run_id_base, "empty-project", used_run_ids),
+                    reason="bmt_not_defined",
+                )
+                continue
+
+            for bmt_id_key in sorted(bmts):
+                bmt_id = str(bmt_id_key).strip() or "?"
+                run_id = _derive_leg_run_id(run_id_base, bmt_id, used_run_ids)
+                bmt_cfg = bmts.get(bmt_id_key)
+                if not isinstance(bmt_cfg, dict):
                     reason = "jobs_schema_invalid"
+                elif bmt_cfg.get("enabled", True) is False:
+                    reason = "bmt_disabled"
                 else:
-                    bmt_cfg = bmts.get(bmt_id)
-                    if not isinstance(bmt_cfg, dict):
-                        reason = "bmt_not_defined"
-                    elif bmt_cfg.get("enabled", True) is False:
-                        reason = "bmt_disabled"
+                    reason = None
+                _append_resolved_leg(
+                    requested_legs,
+                    project=project,
+                    bmt_id=bmt_id,
+                    run_id=run_id,
+                    reason=reason,
+                )
+            continue
 
-        if reason is None:
-            decision = "accepted"
-
-        requested_legs.append(
-            {
-                "index": idx,
-                "project": project,
-                "bmt_id": bmt_id,
-                "run_id": run_id,
-                "decision": decision,
-                "reason": reason,
-            }
+        bmt_id = bmt_id_raw or "?"
+        run_id = _derive_leg_run_id(run_id_base, bmt_id, used_run_ids)
+        bmt_cfg = bmts.get(bmt_id)
+        if not isinstance(bmt_cfg, dict):
+            reason = "bmt_not_defined"
+        elif bmt_cfg.get("enabled", True) is False:
+            reason = "bmt_disabled"
+        else:
+            reason = None
+        _append_resolved_leg(
+            requested_legs,
+            project=project,
+            bmt_id=bmt_id,
+            run_id=run_id,
+            reason=reason,
         )
 
     return requested_legs
