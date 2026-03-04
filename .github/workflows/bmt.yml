@@ -1,5 +1,5 @@
 name: BMT Handoff
-run-name: "BMT Handoff • ${{ github.event.inputs.head_branch }} • ${{ github.event.inputs.head_sha }}"
+run-name: "BMT Handoff • ${{ inputs.head_branch || github.event.inputs.head_branch }} • ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
 
 on:
   workflow_dispatch:
@@ -20,9 +20,34 @@ on:
       pr_number:
         description: "PR number (if head_event is pull_request)"
         required: false
+  workflow_call:
+    inputs:
+      ci_run_id:
+        description: "CI workflow run ID (for artifact download)"
+        required: true
+        type: string
+      head_sha:
+        description: "Head commit SHA"
+        required: true
+        type: string
+      head_branch:
+        description: "Head branch name"
+        required: true
+        type: string
+      head_event:
+        description: "Event that triggered CI (pull_request or push)"
+        required: false
+        type: string
+        default: "push"
+      pr_number:
+        description: "PR number (if head_event is pull_request)"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
-  group: bmt-${{ github.event.inputs.head_sha }}
+  group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
+  cancel-in-progress: true
 
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
@@ -33,6 +58,10 @@ env:
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+  BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
+  BMT_RUNTIME_BACKEND: ${{ vars.BMT_RUNTIME_BACKEND }}
+  BMT_CLOUD_RUN_JOB: ${{ vars.BMT_CLOUD_RUN_JOB }}
+  BMT_CLOUD_RUN_REGION: ${{ vars.BMT_CLOUD_RUN_REGION }}
   BMT_HANDSHAKE_TIMEOUT_SEC: ${{ vars.BMT_HANDSHAKE_TIMEOUT_SEC }}
 
 jobs:
@@ -49,19 +78,46 @@ jobs:
       pr_number: ${{ steps.prepare.outputs.pr_number }}
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-prepare-1
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-prepare-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-prepare-1.outcome == 'failure'
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          fetch-depth: 0
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Verify checkout ref
+        shell: bash
+        run: |
+          echo "::notice::Checkout HEAD=$(git rev-parse HEAD) requested_ref=${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
 
       - id: prepare
         uses: ./.github/actions/bmt-prepare
         with:
-          ci_run_id: ${{ github.event.inputs.ci_run_id }}
-          head_sha: ${{ github.event.inputs.head_sha || github.sha }}
-          head_branch: ${{ github.event.inputs.head_branch }}
-          head_event: ${{ github.event.inputs.head_event }}
-          pr_number: ${{ github.event.inputs.pr_number }}
+          ci_run_id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+          head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
+          head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
+          pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
 
   upload-runners:
     name: 02 Upload Runners • ${{ matrix.project }}
@@ -74,12 +130,35 @@ jobs:
       id-token: write
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix: ${{ fromJson(needs.prepare.outputs.runner_matrix) }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-upload-1
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-upload-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-upload-1.outcome == 'failure'
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - name: Download runner artifact
         uses: actions/download-artifact@v4
@@ -149,10 +228,32 @@ jobs:
       head_event: ${{ needs.prepare.outputs.head_event }}
       pr_number: ${{ needs.prepare.outputs.pr_number }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-classify-1
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-classify-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-classify-1.outcome == 'failure'
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - id: classify
         uses: ./.github/actions/bmt-classify-handoff
@@ -162,20 +263,65 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
 
-  handoff-skip:
-    name: 04A Handoff Skip (No Legs)
+  handoff:
+    name: 04 Handoff (Skip/Run Branch)
     needs: [prepare, classify-handoff]
-    if: ${{ needs.prepare.result == 'success' && needs.classify-handoff.outputs.path == 'skip_no_legs' }}
+    if: ${{ needs.prepare.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
+      id-token: write
+      actions: read
+    outputs:
+      trigger_written: ${{ steps.run.outputs.trigger_written }}
+      handshake_ok: ${{ steps.run.outputs.handshake_ok }}
+      handshake_uri: ${{ steps.run.outputs.handshake_uri }}
+      vm_started: ${{ steps.run.outputs.vm_started }}
+      handoff_reason: ${{ steps.run.outputs.handoff_reason }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-handoff-1
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-handoff-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-handoff-1.outcome == 'failure'
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
-      - uses: ./.github/actions/bmt-write-summary
+      - name: Validate classified handoff path
+        shell: bash
+        run: |
+          set -euo pipefail
+          path="${{ needs.classify-handoff.outputs.path }}"
+          case "$path" in
+            run|skip_no_legs) ;;
+            *)
+              echo "::error::Unexpected classify-handoff path: '${path}'"
+              exit 1
+              ;;
+          esac
+
+      - name: Write skip summary (No Legs)
+        if: ${{ needs.classify-handoff.outputs.path == 'skip_no_legs' }}
+        uses: ./.github/actions/bmt-write-summary
         with:
           mode: skip
           repository: ${{ github.repository }}
@@ -189,27 +335,8 @@ jobs:
           filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
           handoff_state_line: "Handoff complete: no supported uploaded legs to hand off."
 
-  handoff-run:
-    name: 04B Handoff Run (Trigger + VM Ack)
-    needs: [prepare, classify-handoff]
-    if: ${{ needs.prepare.result == 'success' && needs.classify-handoff.outputs.path == 'run' }}
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      id-token: write
-      actions: read
-    outputs:
-      trigger_written: ${{ steps.run.outputs.trigger_written }}
-      handshake_ok: ${{ steps.run.outputs.handshake_ok }}
-      handshake_uri: ${{ steps.run.outputs.handshake_uri }}
-      vm_started: ${{ steps.run.outputs.vm_started }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.head_sha }}
-
       - id: run
+        if: ${{ needs.classify-handoff.outputs.path == 'run' }}
         uses: ./.github/actions/bmt-handoff-run
         with:
           head_sha: ${{ needs.prepare.outputs.head_sha }}
@@ -224,7 +351,7 @@ jobs:
 
   failure-fallback:
     name: 05 Failure Fallback
-    needs: [prepare, classify-handoff, handoff-run, handoff-skip]
+    needs: [prepare, classify-handoff, handoff]
     if: ${{ failure() && needs.prepare.result != 'cancelled' }}
     runs-on: ubuntu-22.04
     permissions:
@@ -232,10 +359,32 @@ jobs:
       id-token: write
       statuses: write
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-fallback-1
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-fallback-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-fallback-1.outcome == 'failure'
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
+          fetch-depth: 0
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - uses: ./.github/actions/bmt-failure-fallback
         with:
@@ -250,14 +399,15 @@ jobs:
           classify_accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
           classify_filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
           classify_result: ${{ needs.classify-handoff.result }}
-          handoff_run_trigger_written: ${{ needs.handoff-run.outputs.trigger_written }}
-          handoff_run_vm_started: ${{ needs.handoff-run.outputs.vm_started }}
-          handoff_run_handshake_ok: ${{ needs.handoff-run.outputs.handshake_ok }}
-          handoff_run_handshake_uri: ${{ needs.handoff-run.outputs.handshake_uri }}
-          handoff_run_result: ${{ needs.handoff-run.result }}
-          handoff_skip_result: ${{ needs.handoff-skip.result }}
-          dispatch_head_sha: ${{ github.event.inputs.head_sha }}
-          dispatch_pr_number: ${{ github.event.inputs.pr_number }}
+          handoff_run_trigger_written: ${{ needs.handoff.outputs.trigger_written }}
+          handoff_run_vm_started: ${{ needs.handoff.outputs.vm_started }}
+          handoff_run_handshake_ok: ${{ needs.handoff.outputs.handshake_ok }}
+          handoff_run_handshake_uri: ${{ needs.handoff.outputs.handshake_uri }}
+          handoff_run_handoff_reason: ${{ needs.handoff.outputs.handoff_reason }}
+          handoff_run_result: ${{ needs.classify-handoff.outputs.path == 'run' && needs.handoff.result || 'success' }}
+          handoff_skip_result: ${{ needs.classify-handoff.outputs.path == 'skip_no_legs' && needs.handoff.result || 'success' }}
+          dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
+          dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
           fallback_ref: ${{ github.sha }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}

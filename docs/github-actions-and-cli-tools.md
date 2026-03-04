@@ -12,7 +12,7 @@ Summary of official docs and tools useful for BMT workflows, status/checks, and 
 | **Re-run** | Re-run all jobs, failed jobs only, or specific jobs (up to 30 days). Uses same SHA/ref. | Devs can re-run the BMT workflow from the Actions tab without pushing again. |
 | **Workflow run logs** | Each run has logs per job/step. | Primary place for debugging when status says "Check Actions logs." |
 | **Debug logging** | Enable runner diagnostic logging and step debug logging when re-running. | Useful when debugging handshake or runner upload failures. |
-| **Commit statuses** | Workflows/apps can post status via API; branch protection can require a status. | BMT gate status (`BMT_STATUS_CONTEXT`) is VM-owned after handoff. |
+| **Commit statuses** | Workflows/apps can post status via API; branch protection can require a status. | BMT keeps merge gating in `BMT_STATUS_CONTEXT` (default `BMT Gate`). Runtime progress is shown via a separate check run in `BMT_RUNTIME_CONTEXT` (default `BMT Runtime`). |
 
 ---
 
@@ -30,7 +30,7 @@ Useful for docs and Justfile: tell devs they can **open the PR checks in the bro
 
 ## Check Runs API (what the VM posts)
 
-The VM uses a **GitHub App** to create/update the BMT check run. The [Checks API](https://docs.github.com/en/rest/checks/runs) allows:
+The VM uses a **GitHub App** to create/update the runtime check run. The [Checks API](https://docs.github.com/en/rest/checks/runs) allows:
 
 | Output field | Purpose | BMT use today |
 |--------------|---------|----------------|
@@ -48,7 +48,9 @@ Only **GitHub Apps** can create/update check runs; OAuth/users have read-only. O
 ## Commit statuses API
 
 - **Description** is limited to **140 characters** (we truncate in BMT).
-- Used for the **merge gate**; Check Run is supplementary for detail.
+- `BMT_RUNTIME_CONTEXT` names the VM-owned runtime check run (progress + terminal runtime outcome).
+- `BMT_STATUS_CONTEXT` is used for terminal gate outcomes (`success`/`failure`/`error`).
+- Used for the **merge gate**; check runs/runtime status are supplementary for detail.
 - See `docs/communication-flow.md` for when we post status and what devs see.
 - Branch protection should continue to require VM-owned `BMT_STATUS_CONTEXT`, not workflow run conclusion.
 
@@ -60,7 +62,7 @@ To keep bucket and VM filesystem usage bounded, runtime artifacts are pruned aut
 
 - **Namespace:** runtime artifacts are under `<runtime-root> = gs://<bucket>/runtime`.
 - **Snapshots:** for each BMT results prefix, only `current.json.latest` and `current.json.last_passing` snapshots are retained.
-- **Trigger metadata:** `<runtime-root>/triggers/acks/*.json` and `<runtime-root>/triggers/status/*.json` are trimmed to the most recent entries (current + previous).
+- **Trigger metadata:** `<runtime-root>/triggers/acks/*.json` and `<runtime-root>/triggers/status/*.json` are trimmed to the most recent entries; count is controlled by `BMT_TRIGGER_METADATA_KEEP_RECENT` (default `2`, i.e. current + previous).
 - **Run triggers:** `<runtime-root>/triggers/runs/<workflow_run_id>.json` is deleted when processing finishes (or fails).
 - **VM local workspace:** each project/BMT keeps only the newest two `run_*` directories.
 - **Legacy history paths:** old archive/log history prefixes under `*/results/archive` and `*/results/logs/*` are removed by the watcher.

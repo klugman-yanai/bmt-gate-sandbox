@@ -17,7 +17,7 @@ bmt_cmd_upload_runner_to_gcs() {
     exit 1
   fi
   chmod +x "artifact/Runners/kardome_runner" 2>/dev/null || true
-  uv run bmt upload-runner
+  uv run --project .github/bmt bmt upload-runner
 }
 
 bmt_cmd_warn_upload_failed() {
@@ -52,7 +52,7 @@ bmt_cmd_resolve_uploaded_projects() {
   root="$(runtime_root)"
   prefix="${root}/_workflow/uploaded/${run_id}/"
 
-  if gcloud storage ls "$prefix" 2>/dev/null | grep -q '\.json$'; then
+  if gcloud storage ls "$prefix" 2>/dev/null | grep '\.json$' > /dev/null; then
     gcloud storage ls "$prefix" 2>/dev/null \
       | sed 's|.*/||;s|\.json$||' \
       | jq -Rsc 'split("\n") | map(select(length>0)) | sort' > accepted.txt
@@ -106,7 +106,7 @@ bmt_cmd_summarize_matrix_handshake() {
 
     if echo "$bmt_legs" | jq -e --arg p "$proj" 'index($p)' >/dev/null; then
       leg="yes"
-      status="Will run"
+      status="Requested (awaiting VM capability ack)"
     else
       leg="-"
       if [[ "$up" == "skipped" ]]; then

@@ -360,6 +360,7 @@ def run_wait_handshake() -> None:
     print(f"Trigger file (VM reads this): {trigger_uri}")
     print(f"Expected runtime status path: {runtime_status_uri}")
     print(f"Runtime namespace root: {runtime_bucket_root}")
+    print("Handshake confirms VM pickup only; final BMT Gate status updates after VM execution completes.")
 
     trigger_exists_initially = gcloud.gcs_exists(trigger_uri)
     if not trigger_exists_initially:
@@ -418,14 +419,63 @@ def run_wait_handshake() -> None:
     accepted_legs = payload.get("accepted_legs", [])
     if not isinstance(accepted_legs, list):
         accepted_legs = []
+    rejected_legs = payload.get("rejected_legs", [])
+    if not isinstance(rejected_legs, list):
+        rejected_legs = []
 
-    requested_count = _as_int(payload.get("requested_leg_count"), len(accepted_legs))
+    requested_legs_raw = payload.get("requested_legs")
+    requested_count = _as_int(payload.get("requested_leg_count"), len(requested_legs_raw) if isinstance(requested_legs_raw, list) else len(accepted_legs))
     accepted_count = _as_int(payload.get("accepted_leg_count"), len(accepted_legs))
+    requested_legs: list[dict[str, Any]]
+    if isinstance(requested_legs_raw, list):
+        requested_legs = [entry for entry in requested_legs_raw if isinstance(entry, dict)]
+    else:
+        # Backward-compatible synthesis when watcher payload predates support-resolution v2.
+        requested_legs = []
+        for idx, leg in enumerate(accepted_legs):
+            if not isinstance(leg, dict):
+                continue
+            requested_legs.append(
+                {
+                    "index": idx,
+                    "project": str(leg.get("project", "?")),
+                    "bmt_id": str(leg.get("bmt_id", "?")),
+                    "run_id": str(leg.get("run_id", "?")),
+                    "decision": "accepted",
+                    "reason": None,
+                }
+            )
+        for rej in rejected_legs:
+            if not isinstance(rej, dict):
+                continue
+            requested_legs.append(
+                {
+                    "index": _as_int(rej.get("index"), len(requested_legs)),
+                    "project": str(rej.get("project", "?")),
+                    "bmt_id": str(rej.get("bmt_id", "?")),
+                    "run_id": str(rej.get("run_id", "?")),
+                    "decision": "rejected",
+                    "reason": str(rej.get("reason") or "invalid_leg_type"),
+                }
+            )
+
+    support_resolution_version = str(
+        payload.get("support_resolution_version")
+        or ("v2" if isinstance(requested_legs_raw, list) else "v1")
+    )
+    run_disposition = str(
+        payload.get("run_disposition")
+        or ("accepted" if accepted_count > 0 else "accepted_but_empty")
+    )
 
     write_github_output(github_output, "handshake_uri", ack_uri)
     write_github_output(github_output, "handshake_payload", json.dumps(payload, separators=(",", ":")))
     write_github_output(github_output, "handshake_requested_leg_count", str(requested_count))
     write_github_output(github_output, "handshake_accepted_leg_count", str(accepted_count))
     write_github_output(github_output, "handshake_accepted_legs", json.dumps(accepted_legs, separators=(",", ":")))
+    write_github_output(github_output, "handshake_support_resolution_version", support_resolution_version)
+    write_github_output(github_output, "handshake_requested_legs", json.dumps(requested_legs, separators=(",", ":")))
+    write_github_output(github_output, "handshake_rejected_legs", json.dumps(rejected_legs, separators=(",", ":")))
+    write_github_output(github_output, "handshake_run_disposition", run_disposition)
 
     print(f"VM handshake received: requested={requested_count} accepted={accepted_count} vm_status={last_vm_status}")

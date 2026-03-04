@@ -380,7 +380,7 @@ def test_superseded_mid_run_cancels_between_legs_and_upserts_commit_comment(
     assert "/commit/def789" in body
 
 
-def test_closed_mid_run_posts_terminal_error_even_when_pending_status_fails(
+def test_closed_mid_run_posts_terminal_error_when_first_status_post_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -424,9 +424,14 @@ def test_closed_mid_run_posts_terminal_error_even_when_pending_status_fails(
     monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_pull_request, "get_pr_state", lambda *_args, **_kwargs: next(pr_states))
 
+    error_post_attempts = {"count": 0}
+
     def _post_status(_repo: str, _sha: str, state: str, *_args: Any, **_kwargs: Any) -> bool:
         post_status_states.append(state)
-        return state != "pending"
+        if state == "error":
+            error_post_attempts["count"] += 1
+            return error_post_attempts["count"] > 1
+        return True
 
     monkeypatch.setattr(watcher, "_post_commit_status", _post_status)
     monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
@@ -441,7 +446,7 @@ def test_closed_mid_run_posts_terminal_error_even_when_pending_status_fails(
 
     assert status_store.payload is not None
     assert status_store.payload["run_outcome"] == "cancelled"
-    assert "pending" in post_status_states
+    assert error_post_attempts["count"] >= 2
     assert "error" in post_status_states
 
 

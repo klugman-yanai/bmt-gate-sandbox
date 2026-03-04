@@ -29,7 +29,7 @@ Ownership:
 1. `run_trigger.py` writes trigger payload with `bucket`, `workflow_run_id`, `repository`, `sha`, `legs`, etc. (no prefix fields).
 2. `vm_watcher.py` discovers triggers from runtime root, writes ack/status in runtime root.
 3. `vm_watcher.py` downloads `root_orchestrator.py` from code root.
-4. `root_orchestrator.py` downloads project config + manager from code root.
+4. `root_orchestrator.py` resolves manager/jobs by convention from code root (`<project>/bmt_manager.py`, `<project>/config/bmt_jobs.json`).
 5. `sk/bmt_manager.py`:
    - template from code root
    - runner + dataset from runtime root
@@ -52,7 +52,9 @@ Ownership:
 ## Canonical runtime object layout
 
 - `<runtime-root>/triggers/runs/<workflow_run_id>.json`
-- `<runtime-root>/triggers/acks/<workflow_run_id>.json` (includes optional `run_disposition`, `skip_reason`, `pr_state`, `pr_merged`, `pr_state_checked_at`, `pr_head_sha`, `superseded_by_sha`)
+- `<runtime-root>/triggers/acks/<workflow_run_id>.json`
+  - includes `support_resolution_version` (v2), `requested_legs`, `accepted_legs`, `rejected_legs`
+  - includes optional `run_disposition`, `skip_reason`, `pr_state`, `pr_merged`, `pr_state_checked_at`, `pr_head_sha`, `superseded_by_sha`
 - `<runtime-root>/triggers/status/<workflow_run_id>.json` (includes optional `run_outcome`, `cancel_reason`, `cancelled_at`, `superseded_by_sha`, per-leg `skip_reason`)
 - `<runtime-root>/<project>/runners/<preset>/...`
 - `<runtime-root>/<results_prefix>/current.json`
@@ -70,6 +72,10 @@ Ownership:
   - `ack_unreadable`
   - `ack_not_written`
 - Workflow cleanup removes current run trigger/ack/status objects on failure.
+- Handshake v2 is additive/backward-compatible: legacy consumers can still read `accepted_legs`/`accepted_leg_count`.
+- VM support is authoritative:
+  - Partial support (`accepted_leg_count >= 1`) runs accepted legs only.
+  - Zero support (`accepted_leg_count == 0`) returns `run_disposition=accepted_but_empty` without orchestrator execution.
 - PR closure/head-state handling is fail-open for PR-state API errors (`unknown` state does not block execution).
 - PR triggers are queueable; stale-trigger deletion/restart preflight is non-destructive for PR context.
 
