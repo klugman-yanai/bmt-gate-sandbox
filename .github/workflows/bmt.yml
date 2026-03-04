@@ -210,7 +210,7 @@ jobs:
         run: bash .github/bmt/scripts/bmt_workflow.sh record-uploaded-project-marker
 
   classify-handoff:
-    name: 03 Classify Handoff Path
+    name: 03 Classify Handoff Route
     needs: [prepare, upload-runners]
     if: ${{ needs.prepare.result == 'success' }}
     runs-on: ubuntu-22.04
@@ -218,7 +218,7 @@ jobs:
       contents: read
       id-token: write
     outputs:
-      path: ${{ steps.classify.outputs.path }}
+      path: ${{ steps.classify-path.outputs.path }}
       has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
       accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
       filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
@@ -263,19 +263,11 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
 
-  handoff-route:
-    name: 04a Resolve Handoff Route
-    needs: [prepare, classify-handoff]
-    if: ${{ always() && needs.prepare.result != 'cancelled' }}
-    runs-on: ubuntu-22.04
-    outputs:
-      path: ${{ steps.route.outputs.path }}
-    steps:
-      - name: Normalize classified handoff path
-        id: route
+      - name: Normalize classified handoff route
+        id: classify-path
         shell: bash
         run: |
-          path="${{ needs.classify-handoff.outputs.path }}"
+          path="${{ steps.classify.outputs.path }}"
           if [[ -z "$path" ]]; then
             path="unknown"
           fi
@@ -287,12 +279,12 @@ jobs:
               ;;
           esac
           echo "path=${path}" >>"$GITHUB_OUTPUT"
-          echo "::notice::Handoff route=${path} classify_result=${{ needs.classify-handoff.result }}"
+          echo "::notice::Handoff route=${path}"
 
   handoff-run:
     name: 04b [RUN] Execute Handoff
-    needs: [prepare, classify-handoff, handoff-route]
-    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.handoff-route.outputs.path == 'run' }}
+    needs: [prepare, classify-handoff]
+    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.classify-handoff.outputs.path == 'run' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -350,8 +342,8 @@ jobs:
 
   handoff-skip:
     name: 04c [SKIP] Write Skip Summary
-    needs: [prepare, classify-handoff, handoff-route]
-    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.handoff-route.outputs.path == 'skip_no_legs' }}
+    needs: [prepare, classify-handoff]
+    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.classify-handoff.outputs.path == 'skip_no_legs' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -410,8 +402,8 @@ jobs:
 
   handoff-normalize-run:
     name: 05a [RUN] Normalize Handoff Outcome
-    needs: [prepare, handoff-route, handoff-run]
-    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.handoff-route.outputs.path == 'run' }}
+    needs: [prepare, classify-handoff, handoff-run]
+    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.classify-handoff.outputs.path == 'run' }}
     runs-on: ubuntu-22.04
     outputs:
       path: ${{ steps.normalize.outputs.path }}
@@ -455,8 +447,8 @@ jobs:
 
   handoff-normalize-skip:
     name: 05b [SKIP] Normalize Handoff Outcome
-    needs: [prepare, handoff-route, handoff-skip]
-    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.handoff-route.outputs.path == 'skip_no_legs' }}
+    needs: [prepare, classify-handoff, handoff-skip]
+    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.classify-handoff.outputs.path == 'skip_no_legs' }}
     runs-on: ubuntu-22.04
     outputs:
       path: ${{ steps.normalize.outputs.path }}
