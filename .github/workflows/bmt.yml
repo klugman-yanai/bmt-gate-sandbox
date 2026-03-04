@@ -46,7 +46,8 @@ on:
         default: ""
 
 concurrency:
-  group: bmt-${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+  group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
+  cancel-in-progress: true
 
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
@@ -57,6 +58,10 @@ env:
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
+  BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
+  BMT_RUNTIME_BACKEND: ${{ vars.BMT_RUNTIME_BACKEND }}
+  BMT_CLOUD_RUN_JOB: ${{ vars.BMT_CLOUD_RUN_JOB }}
+  BMT_CLOUD_RUN_REGION: ${{ vars.BMT_CLOUD_RUN_REGION }}
   BMT_HANDSHAKE_TIMEOUT_SEC: ${{ vars.BMT_HANDSHAKE_TIMEOUT_SEC }}
 
 jobs:

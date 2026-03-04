@@ -14,6 +14,10 @@ on:
       - dev
       - ci/check-bmt-gate
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
 defaults:
   run:
     shell: bash

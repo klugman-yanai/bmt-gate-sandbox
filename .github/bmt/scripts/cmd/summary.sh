@@ -4,7 +4,7 @@ bmt_cmd_write_handoff_summary() {
   local mode repository head_sha head_branch head_event pr_number
   local routing_decision runner_matrix accepted_projects filtered_matrix
   local trigger_written vm_started handshake_ok handshake_uri
-  local handoff_state_line failure_reason
+  local handoff_state_line failure_reason runtime_backend
   local run_url repo_url pr_url
   local requested_count uploaded_count legs_planned requested_projects
 
@@ -29,6 +29,7 @@ bmt_cmd_write_handoff_summary() {
 
   handoff_state_line="${HANDOFF_STATE_LINE:-}"
   failure_reason="${FAILURE_REASON:-}"
+  runtime_backend="${BMT_RUNTIME_BACKEND:-vm}"
 
   if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "::error::GITHUB_STEP_SUMMARY is not set"
@@ -50,13 +51,13 @@ bmt_cmd_write_handoff_summary() {
   if [[ -z "$handoff_state_line" ]]; then
     case "$mode" in
       run_success)
-        handoff_state_line="Handoff complete: VM acknowledged trigger."
+        handoff_state_line="Handoff complete: runtime acknowledged trigger."
         ;;
       skip)
         handoff_state_line="Handoff complete: no supported uploaded legs to hand off."
         ;;
       failure)
-        handoff_state_line="Handoff failed: VM did not acknowledge trigger."
+        handoff_state_line="Handoff failed: runtime did not acknowledge trigger."
         ;;
       *)
         handoff_state_line="Handoff state unavailable. Check this workflow run."
@@ -95,7 +96,8 @@ bmt_cmd_write_handoff_summary() {
     echo
     echo "### 3) Delivery State"
     echo "- Trigger written: **${trigger_written}**"
-    echo "- VM start invoked: **${vm_started}**"
+    echo "- Runtime backend: \`${runtime_backend}\`"
+    echo "- Runtime dispatch invoked: **${vm_started}**"
     echo "- Handshake acknowledged: **${handshake_ok}**"
     if [[ -n "$handshake_uri" ]]; then
       echo "- Handshake URI: \`${handshake_uri}\`"
@@ -109,10 +111,10 @@ bmt_cmd_write_handoff_summary() {
     echo
     echo "### 4) Ownership Notice"
     echo "- This workflow validates **handoff only**."
-    echo "- Handshake success means VM pickup only; final gate updates after VM execution completes."
+    echo "- Handshake success means runtime pickup only; final gate updates after runtime execution completes."
     echo "- Runtime progress context: \`${BMT_RUNTIME_CONTEXT:-BMT Runtime}\` (non-gating)."
     echo "- Final merge gate context: \`${BMT_STATUS_CONTEXT:-BMT Gate}\`."
-    echo "- BMT result is reported by the VM to **PR checks and PR comments**."
+    echo "- BMT result is reported by the runtime worker to **PR checks and PR comments**."
     echo "- ${handoff_state_line}"
     if [[ -n "$failure_reason" ]]; then
       echo "- Failure reason: ${failure_reason}"
@@ -121,12 +123,12 @@ bmt_cmd_write_handoff_summary() {
     echo "### 5) Next Actions"
     if [[ -n "$pr_url" ]]; then
       echo "1. Open the PR: [#${pr_number}](${pr_url})"
-      echo "2. Check PR **Checks** for VM-owned BMT status context."
-      echo "3. Check PR **Comments** for VM-posted BMT outcome details."
+      echo "2. Check PR **Checks** for runtime-owned BMT status context."
+      echo "3. Check PR **Comments** for runtime-posted BMT outcome details."
     else
       echo "1. Open this workflow run and use dispatch inputs to locate the target commit/PR."
-      echo "2. Verify commit checks for VM-owned BMT status context."
-      echo "3. Check repository PR comments for VM-posted BMT outcome details."
+      echo "2. Verify commit checks for runtime-owned BMT status context."
+      echo "3. Check repository PR comments for runtime-posted BMT outcome details."
     fi
     if [[ "$mode" == "failure" ]]; then
       echo "4. If handoff failed, inspect this run's diagnostics (trigger + handshake sections)."

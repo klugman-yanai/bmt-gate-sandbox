@@ -15,8 +15,22 @@ bmt_cmd_emit_bmt_context() {
 }
 
 bmt_cmd_validate_required_vars() {
-  local required missing name value
-  required=(GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT GCP_ZONE BMT_VM_NAME)
+  local required missing name value backend
+  required=(GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT)
+  backend="${BMT_RUNTIME_BACKEND:-vm}"
+  backend="${backend,,}"
+  case "$backend" in
+    vm)
+      required+=(GCP_ZONE BMT_VM_NAME)
+      ;;
+    cloud_run_job)
+      required+=(BMT_CLOUD_RUN_JOB BMT_CLOUD_RUN_REGION)
+      ;;
+    *)
+      echo "::error::Invalid BMT_RUNTIME_BACKEND='${BMT_RUNTIME_BACKEND:-}'. Expected one of: vm, cloud_run_job"
+      exit 1
+      ;;
+  esac
   missing=()
   for name in "${required[@]}"; do
     value="${!name:-}"
@@ -29,7 +43,7 @@ bmt_cmd_validate_required_vars() {
     echo "::error::Missing required repo vars: ${missing[*]}"
     exit 1
   fi
-  echo "Proceeding with BMT"
+  echo "Proceeding with BMT (runtime backend: ${backend})"
 }
 
 # Fail-fast if legacy BMT_BUCKET_PREFIX repo var is set (non-empty).
