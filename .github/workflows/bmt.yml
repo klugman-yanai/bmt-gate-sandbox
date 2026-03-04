@@ -56,8 +56,8 @@ env:
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
-  # Sandbox is dummy-only: disable runtime legs so handoff validation follows skip_no_legs deterministically.
-  BMT_PROJECTS: "[]"
+  # Sandbox is dummy-only: use a non-existent project filter so supported runtime legs resolve to zero.
+  BMT_PROJECTS: '["__sandbox_dummy__"]'
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
   BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
   BMT_RUNTIME_BACKEND: ${{ vars.BMT_RUNTIME_BACKEND }}
