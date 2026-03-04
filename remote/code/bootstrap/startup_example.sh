@@ -109,6 +109,7 @@ fi
 VENV="${BMT_REPO_ROOT}/.venv"
 WATCHER="${BMT_REPO_ROOT}/vm_watcher.py"
 ENSURE_UV="${BMT_REPO_ROOT}/bootstrap/ensure_uv.sh"
+DEP_STAMP="${VENV}/.bmt_dep_fingerprint"
 
 if [[ ! -f "${WATCHER}" ]]; then
   echo "::error::Missing watcher entrypoint: ${WATCHER}" >&2
@@ -128,13 +129,59 @@ if [[ -z "${UV_BIN:-}" || ! -x "${UV_BIN}" ]]; then
   exit 1
 fi
 
-# 2. Install deps once (requires uv.lock in repo; install into persistent BMT_REPO_ROOT/.venv)
-if [[ ! -d "$VENV" ]] || ! "${VENV}/bin/python" -c "import jwt" 2>/dev/null; then
+# 2. Install deps when required (fingerprint or import mismatch).
+_compute_dep_fingerprint() {
+  local repo_root="$1"
+  local pyproject="${repo_root}/pyproject.toml"
+  local uvlock="${repo_root}/uv.lock"
+  if [[ -f "$pyproject" && -f "$uvlock" ]]; then
+    sha256sum "$pyproject" "$uvlock" | sha256sum | awk '{print $1}'
+    return 0
+  fi
+  if [[ -f "$pyproject" ]]; then
+    sha256sum "$pyproject" | awk '{print $1}'
+    return 0
+  fi
+  return 1
+}
+
+dep_fingerprint="$(_compute_dep_fingerprint "$BMT_REPO_ROOT" || true)"
+deps_reason=""
+needs_deps_install=0
+
+if [[ ! -d "$VENV" ]]; then
+  needs_deps_install=1
+  deps_reason="venv_missing"
+elif [[ ! -x "${VENV}/bin/python" ]] || ! "${VENV}/bin/python" -c "import jwt" 2>/dev/null; then
+  needs_deps_install=1
+  deps_reason="runtime_import_check_failed"
+elif [[ -z "$dep_fingerprint" ]]; then
+  needs_deps_install=1
+  deps_reason="fingerprint_unavailable"
+elif [[ ! -f "$DEP_STAMP" ]]; then
+  needs_deps_install=1
+  deps_reason="fingerprint_stamp_missing"
+else
+  current_fingerprint="$(tr -d '[:space:]' <"$DEP_STAMP" || true)"
+  if [[ "$current_fingerprint" != "$dep_fingerprint" ]]; then
+    needs_deps_install=1
+    deps_reason="fingerprint_mismatch"
+  fi
+fi
+
+if [[ "$needs_deps_install" -eq 1 ]]; then
+  echo "Dependency install required (${deps_reason})."
   if [[ -f "${BMT_REPO_ROOT}/bootstrap/install_deps.sh" ]]; then
     bash "${BMT_REPO_ROOT}/bootstrap/install_deps.sh" "$BMT_REPO_ROOT"
   else
     cd "$BMT_REPO_ROOT" && "${UV_BIN}" sync --extra vm --frozen
+    if [[ -n "$dep_fingerprint" ]]; then
+      mkdir -p "$(dirname "$DEP_STAMP")"
+      printf '%s\n' "$dep_fingerprint" >"$DEP_STAMP"
+    fi
   fi
+else
+  echo "Dependency fingerprint match (${dep_fingerprint}); skipping install."
 fi
 
 # 3. Fetch secrets and export.

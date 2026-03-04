@@ -78,16 +78,37 @@ jobs:
       pr_number: ${{ steps.prepare.outputs.pr_number }}
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-prepare-1
         uses: actions/checkout@v4
-        timeout-minutes: 10
+        continue-on-error: true
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
           submodules: false
           lfs: false
           persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-prepare-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-prepare-1.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          fetch-depth: 0
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Verify checkout ref
+        shell: bash
+        run: |
+          echo "::notice::Checkout HEAD=$(git rev-parse HEAD) requested_ref=${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
 
       - id: prepare
         uses: ./.github/actions/bmt-prepare
@@ -116,7 +137,6 @@ jobs:
         id: checkout-upload-1
         uses: actions/checkout@v4
         continue-on-error: true
-        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
@@ -129,14 +149,13 @@ jobs:
         if: steps.checkout-upload-1.outcome == 'failure'
         run: sleep 10
 
-      - name: Checkout (attempt 2)
+      - name: Checkout (attempt 2, full clone)
         if: steps.checkout-upload-1.outcome == 'failure'
         uses: actions/checkout@v4
-        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
-          fetch-depth: 1
+          fetch-depth: 0
           submodules: false
           lfs: false
           persist-credentials: false
@@ -209,13 +228,29 @@ jobs:
       head_event: ${{ needs.prepare.outputs.head_event }}
       pr_number: ${{ needs.prepare.outputs.pr_number }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-classify-1
         uses: actions/checkout@v4
-        timeout-minutes: 10
+        continue-on-error: true
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
           fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-classify-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-classify-1.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
           submodules: false
           lfs: false
           persist-credentials: false
@@ -244,13 +279,29 @@ jobs:
       vm_started: ${{ steps.run.outputs.vm_started }}
       handoff_reason: ${{ steps.run.outputs.handoff_reason }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-handoff-1
         uses: actions/checkout@v4
-        timeout-minutes: 10
+        continue-on-error: true
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
           fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-handoff-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-handoff-1.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
           submodules: false
           lfs: false
           persist-credentials: false
@@ -308,13 +359,29 @@ jobs:
       id-token: write
       statuses: write
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-fallback-1
         uses: actions/checkout@v4
-        timeout-minutes: 10
+        continue-on-error: true
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
           fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-fallback-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-fallback-1.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
+          fetch-depth: 0
           submodules: false
           lfs: false
           persist-credentials: false

@@ -19,6 +19,22 @@ fi
 
 PYPROJECT="${REPO_ROOT}/pyproject.toml"
 UVLOCK="${REPO_ROOT}/uv.lock"
+DEP_STAMP="${REPO_ROOT}/.venv/.bmt_dep_fingerprint"
+
+compute_dep_fingerprint() {
+  local repo_root="$1"
+  local pyproject="${repo_root}/pyproject.toml"
+  local uvlock="${repo_root}/uv.lock"
+  if [[ -f "$pyproject" && -f "$uvlock" ]]; then
+    sha256sum "$pyproject" "$uvlock" | sha256sum | awk '{print $1}'
+    return 0
+  fi
+  if [[ -f "$pyproject" ]]; then
+    sha256sum "$pyproject" | awk '{print $1}'
+    return 0
+  fi
+  return 1
+}
 
 UV_BIN="${UV_BIN:-${BMT_UV_BIN:-}}"
 if [[ -z "$UV_BIN" ]]; then
@@ -42,6 +58,14 @@ elif [[ -f "$PYPROJECT" ]]; then
 else
   echo "::error::Missing VM dependency project file: ${PYPROJECT}" >&2
   exit 1
+fi
+
+if dep_fingerprint="$(compute_dep_fingerprint "$REPO_ROOT")"; then
+  mkdir -p "$(dirname "$DEP_STAMP")"
+  printf '%s\n' "$dep_fingerprint" >"$DEP_STAMP"
+  echo "Dependency fingerprint updated at ${DEP_STAMP}: ${dep_fingerprint}"
+else
+  echo "Warning: could not compute dependency fingerprint for ${REPO_ROOT}" >&2
 fi
 
 # Non-fatal check: startup preflight still enforces valid App auth before processing runs.
