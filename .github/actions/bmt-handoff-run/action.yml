@@ -1,5 +1,5 @@
 name: BMT Handoff Run
-description: Preflight, write trigger, dispatch runtime backend (VM or Cloud Run Job), wait handshake, write summary. Requires job env GCS_BUCKET, GCP_*, BMT_*.
+description: Preflight, write trigger, sync VM metadata, start VM, wait handshake, write summary. Requires job env GCS_BUCKET, GCP_*, BMT_*.
 
 inputs:
   head_sha:
@@ -42,11 +42,8 @@ outputs:
     description: GCS URI of the handshake ack artifact
     value: ${{ steps.handshake.outputs.handshake_uri }}
   vm_started:
-    description: Whether runtime dispatch started (VM start or Cloud Run Job execute)
-    value: ${{ (steps.start-vm.outcome == 'success' || steps.start-cloud-run-job.outcome == 'success') && 'true' || 'false' }}
-  runtime_backend:
-    description: Runtime backend selected for this handoff (vm or cloud_run_job)
-    value: ${{ steps.runtime-backend.outputs.runtime_backend }}
+    description: Whether the BMT VM was started
+    value: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
   handoff_reason:
     description: Handoff result reason (ok, no_runtime_supported_legs, handshake_timeout)
     value: ${{ steps.handoff-reason.outputs.handoff_reason || (steps.handshake.outcome == 'success' && 'ok' || 'handshake_timeout') }}
@@ -89,30 +86,6 @@ runs:
         fi
         echo "Validated GCP_WIF_PROVIDER project-number alignment."
 
-    - name: Resolve runtime backend
-      id: runtime-backend
-      shell: bash
-      run: |
-        set -euo pipefail
-        backend="${BMT_RUNTIME_BACKEND:-vm}"
-        backend="${backend,,}"
-        case "$backend" in
-          vm)
-            ;;
-          cloud_run_job)
-            if [[ -z "${BMT_CLOUD_RUN_JOB:-}" || -z "${BMT_CLOUD_RUN_REGION:-}" ]]; then
-              echo "::error::BMT_CLOUD_RUN_JOB and BMT_CLOUD_RUN_REGION are required when BMT_RUNTIME_BACKEND=cloud_run_job."
-              exit 1
-            fi
-            ;;
-          *)
-            echo "::error::Invalid BMT_RUNTIME_BACKEND='$backend'. Expected one of: vm, cloud_run_job."
-            exit 1
-            ;;
-        esac
-        echo "runtime_backend=$backend" >>"$GITHUB_OUTPUT"
-        echo "Using runtime backend: $backend"
-
     - name: Preflight runtime trigger queue (stale cleanup)
       id: preflight
       shell: bash
@@ -133,12 +106,11 @@ runs:
       run: bash .github/bmt/scripts/bmt_workflow.sh write-run-trigger
 
     - name: Sync VM metadata from workflow config
-      if: steps.runtime-backend.outputs.runtime_backend == 'vm'
       shell: bash
       run: uv run --project .github/bmt bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
-      if: steps.runtime-backend.outputs.runtime_backend == 'vm' && steps.preflight.outputs.restart_vm == 'true'
+      if: steps.preflight.outputs.restart_vm == 'true'
       shell: bash
       env:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
@@ -146,22 +118,14 @@ runs:
 
     - name: Start BMT VM
       id: start-vm
-      if: steps.runtime-backend.outputs.runtime_backend == 'vm'
       shell: bash
       run: uv run --project .github/bmt bmt start-vm
-
-    - name: Start Cloud Run runtime job
-      id: start-cloud-run-job
-      if: steps.runtime-backend.outputs.runtime_backend == 'cloud_run_job'
-      shell: bash
-      run: uv run --project .github/bmt bmt start-cloud-run-job
 
     - name: Show handshake guidance
       shell: bash
       env:
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        BMT_RUNTIME_BACKEND: ${{ steps.runtime-backend.outputs.runtime_backend }}
       run: bash .github/bmt/scripts/bmt_workflow.sh show-handshake-guidance
 
     - name: Wait for VM handshake ack
@@ -234,8 +198,8 @@ runs:
         accepted_projects: ${{ inputs.accepted_projects }}
         filtered_matrix: ${{ inputs.filtered_matrix }}
         trigger_written: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
-        vm_started: ${{ (steps.start-vm.outcome == 'success' || steps.start-cloud-run-job.outcome == 'success') && 'true' || 'false' }}
+        vm_started: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
         handshake_ok: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
         handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
-        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: runtime acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: runtime accepted zero supported legs.' || 'Handoff failed: runtime did not acknowledge trigger.' }}"
-        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Runtime acknowledged trigger but reported no supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'Runtime did not acknowledge trigger within handshake timeout.' || '' }}"
+        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
+        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"

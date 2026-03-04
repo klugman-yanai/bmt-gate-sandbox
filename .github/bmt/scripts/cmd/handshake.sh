@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 
 bmt_cmd_show_handshake_guidance() {
-  local run_id base_timeout timeout restart_vm stale_count root ack_uri trigger_uri backend
+  local run_id base_timeout timeout restart_vm stale_count root ack_uri trigger_uri
 
   run_id="$(current_run_id)"
   base_timeout="${BMT_HANDSHAKE_TIMEOUT_SEC:-180}"
   timeout="$base_timeout"
   restart_vm="${RESTART_VM:-false}"
   stale_count="${STALE_CLEANUP_COUNT:-0}"
-  backend="${BMT_RUNTIME_BACKEND:-vm}"
-  backend="${backend,,}"
 
   if [[ "$restart_vm" == "true" ]]; then
     timeout=$((base_timeout + 60))
@@ -20,7 +18,7 @@ bmt_cmd_show_handshake_guidance() {
   trigger_uri="${root}/triggers/runs/${run_id}.json"
 
   {
-    echo "## Runtime handshake timeout: ${timeout}s (set repo var BMT_HANDSHAKE_TIMEOUT_SEC to override)"
+    echo "## VM handshake timeout: ${timeout}s (set repo var BMT_HANDSHAKE_TIMEOUT_SEC to override)"
     echo
     if [[ "$restart_vm" == "true" ]]; then
       echo "- Handshake mode: **post-cleanup restart branch** (stale trigger cleanup count: \`${stale_count}\`)"
@@ -29,24 +27,18 @@ bmt_cmd_show_handshake_guidance() {
       echo "- Handshake mode: **standard branch** (no stale trigger cleanup)."
     fi
     echo
-    echo "- Runtime backend: \`${backend}\`"
-    echo
-    echo "### Check runtime / GCS while waiting"
-    echo "- **Trigger file** (runtime reads this): \`${trigger_uri}\`"
-    echo "- **Ack file** (runtime writes this when ready): \`${ack_uri}\`"
-    echo "- Handshake confirms runtime pickup only; final \`${BMT_STATUS_CONTEXT:-BMT Gate}\` status is posted after completion."
-    echo "- **GCS:** \`gcloud storage cat \"${ack_uri}\"\` (after runtime writes ack)"
-    if [[ "$backend" == "vm" ]]; then
-      echo "- **VM serial output:** \`gcloud compute instances get-serial-port-output ${BMT_VM_NAME} --zone=${GCP_ZONE}\`"
-    elif [[ "$backend" == "cloud_run_job" ]]; then
-      echo "- **Cloud Run executions:** \`gcloud run jobs executions list --job ${BMT_CLOUD_RUN_JOB} --region ${BMT_CLOUD_RUN_REGION}\`"
-    fi
+    echo "### Check VM / GCS while waiting"
+    echo "- **Trigger file** (VM reads this): \`${trigger_uri}\`"
+    echo "- **Ack file** (VM writes this when ready): \`${ack_uri}\`"
+    echo "- Handshake confirms VM pickup only; final \`${BMT_STATUS_CONTEXT:-BMT Gate}\` status is posted after VM completion."
+    echo "- **GCS:** \`gcloud storage cat \"${ack_uri}\"\` (after VM writes ack)"
+    echo "- **VM serial output:** \`gcloud compute instances get-serial-port-output ${BMT_VM_NAME} --zone=${GCP_ZONE}\`"
     echo "- **Local TUI monitor:** \`just monitor --run-id ${run_id}\` or \`uv run python devtools/bmt_monitor.py --run-id ${run_id} --bucket ${GCS_BUCKET}\`"
   } >>"$GITHUB_STEP_SUMMARY"
 }
 
 bmt_cmd_wait_handshake() {
-  local run_id base_timeout timeout restart_vm stale_count backend
+  local run_id base_timeout timeout restart_vm stale_count
 
   require_cmd uv
   run_id="$(current_run_id)"
@@ -54,14 +46,12 @@ bmt_cmd_wait_handshake() {
   timeout="$base_timeout"
   restart_vm="${RESTART_VM:-false}"
   stale_count="${STALE_CLEANUP_COUNT:-0}"
-  backend="${BMT_RUNTIME_BACKEND:-vm}"
-  backend="${backend,,}"
 
   if [[ "$restart_vm" == "true" ]]; then
     timeout=$((base_timeout + 60))
-    echo "::notice::Handshake branch=post-cleanup-restart backend=${backend} stale_cleanup_count=${stale_count} timeout=${timeout}s"
+    echo "::notice::Handshake branch=post-cleanup-restart stale_cleanup_count=${stale_count} timeout=${timeout}s"
   else
-    echo "::notice::Handshake branch=standard backend=${backend} timeout=${timeout}s"
+    echo "::notice::Handshake branch=standard timeout=${timeout}s"
   fi
 
   BMT_HANDSHAKE_TIMEOUT_SEC="$timeout" \
@@ -69,15 +59,13 @@ bmt_cmd_wait_handshake() {
 }
 
 bmt_cmd_handshake_timeout_diagnostics() {
-  local run_id root trigger_uri ack_uri backend
+  local run_id root trigger_uri ack_uri
 
   require_cmd gcloud
   run_id="$(current_run_id)"
   root="$(runtime_root)"
   trigger_uri="${root}/triggers/runs/${run_id}.json"
   ack_uri="${root}/triggers/acks/${run_id}.json"
-  backend="${BMT_RUNTIME_BACKEND:-vm}"
-  backend="${backend,,}"
 
   set +e
   echo "::group::GCS trigger/ack diagnostics"
@@ -91,28 +79,18 @@ bmt_cmd_handshake_timeout_diagnostics() {
   gcloud storage cat "$ack_uri" 2>/dev/null | sed -n '1,120p' || true
   echo "::endgroup::"
 
-  if [[ "$backend" == "vm" ]]; then
-    echo "::group::VM instance diagnostics"
-    gcloud compute instances describe "$BMT_VM_NAME" \
-      --zone "$GCP_ZONE" \
-      --project "$GCP_PROJECT" \
-      --format='yaml(name,status,lastStartTimestamp,lastStopTimestamp,metadata.items)' 2>/dev/null || true
-    echo "::endgroup::"
+  echo "::group::VM instance diagnostics"
+  gcloud compute instances describe "$BMT_VM_NAME" \
+    --zone "$GCP_ZONE" \
+    --project "$GCP_PROJECT" \
+    --format='yaml(name,status,lastStartTimestamp,lastStopTimestamp,metadata.items)' 2>/dev/null || true
+  echo "::endgroup::"
 
-    echo "::group::VM serial output tail"
-    gcloud compute instances get-serial-port-output "$BMT_VM_NAME" \
-      --zone "$GCP_ZONE" \
-      --project "$GCP_PROJECT" 2>/dev/null | tail -n 200 || true
-    echo "::endgroup::"
-  elif [[ "$backend" == "cloud_run_job" && -n "${BMT_CLOUD_RUN_JOB:-}" && -n "${BMT_CLOUD_RUN_REGION:-}" ]]; then
-    echo "::group::Cloud Run execution diagnostics"
-    gcloud run jobs executions list \
-      --job "$BMT_CLOUD_RUN_JOB" \
-      --region "$BMT_CLOUD_RUN_REGION" \
-      --project "$GCP_PROJECT" \
-      --limit 5 2>/dev/null || true
-    echo "::endgroup::"
-  fi
+  echo "::group::VM serial output tail"
+  gcloud compute instances get-serial-port-output "$BMT_VM_NAME" \
+    --zone "$GCP_ZONE" \
+    --project "$GCP_PROJECT" 2>/dev/null | tail -n 200 || true
+  echo "::endgroup::"
 }
 
 bmt_cmd_show_handshake_summary() {
@@ -134,7 +112,7 @@ bmt_cmd_show_handshake_summary() {
   fi
 
   {
-    echo "## Runtime Handshake Response"
+    echo "## VM Handshake Response"
     echo
     if [[ "$restart_vm" == "true" ]]; then
       echo "- Handshake branch: **post-cleanup-restart**"

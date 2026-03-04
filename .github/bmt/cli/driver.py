@@ -18,7 +18,6 @@ COMMANDS = {
     "trigger": trigger.run_trigger,
     "upload-runner": upload_runner.run,
     "start-vm": vm.run_start,
-    "start-cloud-run-job": vm.run_start_cloud_run_job,
     "sync-vm-metadata": vm.run_sync_metadata,
     "wait-handshake": vm.run_wait_handshake,
 }
