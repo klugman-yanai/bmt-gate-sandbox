@@ -258,7 +258,7 @@ bmt_cmd_write_run_trigger() {
     echo "::error::FILTERED_MATRIX_JSON is required"
     exit 1
   fi
-  uv run bmt trigger
+  uv run --project .github/bmt bmt trigger
 }
 
 bmt_cmd_force_clean_vm_restart() {
