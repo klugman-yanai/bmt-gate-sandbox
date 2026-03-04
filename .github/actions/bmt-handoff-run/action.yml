@@ -127,6 +127,8 @@ runs:
         FILTERED_MATRIX_JSON: ${{ inputs.filtered_matrix }}
         RUN_CONTEXT: ${{ inputs.head_event == 'pull_request' && 'pr' || 'dev' }}
         HEAD_EVENT: ${{ inputs.head_event }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        HEAD_BRANCH: ${{ inputs.head_branch }}
         PR_NUMBER: ${{ inputs.pr_number }}
       run: bash .github/bmt/scripts/bmt_workflow.sh write-run-trigger
 
