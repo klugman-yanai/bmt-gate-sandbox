@@ -13,6 +13,7 @@ from cli.shared import DEFAULT_ENV_CONTRACT_PATH, require_env, write_github_outp
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
 DEFAULT_RUNTIME_CONTEXT = "BMT Runtime"
 DEFAULT_DESCRIPTION_PENDING = "BMT runtime in progress; status will update when complete."
+PROJECT_WIDE_BMT_ID = "__all__"
 
 
 def _default_context_from_contract(var_name: str, fallback: str) -> str:
@@ -54,6 +55,21 @@ def _default_run_id(project: str, bmt_id: str) -> str:
     return models.sanitize_run_id(raw)
 
 
+def _project_rows(rows: list[object]) -> list[str]:
+    """Return unique projects from matrix rows while preserving first-seen order."""
+    projects: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        project = str(row.get("project", "")).strip()
+        if not project or project in seen:
+            continue
+        seen.add(project)
+        projects.append(project)
+    return projects
+
+
 def run_trigger() -> None:
     """Write one run trigger file to GCS (all legs); VM will run BMT and post commit status.
     Reads FILTERED_MATRIX_JSON, RUN_CONTEXT, PR_NUMBER, GCS_BUCKET, GITHUB_OUTPUT."""
@@ -68,6 +84,9 @@ def run_trigger() -> None:
     rows = matrix.get("include", [])
     if not rows:
         raise RuntimeError("Empty matrix — nothing to trigger")
+    projects = _project_rows(rows)
+    if not projects:
+        raise RuntimeError("Matrix has no valid project rows — nothing to trigger")
 
     ctx = (os.environ.get("BMT_STATUS_CONTEXT") or "").strip() or _default_context_from_contract(
         "BMT_STATUS_CONTEXT",
@@ -86,11 +105,17 @@ def run_trigger() -> None:
     workflow_run_id = os.environ.get("GITHUB_RUN_ID", "local")
 
     legs: list[dict[str, str]] = []
-    for row in rows:
-        project = str(row["project"])
-        bmt_id = str(row["bmt_id"])
-        run_id = _default_run_id(project, bmt_id)
-        legs.append({"project": project, "bmt_id": bmt_id, "run_id": run_id, "triggered_at": triggered_at})
+    for project in projects:
+        run_id = _default_run_id(project, PROJECT_WIDE_BMT_ID)
+        legs.append(
+            {
+                "project": project,
+                "bmt_id": PROJECT_WIDE_BMT_ID,
+                "run_id": run_id,
+                "request_scope": "project_wide",
+                "triggered_at": triggered_at,
+            }
+        )
 
     run_payload: dict[str, str | int | list[dict[str, str]]] = {
         "workflow_run_id": workflow_run_id,
@@ -130,4 +155,7 @@ def run_trigger() -> None:
     write_github_output(github_output, "run_trigger_uri", run_trigger_uri_str)
     write_github_output(github_output, "requested_leg_count", str(len(legs)))
     write_github_output(github_output, "requested_legs", json.dumps(legs, separators=(",", ":")))
-    print(f"Triggered run {workflow_run_id} with {len(legs)} leg(s); VM will report status to GitHub")
+    print(
+        f"Triggered run {workflow_run_id} with {len(legs)} project request(s); "
+        "VM will resolve runtime-supported BMTs per project and report status to GitHub"
+    )
