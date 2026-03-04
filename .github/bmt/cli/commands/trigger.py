@@ -50,9 +50,31 @@ def _default_run_id(project: str, bmt_id: str) -> str:
     now = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    sha = os.environ.get("GITHUB_SHA", "")[:12]
+    sha = _resolve_source_sha()[:12]
     raw = f"gh-{run_id}-{attempt}-{project}-{bmt_id}-{sha or now}"
     return models.sanitize_run_id(raw)
+
+
+def _is_full_sha(value: str) -> bool:
+    v = value.strip()
+    return len(v) == 40 and all(ch in "0123456789abcdefABCDEF" for ch in v)
+
+
+def _resolve_source_sha() -> str:
+    head_sha = (os.environ.get("HEAD_SHA") or "").strip()
+    if _is_full_sha(head_sha):
+        return head_sha
+    return (os.environ.get("GITHUB_SHA") or "").strip()
+
+
+def _resolve_source_ref() -> str:
+    head_ref = (os.environ.get("HEAD_REF") or "").strip()
+    if head_ref.startswith("refs/"):
+        return head_ref
+    head_branch = (os.environ.get("HEAD_BRANCH") or "").strip()
+    if head_branch:
+        return f"refs/heads/{head_branch}"
+    return (os.environ.get("GITHUB_REF") or "").strip()
 
 
 def _project_rows(rows: list[object]) -> list[str]:
@@ -99,8 +121,10 @@ def run_trigger() -> None:
 
     runtime_bucket_root = models.runtime_bucket_root_uri(bucket)
     triggered_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sha = os.environ.get("GITHUB_SHA", "")
-    ref = os.environ.get("GITHUB_REF", "")
+    sha = _resolve_source_sha()
+    if not _is_full_sha(sha):
+        raise RuntimeError("Unable to resolve a valid 40-char source SHA (HEAD_SHA or GITHUB_SHA).")
+    ref = _resolve_source_ref()
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     workflow_run_id = os.environ.get("GITHUB_RUN_ID", "local")
 
