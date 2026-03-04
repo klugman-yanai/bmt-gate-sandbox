@@ -79,10 +79,15 @@ jobs:
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
     steps:
       - name: Checkout
-        uses: ./.github/actions/checkout-robust
+        uses: actions/checkout@v4
+        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - id: prepare
         uses: ./.github/actions/bmt-prepare
@@ -108,10 +113,15 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.runner_matrix) }}
     steps:
       - name: Checkout
-        uses: ./.github/actions/checkout-robust
+        uses: actions/checkout@v4
+        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - name: Download runner artifact
         uses: actions/download-artifact@v4
@@ -182,10 +192,15 @@ jobs:
       pr_number: ${{ needs.prepare.outputs.pr_number }}
     steps:
       - name: Checkout
-        uses: ./.github/actions/checkout-robust
+        uses: actions/checkout@v4
+        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - id: classify
         uses: ./.github/actions/bmt-classify-handoff
@@ -204,10 +219,15 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: ./.github/actions/checkout-robust
+        uses: actions/checkout@v4
+        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - uses: ./.github/actions/bmt-write-summary
         with:
@@ -240,10 +260,15 @@ jobs:
       handoff_reason: ${{ steps.run.outputs.handoff_reason }}
     steps:
       - name: Checkout
-        uses: ./.github/actions/checkout-robust
+        uses: actions/checkout@v4
+        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - id: run
         uses: ./.github/actions/bmt-handoff-run
@@ -269,10 +294,15 @@ jobs:
       statuses: write
     steps:
       - name: Checkout
-        uses: ./.github/actions/checkout-robust
+        uses: actions/checkout@v4
+        timeout-minutes: 10
         with:
           repository: ${{ github.repository }}
           ref: ${{ needs.prepare.outputs.head_sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - uses: ./.github/actions/bmt-failure-fallback
         with:
