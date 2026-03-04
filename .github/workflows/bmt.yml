@@ -400,91 +400,9 @@ jobs:
           echo "handoff_reason=skip_no_legs" >>"$GITHUB_OUTPUT"
           echo "run_step_outcome=skipped" >>"$GITHUB_OUTPUT"
 
-  handoff-normalize-run:
-    name: 05a [RUN] Normalize Handoff Outcome
-    needs: [prepare, classify-handoff, handoff-run]
-    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.classify-handoff.outputs.path == 'run' }}
-    runs-on: ubuntu-22.04
-    outputs:
-      path: ${{ steps.normalize.outputs.path }}
-      trigger_written: ${{ steps.normalize.outputs.trigger_written }}
-      handshake_ok: ${{ steps.normalize.outputs.handshake_ok }}
-      handshake_uri: ${{ steps.normalize.outputs.handshake_uri }}
-      vm_started: ${{ steps.normalize.outputs.vm_started }}
-      handoff_reason: ${{ steps.normalize.outputs.handoff_reason }}
-      run_step_outcome: ${{ steps.normalize.outputs.run_step_outcome }}
-    steps:
-      - name: Normalize run lane outputs
-        id: normalize
-        shell: bash
-        run: |
-          set -euo pipefail
-          path="run"
-          trigger_written="${{ needs.handoff-run.outputs.trigger_written || 'false' }}"
-          handshake_ok="${{ needs.handoff-run.outputs.handshake_ok || 'false' }}"
-          handshake_uri="${{ needs.handoff-run.outputs.handshake_uri || '' }}"
-          vm_started="${{ needs.handoff-run.outputs.vm_started || 'false' }}"
-          handoff_reason="${{ needs.handoff-run.outputs.handoff_reason || '' }}"
-          run_step_outcome="${{ needs.handoff-run.outputs.run_step_outcome || 'skipped' }}"
-
-          if [[ -z "$handoff_reason" ]]; then
-            if [[ "$run_step_outcome" == "success" ]]; then
-              handoff_reason="ok"
-            else
-              handoff_reason="handoff_run_failed"
-            fi
-          fi
-
-          {
-            echo "path=${path}"
-            echo "trigger_written=${trigger_written}"
-            echo "handshake_ok=${handshake_ok}"
-            echo "handshake_uri=${handshake_uri}"
-            echo "vm_started=${vm_started}"
-            echo "handoff_reason=${handoff_reason}"
-            echo "run_step_outcome=${run_step_outcome}"
-          } >>"$GITHUB_OUTPUT"
-
-  handoff-normalize-skip:
-    name: 05b [SKIP] Normalize Handoff Outcome
-    needs: [prepare, classify-handoff, handoff-skip]
-    if: ${{ always() && needs.prepare.result != 'cancelled' && needs.classify-handoff.outputs.path == 'skip_no_legs' }}
-    runs-on: ubuntu-22.04
-    outputs:
-      path: ${{ steps.normalize.outputs.path }}
-      trigger_written: ${{ steps.normalize.outputs.trigger_written }}
-      handshake_ok: ${{ steps.normalize.outputs.handshake_ok }}
-      handshake_uri: ${{ steps.normalize.outputs.handshake_uri }}
-      vm_started: ${{ steps.normalize.outputs.vm_started }}
-      handoff_reason: ${{ steps.normalize.outputs.handoff_reason }}
-      run_step_outcome: ${{ steps.normalize.outputs.run_step_outcome }}
-    steps:
-      - name: Normalize skip lane outputs
-        id: normalize
-        shell: bash
-        run: |
-          set -euo pipefail
-          path="skip_no_legs"
-          trigger_written="false"
-          handshake_ok="false"
-          handshake_uri=""
-          vm_started="false"
-          handoff_reason="${{ needs.handoff-skip.outputs.handoff_reason || 'skip_no_legs' }}"
-          run_step_outcome="${{ needs.handoff-skip.outputs.run_step_outcome || 'skipped' }}"
-
-          {
-            echo "path=${path}"
-            echo "trigger_written=${trigger_written}"
-            echo "handshake_ok=${handshake_ok}"
-            echo "handshake_uri=${handshake_uri}"
-            echo "vm_started=${vm_started}"
-            echo "handoff_reason=${handoff_reason}"
-            echo "run_step_outcome=${run_step_outcome}"
-          } >>"$GITHUB_OUTPUT"
-
   finalize:
-    name: 06 [JOIN] Finalize BMT Gate
-    needs: [prepare, classify-handoff, handoff-normalize-run, handoff-normalize-skip]
+    name: 05 [JOIN] Finalize BMT Gate
+    needs: [prepare, classify-handoff, handoff-run, handoff-skip]
     if: ${{ always() && needs.prepare.result != 'cancelled' }}
     runs-on: ubuntu-22.04
     permissions:
@@ -525,13 +443,34 @@ jobs:
         run: |
           set -euo pipefail
           should_fail="false"
-          path="${{ needs.handoff-normalize-run.outputs.path || needs.handoff-normalize-skip.outputs.path || 'unknown' }}"
-          run_step_outcome="${{ needs.handoff-normalize-run.outputs.run_step_outcome || needs.handoff-normalize-skip.outputs.run_step_outcome || 'skipped' }}"
-          handoff_reason="${{ needs.handoff-normalize-run.outputs.handoff_reason || needs.handoff-normalize-skip.outputs.handoff_reason || '' }}"
-          trigger_written="${{ needs.handoff-normalize-run.outputs.trigger_written || needs.handoff-normalize-skip.outputs.trigger_written || 'false' }}"
-          vm_started="${{ needs.handoff-normalize-run.outputs.vm_started || needs.handoff-normalize-skip.outputs.vm_started || 'false' }}"
-          handshake_ok="${{ needs.handoff-normalize-run.outputs.handshake_ok || needs.handoff-normalize-skip.outputs.handshake_ok || 'false' }}"
-          handshake_uri="${{ needs.handoff-normalize-run.outputs.handshake_uri || needs.handoff-normalize-skip.outputs.handshake_uri || '' }}"
+          path="${{ needs.classify-handoff.outputs.path || 'unknown' }}"
+          run_step_outcome="skipped"
+          handoff_reason=""
+          trigger_written="false"
+          vm_started="false"
+          handshake_ok="false"
+          handshake_uri=""
+
+          if [[ "$path" == "run" ]]; then
+            run_step_outcome="${{ needs.handoff-run.outputs.run_step_outcome || 'skipped' }}"
+            handoff_reason="${{ needs.handoff-run.outputs.handoff_reason || '' }}"
+            trigger_written="${{ needs.handoff-run.outputs.trigger_written || 'false' }}"
+            vm_started="${{ needs.handoff-run.outputs.vm_started || 'false' }}"
+            handshake_ok="${{ needs.handoff-run.outputs.handshake_ok || 'false' }}"
+            handshake_uri="${{ needs.handoff-run.outputs.handshake_uri || '' }}"
+            if [[ -z "$handoff_reason" ]]; then
+              if [[ "$run_step_outcome" == "success" ]]; then
+                handoff_reason="ok"
+              else
+                handoff_reason="handoff_run_failed"
+              fi
+            fi
+          elif [[ "$path" == "skip_no_legs" ]]; then
+            run_step_outcome="${{ needs.handoff-skip.outputs.run_step_outcome || 'skipped' }}"
+            handoff_reason="${{ needs.handoff-skip.outputs.handoff_reason || 'skip_no_legs' }}"
+          else
+            handoff_reason="invalid_route"
+          fi
 
           if [[ "${{ needs.prepare.result }}" != "success" ]]; then
             should_fail="true"
