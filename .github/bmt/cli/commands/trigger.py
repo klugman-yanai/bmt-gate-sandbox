@@ -12,7 +12,7 @@ from cli.shared import DEFAULT_ENV_CONTRACT_PATH, require_env, write_github_outp
 
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
 DEFAULT_RUNTIME_CONTEXT = "BMT Runtime"
-DEFAULT_DESCRIPTION_PENDING = "BMT running on VM; status will update when complete."
+DEFAULT_DESCRIPTION_PENDING = "BMT runtime in progress; status will update when complete."
 
 
 def _default_context_from_contract(var_name: str, fallback: str) -> str:

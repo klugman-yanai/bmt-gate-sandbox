@@ -239,6 +239,51 @@ def run_start() -> None:
 # ---------------------------------------------------------------------------
 
 
+def run_start_cloud_run_job() -> None:
+    """Trigger a Cloud Run Job execution for BMT runtime pickup."""
+    project = require_env("GCP_PROJECT")
+    job_name = require_env("BMT_CLOUD_RUN_JOB")
+    region = require_env("BMT_CLOUD_RUN_REGION")
+    github_output = os.environ.get("GITHUB_OUTPUT")
+
+    cmd = [
+        "gcloud",
+        "run",
+        "jobs",
+        "execute",
+        job_name,
+        "--project",
+        project,
+        "--region",
+        region,
+        "--format=json",
+    ]
+    rc, out = gcloud.run_capture(cmd)
+    if rc != 0:
+        raise RuntimeError(f"Failed to execute Cloud Run job {job_name}: {out}")
+
+    execution_name = ""
+    try:
+        payload = json.loads(out) if out.strip() else {}
+        if isinstance(payload, dict):
+            metadata = payload.get("metadata")
+            if isinstance(metadata, dict):
+                raw_name = metadata.get("name")
+                if isinstance(raw_name, str):
+                    execution_name = raw_name.strip()
+    except json.JSONDecodeError:
+        # Keep execution name empty when gcloud output cannot be parsed.
+        execution_name = ""
+
+    if execution_name:
+        print(f"Cloud Run Job execution submitted: {execution_name}")
+        write_github_output(github_output, "cloud_run_execution", execution_name)
+    else:
+        print(f"Cloud Run Job execute submitted for {job_name} (region={region}).")
+    write_github_output(github_output, "cloud_run_job", job_name)
+    write_github_output(github_output, "cloud_run_region", region)
+
+
 def _build_desired_metadata(
     bucket: str,
     repo_root: str,
