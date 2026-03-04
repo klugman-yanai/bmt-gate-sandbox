@@ -7,7 +7,7 @@ bmt_cmd_post_handoff_timeout_status() {
   head_sha="${HEAD_SHA:-}"
   github_token="${GITHUB_TOKEN:-}"
   context="${BMT_STATUS_CONTEXT:-BMT Gate}"
-  description="${BMT_FAILURE_STATUS_DESCRIPTION:-BMT cancelled: runtime handshake timeout before pickup.}"
+  description="${BMT_FAILURE_STATUS_DESCRIPTION:-BMT cancelled: VM handshake timeout before pickup.}"
 
   if [[ -z "$repository" || -z "$head_sha" || -z "$github_token" ]]; then
     echo "::warning::Skipping fallback status post (missing repository/head_sha/token)."

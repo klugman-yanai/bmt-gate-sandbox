@@ -109,10 +109,28 @@ jobs:
       id-token: write
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 3
       matrix: ${{ fromJson(needs.prepare.outputs.runner_matrix) }}
     steps:
-      - name: Checkout
+      - name: Checkout (attempt 1)
+        id: checkout-upload-1
+        uses: actions/checkout@v4
+        continue-on-error: true
+        timeout-minutes: 10
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-upload-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2)
+        if: steps.checkout-upload-1.outcome == 'failure'
         uses: actions/checkout@v4
         timeout-minutes: 10
         with:

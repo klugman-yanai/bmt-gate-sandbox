@@ -46,11 +46,11 @@ inputs:
     required: false
     default: "false"
   handoff_run_vm_started:
-    description: Whether handoff-run started runtime dispatch (VM or Cloud Run Job)
+    description: Whether handoff-run started the VM
     required: false
     default: "false"
   handoff_run_handshake_ok:
-    description: Whether handoff-run got runtime handshake
+    description: Whether handoff-run got VM handshake
     required: false
     default: "false"
   handoff_run_handshake_uri:
@@ -124,9 +124,9 @@ runs:
           reason="Handoff path classification failed."
         elif [[ "${{ inputs.handoff_run_result }}" == "failure" ]]; then
           if [[ "${{ inputs.handoff_run_handoff_reason }}" == "no_runtime_supported_legs" ]]; then
-            reason="Runtime acknowledged trigger but accepted zero supported legs."
+            reason="VM acknowledged trigger but accepted zero runtime-supported legs."
           else
-            reason="Runtime did not acknowledge trigger within handshake timeout."
+            reason="VM did not acknowledge trigger within handshake timeout."
           fi
         elif [[ "${{ inputs.handoff_skip_result }}" == "failure" ]]; then
           reason="No-legs handoff path failed unexpectedly."
@@ -151,7 +151,7 @@ runs:
         vm_started: ${{ inputs.handoff_run_vm_started }}
         handshake_ok: ${{ inputs.handoff_run_handshake_ok }}
         handshake_uri: ${{ inputs.handoff_run_handshake_uri }}
-        handoff_state_line: "${{ inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: runtime accepted zero supported legs.' || 'Handoff failed: runtime did not acknowledge trigger.' }}"
+        handoff_state_line: "${{ inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
         failure_reason: ${{ steps.reason.outputs.reason }}
 
     - name: Setup GCP for cleanup
@@ -170,7 +170,7 @@ runs:
         HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
         GITHUB_TOKEN: ${{ github.token }}
         BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
-        BMT_FAILURE_STATUS_DESCRIPTION: "${{ inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: runtime accepted zero supported legs.' || 'BMT cancelled: runtime handshake timeout before pickup.' }}"
+        BMT_FAILURE_STATUS_DESCRIPTION: "${{ inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: VM accepted zero runtime-supported legs.' || 'BMT cancelled: VM handshake timeout before pickup.' }}"
       run: bash .github/bmt/scripts/bmt_workflow.sh post-handoff-timeout-status
 
     - name: Cleanup failed trigger artifacts
@@ -179,6 +179,6 @@ runs:
       run: bash .github/bmt/scripts/bmt_workflow.sh cleanup-failed-trigger-artifacts
 
     - name: Stop VM after workflow failure
-      if: steps.failctx.outputs.trigger_written == 'true' && (env.BMT_RUNTIME_BACKEND == '' || env.BMT_RUNTIME_BACKEND == 'vm')
+      if: steps.failctx.outputs.trigger_written == 'true'
       shell: bash
       run: bash .github/bmt/scripts/bmt_workflow.sh stop-vm-best-effort
