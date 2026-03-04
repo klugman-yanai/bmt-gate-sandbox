@@ -94,6 +94,7 @@ def run_start() -> None:
     poll_interval_sec = 5
     stabilization_sec = int(os.environ.get("BMT_VM_STABILIZATION_SEC", "45"))
     recovery_attempts_max = int(os.environ.get("BMT_VM_START_RECOVERY_ATTEMPTS", "2"))
+    terminal_recovery_statuses = {"TERMINATED", "STOPPED", "SUSPENDED"}
 
     in_actions = _is_truthy(os.environ.get("GITHUB_ACTIONS"))
     if not in_actions and not _is_truthy(os.environ.get("BMT_ALLOW_MANUAL_VM_START")):
@@ -132,19 +133,18 @@ def run_start() -> None:
         )
         return any(token in text for token in tokens)
 
-    def _request_start(reason: str) -> None:
+    def _request_start(reason: str) -> bool:
         try:
             gcloud.vm_start(project, zone, instance_name)
         except gcloud.GcloudError as exc:
             if _is_idempotent_start_error(exc):
                 print(f"::warning::{exc}")
                 print(f"VM start treated as idempotent while {reason}; continuing readiness checks.")
-                return
+                return False
             print(f"::error::{exc}")
             raise
         print(f"Start command submitted for VM {instance_name} (zone={zone}) [{reason}]")
-
-    _request_start("initial start")
+        return True
     print(
         f"Waiting for RUNNING state (timeout={timeout_sec}s, poll={poll_interval_sec}s); "
         f"previous status={before_status or '<unknown>'} previous lastStart={before_last_start or '<none>'}"
@@ -155,10 +155,39 @@ def run_start() -> None:
     last_seen_start: str | None = None
     recovery_attempts = 0
     recovery_pending = False
+    terminal_polls = 0
+
+    def _attempt_recovery_start(trigger_status: str, phase: str) -> None:
+        nonlocal before_last_start, before_status, recovery_attempts, recovery_pending, terminal_polls
+        recovery_attempts += 1
+        if recovery_attempts > recovery_attempts_max:
+            raise RuntimeError(
+                "VM became unstable and recovery attempts were exhausted; "
+                f"phase={phase}; status={trigger_status}; max_recovery_attempts={recovery_attempts_max}"
+            )
+        print(
+            "::warning::"
+            f"VM not ready; status={trigger_status}; attempting recovery start "
+            f"{recovery_attempts}/{recovery_attempts_max} ({phase})"
+        )
+        before_status = trigger_status
+        before_last_start = last_seen_start
+        recovery_pending = True
+        terminal_polls = 0
+        _request_start(f"recovery attempt {recovery_attempts} ({phase})")
+
+    initial_start_submitted = _request_start("initial start")
+    if not initial_start_submitted and before_status != "RUNNING":
+        recovery_pending = True
+
     while time.monotonic() < deadline:
         describe = gcloud.vm_describe(project, zone, instance_name)
         last_seen_status = _instance_status(describe)
         last_seen_start = _last_start_timestamp(describe)
+        if last_seen_status in terminal_recovery_statuses:
+            terminal_polls += 1
+        else:
+            terminal_polls = 0
         running = last_seen_status == "RUNNING"
         start_advanced = before_last_start is None or (
             last_seen_start is not None and last_seen_start != before_last_start
@@ -186,31 +215,21 @@ def run_start() -> None:
                 if remaining > 0:
                     time.sleep(min(max(1, poll_interval_sec), remaining))
             if unstable_status:
-                recovery_attempts += 1
-                if recovery_attempts > recovery_attempts_max:
-                    raise RuntimeError(
-                        "VM became unstable during stabilization window and recovery attempts were exhausted; "
-                        f"status={unstable_status}; max_recovery_attempts={recovery_attempts_max}"
-                    )
-                print(
-                    "::warning::"
-                    f"VM became unstable during stabilization window; status={unstable_status}; "
-                    f"attempting recovery start {recovery_attempts}/{recovery_attempts_max}"
-                )
-                before_status = unstable_status
-                before_last_start = last_seen_start
-                recovery_pending = True
-                _request_start(f"recovery attempt {recovery_attempts}")
+                _attempt_recovery_start(unstable_status, "stabilization")
+                time.sleep(max(1, poll_interval_sec))
                 continue
             print("VM stabilization passed.")
             return
+        if last_seen_status in terminal_recovery_statuses and (recovery_pending or terminal_polls >= 2):
+            _attempt_recovery_start(last_seen_status or "<unknown>", "readiness")
         time.sleep(max(1, poll_interval_sec))
 
     message = (
         "VM did not reach ready state after start command; "
         f"last status={last_seen_status or '<unknown>'} "
         f"lastStartTimestamp={last_seen_start or '<none>'} "
-        f"previousLastStart={before_last_start or '<none>'}"
+        f"previousLastStart={before_last_start or '<none>'} "
+        f"recoveryAttempts={recovery_attempts}/{recovery_attempts_max}"
     )
     raise RuntimeError(message)
 
