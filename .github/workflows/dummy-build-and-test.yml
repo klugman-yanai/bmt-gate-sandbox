@@ -233,7 +233,7 @@ jobs:
 
       - name: Skip runner upload in dummy mode
         if: steps.preset-info.outcome == 'success' && env.BMT_DUMMY_SKIP_HANDOFF_UPLOADS == 'true'
-        run: echo "::notice::Dummy mode enabled: skip runner artifact upload so BMT takes skip_no_legs route."
+        run: 'echo "::notice::Dummy mode enabled: skip runner artifact upload so BMT takes skip_no_legs route."'
 
       - name: Disk space (after)
         if: always()
