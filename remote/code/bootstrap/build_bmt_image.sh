@@ -151,7 +151,7 @@ gcloud compute ssh "$BMT_IMAGE_BUILDER_VM_NAME" \
     sudo rm -rf /opt/bmt
     sudo mkdir -p /opt/bmt
     sudo cp -a /tmp/bmt-code/. /opt/bmt/
-    if [[ -x /opt/bmt/_tools/uv/linux-x86_64/uv ]]; then
+    if [[ -f /opt/bmt/_tools/uv/linux-x86_64/uv ]]; then
       sudo chmod +x /opt/bmt/_tools/uv/linux-x86_64/uv
       sudo BMT_UV_BIN=/opt/bmt/_tools/uv/linux-x86_64/uv bash /opt/bmt/bootstrap/install_deps.sh /opt/bmt
     elif command -v uv >/dev/null 2>&1; then
