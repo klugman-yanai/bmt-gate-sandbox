@@ -2,7 +2,7 @@
 
 This doc explains how to **check** the current GitHub App permissions and **why each permission** is required for BMT (trigger, status, Check Runs).
 
-**Current implementation:** The VM posts commit status and Check Run only. PR comments are **not** implemented; the Issues/Pull requests permission is listed for when that feature is added.
+**Current implementation:** The VM posts a terminal gate commit status (`BMT Gate`) and runtime Check Run (`BMT Runtime`). PR comments are **not** implemented; the Issues/Pull requests permission is listed for when that feature is added.
 
 ## How to check current permissions
 
@@ -20,6 +20,8 @@ uv run python devtools/gh_app_perms.py --app-id 123456 --private-key /path/to/ap
 uv run python devtools/gh_app_perms.py --app-id 123456 --private-key /path/to/key.pem --jq .permissions
 ```
 
+Alias env names `GH_APP_TEST_ID` / `GH_APP_PROD_ID` are also accepted by runtime tooling, but canonical `GITHUB_APP_*` names take precedence.
+
 The script calls `GET https://api.github.com/app` with JWT auth and prints the app metadata (including `permissions` and `events`). Repository/installation-level overrides can be seen in GitHub: **Settings → GitHub Apps → Your App → Permissions and events**.
 
 ---
@@ -36,7 +38,7 @@ The App must have at least the permissions below. If you use a single App for bo
 | Permission | Level | Why it's needed |
 |------------|--------|------------------|
 | **Actions: Read and write** | Repository | **CI (dummy-build-and-test.yml)** uses repo secrets `BMT_DISPATCH_APP_ID` and `BMT_DISPATCH_APP_PRIVATE_KEY` with `create-github-app-token` (permission-actions: write) to call **workflow_dispatch** on `bmt.yml`. Without this, the "Trigger BMT" step cannot start the BMT workflow and returns 403. |
-| **Commit statuses: Read and write** | Repository | **Commit status** is how the PR is gated (e.g. "BMT Gate"). Used by: (1) **bmt.yml** — posts pending/failure status from jobs 06 and 07; (2) **dummy-build-and-test.yml** — posts failure status when "Trigger BMT" fails; (3) **VM (vm_watcher.py)** — posts pending then success/failure via `POST /repos/{owner}/{repo}/statuses/{sha}`. Branch protection typically requires this status to pass. |
+| **Commit statuses: Read and write** | Repository | Used by: (1) **bmt.yml** failure paths; (2) **dummy-build-and-test.yml** trigger failure path; (3) **VM (vm_watcher.py)** for terminal gate context only (default `BMT Gate`) via `POST /repos/{owner}/{repo}/statuses/{sha}`. Branch protection should require only the gate context. |
 | **Checks: Read and write** | Repository | **Check Runs** are created and updated by the **VM (remote/code/lib/github_checks.py)** to show live BMT progress in the PR (create_check_run, update_check_run). Optional for gating (the gate is commit status) but needed for the progress table and final results in the check UI. |
 | **Issues: Read and write** (or **Pull requests: Read and write**) | Repository | **Planned:** PR comments would be posted by the VM after each run when associated with a PR. Not yet implemented. The workflow can post "Did not run" from failure-path jobs (bmt.yml 07/08, dummy-build-and-test.yml trigger-bmt) using `GITHUB_TOKEN` with `issues: write`. |
 
@@ -59,7 +61,7 @@ BMT does not create or edit workflow files; it only **triggers** an existing wor
 | Permission        | Where used                    | Purpose |
 |-------------------|-------------------------------|---------|
 | **Actions (R/W)** | CI workflow (trigger step)    | Dispatch `bmt.yml` via workflow_dispatch. |
-| **Statuses (R/W)**| CI, BMT workflow, VM         | Gate PR with "BMT Gate" status; post pending/failure from workflow and VM. |
+| **Statuses (R/W)**| CI, BMT workflow, VM         | VM posts final gate status; workflows post failure statuses on handoff errors. |
 | **Checks (R/W)**  | VM only                       | Create/update Check Run for live progress and final summary. |
 | **Issues (R/W)** or **Pull requests (R/W)** | VM (and workflow failure steps use `GITHUB_TOKEN`) | Planned: one PR comment per run. Currently unused (PR comments not implemented). Workflow can post failure "Did not run" comments. |
 
@@ -91,7 +93,7 @@ The VM does **not** use `GITHUB_TOKEN`. It resolves a **GitHub App installation 
 
 | Capability | Permission needed | Where it’s used |
 |------------|-------------------|------------------|
-| Post commit status (pending → success/failure) | **Commit statuses: Read and write** | `vm_watcher.py` → `POST /repos/{owner}/{repo}/statuses/{sha}` |
+| Post terminal gate commit status (`success`/`failure`/`error`) | **Commit statuses: Read and write** | `vm_watcher.py` → `POST /repos/{owner}/{repo}/statuses/{sha}` |
 | Create/update Check Run (progress + result) | **Checks: Read and write** | `remote/code/lib/github_checks.py` → create_check_run, update_check_run |
 | Post PR comment (Success / Failed / Did not run) — *not yet implemented* | **Issues: Read and write** (or **Pull requests: Read and write**) | Would use `POST /repos/{owner}/{repo}/issues/{pr_number}/comments` |
 

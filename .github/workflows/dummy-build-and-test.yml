@@ -1,13 +1,22 @@
 # Dummy CI workflow for this test repository.
-# Keeps original CI job topology as no-op while still collecting/uploading release runners for BMT handoff tests.
-name: CI (Dummy)
+# Keeps CI topology as no-op while still collecting/uploading release runners for BMT handoff tests.
+name: CI
 
 on:
   workflow_dispatch:
   push:
-    branches: [dev]
+    branches:
+      - dev
+      - ci/check-bmt-gate
+      - test/check-bmt-gate-*
   pull_request:
-    branches: [dev]
+    branches:
+      - dev
+      - ci/check-bmt-gate
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -40,9 +49,69 @@ jobs:
         id: parse
         run: bash .github/bmt/scripts/ci_workflow.sh parse-presets
 
+  # ─────────────────────── 1.5) resolve BMT head context ───────────────────────
+  resolve-bmt-context:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head_event: ${{ steps.resolve.outputs.head_event }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+    steps:
+      - id: resolve
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const refName = process.env.GITHUB_REF_NAME || "";
+            const repoSlug = process.env.GITHUB_REPOSITORY || "";
+            const [owner, repo] = repoSlug.split("/");
+            const testBranchPattern = /^test\/check-bmt-gate-.+/;
+            const requiredBaseBranch = "ci/check-bmt-gate";
+
+            if (!testBranchPattern.test(refName)) {
+              core.setOutput("head_event", "push");
+              core.setOutput("pr_number", "");
+              core.notice(`Resolved BMT context: push (branch=${refName})`);
+              return;
+            }
+
+            if (!owner || !repo) {
+              throw new Error("GITHUB_REPOSITORY is empty; cannot resolve PR context.");
+            }
+
+            const resp = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: "open",
+              head: `${owner}:${refName}`,
+              per_page: 100,
+            });
+            const pulls = (resp.data || []).filter((pr) => pr.base?.ref === requiredBaseBranch);
+
+            if (pulls.length === 0) {
+              throw new Error(
+                `Branch '${refName}' matches test/check-bmt-gate-* but has no open PR into ${requiredBaseBranch}. ` +
+                "Open a PR first, then push a new commit for PR-context validation."
+              );
+            }
+            if (pulls.length > 1) {
+              const list = pulls.map((pr) => `#${pr.number} (base=${pr.base?.ref || "unknown"})`).join(", ");
+              throw new Error(
+                `Branch '${refName}' has multiple open PRs into ${requiredBaseBranch} (${list}). ` +
+                "Close extras so exactly one PR maps to this validation branch."
+              );
+            }
+
+            const prNumber = String(pulls[0].number);
+            core.setOutput("head_event", "pull_request");
+            core.setOutput("pr_number", prNumber);
+            core.notice(`Resolved BMT context: pull_request #${prNumber} (branch=${refName})`);
+
   # ─────────────────────── 2) build every preset (dummy/no-op except runner staging + upload) ────────────────────────
   build:
-    needs: extract-presets
+    needs: [extract-presets, resolve-bmt-context]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -123,82 +192,22 @@ jobs:
         if: always()
         run: "true"
 
-  # ─────────────────────── 3) Trigger BMT via workflow_dispatch (handoff dispatch only) ───────────────────────
-  trigger-bmt:
-    name: Trigger BMT Handoff
-    needs: build
+  # ─────────────────────── 3) Run BMT handoff inline via reusable workflow ───────────────────────
+  bmt-handoff:
+    name: BMT Handoff
+    needs: [build, resolve-bmt-context]
     if: success()
-    runs-on: ubuntu-latest
     permissions:
-      actions: write
+      actions: read
       contents: read
       statuses: write
       issues: write
-    env:
-      REPOSITORY: ${{ github.repository }}
-      EVENT_NAME: ${{ github.event_name }}
-      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      DEFAULT_HEAD_SHA: ${{ github.sha }}
-      DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
-      CI_RUN_ID: ${{ github.run_id }}
-      BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
-      GITHUB_TOKEN: ${{ github.token }}
-      GITHUB_SERVER_URL: ${{ github.server_url }}
-      # Custom repo variable and secret (Settings → Variables and secrets → Actions).
-      # IDE may warn "Context access might be invalid" — the schema only knows built-in names; these are valid at runtime.
-      BMT_DISPATCH_APP_ID: ${{ vars.BMT_DISPATCH_APP_ID }}
-      BMT_DISPATCH_APP_PRIVATE_KEY: ${{ secrets.BMT_DISPATCH_APP_PRIVATE_KEY }}
-    steps:
-      - name: Checkout source for BMT handoff helpers
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Generate GitHub App token for handoff dispatch
-        id: app-token
-        continue-on-error: true
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ env.BMT_DISPATCH_APP_ID }}
-          private-key: ${{ env.BMT_DISPATCH_APP_PRIVATE_KEY }}
-          permission-actions: write
-
-      - name: Resolve dispatch token
-        id: dispatch-token
-        env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          token="${APP_TOKEN:-${GITHUB_TOKEN}}"
-          if [[ -z "$token" ]]; then
-            echo "::error::No dispatch token available."
-            exit 1
-          fi
-          if [[ -n "${APP_TOKEN:-}" ]]; then
-            echo "::notice::Using GitHub App token for handoff dispatch."
-          else
-            echo "::warning::GitHub App secrets not configured; using GITHUB_TOKEN fallback for dispatch."
-          fi
-          echo "token=$token" >>"$GITHUB_OUTPUT"
-
-      - name: Resolve head context and dispatch BMT handoff
-        id: dispatch
-        env:
-          APP_TOKEN: ${{ steps.dispatch-token.outputs.token }}
-        run: bash .github/bmt/scripts/ci_workflow.sh handoff-dispatch-bmt
-
-      - name: Post BMT failure status/comment (handoff dispatch failed)
-        if: failure()
-        env:
-          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        run: bash .github/bmt/scripts/ci_workflow.sh post-trigger-failure-status
-
-      - name: Write handoff dispatch summary
-        if: always()
-        env:
-          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome || 'unknown' }}
-          HEAD_SHA: ${{ steps.dispatch.outputs.head_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
-          HEAD_BRANCH: ${{ steps.dispatch.outputs.head_branch || (github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name) }}
-          HEAD_EVENT: ${{ steps.dispatch.outputs.head_event || (github.event_name == 'pull_request' && 'pull_request' || 'push') }}
-        run: bash .github/bmt/scripts/ci_workflow.sh write-handoff-dispatch-summary
+      id-token: write
+    uses: ./.github/workflows/bmt.yml
+    with:
+      ci_run_id: ${{ github.run_id }}
+      head_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      head_branch: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+      head_event: ${{ needs.resolve-bmt-context.outputs.head_event }}
+      pr_number: ${{ needs.resolve-bmt-context.outputs.pr_number }}
+    secrets: inherit

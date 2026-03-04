@@ -21,7 +21,7 @@ _rsync_with_retry() {
   local delay=2
   local attempt
   for attempt in $(seq 1 "$attempts"); do
-    if gcloud storage rsync --recursive "${src}/" "${dest}" --quiet; then
+    if gcloud storage rsync --recursive "${src}/" "${dest}"; then
       return 0
     fi
     if [[ "$attempt" -lt "$attempts" ]]; then
