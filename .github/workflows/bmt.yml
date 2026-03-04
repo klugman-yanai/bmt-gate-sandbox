@@ -213,7 +213,7 @@ jobs:
   classify-handoff:
     name: 03 Classify Handoff Route
     needs: [prepare, upload-runners]
-    if: ${{ needs.prepare.result == 'success' }}
+    if: ${{ always() && needs.prepare.result == 'success' && needs.upload-runners.result != 'cancelled' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
