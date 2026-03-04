@@ -25,8 +25,6 @@ defaults:
 env:
   # One build job per project; default "all". Set repo var BMT_PROJECTS to override (e.g. ["sk"]).
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
-  # Sandbox default: force BMT into skip_no_legs path so CI stays deterministic without live runtime.
-  BMT_DUMMY_SKIP_HANDOFF_UPLOADS: "true"
 
 jobs:
   # ─────────────────────── 1) one preset per project (gcc_Release only; filtered) ───────────────────────
@@ -221,7 +219,7 @@ jobs:
         run: bash .github/bmt/scripts/ci_workflow.sh compute-preset-info
 
       - name: Upload runner artifact
-        if: steps.preset-info.outcome == 'success' && env.BMT_DUMMY_SKIP_HANDOFF_UPLOADS != 'true'
+        if: steps.preset-info.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: runner-${{ steps.preset-info.outputs.preset }}
@@ -230,10 +228,6 @@ jobs:
             ${{ steps.preset-info.outputs.lib_dir }}/libKardome.so
           retention-days: 1
           if-no-files-found: warn
-
-      - name: Skip runner upload in dummy mode
-        if: steps.preset-info.outcome == 'success' && env.BMT_DUMMY_SKIP_HANDOFF_UPLOADS == 'true'
-        run: 'echo "::notice::Dummy mode enabled: skip runner artifact upload so BMT takes skip_no_legs route."'
 
       - name: Disk space (after)
         if: always()
