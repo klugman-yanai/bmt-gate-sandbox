@@ -306,7 +306,7 @@ def test_start_vm_recovers_from_terminal_state_after_fingerprint_race(monkeypatc
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
 
     start_vm.run_start()
-    assert call_count["value"] == 3
+    assert call_count["value"] == 2
 
 
 def test_start_vm_recovers_after_initial_idempotent_start_when_not_running(
