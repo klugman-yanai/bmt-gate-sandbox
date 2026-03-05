@@ -13,6 +13,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -38,11 +39,30 @@ import github_pull_request  # type: ignore[import-not-found]  # noqa: E402
 import status_file  # type: ignore[import-not-found]  # noqa: E402
 
 _shutdown = False
-_KEEP_RECENT_WORKFLOW_FILES = 2
 _KEEP_RECENT_LOCAL_RUNS = 2
 
-# Fallback when trigger payload omits status_context; normal path is run_trigger payload (workflow sets from repo vars).
+# Fallback when trigger payload omits contexts; normal path is run_trigger payload (workflow sets from repo vars).
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
+DEFAULT_RUNTIME_STATUS_CONTEXT = "BMT Runtime"
+PROJECT_WIDE_BMT_IDS = frozenset({"", "*", "__all__", "all", "project_all", "__project_wide__"})
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError:
+            print(f"Warning: invalid integer for {name}={raw!r}; using default {default}.")
+            value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    return value
+
+
+_KEEP_RECENT_WORKFLOW_FILES = _env_int("BMT_TRIGGER_METADATA_KEEP_RECENT", 2, minimum=0)
 
 
 def _handle_signal(signum: int, _frame: Any) -> None:
@@ -108,8 +128,14 @@ def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
-def _gcloud_download_json(uri: str) -> dict[str, Any] | None:
-    """Download a JSON object from GCS."""
+def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Download a JSON object from GCS.
+
+    Returns:
+      (payload, None) on success.
+      (None, "download_failed") on transient download failures.
+      (None, "invalid_json") when object exists but payload is malformed.
+    """
     with tempfile.TemporaryDirectory(prefix="vm_watcher_") as tmp_dir:
         local_path = Path(tmp_dir) / "trigger.json"
         proc = subprocess.run(
@@ -120,12 +146,16 @@ def _gcloud_download_json(uri: str) -> dict[str, Any] | None:
         )
         if proc.returncode != 0:
             print(f"  Failed to download {uri}: {proc.stderr.strip()}")
-            return None
+            return None, "download_failed"
         try:
-            return json.loads(local_path.read_text(encoding="utf-8"))
+            payload = json.loads(local_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             print(f"  Failed to parse {uri}: {exc}")
-            return None
+            return None, "invalid_json"
+        if not isinstance(payload, dict):
+            print(f"  Invalid JSON payload type for {uri}: expected object")
+            return None, "invalid_json"
+        return payload, None
 
 
 def _gcloud_upload_json(uri: str, payload: dict[str, Any]) -> bool:
@@ -157,6 +187,231 @@ def _gcloud_rm(uri: str, recursive: bool = False) -> bool:
         text=True,
     )
     return proc.returncode == 0
+
+
+def _gcloud_exists(uri: str) -> bool:
+    """Return True when a GCS object exists."""
+    proc = subprocess.run(
+        ["gcloud", "storage", "ls", uri],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
+def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Load per-project jobs config from code bucket.
+
+    Returns (payload, error_reason_code).
+    """
+    jobs_rel = f"{project}/config/bmt_jobs.json"
+    jobs_uri = _bucket_uri(code_bucket_root, jobs_rel)
+    if not _gcloud_exists(jobs_uri):
+        return None, "jobs_config_missing"
+
+    with tempfile.TemporaryDirectory(prefix="vm_watcher_jobs_") as tmp_dir:
+        local_jobs = Path(tmp_dir) / "bmt_jobs.json"
+        proc = subprocess.run(
+            ["gcloud", "storage", "cp", jobs_uri, str(local_jobs), "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            print(f"  Warning: Failed to download jobs config for {project}: {proc.stderr.strip()}")
+            return None, "jobs_config_missing"
+        try:
+            payload = json.loads(local_jobs.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None, "jobs_schema_invalid"
+
+    if not isinstance(payload, dict):
+        return None, "jobs_schema_invalid"
+    bmts = payload.get("bmts")
+    if not isinstance(bmts, dict):
+        return None, "jobs_schema_invalid"
+    return payload, None
+
+
+_RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _safe_run_token(raw: str) -> str:
+    token = _RUN_ID_SAFE.sub("-", raw.strip())
+    token = token.strip("-._")
+    return token or "bmt"
+
+
+def _derive_leg_run_id(base_run_id: str, bmt_id: str, used: set[str]) -> str:
+    """Build a deterministic unique run_id for one expanded BMT leg."""
+    base = _safe_run_token(base_run_id) if base_run_id.strip() else "leg"
+    suffix = _safe_run_token(bmt_id) if bmt_id.strip() else "bmt"
+    candidate = f"{base}-{suffix}"
+    if candidate not in used:
+        used.add(candidate)
+        return candidate
+    idx = 2
+    while True:
+        alt = f"{candidate}-{idx}"
+        if alt not in used:
+            used.add(alt)
+            return alt
+        idx += 1
+
+
+def _append_resolved_leg(
+    requested_legs: list[dict[str, Any]],
+    *,
+    project: str,
+    bmt_id: str,
+    run_id: str,
+    reason: str | None,
+) -> None:
+    decision = "accepted" if reason is None else "rejected"
+    requested_legs.append(
+        {
+            "index": len(requested_legs),
+            "project": project,
+            "bmt_id": bmt_id,
+            "run_id": run_id,
+            "decision": decision,
+            "reason": reason,
+        }
+    )
+
+
+def _resolve_requested_legs(
+    *,
+    legs_raw: list[Any],
+    code_bucket_root: str,
+) -> list[dict[str, Any]]:
+    """Resolve requested legs against VM runtime support by convention files.
+
+    Supports project-wide request legs (request_scope=project_wide or bmt_id sentinel),
+    expanding each project into all BMT entries from jobs config.
+    """
+    requested_legs: list[dict[str, Any]] = []
+    manager_exists_cache: dict[str, bool] = {}
+    jobs_cache: dict[str, tuple[dict[str, Any] | None, str | None]] = {}
+    used_run_ids: set[str] = set()
+
+    for raw_idx, leg in enumerate(legs_raw):
+        project = "?"
+        bmt_id_raw = ""
+        run_id_base = ""
+
+        if not isinstance(leg, dict):
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id="?",
+                run_id=f"leg-{raw_idx + 1}",
+                reason="invalid_leg_type",
+            )
+            continue
+
+        project = str(leg.get("project", "")).strip() or "?"
+        bmt_id_raw = str(leg.get("bmt_id", "")).strip()
+        run_id_base = str(leg.get("run_id", "")).strip() or f"leg-{raw_idx + 1}-{project}"
+        request_scope = str(leg.get("request_scope", "")).strip().lower()
+        project_wide = request_scope == "project_wide" or bmt_id_raw.lower() in PROJECT_WIDE_BMT_IDS
+
+        if project == "?":
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "invalid", used_run_ids),
+                reason="invalid_leg_type",
+            )
+            continue
+
+        if project not in manager_exists_cache:
+            manager_uri = _bucket_uri(code_bucket_root, f"{project}/bmt_manager.py")
+            manager_exists_cache[project] = _gcloud_exists(manager_uri)
+        if not manager_exists_cache[project]:
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "manager-missing", used_run_ids),
+                reason="manager_missing",
+            )
+            continue
+
+        if project not in jobs_cache:
+            jobs_cache[project] = _load_jobs_config_from_gcs(code_bucket_root, project)
+        jobs_payload, jobs_error = jobs_cache[project]
+        if jobs_error is not None or jobs_payload is None:
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-error", used_run_ids),
+                reason=jobs_error or "jobs_schema_invalid",
+            )
+            continue
+
+        bmts = jobs_payload.get("bmts")
+        if not isinstance(bmts, dict):
+            _append_resolved_leg(
+                requested_legs,
+                project=project,
+                bmt_id=(bmt_id_raw or "__all__") if project_wide else (bmt_id_raw or "?"),
+                run_id=_derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-schema", used_run_ids),
+                reason="jobs_schema_invalid",
+            )
+            continue
+
+        if project_wide:
+            if not bmts:
+                _append_resolved_leg(
+                    requested_legs,
+                    project=project,
+                    bmt_id="?",
+                    run_id=_derive_leg_run_id(run_id_base, "empty-project", used_run_ids),
+                    reason="bmt_not_defined",
+                )
+                continue
+
+            for bmt_id_key in sorted(bmts):
+                bmt_id = str(bmt_id_key).strip() or "?"
+                run_id = _derive_leg_run_id(run_id_base, bmt_id, used_run_ids)
+                bmt_cfg = bmts.get(bmt_id_key)
+                if not isinstance(bmt_cfg, dict):
+                    reason = "jobs_schema_invalid"
+                elif bmt_cfg.get("enabled", True) is False:
+                    reason = "bmt_disabled"
+                else:
+                    reason = None
+                _append_resolved_leg(
+                    requested_legs,
+                    project=project,
+                    bmt_id=bmt_id,
+                    run_id=run_id,
+                    reason=reason,
+                )
+            continue
+
+        bmt_id = bmt_id_raw or "?"
+        run_id = _derive_leg_run_id(run_id_base, bmt_id, used_run_ids)
+        bmt_cfg = bmts.get(bmt_id)
+        if not isinstance(bmt_cfg, dict):
+            reason = "bmt_not_defined"
+        elif bmt_cfg.get("enabled", True) is False:
+            reason = "bmt_disabled"
+        else:
+            reason = None
+        _append_resolved_leg(
+            requested_legs,
+            project=project,
+            bmt_id=bmt_id,
+            run_id=run_id,
+            reason=reason,
+        )
+
+    return requested_legs
 
 
 def _download_orchestrator(code_bucket_root: str, workspace_root: Path) -> Path:
@@ -590,29 +845,6 @@ def _results_prefix_from_ci_verdict_uri(bucket_root: str, ci_verdict_uri: str) -
     return rel or None
 
 
-def _progress_description(legs: list[dict[str, Any]], elapsed_sec: int) -> str:
-    """Build short commit-status description for PR (max 140 chars) so devs see progress in the browser."""
-    total = len(legs)
-    completed = sum(1 for leg in legs if leg.get("status") not in ("pending", "running"))
-    pass_n = sum(1 for leg in legs if leg.get("status") == "pass")
-    fail_n = sum(1 for leg in legs if leg.get("status") == "fail")
-    running_n = sum(1 for leg in legs if leg.get("status") == "running")
-    elapsed_str = f"{elapsed_sec // 60}m" if elapsed_sec >= 60 else f"{elapsed_sec}s"
-    # Prefer one-line summary that fits; fall back to compact counts
-    summary_parts = []
-    if pass_n:
-        summary_parts.append(f"{pass_n} pass")
-    if fail_n:
-        summary_parts.append(f"{fail_n} fail")
-    if running_n:
-        summary_parts.append(f"{running_n} running")
-    if completed < total and not running_n:
-        summary_parts.append(f"{total - completed} pending")
-    line = ", ".join(summary_parts) if summary_parts else "running"
-    desc = f"BMT: {completed}/{total} legs · {line} — {elapsed_str}"
-    return desc[:140]
-
-
 def _aggregate_verdicts_from_summaries(summaries: list[dict[str, Any] | None]) -> tuple[str, str]:
     """Compute (state, description) from manager summaries. state: success|failure."""
     pass_count = 0
@@ -815,10 +1047,22 @@ def _process_run_trigger(  # noqa: PLR0911
     github_token_resolver: Callable[[str], str | None],
 ) -> None:
     """Download run trigger, run each leg, aggregate, post commit status, release locks, delete trigger."""
-    run_payload = _gcloud_download_json(run_trigger_uri)
+    downloaded = _gcloud_download_json(run_trigger_uri)
+    if (
+        isinstance(downloaded, tuple)
+        and len(downloaded) == 2
+        and (downloaded[0] is None or isinstance(downloaded[0], dict))
+    ):
+        run_payload, run_payload_error = downloaded
+    else:
+        run_payload = downloaded if isinstance(downloaded, dict) else None
+        run_payload_error = None
     if run_payload is None:
-        print(f"  Skipping unparseable run trigger: {run_trigger_uri}")
-        _gcloud_rm(run_trigger_uri)
+        if run_payload_error == "invalid_json":
+            print(f"  Removing malformed run trigger: {run_trigger_uri}")
+            _gcloud_rm(run_trigger_uri)
+        else:
+            print(f"  Deferring run trigger after transient download/auth issue: {run_trigger_uri}")
         return
 
     legs_raw = run_payload.get("legs") or []
@@ -829,10 +1073,10 @@ def _process_run_trigger(  # noqa: PLR0911
     sha = (run_payload.get("sha") or "").strip()
     run_context = str(run_payload.get("run_context", "manual"))
     workflow_run_id = run_payload.get("workflow_run_id", "?")
-    status_context = (run_payload.get("status_context") or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
-    description_pending = (
-        run_payload.get("description_pending") or ""
-    ).strip() or "BMT running on VM; status will update when complete."
+    gate_status_context = (run_payload.get("status_context") or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
+    runtime_status_context = (
+        run_payload.get("runtime_status_context") or DEFAULT_RUNTIME_STATUS_CONTEXT
+    ).strip() or DEFAULT_RUNTIME_STATUS_CONTEXT
 
     pr_number: int | None = None
     pr_raw = run_payload.get("pull_request_number")
@@ -847,8 +1091,10 @@ def _process_run_trigger(  # noqa: PLR0911
 
     github_token = github_token_resolver(repository)
     if not github_token:
-        print(f"  Error: GitHub App auth could not be resolved for {repository}; refusing to process trigger")
-        _gcloud_rm(run_trigger_uri)
+        print(
+            f"  Error: GitHub App auth could not be resolved for {repository}; "
+            "keeping trigger for retry"
+        )
         return
 
     if not legs_raw:
@@ -861,7 +1107,7 @@ def _process_run_trigger(  # noqa: PLR0911
     runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
     runtime_prefix = "runtime"
 
-    print(f"  Processing run {workflow_run_id} with {len(legs_raw)} leg(s)")
+    print(f"  Processing run {workflow_run_id} with {len(legs_raw)} requested leg(s)")
 
     run_id = str(workflow_run_id)
     workflow_run_id_str = str(workflow_run_id)
@@ -895,24 +1141,47 @@ def _process_run_trigger(  # noqa: PLR0911
 
     skip_before_pickup = bool(skip_before_pickup_reason)
 
-    accepted_legs: list[dict[str, str]] = []
-    rejected_legs: list[dict[str, int | str]] = []
+    requested_legs = _resolve_requested_legs(
+        legs_raw=legs_raw,
+        code_bucket_root=code_bucket_root,
+    )
     if skip_before_pickup:
-        rejected_legs = [
-            {"index": idx, "reason": skip_before_pickup_reason or "skipped"} for idx, _ in enumerate(legs_raw)
-        ]
-    else:
-        for idx, leg in enumerate(legs_raw):
-            if not isinstance(leg, dict):
-                rejected_legs.append({"index": idx, "reason": "invalid_leg_type"})
-                continue
-            accepted_legs.append(
-                {
-                    "project": str(leg.get("project", "?")),
-                    "bmt_id": str(leg.get("bmt_id", "?")),
-                    "run_id": str(leg.get("run_id", "?")),
-                }
-            )
+        for leg in requested_legs:
+            leg["decision"] = "rejected"
+            leg["reason"] = skip_before_pickup_reason or "skipped"
+
+    accepted_legs: list[dict[str, str]] = [
+        {
+            "project": str(leg.get("project", "?")),
+            "bmt_id": str(leg.get("bmt_id", "?")),
+            "run_id": str(leg.get("run_id", "?")),
+        }
+        for leg in requested_legs
+        if leg.get("decision") == "accepted"
+    ]
+    rejected_legs: list[dict[str, int | str]] = [
+        {
+            "index": int(leg.get("index", -1)),
+            "project": str(leg.get("project", "?")),
+            "bmt_id": str(leg.get("bmt_id", "?")),
+            "run_id": str(leg.get("run_id", "?")),
+            "reason": str(leg.get("reason") or "invalid_leg_type"),
+        }
+        for leg in requested_legs
+        if leg.get("decision") != "accepted"
+    ]
+    accepted_exec_legs: list[dict[str, str | int]] = [
+        {
+            "index": int(leg.get("index", -1)),
+            "project": str(leg.get("project", "?")),
+            "bmt_id": str(leg.get("bmt_id", "?")),
+            "run_id": str(leg.get("run_id", "?")),
+        }
+        for leg in requested_legs
+        if leg.get("decision") == "accepted"
+    ]
+    accepted_leg_count = len(accepted_exec_legs)
+    print(f"  Runtime support resolution: accepted={accepted_leg_count} rejected={len(rejected_legs)}")
 
     stop_heartbeat = threading.Event()
     heartbeat_thread: threading.Thread | None = None
@@ -959,18 +1228,27 @@ def _process_run_trigger(  # noqa: PLR0911
 
     try:
         handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
+        if skip_before_pickup:
+            run_disposition = "skipped"
+        elif accepted_leg_count == 0:
+            run_disposition = "accepted_but_empty"
+        else:
+            run_disposition = "accepted"
+
         handshake_payload: dict[str, Any] = {
+            "support_resolution_version": "v2",
             "workflow_run_id": str(workflow_run_id),
             "received_at": _now_iso(),
             "repository": repository,
             "sha": sha,
             "run_context": run_context,
             "run_trigger_uri": run_trigger_uri,
-            "requested_leg_count": len(legs_raw),
-            "accepted_leg_count": len(accepted_legs),
+            "requested_leg_count": len(requested_legs),
+            "accepted_leg_count": accepted_leg_count,
+            "requested_legs": requested_legs,
             "accepted_legs": accepted_legs,
             "rejected_legs": rejected_legs,
-            "run_disposition": "skipped" if skip_before_pickup else "accepted",
+            "run_disposition": run_disposition,
             "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
             "pr_state": pr_state_at_pickup.get("state") if pr_state_at_pickup else None,
             "pr_merged": pr_state_at_pickup.get("merged") if pr_state_at_pickup else None,
@@ -987,20 +1265,24 @@ def _process_run_trigger(  # noqa: PLR0911
 
         started_at = _now_iso()
         initial_legs: list[dict[str, Any]] = []
-        for idx, leg in enumerate(legs_raw):
-            project = str(leg.get("project", "?")) if isinstance(leg, dict) else "?"
-            bmt_id = str(leg.get("bmt_id", "?")) if isinstance(leg, dict) else "?"
-            leg_run_id = str(leg.get("run_id", "?")) if isinstance(leg, dict) else "?"
+        for leg in requested_legs:
+            idx = int(leg.get("index", -1))
+            project = str(leg.get("project", "?"))
+            bmt_id = str(leg.get("bmt_id", "?"))
+            leg_run_id = str(leg.get("run_id", "?"))
+            decision = str(leg.get("decision", "rejected"))
+            reason = str(leg.get("reason")) if leg.get("reason") is not None else None
+            is_skipped = skip_before_pickup or decision != "accepted"
             initial_legs.append(
                 {
                     "index": idx,
                     "project": project,
                     "bmt_id": bmt_id,
                     "run_id": leg_run_id,
-                    "status": "skipped" if skip_before_pickup else "pending",
-                    "skip_reason": skip_before_pickup_reason if skip_before_pickup else None,
+                    "status": "skipped" if is_skipped else "pending",
+                    "skip_reason": (skip_before_pickup_reason if skip_before_pickup else reason) if is_skipped else None,
                     "started_at": None,
-                    "completed_at": started_at if skip_before_pickup else None,
+                    "completed_at": started_at if is_skipped else None,
                     "duration_sec": None,
                     "files_total": None,
                     "files_completed": 0,
@@ -1017,11 +1299,13 @@ def _process_run_trigger(  # noqa: PLR0911
                 if skip_before_pickup_reason == "pr_closed_before_pickup"
                 else "skipped_superseded_by_new_commit"
                 if skip_before_pickup_reason == "superseded_by_new_commit"
+                else "accepted_but_empty"
+                if accepted_leg_count == 0
                 else "acknowledged"
             ),
             "started_at": started_at,
             "last_heartbeat": started_at,
-            "legs_total": len(legs_raw),
+            "legs_total": len(requested_legs),
             "legs_completed": 0,
             "current_leg": None,
             "legs": initial_legs,
@@ -1029,9 +1313,15 @@ def _process_run_trigger(  # noqa: PLR0911
             "elapsed_sec": 0,
             "last_run_duration_sec": None,
             "errors": [],
-            "run_outcome": "skipped" if skip_before_pickup else "running",
-            "cancel_reason": skip_before_pickup_reason if skip_before_pickup else None,
-            "cancelled_at": started_at if skip_before_pickup else None,
+            "run_outcome": "skipped" if (skip_before_pickup or accepted_leg_count == 0) else "running",
+            "cancel_reason": (
+                skip_before_pickup_reason
+                if skip_before_pickup
+                else "no_runtime_supported_legs"
+                if accepted_leg_count == 0
+                else None
+            ),
+            "cancelled_at": started_at if (skip_before_pickup or accepted_leg_count == 0) else None,
             "superseded_by_sha": superseded_by_sha,
         }
         try:
@@ -1050,6 +1340,10 @@ def _process_run_trigger(  # noqa: PLR0911
                 print("  PR is already closed at pickup; skipping run without GitHub status/check updates.")
             return
 
+        if accepted_leg_count == 0:
+            print("  No runtime-supported legs were accepted by VM; marking run as accepted_but_empty.")
+            return
+
         heartbeat_thread = threading.Thread(
             target=_heartbeat_loop,
             args=(bucket, runtime_prefix, run_id, stop_heartbeat),
@@ -1063,29 +1357,16 @@ def _process_run_trigger(  # noqa: PLR0911
                 github_token,
                 repository,
                 sha,
-                name=status_context,
+                name=runtime_status_context,
                 status="in_progress",
                 output={
-                    "title": f"BMT Execution Started ({len(legs_raw)} legs)",
-                    "summary": f"Running BMT for {len(legs_raw)} project configurations...",
+                    "title": f"BMT Execution Started ({accepted_leg_count} legs)",
+                    "summary": f"Running BMT for {accepted_leg_count} runtime-supported project configurations...",
                 },
                 token_resolver=github_token_resolver,
             )
             if check_run_id is not None:
                 print(f"  Created GitHub Check Run: {check_run_id}")
-
-        if repository and sha and github_token:
-            _post_commit_status_resilient(
-                repository,
-                sha,
-                "pending",
-                description_pending,
-                None,
-                github_token,
-                context=status_context,
-                token_resolver=github_token_resolver,
-                attempts=2,
-            )
 
         try:
             orchestrator_path = _download_orchestrator(code_bucket_root, workspace_root)
@@ -1125,14 +1406,14 @@ def _process_run_trigger(  # noqa: PLR0911
                     "BMT VM: failed to download orchestrator",
                     None,
                     github_token,
-                    context=status_context,
+                    context=gate_status_context,
                     token_resolver=github_token_resolver,
                 )
                 check_run_id, github_token, _ = _finalize_check_run_resilient(
                     token=github_token,
                     repository=repository,
                     sha=sha,
-                    status_context=status_context,
+                    status_context=runtime_status_context,
                     check_run_id=check_run_id,
                     conclusion="failure",
                     output={
@@ -1150,17 +1431,15 @@ def _process_run_trigger(  # noqa: PLR0911
             return
 
         try:
-            for idx, leg in enumerate(legs_raw):
-                if not isinstance(leg, dict):
-                    leg_summaries.append(None)
-                    continue
-
+            accepted_completed = 0
+            for exec_idx, leg in enumerate(accepted_exec_legs):
+                status_idx = int(leg["index"])
                 if should_check_pr_state and pr_number is not None:
                     pr_state_now = github_pull_request.get_pr_state(github_token, repository, pr_number, attempts=3)
                     state_now = str(pr_state_now.get("state"))
                     if state_now == "unknown":
                         print(
-                            f"  Warning: could not re-check PR state for leg {idx} "
+                            f"  Warning: could not re-check PR state for leg {status_idx} "
                             f"(error={pr_state_now.get('error')}); fail-open (continuing)."
                         )
                     else:
@@ -1194,7 +1473,7 @@ def _process_run_trigger(  # noqa: PLR0911
                                     f"superseding_sha={superseded_by_sha or 'unknown'}"
                                 )
                             else:
-                                print(f"  PR closed before leg {idx + 1}; cancelling remaining legs.")
+                                print(f"  PR closed before leg {exec_idx + 1}; cancelling remaining legs.")
                             try:
                                 current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                                 if current_status:
@@ -1212,7 +1491,10 @@ def _process_run_trigger(  # noqa: PLR0911
                                     current_status["superseded_by_sha"] = superseded_by_sha
                                     status_legs = current_status.get("legs")
                                     if isinstance(status_legs, list):
-                                        for rem_idx in range(idx, len(status_legs)):
+                                        for pending_leg in accepted_exec_legs[exec_idx:]:
+                                            rem_idx = int(pending_leg["index"])
+                                            if rem_idx < 0 or rem_idx >= len(status_legs):
+                                                continue
                                             row = status_legs[rem_idx]
                                             if not isinstance(row, dict):
                                                 continue
@@ -1229,10 +1511,10 @@ def _process_run_trigger(  # noqa: PLR0911
                 try:
                     current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if current_status:
-                        current_status["legs"][idx]["status"] = "running"
-                        current_status["legs"][idx]["skip_reason"] = None
-                        current_status["legs"][idx]["started_at"] = _now_iso()
-                        current_status["current_leg"] = current_status["legs"][idx].copy()
+                        current_status["legs"][status_idx]["status"] = "running"
+                        current_status["legs"][status_idx]["skip_reason"] = None
+                        current_status["legs"][status_idx]["started_at"] = _now_iso()
+                        current_status["current_leg"] = current_status["legs"][status_idx].copy()
                         current_status["elapsed_sec"] = int(time.time() - start_timestamp)
                         current_status["run_outcome"] = "running"
                         current_status["cancel_reason"] = None
@@ -1240,50 +1522,52 @@ def _process_run_trigger(  # noqa: PLR0911
                         current_status["superseded_by_sha"] = None
                         status_file.write_status(bucket, runtime_prefix, run_id, current_status)
                 except Exception as exc:
-                    print(f"  Warning: Failed to update status for leg {idx}: {exc}")
+                    print(f"  Warning: Failed to update status for leg {status_idx}: {exc}")
 
                 trigger = {
                     "bucket": bucket,
-                    "project": leg.get("project", "?"),
-                    "bmt_id": leg.get("bmt_id", "?"),
+                    "project": str(leg.get("project", "?")),
+                    "bmt_id": str(leg.get("bmt_id", "?")),
                     "run_context": run_context,
-                    "run_id": leg.get("run_id", "?"),
-                    "leg_index": idx,
+                    "run_id": str(leg.get("run_id", "?")),
+                    "leg_index": status_idx,
                     "workflow_run_id": workflow_run_id,
                 }
                 leg_start_time = time.time()
                 exit_code = _run_orchestrator(orchestrator_path, trigger, workspace_root)
                 leg_duration = int(time.time() - leg_start_time)
                 state = "PASS" if exit_code == 0 else "FAIL"
-                print(f"  Leg {idx + 1}/{len(legs_raw)} {trigger['project']}.{trigger['bmt_id']} -> {state}")
+                print(f"  Leg {exec_idx + 1}/{accepted_leg_count} {trigger['project']}.{trigger['bmt_id']} -> {state}")
                 run_root = _latest_run_root(workspace_root, trigger["project"], trigger["bmt_id"])
                 summary = _load_manager_summary(run_root)
                 leg_summaries.append(summary)
+                accepted_completed += 1
 
                 try:
                     current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                     if current_status:
                         leg_status = "pass" if exit_code == 0 else "fail"
-                        current_status["legs"][idx]["status"] = leg_status
-                        current_status["legs"][idx]["skip_reason"] = None
-                        current_status["legs"][idx]["completed_at"] = _now_iso()
-                        current_status["legs"][idx]["duration_sec"] = leg_duration
+                        current_status["legs"][status_idx]["status"] = leg_status
+                        current_status["legs"][status_idx]["skip_reason"] = None
+                        current_status["legs"][status_idx]["completed_at"] = _now_iso()
+                        current_status["legs"][status_idx]["duration_sec"] = leg_duration
 
                         if summary:
                             bmt_results = summary.get("bmt_results", {})
                             results = bmt_results.get("results", [])
-                            current_status["legs"][idx]["files_total"] = len(results)
-                            current_status["legs"][idx]["files_completed"] = len(results)
+                            current_status["legs"][status_idx]["files_total"] = len(results)
+                            current_status["legs"][status_idx]["files_completed"] = len(results)
 
                             orchestration_timing = summary.get("orchestration_timing", {})
                             if "duration_sec" in orchestration_timing:
-                                current_status["legs"][idx]["duration_sec"] = orchestration_timing["duration_sec"]
+                                current_status["legs"][status_idx]["duration_sec"] = orchestration_timing["duration_sec"]
 
-                        current_status["legs_completed"] = idx + 1
+                        current_status["legs_completed"] = accepted_completed
                         current_status["elapsed_sec"] = int(time.time() - start_timestamp)
 
-                        if idx + 1 < len(legs_raw):
-                            current_status["current_leg"] = current_status["legs"][idx + 1].copy()
+                        if exec_idx + 1 < accepted_leg_count:
+                            next_idx = int(accepted_exec_legs[exec_idx + 1]["index"])
+                            current_status["current_leg"] = current_status["legs"][next_idx].copy()
                         else:
                             current_status["current_leg"] = None
 
@@ -1296,7 +1580,7 @@ def _process_run_trigger(  # noqa: PLR0911
                                 check_run_id,
                                 token_resolver=github_token_resolver,
                                 output={
-                                    "title": f"BMT Progress: {idx + 1}/{len(legs_raw)} legs complete",
+                                    "title": f"BMT Progress: {accepted_completed}/{accepted_leg_count} legs complete",
                                     "summary": github_checks.render_progress_markdown(
                                         current_status["legs"],
                                         elapsed_sec=current_status["elapsed_sec"],
@@ -1305,22 +1589,8 @@ def _process_run_trigger(  # noqa: PLR0911
                                 },
                                 attempts=2,
                             )
-                        if repository and sha and github_token:
-                            desc = _progress_description(
-                                current_status["legs"],
-                                current_status["elapsed_sec"],
-                            )
-                            _post_commit_status(
-                                repository,
-                                sha,
-                                "pending",
-                                desc,
-                                None,
-                                github_token,
-                                context=status_context,
-                            )
                 except Exception as exc:
-                    print(f"  Warning: Failed to update status after leg {idx}: {exc}")
+                    print(f"  Warning: Failed to update status after leg {status_idx}: {exc}")
 
             if cancelled_due_to_pr_state:
                 cancelled_at = _now_iso()
@@ -1353,7 +1623,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         token=github_token,
                         repository=repository,
                         sha=sha,
-                        status_context=status_context,
+                        status_context=runtime_status_context,
                         check_run_id=check_run_id,
                         conclusion="neutral",
                         output={
@@ -1376,7 +1646,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         cancel_description,
                         None,
                         github_token,
-                        context=status_context,
+                        context=gate_status_context,
                         token_resolver=github_token_resolver,
                     )
                 if cancel_reason == "superseded_by_new_commit":
@@ -1416,7 +1686,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     token=github_token,
                     repository=repository,
                     sha=sha,
-                    status_context=status_context,
+                    status_context=runtime_status_context,
                     check_run_id=check_run_id,
                     conclusion=conclusion,
                     output={
@@ -1450,7 +1720,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     description,
                     None,
                     github_token,
-                    context=status_context,
+                    context=gate_status_context,
                     token_resolver=github_token_resolver,
                 ):
                     print(f"  Posted commit status: {state}")
@@ -1502,14 +1772,14 @@ def _process_run_trigger(  # noqa: PLR0911
                     f"BMT VM error: {exc!s}"[:140],
                     None,
                     github_token,
-                    context=status_context,
+                    context=gate_status_context,
                     token_resolver=github_token_resolver,
                 )
                 check_run_id, github_token, check_completed = _finalize_check_run_resilient(
                     token=github_token,
                     repository=repository,
                     sha=sha,
-                    status_context=status_context,
+                    status_context=runtime_status_context,
                     check_run_id=check_run_id,
                     conclusion="failure",
                     output={

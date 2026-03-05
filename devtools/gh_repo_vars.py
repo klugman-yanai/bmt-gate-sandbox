@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -303,6 +305,52 @@ def _gh_delete(name: str) -> None:
         raise RuntimeError(result.stderr.strip() or f"failed to delete {name}")
 
 
+def _validate_wif_provider_consistency(desired: dict[str, str]) -> list[str]:
+    """Validate GCP_WIF_PROVIDER format and project-number alignment when possible."""
+    warnings: list[str] = []
+    provider = desired.get("GCP_WIF_PROVIDER", "").strip()
+    project_id = desired.get("GCP_PROJECT", "").strip()
+    if not provider or not project_id:
+        return warnings
+
+    pattern = r"^projects/([0-9]+)/locations/global/workloadIdentityPools/([^/]+)/providers/([^/]+)$"
+    match = re.match(pattern, provider)
+    if not match:
+        raise RuntimeError(
+            "Invalid GCP_WIF_PROVIDER format. Expected "
+            "projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider> "
+            f"but got: {provider!r}"
+        )
+
+    provider_project_number = match.group(1)
+    if shutil.which("gcloud") is None:
+        warnings.append("gcloud not found; skipped WIF/provider project-number alignment check.")
+        return warnings
+
+    result = _run(["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"])
+    if result.returncode != 0:
+        warnings.append(
+            "could not resolve project number via gcloud for "
+            f"GCP_PROJECT={project_id!r}; skipped strict WIF alignment check."
+        )
+        return warnings
+
+    actual_project_number = result.stdout.strip()
+    if not actual_project_number:
+        warnings.append(
+            "gcloud returned empty project number for "
+            f"GCP_PROJECT={project_id!r}; skipped strict WIF alignment check."
+        )
+        return warnings
+
+    if provider_project_number != actual_project_number:
+        raise RuntimeError(
+            "GCP_WIF_PROVIDER project number mismatch: "
+            f"provider={provider_project_number} project={actual_project_number} (GCP_PROJECT={project_id})"
+        )
+    return warnings
+
+
 def _render(value: str) -> str:
     return value or "<empty>"
 
@@ -409,6 +457,12 @@ def main(
     should_delete = sorted(name for name in desired_absent if name in current)
     extra = sorted(name for name in current if name not in canonical)
 
+    try:
+        wif_warnings = _validate_wif_provider_consistency(desired)
+    except Exception as exc:
+        click.echo(f"::error::{exc}", err=True)
+        return 2
+
     if config_path.is_file():
         click.echo(f"Config: {config_path}")
     else:
@@ -427,6 +481,10 @@ def main(
                 f"- {check.repo_var}: branch={check.branch}{selector_suffix} "
                 f"resolved={_render(resolved)} from [{available}]"
             )
+        click.echo("")
+    for warning in wif_warnings:
+        click.echo(f"::warning::{warning}")
+    if wif_warnings:
         click.echo("")
 
     click.echo("Repo vars status:")

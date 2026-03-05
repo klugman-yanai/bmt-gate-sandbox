@@ -57,6 +57,10 @@ inputs:
     description: Handshake ack URI from handoff-run
     required: false
     default: ""
+  handoff_run_handoff_reason:
+    description: Handoff reason from handoff-run (ok, no_runtime_supported_legs, handshake_timeout)
+    required: false
+    default: ""
   classify_result:
     description: Result of classify-handoff job
     required: false
@@ -95,11 +99,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.prepare_head_sha || inputs.dispatch_head_sha || inputs.fallback_ref }}
-
     - name: Resolve fallback context
       id: failctx
       shell: bash
@@ -124,7 +123,11 @@ runs:
         elif [[ "${{ inputs.classify_result }}" == "failure" ]]; then
           reason="Handoff path classification failed."
         elif [[ "${{ inputs.handoff_run_result }}" == "failure" ]]; then
-          reason="VM did not acknowledge trigger within handshake timeout."
+          if [[ "${{ inputs.handoff_run_handoff_reason }}" == "no_runtime_supported_legs" ]]; then
+            reason="VM acknowledged trigger but accepted zero runtime-supported legs."
+          else
+            reason="VM did not acknowledge trigger within handshake timeout."
+          fi
         elif [[ "${{ inputs.handoff_skip_result }}" == "failure" ]]; then
           reason="No-legs handoff path failed unexpectedly."
         fi
@@ -148,7 +151,7 @@ runs:
         vm_started: ${{ inputs.handoff_run_vm_started }}
         handshake_ok: ${{ inputs.handoff_run_handshake_ok }}
         handshake_uri: ${{ inputs.handoff_run_handshake_uri }}
-        handoff_state_line: "Handoff failed: VM did not acknowledge trigger."
+        handoff_state_line: "${{ inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
         failure_reason: ${{ steps.reason.outputs.reason }}
 
     - name: Setup GCP for cleanup
@@ -159,14 +162,15 @@ runs:
         service_account: ${{ inputs.service_account }}
         install_uv: "false"
 
-    - name: Post terminal status on handshake timeout
-      if: steps.failctx.outputs.trigger_written == 'true' && steps.failctx.outputs.vm_handshake_result == 'failure'
+    - name: Post terminal status on handoff failure
+      if: steps.failctx.outputs.trigger_written == 'true' && (steps.failctx.outputs.vm_handshake_result == 'failure' || inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs')
       shell: bash
       env:
         REPOSITORY: ${{ github.repository }}
         HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
         GITHUB_TOKEN: ${{ github.token }}
         BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
+        BMT_FAILURE_STATUS_DESCRIPTION: "${{ inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: VM accepted zero runtime-supported legs.' || 'BMT cancelled: VM handshake timeout before pickup.' }}"
       run: bash .github/bmt/scripts/bmt_workflow.sh post-handoff-timeout-status
 
     - name: Cleanup failed trigger artifacts

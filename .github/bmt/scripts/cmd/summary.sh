@@ -109,7 +109,10 @@ bmt_cmd_write_handoff_summary() {
     echo
     echo "### 4) Ownership Notice"
     echo "- This workflow validates **handoff only**."
-    echo "- BMT result (pending/final) is reported by the VM to **PR checks and PR comments**."
+    echo "- Handshake success means VM pickup only; final gate updates after VM execution completes."
+    echo "- Runtime progress context: \`${BMT_RUNTIME_CONTEXT:-BMT Runtime}\` (non-gating)."
+    echo "- Final merge gate context: \`${BMT_STATUS_CONTEXT:-BMT Gate}\`."
+    echo "- BMT result is reported by the VM to **PR checks and PR comments**."
     echo "- ${handoff_state_line}"
     if [[ -n "$failure_reason" ]]; then
       echo "- Failure reason: ${failure_reason}"
