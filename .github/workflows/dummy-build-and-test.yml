@@ -1,5 +1,6 @@
-# Dummy CI workflow for this test repository.
-# Keeps CI topology as no-op while still collecting/uploading release runners for BMT handoff tests.
+# Dummy CI workflow — 1:1 mirror of core-main good-point flow for klugman-yanai/bmt-gate-sandbox.
+# Same topology: extract-presets → build-release (dummy + runner upload) → BMT handoff.
+# Uses testing configuration (vars/secrets for sandbox).
 name: CI
 
 on:
@@ -13,53 +14,113 @@ on:
     branches:
       - dev
       - ci/check-bmt-gate
+      - test/check-bmt-gate-*
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') || startsWith(github.ref_name, 'ci/check-bmt-gate') || startsWith(github.ref_name, 'test/check-bmt-gate-') }}
 
 defaults:
   run:
     shell: bash
 
-env:
-  # One build job per project; default "all". Set repo var BMT_PROJECTS to override (e.g. ["sk"]).
-  BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
-
 jobs:
-  # ─────────────────────── 1) one preset per project (gcc_Release only; filtered) ───────────────────────
+  # 1) Extract preset list once (no checkout — fetch CMakePresets.json via API, same as good-point)
   extract-presets:
     runs-on: ubuntu-latest
     outputs:
       presets: ${{ steps.parse.outputs.presets }}
+      presets_release: ${{ steps.parse.outputs.presets_release }}
+      presets_nonrelease: ${{ steps.parse.outputs.presets_nonrelease }}
     steps:
-      - name: Checkout source for preset parsing
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+      - name: Fetch CMakePresets.json for current SHA (no git checkout)
+        env:
+          REPO: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.full_name || github.repository }}
+          REF: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://api.github.com/repos/${REPO}/contents/CMakePresets.json?ref=${REF}"
+          ok=0
+          for delay in 0 5 10 20; do
+            if [[ "$delay" -gt 0 ]]; then sleep "$delay"; fi
+            if curl -fsSL \
+              --connect-timeout 15 \
+              --max-time 60 \
+              --retry 0 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "${url}" -o CMakePresets.json; then
+              ok=1
+              break
+            fi
+          done
+          if [[ "$ok" -ne 1 ]] || [[ ! -s CMakePresets.json ]]; then
+            echo "::error::Failed to download CMakePresets.json for ${REPO}@${REF}"
+            exit 1
+          fi
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          python-version: "3.12"
-
-      - name: Parse CMakePresets.json (one preset per project, gcc_Release only)
+      - name: Parse CMakePresets.json
         id: parse
-        run: bash .github/bmt/scripts/ci_workflow.sh parse-presets
+        run: |
+          presets=$(jq -c '
+            [ .buildPresets[]
+              | { build: .name
+                , configure: .configurePreset
+                , short: (.name | sub("-build$"; "")) }
+            ]' CMakePresets.json)
+          presets_release=$(echo "$presets" | jq -c '
+            map(
+              select(
+                (.configure | test("_gcc_Release")) and
+                (.configure | test("xtensa"; "i") | not) and
+                (.configure | test("hexagon"; "i") | not)
+              )
+            )')
+          presets_nonrelease=$(echo "$presets" | jq -c '
+            map(
+              select(
+                (.configure | test("_gcc_Release") | not) or
+                (.configure | test("xtensa"; "i")) or
+                (.configure | test("hexagon"; "i"))
+              )
+            )')
+          {
+            echo "presets=$presets"
+            echo "presets_release=$presets_release"
+            echo "presets_nonrelease=$presets_nonrelease"
+          } >>"$GITHUB_OUTPUT"
 
-  # ─────────────────────── 1.5) resolve BMT head context ───────────────────────
-  resolve-bmt-context:
+  # 1.5) Resolve BMT head context (sandbox: test/check-bmt-gate-* → PR mapping)
+  resolve-context:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      head_event: ${{ steps.resolve.outputs.head_event }}
-      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      head_sha: ${{ steps.finalize.outputs.head_sha }}
+      head_branch: ${{ steps.finalize.outputs.head_branch }}
+      head_event: ${{ steps.finalize.outputs.head_event }}
+      pr_number: ${{ steps.finalize.outputs.pr_number }}
     steps:
-      - id: resolve
+      - name: Checkout source for context resolution
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve base head context
+        id: resolve-base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEFAULT_HEAD_SHA: ${{ github.sha }}
+          DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
+        run: bash .github/bmt/scripts/ci_workflow.sh resolve-head-context
+
+      - id: map-test-pr
+        if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'test/check-bmt-gate-') }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -109,14 +170,42 @@ jobs:
             core.setOutput("pr_number", prNumber);
             core.notice(`Resolved BMT context: pull_request #${prNumber} (branch=${refName})`);
 
-  # ─────────────────────── 2) build every preset (dummy/no-op except runner staging + upload) ────────────────────────
-  build:
-    needs: [extract-presets, resolve-bmt-context]
+      - name: Finalize head context
+        id: finalize
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="${{ steps.resolve-base.outputs.head_sha }}"
+          head_branch="${{ steps.resolve-base.outputs.head_branch }}"
+          head_event="${{ steps.resolve-base.outputs.head_event }}"
+          pr_number="${{ steps.resolve-base.outputs.pr_number }}"
+          override_head_event="${{ steps.map-test-pr.outputs.head_event }}"
+          override_pr_number="${{ steps.map-test-pr.outputs.pr_number }}"
+
+          if [[ -n "$override_head_event" ]]; then
+            head_event="$override_head_event"
+          fi
+          if [[ -n "$override_pr_number" ]]; then
+            pr_number="$override_pr_number"
+          fi
+
+          {
+            echo "head_sha=${head_sha}"
+            echo "head_branch=${head_branch}"
+            echo "head_event=${head_event}"
+            echo "pr_number=${pr_number}"
+          } >>"$GITHUB_OUTPUT"
+
+  # 2) Build release presets — dummy (no-op) + stage runner + upload artifact (same matrix as good-point build-release)
+  build-release:
+    name: build (${{ matrix.build }}, ${{ matrix.configure }}, ${{ matrix.short }})
+    needs: [extract-presets, resolve-context]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 6
       matrix:
-        include: ${{ fromJson(needs.extract-presets.outputs.presets) }}
+        include: ${{ fromJson(needs.extract-presets.outputs.presets_release) }}
 
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
@@ -192,10 +281,10 @@ jobs:
         if: always()
         run: "true"
 
-  # ─────────────────────── 3) Run BMT handoff inline via reusable workflow ───────────────────────
+  # 3) Run BMT handoff (same as good-point: needs build-release, pass head context)
   bmt-handoff:
     name: BMT Handoff
-    needs: [build, resolve-bmt-context]
+    needs: [build-release, resolve-context]
     if: success()
     permissions:
       actions: read
@@ -206,8 +295,8 @@ jobs:
     uses: ./.github/workflows/bmt.yml
     with:
       ci_run_id: ${{ github.run_id }}
-      head_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      head_branch: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
-      head_event: ${{ needs.resolve-bmt-context.outputs.head_event }}
-      pr_number: ${{ needs.resolve-bmt-context.outputs.pr_number }}
+      head_sha: ${{ needs.resolve-context.outputs.head_sha }}
+      head_branch: ${{ needs.resolve-context.outputs.head_branch }}
+      head_event: ${{ needs.resolve-context.outputs.head_event }}
+      pr_number: ${{ needs.resolve-context.outputs.pr_number }}
     secrets: inherit
