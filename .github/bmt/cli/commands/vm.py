@@ -182,6 +182,13 @@ def run_start() -> None:
                 time.sleep(min(poll_interval_sec, remaining))
             continue
 
+        # If VM is already TERMINATED on first poll (e.g. stopped before we could start), issue start once
+        if last_seen_status == "TERMINATED" and not stop_retry_done:
+            print("::warning::VM is TERMINATED; issuing retry start.")
+            stop_retry_done = True
+            _request_start("retry after VM stopped")
+            continue
+
         running = last_seen_status == "RUNNING"
         start_advanced = before_last_start is None or (
             last_seen_start is not None and last_seen_start != before_last_start
