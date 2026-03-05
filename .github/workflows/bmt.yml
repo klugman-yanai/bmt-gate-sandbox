@@ -76,6 +76,7 @@ jobs:
       head_branch: ${{ steps.prepare.outputs.head_branch }}
       head_event: ${{ steps.prepare.outputs.head_event }}
       pr_number: ${{ steps.prepare.outputs.pr_number }}
+      run_context: ${{ steps.run-context.outputs.run_context }}
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
     steps:
       - name: Checkout (attempt 1)
@@ -118,6 +119,20 @@ jobs:
           head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
           head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
           pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
+
+      - name: Set run context (pr vs dev)
+        id: run-context
+        shell: bash
+        run: |
+          pr_number="${{ inputs.pr_number || github.event.inputs.pr_number || '' }}"
+          head_event="${{ inputs.head_event || github.event.inputs.head_event || 'push' }}"
+          if [[ -n "${pr_number// /}" ]]; then
+            echo "run_context=pr" >> "$GITHUB_OUTPUT"
+          elif [[ "$head_event" == "pull_request" || "$head_event" == "pull_request_target" ]]; then
+            echo "run_context=pr" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_context=dev" >> "$GITHUB_OUTPUT"
+          fi
 
   upload-runners:
     name: 02 Upload Runners • ${{ matrix.project }}
@@ -263,10 +278,59 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
 
-  handoff:
-    name: 04 Handoff (Skip/Run Branch)
+  handoff-skip:
+    name: 04A Handoff Skip (No Legs)
     needs: [prepare, classify-handoff]
-    if: ${{ needs.prepare.result == 'success' }}
+    if: ${{ needs.prepare.result == 'success' && needs.classify-handoff.outputs.path == 'skip_no_legs' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (attempt 1)
+        id: checkout-skip-1
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - name: Backoff before checkout retry
+        if: steps.checkout-skip-1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Checkout (attempt 2, full clone)
+        if: steps.checkout-skip-1.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          fetch-depth: 0
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      - uses: ./.github/actions/bmt-write-summary
+        with:
+          mode: skip
+          repository: ${{ github.repository }}
+          head_sha: ${{ needs.prepare.outputs.head_sha }}
+          head_branch: ${{ needs.prepare.outputs.head_branch }}
+          head_event: ${{ needs.prepare.outputs.head_event }}
+          pr_number: ${{ needs.prepare.outputs.pr_number }}
+          routing_decision: skip_no_legs
+          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix }}
+          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
+          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
+          handoff_state_line: "Handoff complete: no supported uploaded legs to hand off."
+
+  handoff-run:
+    name: 04B Handoff Run (Trigger + VM Ack)
+    needs: [prepare, classify-handoff]
+    if: ${{ needs.prepare.result == 'success' && needs.classify-handoff.outputs.path == 'run' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -306,43 +370,14 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      - name: Validate classified handoff path
-        shell: bash
-        run: |
-          set -euo pipefail
-          path="${{ needs.classify-handoff.outputs.path }}"
-          case "$path" in
-            run|skip_no_legs) ;;
-            *)
-              echo "::error::Unexpected classify-handoff path: '${path}'"
-              exit 1
-              ;;
-          esac
-
-      - name: Write skip summary (No Legs)
-        if: ${{ needs.classify-handoff.outputs.path == 'skip_no_legs' }}
-        uses: ./.github/actions/bmt-write-summary
-        with:
-          mode: skip
-          repository: ${{ github.repository }}
-          head_sha: ${{ needs.prepare.outputs.head_sha }}
-          head_branch: ${{ needs.prepare.outputs.head_branch }}
-          head_event: ${{ needs.prepare.outputs.head_event }}
-          pr_number: ${{ needs.prepare.outputs.pr_number }}
-          routing_decision: skip_no_legs
-          runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix }}
-          accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
-          filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
-          handoff_state_line: "Handoff complete: no supported uploaded legs to hand off."
-
       - id: run
-        if: ${{ needs.classify-handoff.outputs.path == 'run' }}
         uses: ./.github/actions/bmt-handoff-run
         with:
           head_sha: ${{ needs.prepare.outputs.head_sha }}
           head_branch: ${{ needs.prepare.outputs.head_branch }}
           head_event: ${{ needs.prepare.outputs.head_event }}
           pr_number: ${{ needs.prepare.outputs.pr_number }}
+          run_context: ${{ needs.prepare.outputs.run_context }}
           filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
           runner_matrix: ${{ needs.classify-handoff.outputs.runner_matrix }}
           accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
@@ -351,8 +386,8 @@ jobs:
 
   failure-fallback:
     name: 05 Failure Fallback
-    needs: [prepare, classify-handoff, handoff]
-    if: ${{ failure() && needs.prepare.result != 'cancelled' }}
+    needs: [prepare, classify-handoff, handoff-run, handoff-skip]
+    if: ${{ always() && needs.prepare.result != 'cancelled' && (needs.prepare.result == 'failure' || needs.classify-handoff.result == 'failure' || needs.handoff-run.result == 'failure' || needs.handoff-skip.result == 'failure') }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -394,18 +429,18 @@ jobs:
           prepare_head_event: ${{ needs.prepare.outputs.head_event }}
           prepare_pr_number: ${{ needs.prepare.outputs.pr_number }}
           prepare_runner_matrix: ${{ needs.prepare.outputs.runner_matrix }}
-          classify_path: ${{ needs.classify-handoff.outputs.path }}
-          classify_has_legs: ${{ needs.classify-handoff.outputs.has_legs }}
-          classify_accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects }}
-          classify_filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix }}
+          classify_path: ${{ needs.classify-handoff.outputs.path || 'unknown' }}
+          classify_has_legs: ${{ needs.classify-handoff.outputs.has_legs || 'false' }}
+          classify_accepted_projects: ${{ needs.classify-handoff.outputs.accepted_projects || '[]' }}
+          classify_filtered_matrix: ${{ needs.classify-handoff.outputs.filtered_matrix || '{"include":[]}' }}
           classify_result: ${{ needs.classify-handoff.result }}
-          handoff_run_trigger_written: ${{ needs.handoff.outputs.trigger_written }}
-          handoff_run_vm_started: ${{ needs.handoff.outputs.vm_started }}
-          handoff_run_handshake_ok: ${{ needs.handoff.outputs.handshake_ok }}
-          handoff_run_handshake_uri: ${{ needs.handoff.outputs.handshake_uri }}
-          handoff_run_handoff_reason: ${{ needs.handoff.outputs.handoff_reason }}
-          handoff_run_result: ${{ needs.classify-handoff.outputs.path == 'run' && needs.handoff.result || 'success' }}
-          handoff_skip_result: ${{ needs.classify-handoff.outputs.path == 'skip_no_legs' && needs.handoff.result || 'success' }}
+          handoff_run_trigger_written: ${{ needs.handoff-run.outputs.trigger_written || 'false' }}
+          handoff_run_vm_started: ${{ needs.handoff-run.outputs.vm_started || 'false' }}
+          handoff_run_handshake_ok: ${{ needs.handoff-run.outputs.handshake_ok || 'false' }}
+          handoff_run_handshake_uri: ${{ needs.handoff-run.outputs.handshake_uri || '' }}
+          handoff_run_handoff_reason: ${{ needs.handoff-run.outputs.handoff_reason || '' }}
+          handoff_run_result: ${{ needs.classify-handoff.outputs.path == 'run' && needs.handoff-run.result || 'success' }}
+          handoff_skip_result: ${{ needs.classify-handoff.outputs.path == 'skip_no_legs' && needs.handoff-skip.result || 'success' }}
           dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
           dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
           fallback_ref: ${{ github.sha }}

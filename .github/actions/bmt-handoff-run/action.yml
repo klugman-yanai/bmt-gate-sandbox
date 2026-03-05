@@ -15,6 +15,10 @@ inputs:
     description: PR number when head_event is pull_request
     required: false
     default: ""
+  run_context:
+    description: Resolved run context (pr vs dev). If not set, derived from head_event.
+    required: false
+    default: ""
   filtered_matrix:
     description: JSON matrix of legs to run (from classify-handoff)
     required: true
@@ -90,7 +94,7 @@ runs:
       id: preflight
       shell: bash
       env:
-        RUN_CONTEXT: ${{ inputs.head_event == 'pull_request' && 'pr' || 'dev' }}
+        RUN_CONTEXT: ${{ inputs.run_context || (inputs.head_event == 'pull_request' && 'pr' || 'dev') }}
       run: bash .github/bmt/scripts/bmt_workflow.sh preflight-trigger-queue
 
     - name: Write run trigger to GCS
@@ -98,7 +102,7 @@ runs:
       shell: bash
       env:
         FILTERED_MATRIX_JSON: ${{ inputs.filtered_matrix }}
-        RUN_CONTEXT: ${{ inputs.head_event == 'pull_request' && 'pr' || 'dev' }}
+        RUN_CONTEXT: ${{ inputs.run_context || (inputs.head_event == 'pull_request' && 'pr' || 'dev') }}
         HEAD_EVENT: ${{ inputs.head_event }}
         HEAD_SHA: ${{ inputs.head_sha }}
         HEAD_BRANCH: ${{ inputs.head_branch }}
