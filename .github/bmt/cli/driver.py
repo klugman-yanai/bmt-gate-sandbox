@@ -9,7 +9,7 @@ from pathlib import Path
 # Ensure repo root is on sys.path so `cli` package resolves when run as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from .commands import matrix, trigger, upload_runner, vm
+from .commands import job, matrix, trigger, upload_runner, vm
 
 COMMANDS = {
     "matrix": matrix.run_build,
@@ -20,6 +20,7 @@ COMMANDS = {
     "start-vm": vm.run_start,
     "sync-vm-metadata": vm.run_sync_metadata,
     "wait-handshake": vm.run_wait_handshake,
+    "execute-cloud-run-job": job.run_execute_cloud_run_job,
 }
 
 

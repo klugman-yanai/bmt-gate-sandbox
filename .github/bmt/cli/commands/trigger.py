@@ -120,13 +120,29 @@ def run_trigger() -> None:
     )
 
     runtime_bucket_root = models.runtime_bucket_root_uri(bucket)
+    workflow_run_id = os.environ.get("GITHUB_RUN_ID", "local")
+    run_trigger_uri_str = models.run_trigger_uri(runtime_bucket_root, workflow_run_id)
+
+    runtime_backend = (os.environ.get("BMT_RUNTIME_BACKEND") or "vm").strip().lower()
+    if runtime_backend != "cloud_run_job":
+        # VM backend is a singleton: block if another run is already queued.
+        pending_trigger_uris = _list_pending_trigger_uris(runtime_bucket_root)
+        blocking_triggers = [uri for uri in pending_trigger_uris if uri != run_trigger_uri_str]
+        if blocking_triggers:
+            sample = ", ".join(blocking_triggers[:3])
+            extra = "" if len(blocking_triggers) <= 3 else f" (+{len(blocking_triggers) - 3} more)"
+            raise RuntimeError(
+                "VM runtime is busy: pending run trigger(s) already exist under runtime root. "
+                f"Blocking triggers: {sample}{extra}. "
+                "Wait for the active run to finish or clean stale trigger files before retrying."
+            )
+
     triggered_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     sha = _resolve_source_sha()
     if not _is_full_sha(sha):
         raise RuntimeError("Unable to resolve a valid 40-char source SHA (HEAD_SHA or GITHUB_SHA).")
     ref = _resolve_source_ref()
     repository = os.environ.get("GITHUB_REPOSITORY", "")
-    workflow_run_id = os.environ.get("GITHUB_RUN_ID", "local")
 
     legs: list[dict[str, str]] = []
     for project in projects:
@@ -157,22 +173,22 @@ def run_trigger() -> None:
     if pr_number is not None:
         run_payload["pull_request_number"] = pr_number
 
-    run_trigger_uri_str = models.run_trigger_uri(runtime_bucket_root, workflow_run_id)
-    pending_trigger_uris = _list_pending_trigger_uris(runtime_bucket_root)
-    blocking_triggers = [uri for uri in pending_trigger_uris if uri != run_trigger_uri_str]
-    if blocking_triggers:
-        sample = ", ".join(blocking_triggers[:3])
-        extra = "" if len(blocking_triggers) <= 3 else f" (+{len(blocking_triggers) - 3} more)"
-        raise RuntimeError(
-            "VM runtime is busy: pending run trigger(s) already exist under runtime root. "
-            f"Blocking triggers: {sample}{extra}. "
-            "Wait for the active run to finish or clean stale trigger files before retrying."
-        )
-    try:
-        gcloud.upload_json(run_trigger_uri_str, run_payload)
-    except gcloud.GcloudError as exc:
-        print(f"::error::Failed to write run trigger: {exc}")
-        raise
+    import time as _time
+
+    last_exc: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            gcloud.upload_json(run_trigger_uri_str, run_payload)
+            last_exc = None
+            break
+        except gcloud.GcloudError as exc:
+            last_exc = exc
+            print(f"::warning::Trigger upload attempt {attempt}/3 failed: {exc}")
+            if attempt < 3:
+                _time.sleep(5 * attempt)
+    if last_exc is not None:
+        print(f"::error::Failed to write run trigger after 3 attempts: {last_exc}")
+        raise last_exc
 
     manifest = {"legs": legs}
     write_github_output(github_output, "manifest", json.dumps(manifest, separators=(",", ":")))

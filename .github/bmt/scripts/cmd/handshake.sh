@@ -79,18 +79,23 @@ bmt_cmd_handshake_timeout_diagnostics() {
   gcloud storage cat "$ack_uri" 2>/dev/null | sed -n '1,120p' || true
   echo "::endgroup::"
 
-  echo "::group::VM instance diagnostics"
-  gcloud compute instances describe "$BMT_VM_NAME" \
-    --zone "$GCP_ZONE" \
-    --project "$GCP_PROJECT" \
-    --format='yaml(name,status,lastStartTimestamp,lastStopTimestamp,metadata.items)' 2>/dev/null || true
-  echo "::endgroup::"
+  local runtime_backend="${BMT_RUNTIME_BACKEND:-vm}"
+  if [[ "$runtime_backend" == "cloud_run_job" ]]; then
+    echo "::notice::Skipping VM instance diagnostics (BMT_RUNTIME_BACKEND=cloud_run_job; no VM to describe)."
+  else
+    echo "::group::VM instance diagnostics"
+    gcloud compute instances describe "$BMT_VM_NAME" \
+      --zone "$GCP_ZONE" \
+      --project "$GCP_PROJECT" \
+      --format='yaml(name,status,lastStartTimestamp,lastStopTimestamp,metadata.items)' 2>/dev/null || true
+    echo "::endgroup::"
 
-  echo "::group::VM serial output tail"
-  gcloud compute instances get-serial-port-output "$BMT_VM_NAME" \
-    --zone "$GCP_ZONE" \
-    --project "$GCP_PROJECT" 2>/dev/null | tail -n 200 || true
-  echo "::endgroup::"
+    echo "::group::VM serial output tail"
+    gcloud compute instances get-serial-port-output "$BMT_VM_NAME" \
+      --zone "$GCP_ZONE" \
+      --project "$GCP_PROJECT" 2>/dev/null | tail -n 200 || true
+    echo "::endgroup::"
+  fi
 }
 
 bmt_cmd_show_handshake_summary() {

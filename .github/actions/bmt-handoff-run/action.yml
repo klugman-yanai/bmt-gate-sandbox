@@ -92,6 +92,7 @@ runs:
 
     - name: Preflight runtime trigger queue (stale cleanup)
       id: preflight
+      if: env.BMT_RUNTIME_BACKEND != 'cloud_run_job'
       shell: bash
       env:
         RUN_CONTEXT: ${{ inputs.run_context || (inputs.head_event == 'pull_request' && 'pr' || 'dev') }}
@@ -110,11 +111,12 @@ runs:
       run: bash .github/bmt/scripts/bmt_workflow.sh write-run-trigger
 
     - name: Sync VM metadata from workflow config
+      if: env.BMT_RUNTIME_BACKEND != 'cloud_run_job'
       shell: bash
       run: uv run --project .github/bmt bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
-      if: steps.preflight.outputs.restart_vm == 'true'
+      if: env.BMT_RUNTIME_BACKEND != 'cloud_run_job' && steps.preflight.outputs.restart_vm == 'true'
       shell: bash
       env:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
@@ -122,10 +124,18 @@ runs:
 
     - name: Start BMT VM
       id: start-vm
+      if: env.BMT_RUNTIME_BACKEND != 'cloud_run_job'
       shell: bash
       run: uv run --project .github/bmt bmt start-vm
 
+    - name: Execute Cloud Run Job
+      id: execute-cloud-run-job
+      if: env.BMT_RUNTIME_BACKEND == 'cloud_run_job'
+      shell: bash
+      run: uv run --project .github/bmt bmt execute-cloud-run-job
+
     - name: Show handshake guidance
+      if: env.BMT_RUNTIME_BACKEND != 'cloud_run_job'
       shell: bash
       env:
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
