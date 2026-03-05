@@ -155,10 +155,33 @@ def run_start() -> None:
     last_seen_start: str | None = None
     recovery_attempts = 0
     recovery_pending = False
+    stop_retry_done = False  # only one wait-for-TERMINATED + retry per run
     while time.monotonic() < deadline:
         describe = gcloud.vm_describe(project, zone, instance_name)
         last_seen_status = _instance_status(describe)
         last_seen_start = _last_start_timestamp(describe)
+
+        # If VM is STOPPING (e.g. previous run self-stopped), wait for TERMINATED then start again
+        if last_seen_status == "STOPPING" and not stop_retry_done:
+            stop_deadline = time.monotonic() + min(120, max(0, int(deadline - time.monotonic())))
+            print("::warning::VM is STOPPING (e.g. from previous run); waiting for TERMINATED then retrying start.")
+            while time.monotonic() < stop_deadline:
+                describe = gcloud.vm_describe(project, zone, instance_name)
+                s = _instance_status(describe)
+                if s == "TERMINATED":
+                    print("VM reached TERMINATED; issuing retry start.")
+                    stop_retry_done = True
+                    _request_start("retry after VM stopped")
+                    break
+                remaining = stop_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        "VM remained in STOPPING state; could not retry start within 120s. "
+                        "Try re-running the job once the VM has fully stopped."
+                    )
+                time.sleep(min(poll_interval_sec, remaining))
+            continue
+
         running = last_seen_status == "RUNNING"
         start_advanced = before_last_start is None or (
             last_seen_start is not None and last_seen_start != before_last_start
