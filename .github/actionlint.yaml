@@ -1,5 +1,19 @@
 # Variables used in workflows (repo/org variables). Keeps actionlint from flagging custom vars.
 config-variables:
+  - GCS_BUCKET
+  - GCP_WIF_PROVIDER
+  - GCP_SA_EMAIL
+  - GCP_PROJECT
+  - GCP_ZONE
+  - BMT_VM_NAME
   - BMT_PROJECTS
   - BMT_STATUS_CONTEXT
+  - BMT_RUNTIME_CONTEXT
+  - BMT_RUNTIME_BACKEND
+  - BMT_CLOUD_RUN_JOB
+  - BMT_CLOUD_RUN_REGION
+  - BMT_HANDSHAKE_TIMEOUT_SEC
+  - BMT_PREEMPT_ON_PR_STALE_QUEUE
+  - BMT_TRIGGER_STALE_SEC
+  - BMT_TRIGGER_METADATA_KEEP_RECENT
   - BMT_DISPATCH_APP_ID

@@ -112,6 +112,29 @@ def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _manager_rel_path(project: str) -> str:
+    return f"{project}/bmt_manager.py"
+
+
+def _jobs_rel_path(project: str) -> str:
+    return f"{project}/config/bmt_jobs.json"
+
+
+def _validate_jobs_config(jobs_payload: dict[str, Any], *, project: str, bmt_id: str, jobs_path: Path) -> None:
+    if not isinstance(jobs_payload, dict):
+        raise OrchestratorError(f"Invalid jobs schema in {jobs_path}: expected JSON object")
+    bmts = jobs_payload.get("bmts")
+    if not isinstance(bmts, dict):
+        raise OrchestratorError(f"Invalid jobs schema in {jobs_path}: missing object key 'bmts'")
+
+    bmt_cfg = bmts.get(bmt_id)
+    if not isinstance(bmt_cfg, dict):
+        raise OrchestratorError(f"BMT id '{bmt_id}' is not defined for project '{project}' in {jobs_path}")
+
+    if bmt_cfg.get("enabled", True) is False:
+        raise OrchestratorError(f"BMT id '{bmt_id}' is disabled for project '{project}' in {jobs_path}")
+
+
 def main() -> int:
     args = parse_args()
     run_id = args.run_id.strip()
@@ -127,25 +150,19 @@ def main() -> int:
     run_root = workspace_root / args.project / args.bmt_id / f"run_{_now_stamp()}_{os.getpid()}"
     run_root.mkdir(parents=True, exist_ok=True)
     try:
-        projects_json_path = run_root / "bmt_projects.json"
-        _gcloud_cp(_bucket_uri(code_bucket_root, "bmt_projects.json"), projects_json_path)
-        projects_cfg = _load_json(projects_json_path).get("projects", {})
-
-        project_cfg = projects_cfg.get(args.project)
-        if not isinstance(project_cfg, dict):
-            raise OrchestratorError(f"Missing project config: {args.project}")
-        if not bool(project_cfg.get("enabled", True)):
-            raise OrchestratorError(f"Project is disabled: {args.project}")
-
-        manager_rel = str(project_cfg.get("manager_script", "")).strip()
-        jobs_rel = str(project_cfg.get("jobs_config", "")).strip()
-        if not manager_rel or not jobs_rel:
-            raise OrchestratorError(f"Project '{args.project}' must define manager_script and jobs_config")
+        manager_rel = _manager_rel_path(args.project)
+        jobs_rel = _jobs_rel_path(args.project)
 
         local_manager = run_root / manager_rel
         local_jobs = run_root / jobs_rel
         _gcloud_cp(_bucket_uri(code_bucket_root, manager_rel), local_manager)
         _gcloud_cp(_bucket_uri(code_bucket_root, jobs_rel), local_jobs)
+        try:
+            jobs_payload = _load_json(local_jobs)
+        except json.JSONDecodeError as exc:
+            raise OrchestratorError(f"Invalid JSON in {local_jobs}: {exc}") from exc
+        _validate_jobs_config(jobs_payload, project=args.project, bmt_id=args.bmt_id, jobs_path=local_jobs)
+
         local_manager.chmod(local_manager.stat().st_mode | 0o111)
 
         manager_summary_path = run_root / "manager_summary.json"

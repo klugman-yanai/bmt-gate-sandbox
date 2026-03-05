@@ -185,6 +185,51 @@ class TestResolveAuthForRepository:
             mock_get_token.assert_called_once()
 
     @mock.patch("github_auth.get_installation_token_from_app")
+    def test_alias_app_auth_fallback(self, mock_get_token: mock.Mock, test_config: str) -> None:
+        mock_get_token.return_value = "test-app-token"
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GH_APP_TEST_ID": "12345",
+                "GH_APP_TEST_INSTALLATION_ID": "67890",
+                "GH_APP_TEST_PRIVATE_KEY": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
+            },
+            clear=True,
+        ):
+            token = github_auth.resolve_auth_for_repository(
+                "test-org/test-repo",
+                config_path=test_config,
+            )
+            assert token == "test-app-token"
+            mock_get_token.assert_called_once_with(
+                "12345",
+                "67890",
+                "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
+            )
+
+    @mock.patch("github_auth.get_installation_token_from_app")
+    def test_canonical_env_precedence_over_alias(self, mock_get_token: mock.Mock, test_config: str) -> None:
+        mock_get_token.return_value = "test-app-token"
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_APP_TEST_ID": "canonical-id",
+                "GITHUB_APP_TEST_INSTALLATION_ID": "canonical-installation",
+                "GITHUB_APP_TEST_PRIVATE_KEY": "canonical-key",
+                "GH_APP_TEST_ID": "alias-id",
+                "GH_APP_TEST_INSTALLATION_ID": "alias-installation",
+                "GH_APP_TEST_PRIVATE_KEY": "alias-key",
+            },
+            clear=True,
+        ):
+            token = github_auth.resolve_auth_for_repository(
+                "test-org/test-repo",
+                config_path=test_config,
+            )
+            assert token == "test-app-token"
+            mock_get_token.assert_called_once_with("canonical-id", "canonical-installation", "canonical-key")
+
+    @mock.patch("github_auth.get_installation_token_from_app")
     def test_app_auth_failure_returns_none(self, mock_get_token: mock.Mock, test_config: str) -> None:
         mock_get_token.return_value = None
         with mock.patch.dict(

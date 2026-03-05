@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
-source "${SCRIPT_DIR}/../bmt/scripts/github_api.sh"
+source "${SCRIPT_DIR}/github_api.sh"
 
 HEAD_SHA_RESOLVED=""
 HEAD_BRANCH_RESOLVED=""
@@ -112,10 +112,11 @@ shift || true
 case "$cmd" in
   parse-presets)
     require_cmd uv
+    uv sync --project .github/bmt
     BMT_OUTPUT_FORMAT="ci" \
     BMT_OUTPUT_KEY="presets" \
     BMT_PROJECTS="${BMT_PROJECTS:-all}" \
-      uv run bmt parse-release-runners
+      uv run --project .github/bmt bmt parse-release-runners
     ;;
 
   stage-release-runner)

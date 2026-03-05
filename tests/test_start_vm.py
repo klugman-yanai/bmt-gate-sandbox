@@ -266,3 +266,85 @@ def test_start_vm_treats_fingerprint_race_as_idempotent_recovery_error(monkeypat
 
     start_vm.run_start()
     assert call_count["value"] == 2
+
+
+def test_start_vm_recovers_from_terminal_state_after_fingerprint_race(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("GCP_ZONE", "zone")
+    monkeypatch.setenv("BMT_VM_NAME", "vm")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
+    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
+    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
+
+    describe_calls = iter(
+        [
+            {"status": "RUNNING", "lastStartTimestamp": "same-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "same-ts"},
+            {"status": "STOPPING", "lastStartTimestamp": "same-ts"},
+            {"status": "TERMINATED", "lastStartTimestamp": "same-ts"},
+            {"status": "STAGING", "lastStartTimestamp": "same-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts"},
+        ]
+    )
+    call_count = {"value": 0}
+
+    def _fake_start(*_args, **_kwargs) -> None:
+        call_count["value"] += 1
+        if call_count["value"] == 2:
+            raise start_vm.gcloud.GcloudError(
+                "Failed to start VM vm: The resource is not ready. "
+                "'The resource fingerprint changed during the start operation.'"
+            )
+
+    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 100.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+
+    start_vm.run_start()
+    assert call_count["value"] == 3
+
+
+def test_start_vm_recovers_after_initial_idempotent_start_when_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("GCP_ZONE", "zone")
+    monkeypatch.setenv("BMT_VM_NAME", "vm")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
+    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
+    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
+
+    describe_calls = iter(
+        [
+            {"status": "STOPPING", "lastStartTimestamp": "old-ts"},
+            {"status": "STOPPING", "lastStartTimestamp": "old-ts"},
+            {"status": "TERMINATED", "lastStartTimestamp": "old-ts"},
+            {"status": "STAGING", "lastStartTimestamp": "old-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts"},
+            {"status": "RUNNING", "lastStartTimestamp": "new-ts"},
+        ]
+    )
+    call_count = {"value": 0}
+
+    def _fake_start(*_args, **_kwargs) -> None:
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise start_vm.gcloud.GcloudError(
+                "Failed to start VM vm: The resource is currently stopping. Please try again."
+            )
+
+    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 100.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+
+    start_vm.run_start()
+    assert call_count["value"] == 2

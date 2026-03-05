@@ -1,5 +1,5 @@
 name: BMT Prepare
-description: Checkout, emit context, validate vars, parse release runners. Use in BMT handoff workflow.
+description: Emit context, validate vars, parse release runners. Use in BMT handoff workflow.
 
 inputs:
   head_sha:
@@ -43,15 +43,14 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.head_sha }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v4
       with:
         python-version: "3.12"
+
+    - name: Sync BMT uv environment
+      shell: bash
+      run: uv sync --project .github/bmt
 
     - id: ctx
       shell: bash
@@ -74,4 +73,4 @@ runs:
       env:
         BMT_OUTPUT_FORMAT: bmt
         BMT_OUTPUT_KEY: runner_matrix
-      run: uv run bmt parse-release-runners
+      run: uv run --project .github/bmt bmt parse-release-runners

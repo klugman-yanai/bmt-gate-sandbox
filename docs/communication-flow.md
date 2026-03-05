@@ -27,11 +27,12 @@ This document describes the **current** communication model after the handoff-on
    - `04A Handoff Skip (No Legs)` when no supported uploaded legs exist, or
    - `04B Handoff Run (Trigger + VM Ack)` when legs exist.
 3. In run path, `bmt.yml` writes trigger, starts VM, waits for handshake ack, writes handoff summary, and exits.
-4. VM processes legs asynchronously and posts pending/final commit status + check run updates to the PR.
+4. VM resolves runtime support by convention files (`code/<project>/bmt_manager.py` and `code/<project>/config/bmt_jobs.json`) and writes authoritative handshake decisions.
+5. VM processes accepted legs asynchronously and posts pending/final commit status + check run updates to the PR.
 5. If PR is closed:
    - Before pickup: VM acknowledges trigger as skipped and exits without leg execution.
    - During execution: VM stops before next leg, finalizes existing pending signals as cancelled (`check=neutral`, `status=error`), and skips PR comments.
-6. If a newer commit arrives on the PR:
+7. If a newer commit arrives on the PR:
    - Older trigger SHA is treated as superseded (`superseded_by_new_commit`).
    - VM completes the current leg, cancels remaining legs between legs, finalizes old SHA signals (`check=neutral`, `status=error`), and does not promote pointers for the superseded run.
    - VM PR comments are upserted per tested SHA and include commit links (tested + superseding when applicable).
@@ -42,6 +43,7 @@ This document describes the **current** communication model after the handoff-on
 |----------|-----------------------------------|
 | CI run (dummy-build-and-test) success/failure | Dummy CI result + BMT handoff dispatch summary in workflow run. |
 | Handoff success | Green `bmt.yml` run summary confirms VM acknowledged trigger. |
+| Handoff failed (`no_runtime_supported_legs`) | VM acknowledged trigger but accepted zero runtime-supported legs; gate fails with explicit reason. |
 | Handoff failure | Failed `bmt.yml` run summary + diagnostics in Actions logs. |
 | BMT in progress/complete | PR **Checks** and PR **Comments** (VM-owned updates). |
 | PR closed during/after handoff | Runtime trigger ack/status shows skipped/cancelled PR-closure reason; no new PR comment is posted. |

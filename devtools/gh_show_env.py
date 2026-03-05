@@ -38,10 +38,8 @@ class SecretHint:
     absent_label: str = "(unset)"
 
 
-APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (
-    SecretHint("BMT_DISPATCH_APP_ID", "*** (repo secret)"),
-    SecretHint("BMT_DISPATCH_APP_PRIVATE_KEY", "*** (repo secret)"),
-)
+APP_TRIGGER_VAR_NAMES: tuple[str, ...] = ("BMT_DISPATCH_APP_ID",)
+APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (SecretHint("BMT_DISPATCH_APP_PRIVATE_KEY", "*** (repo secret)"),)
 
 
 def cmd_exists(name: str) -> bool:
@@ -219,13 +217,15 @@ def print_github_section(contract: dict[str, object]) -> None:
         content_parts.append(tree)
         content_parts.append(Text())
 
-    # App-trigger secrets
+    # App-trigger auth config (var + secret)
     secret_names = gh_secret_names() or set()
     secret_rows: list[tuple[str, Text]] = []
+    for name in APP_TRIGGER_VAR_NAMES:
+        secret_rows.append((name, _var_value_cell(gh_var(name))))
     for h in APP_TRIGGER_SECRET_HINTS:
         val = Text(h.present_label, style="green") if h.name in secret_names else Text(h.absent_label, style="dim red")
         secret_rows.append((h.name, val))
-    content_parts.append(Text("App-trigger secrets (CI trigger-bmt):", style="bold"))
+    content_parts.append(Text("App-trigger auth config (CI trigger-bmt):", style="bold"))
     content_parts.append(_vars_table(secret_rows))
 
     # Build panel content

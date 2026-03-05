@@ -151,3 +151,38 @@ def test_resolve_branch_rule_values_selector_miss_raises(monkeypatch: pytest.Mon
             current={},
             defaults={},
         )
+
+
+def test_validate_wif_provider_format_invalid_raises() -> None:
+    desired = {
+        "GCP_WIF_PROVIDER": "projects/not-a-number/locations/global/workloadIdentityPools/pool/providers/provider",
+        "GCP_PROJECT": "proj-a",
+    }
+    with pytest.raises(RuntimeError, match="Invalid GCP_WIF_PROVIDER format"):
+        repo_vars._validate_wif_provider_consistency(desired)
+
+
+def test_validate_wif_provider_mismatch_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    desired = {
+        "GCP_WIF_PROVIDER": "projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+        "GCP_PROJECT": "proj-a",
+    }
+
+    monkeypatch.setattr(repo_vars.shutil, "which", lambda _name: "/usr/bin/gcloud")
+    monkeypatch.setattr(
+        repo_vars,
+        "_run",
+        lambda cmd: _cp(stdout="999\n") if cmd[:3] == ["gcloud", "projects", "describe"] else _cp(rc=1),
+    )
+    with pytest.raises(RuntimeError, match="project number mismatch"):
+        repo_vars._validate_wif_provider_consistency(desired)
+
+
+def test_validate_wif_provider_skips_when_gcloud_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    desired = {
+        "GCP_WIF_PROVIDER": "projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+        "GCP_PROJECT": "proj-a",
+    }
+    monkeypatch.setattr(repo_vars.shutil, "which", lambda _name: None)
+    warnings = repo_vars._validate_wif_provider_consistency(desired)
+    assert any("gcloud not found" in item for item in warnings)
