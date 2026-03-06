@@ -31,7 +31,11 @@ bmt__gcs_err_is_not_found() {
   [[ "$text" == *"no urls matched"* ]] && return 0
   [[ "$text" == *"matched no objects"* ]] && return 0
   [[ "$text" == *"notfound"* ]] && return 0
-  [[ "$text" == *"404"* ]] && return 0
+  # Match HTTP 404 status, not "404" inside URIs (e.g. .../1404.json)
+  [[ "$text" == *"404 not found"* ]] && return 0
+  [[ "$text" == *" 404 "* ]] && return 0
+  [[ "$text" == *": 404"* ]] && return 0
+  [[ "$text" == *"(404)"* ]] && return 0
   return 1
 }
 
