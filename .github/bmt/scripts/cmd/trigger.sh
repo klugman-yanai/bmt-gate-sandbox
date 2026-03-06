@@ -25,6 +25,72 @@ bmt__trigger_payload_is_valid() {
   ' >/dev/null 2>&1
 }
 
+bmt__gcs_err_is_not_found() {
+  local text="${1:-}"
+  text="${text,,}"
+  [[ "$text" == *"no urls matched"* ]] && return 0
+  [[ "$text" == *"matched no objects"* ]] && return 0
+  [[ "$text" == *"notfound"* ]] && return 0
+  [[ "$text" == *"404"* ]] && return 0
+  return 1
+}
+
+bmt__gcs_err_is_transient() {
+  local text="${1:-}"
+  text="${text,,}"
+  [[ "$text" == *"429"* ]] && return 0
+  [[ "$text" == *"rate limit"* ]] && return 0
+  [[ "$text" == *"quota"* ]] && return 0
+  [[ "$text" == *"timeout"* ]] && return 0
+  [[ "$text" == *"temporar"* ]] && return 0
+  [[ "$text" == *"connection reset"* ]] && return 0
+  [[ "$text" == *"broken pipe"* ]] && return 0
+  [[ "$text" == *"internal error"* ]] && return 0
+  [[ "$text" == *"503"* ]] && return 0
+  [[ "$text" == *"500"* ]] && return 0
+  return 1
+}
+
+# Delete a single GCS object idempotently.
+# Prints one of: "removed" | "missing"
+# Returns non-zero only on genuine errors (permission/retention/etc).
+bmt__gcs_rm_idempotent() {
+  local uri severity attempts attempt out rc
+  uri="$1"
+  severity="${2:-error}"   # error | warning | notice
+  attempts="${3:-3}"
+
+  if [[ -z "$uri" ]]; then
+    echo "::${severity}::gcs_rm_idempotent called with empty uri"
+    return 1
+  fi
+
+  for attempt in $(seq 1 "$attempts"); do
+    out="$(gcloud storage rm "$uri" 2>&1)"
+    rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+      echo "removed"
+      return 0
+    fi
+
+    if bmt__gcs_err_is_not_found "$out"; then
+      echo "missing"
+      return 0
+    fi
+
+    if [[ "$attempt" -lt "$attempts" ]] && bmt__gcs_err_is_transient "$out"; then
+      sleep "$attempt"
+      continue
+    fi
+
+    echo "::${severity}::gcloud storage rm failed for ${uri}: ${out:-unknown error}"
+    return 1
+  done
+
+  echo "::${severity}::gcloud storage rm failed for ${uri}: unknown error"
+  return 1
+}
+
 bmt__trim_trigger_family_keep_recent() {
   local family_prefix keep_recent
   local -a uris run_ids keep_ids
@@ -75,7 +141,7 @@ bmt_cmd_preflight_trigger_queue() {
   local run_id root runs_prefix current_uri run_context
   local preempt_on_pr_raw preempt_on_pr stale_sec keep_recent
   local -a existing blocking invalid
-  local uri removed failed invalid_removed invalid_failed rid count prefix_uri trimmed
+  local uri removed missing failed invalid_removed invalid_missing invalid_failed rid count prefix_uri trimmed outcome
   local trim_runs trim_acks trim_status
 
   require_cmd gcloud
@@ -134,30 +200,33 @@ bmt_cmd_preflight_trigger_queue() {
   } >>"$GITHUB_STEP_SUMMARY"
 
   invalid_removed=0
+  invalid_missing=0
   invalid_failed=0
   for uri in "${invalid[@]}"; do
-    if gcloud storage rm "$uri" >/dev/null 2>&1; then
+    outcome="$(bmt__gcs_rm_idempotent "$uri" error)" || { invalid_failed=$((invalid_failed + 1)); continue; }
+    if [[ "$outcome" == "removed" ]]; then
       invalid_removed=$((invalid_removed + 1))
-      rid="$(basename "$uri")"
-      rid="${rid%.json}"
-      gcloud storage rm "${root}/triggers/acks/${rid}.json" >/dev/null 2>&1 || true
-      gcloud storage rm "${root}/triggers/status/${rid}.json" >/dev/null 2>&1 || true
     else
-      invalid_failed=$((invalid_failed + 1))
+      invalid_missing=$((invalid_missing + 1))
     fi
+    rid="$(basename "$uri")"
+    rid="${rid%.json}"
+    bmt__gcs_rm_idempotent "${root}/triggers/acks/${rid}.json" warning 2 >/dev/null || true
+    bmt__gcs_rm_idempotent "${root}/triggers/status/${rid}.json" warning 2 >/dev/null || true
   done
 
-  if [[ "$invalid_removed" -gt 0 || "$invalid_failed" -gt 0 ]]; then
+  if [[ "$invalid_removed" -gt 0 || "$invalid_missing" -gt 0 || "$invalid_failed" -gt 0 ]]; then
     {
       echo
       echo "### Invalid trigger cleanup"
       echo
       echo "- Removed invalid run triggers: **${invalid_removed}**"
+      echo "- Already missing (concurrently deleted): **${invalid_missing}**"
       echo "- Failed invalid-trigger removals: **${invalid_failed}**"
     } >>"$GITHUB_STEP_SUMMARY"
   fi
   if [[ "$invalid_failed" -gt 0 ]]; then
-    echo "::error::Failed to remove ${invalid_failed} invalid trigger file(s) under ${runs_prefix}."
+    echo "::error::Failed to remove ${invalid_failed} invalid trigger file(s) under ${runs_prefix}. Ensure the workflow service account has storage.objects.delete on the bucket."
     exit 1
   fi
 
@@ -190,17 +259,19 @@ bmt_cmd_preflight_trigger_queue() {
     done
 
     removed=0
+    missing=0
     failed=0
     for uri in "${blocking[@]}"; do
-      if gcloud storage rm "$uri" >/dev/null 2>&1; then
+      outcome="$(bmt__gcs_rm_idempotent "$uri" error)" || { failed=$((failed + 1)); continue; }
+      if [[ "$outcome" == "removed" ]]; then
         removed=$((removed + 1))
-        rid="$(basename "$uri")"
-        rid="${rid%.json}"
-        gcloud storage rm "${root}/triggers/acks/${rid}.json" >/dev/null 2>&1 || true
-        gcloud storage rm "${root}/triggers/status/${rid}.json" >/dev/null 2>&1 || true
       else
-        failed=$((failed + 1))
+        missing=$((missing + 1))
       fi
+      rid="$(basename "$uri")"
+      rid="${rid%.json}"
+      bmt__gcs_rm_idempotent "${root}/triggers/acks/${rid}.json" warning 2 >/dev/null || true
+      bmt__gcs_rm_idempotent "${root}/triggers/status/${rid}.json" warning 2 >/dev/null || true
     done
 
     echo "stale_cleanup_count=${removed}" >>"$GITHUB_OUTPUT"
@@ -213,6 +284,7 @@ bmt_cmd_preflight_trigger_queue() {
       echo "### Preflight cleanup result"
       echo
       echo "- Removed stale run triggers: **${removed}**"
+      echo "- Already missing (concurrently deleted): **${missing}**"
       echo "- Failed removals: **${failed}**"
       if [[ "$removed" -gt 0 ]]; then
         echo "- Requested VM clean restart before handshake: **yes**"
@@ -222,7 +294,7 @@ bmt_cmd_preflight_trigger_queue() {
     } >>"$GITHUB_STEP_SUMMARY"
 
     if [[ "$failed" -gt 0 ]]; then
-      echo "::error::Failed to remove ${failed} stale trigger file(s) under ${runs_prefix}."
+      echo "::error::Failed to remove ${failed} stale trigger file(s) under ${runs_prefix}. Ensure the workflow service account has storage.objects.delete on the bucket."
       exit 1
     fi
   fi
