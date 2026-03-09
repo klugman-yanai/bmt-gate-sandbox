@@ -16,7 +16,7 @@ def _run_script(script: str, *args: str) -> subprocess.CompletedProcess[str]:
 
 def test_bucket_sync_remote_exit_code_on_missing_src(tmp_path: Path) -> None:
     missing = tmp_path / "missing-src"
-    proc = _run_script("devtools/bucket_sync_remote.py", "--bucket", "dummy", "--src-dir", str(missing))
+    proc = _run_script("tools/bucket_sync_remote.py", "--bucket", "dummy", "--src-dir", str(missing))
 
     assert proc.returncode == 1
     assert "Missing source directory" in (proc.stdout + proc.stderr)
@@ -24,7 +24,7 @@ def test_bucket_sync_remote_exit_code_on_missing_src(tmp_path: Path) -> None:
 
 def test_bucket_verify_remote_sync_exit_code_on_missing_src(tmp_path: Path) -> None:
     missing = tmp_path / "missing-src"
-    proc = _run_script("devtools/bucket_verify_remote_sync.py", "--bucket", "dummy", "--src-dir", str(missing))
+    proc = _run_script("tools/bucket_verify_remote_sync.py", "--bucket", "dummy", "--src-dir", str(missing))
 
     assert proc.returncode == 1
     assert "Missing source directory" in (proc.stdout + proc.stderr)

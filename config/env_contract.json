@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Canonical configuration contract for workflows, VM bootstrap, and local devtools.",
+  "description": "Canonical configuration contract for workflows, VM bootstrap, and local tools.",
   "contexts": {
     "github_repo_vars": {
       "required": [

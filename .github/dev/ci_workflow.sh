@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
-source "${SCRIPT_DIR}/../bmt/scripts/github_api.sh"
+source "${SCRIPT_DIR}/../../packages/bmt-cli/scripts/github_api.sh"
 
 HEAD_SHA_RESOLVED=""
 HEAD_BRANCH_RESOLVED=""
@@ -12,7 +12,7 @@ PR_NUMBER_RESOLVED=""
 
 usage() {
   cat <<'USAGE'
-Usage: .github/bmt/scripts/ci_workflow.sh <command>
+Usage: packages/bmt-cli/scripts (via .github/dev/ci_workflow.sh) <command>
 
 Commands:
   parse-presets
@@ -115,7 +115,7 @@ case "$cmd" in
     BMT_OUTPUT_FORMAT="ci" \
     BMT_OUTPUT_KEY="presets" \
     BMT_PROJECTS="${BMT_PROJECTS:-all}" \
-      uv run bmt parse-release-runners
+      uv run --project packages/bmt-cli bmt parse-release-runners
     ;;
 
   stage-release-runner)
@@ -132,11 +132,11 @@ case "$cmd" in
       mkdir -p "$binary_dir/Runners" "$binary_dir/Kardome"
       if [[ -f "$binary_dir/Runners/kardome_runner" ]]; then
         echo "Using existing runner from $binary_dir/Runners (build/ layout)"
-      elif [[ -f "remote/runtime/sk/runners/sk_gcc_release/kardome_runner" && "$project" == "sk" ]]; then
-        cp -v remote/runtime/sk/runners/sk_gcc_release/kardome_runner "$binary_dir/Runners/"
-        [[ -f "remote/runtime/sk/runners/lib/libKardome.so" ]] && cp -v remote/runtime/sk/runners/lib/libKardome.so "$binary_dir/Kardome/" || true
+      elif [[ -f "deploy/runtime/sk/runners/sk_gcc_release/kardome_runner" && "$project" == "sk" ]]; then
+        cp -v deploy/runtime/sk/runners/sk_gcc_release/kardome_runner "$binary_dir/Runners/"
+        [[ -f "deploy/runtime/sk/runners/lib/libKardome.so" ]] && cp -v deploy/runtime/sk/runners/lib/libKardome.so "$binary_dir/Kardome/" || true
         chmod +x "$binary_dir/Runners/kardome_runner"
-        echo "Using real runner from remote/runtime/sk/runners/ (production-like artifact)"
+        echo "Using real runner from deploy/runtime/sk/runners/ (production-like artifact)"
       else
         echo "::warning::No real runner for $project; creating placeholder for path-only test"
         touch "$binary_dir/Runners/kardome_runner" "$binary_dir/Kardome/libKardome.so"

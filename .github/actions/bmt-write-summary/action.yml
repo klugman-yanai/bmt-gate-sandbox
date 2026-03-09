@@ -89,4 +89,4 @@ runs:
         HANDSHAKE_URI: ${{ inputs.handshake_uri }}
         HANDOFF_STATE_LINE: ${{ inputs.handoff_state_line }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh write-handoff-summary
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh write-handoff-summary

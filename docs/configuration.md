@@ -13,7 +13,7 @@ This document describes **current** configuration: env contract, repo vars, VM m
 - **defaults** — Default values for optional vars (e.g. `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`).
 - **consistency_checks** — e.g. `repo_vs_vm_metadata` for `GCS_BUCKET` so repo config and VM metadata stay in sync, and `repo_var_vs_branch_required_status_context` so `BMT_STATUS_CONTEXT` is sourced from effective branch rules.
 
-Tooling (e.g. `devtools/gh_repo_vars.py`, `devtools/gh_validate_vm_vars.py`) uses this contract to check and apply repo vars and to validate VM metadata.
+Tooling (e.g. `tools/gh_repo_vars.py`, `tools/gh_validate_vm_vars.py`) uses this contract to check and apply repo vars and to validate VM metadata.
 
 ---
 
@@ -41,16 +41,16 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for VM handshake wait. |
 | `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
 
-Omitted vars inherit from current GitHub repo context first, then from contract defaults (see `config/env_contract.json` and `devtools/gh_repo_vars.py`). Optional overrides can be declared in **config/repo_vars.toml** for local/tooling use.
+Omitted vars inherit from current GitHub repo context first, then from contract defaults (see `config/env_contract.json` and `tools/gh_repo_vars.py`). Optional overrides can be declared in **config/repo_vars.toml** for local/tooling use.
 
-For `BMT_STATUS_CONTEXT`, `devtools/gh_repo_vars.py` resolves the desired value from the effective branch rules (`/rules/branches/<branch>`) using `consistency_checks.repo_var_vs_branch_required_status_context`. This prevents TOML/UI drift between branch protection and repo variables.
+For `BMT_STATUS_CONTEXT`, `tools/gh_repo_vars.py` resolves the desired value from the effective branch rules (`/rules/branches/<branch>`) using `consistency_checks.repo_var_vs_branch_required_status_context`. This prevents TOML/UI drift between branch protection and repo variables.
 
 ### Useful commands
 
 ```bash
 just repo-vars-check    # Check repo vars against contract
 just repo-vars-apply    # Apply vars to GitHub (with optional args)
-just show-env           # Print env var names used by CI, VM, devtools
+just show-env           # Print env var names used by CI, VM, tools
 just validate-vm-vars   # Ensure repo vars match VM metadata
 just sync-vm-metadata   # Sync startup-critical VM metadata from repo contract
 ```
@@ -64,7 +64,7 @@ The workflow syncs **VM metadata** from repo config so the VM uses the same buck
 - **GCS_BUCKET** (required)
 - **BMT_REPO_ROOT** (optional; default `/opt/bmt`)
 - **startup-script** (set from packaged `cli.resources/startup_wrapper.sh` by `sync-vm-metadata`)
-- **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `remote/code/bootstrap/setup_vm_startup.sh`)
+- **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `deploy/code/bootstrap/setup_vm_startup.sh`)
 
 `sync-vm-metadata` also validates that required bootstrap code objects exist in `<code-root>` before starting the VM.
 This includes pinned UV tool artifacts under `<code-root>/_tools/uv/linux-x86_64/`.
@@ -75,7 +75,7 @@ Defined under `vm_metadata` in [../config/env_contract.json](../config/env_contr
 
 ## VM runtime environment
 
-On the VM, these are the runtime credentials expected by `vm_watcher.py`. For every enabled repository in `remote/code/config/github_repos.json`, the matching App credential triple must be resolvable at startup:
+On the VM, these are the runtime credentials expected by `vm_watcher.py`. For every enabled repository in `deploy/code/config/github_repos.json`, the matching App credential triple must be resolvable at startup:
 
 | Variable | Purpose |
 |----------|---------|
@@ -83,7 +83,7 @@ On the VM, these are the runtime credentials expected by `vm_watcher.py`. For ev
 | `GITHUB_APP_PROD_ID`, `GITHUB_APP_PROD_INSTALLATION_ID`, `GITHUB_APP_PROD_PRIVATE_KEY` | GitHub App credentials (production). |
 | `BMT_UV_BIN` | Optional debug override for uv binary path on VM (bootstrap default is self-heal from pinned code artifact). |
 
-Repository mapping is in **remote/code/config/github_repos.json**. See [../remote/code/lib/github_auth.py](../remote/code/lib/github_auth.py) for resolution logic.
+Repository mapping is in **deploy/code/config/github_repos.json**. See [../deploy/code/lib/github_auth.py](../deploy/code/lib/github_auth.py) for resolution logic.
 
 ---
 
@@ -106,12 +106,12 @@ Use:
 - `<code-root> = gs://<bucket>/code`
 - `<runtime-root> = gs://<bucket>/runtime`
 
-`remote/code` is the manual-sync source of truth for `<code-root>` only.
-`remote/runtime` is the manual-sync source for runtime seed artifacts under `<runtime-root>`.
-Local large WAV corpora remain under `data/` (not inside `remote/runtime`).
-Local mirror policy details: [../remote/README.md](../remote/README.md).
+`deploy/code` is the manual-sync source of truth for `<code-root>` only.
+`deploy/runtime` is the manual-sync source for runtime seed artifacts under `<runtime-root>`.
+Local large WAV corpora remain under `data/` (not inside `deploy/runtime`).
+Local mirror policy details: [../deploy/README.md](../deploy/README.md).
 
-- **`<code-root>/...`** — deployable watcher/orchestrator/manager/bootstrap/config mirrored from `remote/code`.
+- **`<code-root>/...`** — deployable watcher/orchestrator/manager/bootstrap/config mirrored from `deploy/code`.
 - **`<code-root>/pyproject.toml`** — VM runtime dependency contract for watcher execution.
 - **`<code-root>/uv.lock`** — pinned lock used by `bootstrap/install_deps.sh` (`uv sync --extra vm --frozen`).
 - **`<code-root>/_tools/uv/linux-x86_64/uv`** — pinned uv binary uploaded by `just sync-remote`.
@@ -119,9 +119,9 @@ Local mirror policy details: [../remote/README.md](../remote/README.md).
 - **`<runtime-root>/triggers/runs/<workflow_run_id>.json`** — Run trigger (CI writes; VM deletes after process).
 - **`<runtime-root>/triggers/acks/<workflow_run_id>.json`** — VM handshake ack.
 - **`<runtime-root>/triggers/status/<workflow_run_id>.json`** — VM progress heartbeat.
-- **`<runtime-root>/_meta/runtime_seed_manifest.json`** — runtime seed sync manifest (written by `devtools/bucket_sync_runtime_seed.py`).
-- **`<runtime-root>/<project>/runners/<preset>/...`** — Runner bundles (uploaded by workflow/devtools).
-- **`<runtime-root>/<project>/inputs/...`** — Runtime input objects in bucket; local source is explicit upload from `data/...` (keep `remote/runtime/**/inputs` as placeholders only).
+- **`<runtime-root>/_meta/runtime_seed_manifest.json`** — runtime seed sync manifest (written by `tools/bucket_sync_runtime_seed.py`).
+- **`<runtime-root>/<project>/runners/<preset>/...`** — Runner bundles (uploaded by workflow/tools).
+- **`<runtime-root>/<project>/inputs/...`** — Runtime input objects in bucket; local source is explicit upload from `data/...` (keep `deploy/runtime/**/inputs` as placeholders only).
 - **`<runtime-root>/<results_prefix>/current.json`** — Pointer (`latest`, `last_passing` run_id); updated by watcher.
 - **`<runtime-root>/<results_prefix>/snapshots/<run_id>/`** — Per-run artifacts (`latest.json`, `ci_verdict.json`, logs).
 

@@ -29,7 +29,7 @@ def _run(
 
 
 def test_matrix_command_runs() -> None:
-    config_root = Path("remote/code")
+    config_root = Path("deploy/code")
     assert config_root.exists()
     assert (config_root / "bmt_projects.json").exists()
 
@@ -37,7 +37,7 @@ def test_matrix_command_runs() -> None:
         github_output = Path(tmp.name)
 
     try:
-        result = _run("matrix", env={"BMT_CONFIG_ROOT": "remote/code", "GITHUB_OUTPUT": str(github_output)})
+        result = _run("matrix", env={"BMT_CONFIG_ROOT": "deploy/code", "GITHUB_OUTPUT": str(github_output)})
         assert result.returncode == 0
         content = github_output.read_text()
         assert "matrix=" in content
@@ -60,7 +60,7 @@ def test_matrix_command_with_filter() -> None:
     try:
         result = _run(
             "matrix",
-            env={"BMT_CONFIG_ROOT": "remote/code", "BMT_PROJECTS": "sk", "GITHUB_OUTPUT": str(github_output)},
+            env={"BMT_CONFIG_ROOT": "deploy/code", "BMT_PROJECTS": "sk", "GITHUB_OUTPUT": str(github_output)},
         )
         assert result.returncode == 0
         content = github_output.read_text()
@@ -80,7 +80,7 @@ def test_matrix_command_with_all_filter() -> None:
         result = _run(
             "matrix",
             env={
-                "BMT_CONFIG_ROOT": "remote/code",
+                "BMT_CONFIG_ROOT": "deploy/code",
                 "BMT_PROJECTS": "all",
                 "GITHUB_OUTPUT": str(github_output),
             },
@@ -103,7 +103,7 @@ def test_matrix_command_with_json_array_filter() -> None:
     try:
         result = _run(
             "matrix",
-            env={"BMT_CONFIG_ROOT": "remote/code", "BMT_PROJECTS": '["sk"]', "GITHUB_OUTPUT": str(github_output)},
+            env={"BMT_CONFIG_ROOT": "deploy/code", "BMT_PROJECTS": '["sk"]', "GITHUB_OUTPUT": str(github_output)},
         )
         assert result.returncode == 0
         content = github_output.read_text()
@@ -123,7 +123,7 @@ def test_matrix_command_with_unsupported_filter_is_non_fatal() -> None:
         result = _run(
             "matrix",
             env={
-                "BMT_CONFIG_ROOT": "remote/code",
+                "BMT_CONFIG_ROOT": "deploy/code",
                 "BMT_PROJECTS": "does-not-exist",
                 "GITHUB_OUTPUT": str(github_output),
             },
@@ -190,7 +190,7 @@ def test_filter_supported_matrix_fails_when_no_uploaded_supported_projects() -> 
 
 
 def test_matrix_command_fails_without_github_output() -> None:
-    result = _run("matrix", env={"BMT_CONFIG_ROOT": "remote/code", "GITHUB_OUTPUT": ""}, check=False)
+    result = _run("matrix", env={"BMT_CONFIG_ROOT": "deploy/code", "GITHUB_OUTPUT": ""}, check=False)
     assert result.returncode != 0
     assert "GITHUB_OUTPUT" in result.stderr + result.stdout
 
@@ -236,7 +236,7 @@ def test_matrix_output_is_valid_json() -> None:
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
         github_output = Path(tmp.name)
     try:
-        _run("matrix", env={"BMT_CONFIG_ROOT": "remote/code", "GITHUB_OUTPUT": str(github_output)})
+        _run("matrix", env={"BMT_CONFIG_ROOT": "deploy/code", "GITHUB_OUTPUT": str(github_output)})
         content = github_output.read_text()
         matrix_line = next(line for line in content.split("\n") if line.startswith("matrix="))
         parsed = json.loads(matrix_line.split("=", 1)[1])
