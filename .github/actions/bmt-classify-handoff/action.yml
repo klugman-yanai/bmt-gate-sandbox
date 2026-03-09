@@ -41,7 +41,13 @@ runs:
 
     - id: list
       shell: bash
-      run: bash .github/bmt/scripts/bmt_workflow.sh resolve-uploaded-projects
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh resolve-uploaded-projects
+
+    - id: matrix
+      shell: bash
+      env:
+        BMT_CONFIG_ROOT: deploy/code
+      run: uv run --project packages/bmt-cli bmt matrix
 
     - id: filter
       shell: bash
@@ -49,7 +55,7 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         FULL_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED_PROJECTS: ${{ steps.list.outputs.accepted_projects }}
-      run: uv run --project .github/bmt bmt filter-supported-matrix
+      run: uv run --project packages/bmt-cli bmt filter-supported-matrix
 
     - id: route
       shell: bash
@@ -66,4 +72,4 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED: ${{ steps.list.outputs.accepted_projects }}
         FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh summarize-matrix-handshake
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh summarize-matrix-handshake

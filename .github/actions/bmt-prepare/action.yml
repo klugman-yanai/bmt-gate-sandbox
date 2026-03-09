@@ -50,7 +50,7 @@ runs:
 
     - name: Sync BMT uv environment
       shell: bash
-      run: uv sync --project .github/bmt
+      run: uv sync --project packages/bmt-cli
 
     - id: ctx
       shell: bash
@@ -60,17 +60,17 @@ runs:
         DISPATCH_HEAD_BRANCH: ${{ inputs.head_branch }}
         DISPATCH_HEAD_EVENT: ${{ inputs.head_event }}
         DISPATCH_PR_NUMBER: ${{ inputs.pr_number }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh emit-bmt-context
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh emit-bmt-context
 
     - name: Validate required configuration variables
       shell: bash
       run: |
-        bash .github/bmt/scripts/bmt_workflow.sh guard-no-legacy-prefix
-        bash .github/bmt/scripts/bmt_workflow.sh validate-required-vars
+        bash packages/bmt-cli/scripts/bmt_workflow.sh guard-no-legacy-prefix
+        bash packages/bmt-cli/scripts/bmt_workflow.sh validate-required-vars
 
     - id: parse
       shell: bash
       env:
-        BMT_OUTPUT_FORMAT: bmt
-        BMT_OUTPUT_KEY: runner_matrix
-      run: uv run --project .github/bmt bmt parse-release-runners
+      BMT_OUTPUT_FORMAT: bmt
+      BMT_OUTPUT_KEY: runner_matrix
+      run: uv run --project packages/bmt-cli bmt parse-release-runners
