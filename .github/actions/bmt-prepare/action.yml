@@ -71,6 +71,6 @@ runs:
     - id: parse
       shell: bash
       env:
-      BMT_OUTPUT_FORMAT: bmt
-      BMT_OUTPUT_KEY: runner_matrix
+        BMT_OUTPUT_FORMAT: bmt
+        BMT_OUTPUT_KEY: runner_matrix
       run: uv run --project packages/bmt-cli bmt parse-release-runners
