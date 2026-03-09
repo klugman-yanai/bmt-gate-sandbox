@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "remote" / "code") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "remote" / "code"))
+if str(_ROOT / "deploy" / "code") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "deploy" / "code"))
 
 import vm_watcher as watcher  # type: ignore[import-not-found]  # noqa: E402
 

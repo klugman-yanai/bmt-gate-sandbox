@@ -23,10 +23,10 @@ repo/staging/
 bmt_root_results.json
 
 # VM/BMT runtime artifacts (bucket sync + handshake staging)
-remote/runtime/triggers/
-remote/runtime/**/inputs/**/*.wav
-remote/runtime/**/outputs/
-remote/runtime/**/results/
+deploy/runtime/triggers/
+deploy/runtime/**/inputs/**/*.wav
+deploy/runtime/**/outputs/
+deploy/runtime/**/results/
 
 # Tooling/editor
 compile_commands.json
@@ -40,6 +40,6 @@ compile_commands.json
 .DS_Store
 Thumbs.db
 
-# Local credentials and env (copy .github/bmt/config/.env.example to .github/bmt/config/.env)
+# Local credentials and env (copy config/bmt/.env.example to config/bmt/.env)
 gcp-key.json
 .env

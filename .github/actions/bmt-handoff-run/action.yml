@@ -95,7 +95,7 @@ runs:
       shell: bash
       env:
         RUN_CONTEXT: ${{ inputs.run_context || (inputs.head_event == 'pull_request' && 'pr' || 'dev') }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh preflight-trigger-queue
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh preflight-trigger-queue
 
     - name: Write run trigger to GCS
       id: trigger
@@ -107,30 +107,30 @@ runs:
         HEAD_SHA: ${{ inputs.head_sha }}
         HEAD_BRANCH: ${{ inputs.head_branch }}
         PR_NUMBER: ${{ inputs.pr_number }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh write-run-trigger
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh write-run-trigger
 
     - name: Sync VM metadata from workflow config
       shell: bash
-      run: uv run --project .github/bmt bmt sync-vm-metadata
+      run: uv run --project packages/bmt-cli bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
       if: steps.preflight.outputs.restart_vm == 'true'
       shell: bash
       env:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh force-clean-vm-restart
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh force-clean-vm-restart
 
     - name: Start BMT VM
       id: start-vm
       shell: bash
-      run: uv run --project .github/bmt bmt start-vm
+      run: uv run --project packages/bmt-cli bmt start-vm
 
     - name: Show handshake guidance
       shell: bash
       env:
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh show-handshake-guidance
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh show-handshake-guidance
 
     - name: Wait for VM handshake ack
       id: handshake
@@ -139,12 +139,12 @@ runs:
         WORKFLOW_RUN_ID: ${{ github.run_id }}
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh wait-handshake
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh wait-handshake
 
     - name: Handshake timeout diagnostics
       if: ${{ always() && steps.handshake.outcome == 'failure' }}
       shell: bash
-      run: bash .github/bmt/scripts/bmt_workflow.sh handshake-timeout-diagnostics
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh handshake-timeout-diagnostics
 
     - name: Show VM handshake summary
       if: steps.handshake.outcome == 'success'
@@ -156,7 +156,7 @@ runs:
         HANDSHAKE_ACCEPTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_accepted_leg_count }}
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh show-handshake-summary
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh show-handshake-summary
 
     - name: Fail when VM accepts zero runtime-supported legs
       id: accept-guard

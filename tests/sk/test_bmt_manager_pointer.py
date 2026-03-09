@@ -1,4 +1,4 @@
-"""Tests for pointer resolution and snapshot path construction in remote/code/sk/bmt_manager.py."""
+"""Tests for pointer resolution and snapshot path construction in deploy/code/sk/bmt_manager.py."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-# Import after conftest has added remote/code/sk to path.
+# Import after conftest has added deploy/code/sk to path.
 import bmt_manager as mgr
 import pytest
 

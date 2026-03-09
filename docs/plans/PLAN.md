@@ -20,12 +20,12 @@ Fail-fast guards protect against leftover non-empty legacy prefix configuration 
    - `.github/scripts/ci/commands/upload_runner.py`
    - `.github/scripts/ci/commands/wait_handshake.py`
    - `.github/scripts/ci/commands/wait_verdicts.py`
-   - `devtools/bmt_monitor.py`
-   - `devtools/bucket_*` tools via `shared_bucket_env.bucket_prefix_option`
-   - `remote/code/vm_watcher.py`
-   - `remote/code/root_orchestrator.py`
-   - `remote/code/sk/bmt_manager.py`
-   - `remote/code/sk/sk_bmt_manager.py`
+   - `tools/bmt_monitor.py`
+   - `tools/bucket_*` tools via `shared_bucket_env.bucket_prefix_option`
+   - `deploy/code/vm_watcher.py`
+   - `deploy/code/root_orchestrator.py`
+   - `deploy/code/sk/bmt_manager.py`
+   - `deploy/code/sk/sk_bmt_manager.py`
 
 2. **Trigger payload schema** — Remove `bucket_prefix_parent` and `bucket_prefix` fields. Keep `bucket`, `workflow_run_id`, `repository`, `sha`, `run_context`, `status_context`, `description_pending`, `legs`.
 
@@ -44,7 +44,7 @@ Fail-fast guards protect against leftover non-empty legacy prefix configuration 
 ### Phase 2: CI Models and Shared Libraries
 
 - `.github/scripts/ci/models.py`: remove parent-prefix helpers, make code/runtime root helpers fixed, remove `LegOutcome.bucket_prefix`.
-- `devtools/shared_bucket_env.py`: remove `get_bucket_prefix_from_env`, `bucket_prefix_option`, and parent-prefix helpers; keep fixed `code`/`runtime` helpers.
+- `tools/shared_bucket_env.py`: remove `get_bucket_prefix_from_env`, `bucket_prefix_option`, and parent-prefix helpers; keep fixed `code`/`runtime` helpers.
 - `.github/scripts/workflows/lib/common.sh`: make `runtime_prefix()` return constant `runtime`.
 
 ### Phase 3: Workflow and CI Commands
@@ -57,9 +57,9 @@ Fail-fast guards protect against leftover non-empty legacy prefix configuration 
 
 ### Phase 4: VM Runtime and Bootstrap
 
-- `remote/code/vm_watcher.py`: remove `--bucket-prefix` arg; stop reading `bucket_prefix_parent`/`bucket_prefix` from trigger payload; use fixed namespaces.
-- `remote/code/root_orchestrator.py`, `remote/code/sk/bmt_manager.py`: remove prefix args and compatibility fallbacks.
-- `remote/code/sk/sk_bmt_manager.py`: remove legacy prefix usage.
+- `deploy/code/vm_watcher.py`: remove `--bucket-prefix` arg; stop reading `bucket_prefix_parent`/`bucket_prefix` from trigger payload; use fixed namespaces.
+- `deploy/code/root_orchestrator.py`, `deploy/code/sk/bmt_manager.py`: remove prefix args and compatibility fallbacks.
+- `deploy/code/sk/sk_bmt_manager.py`: remove legacy prefix usage.
 - Bootstrap scripts:
   - `startup_wrapper.sh`: stop reading/exporting `BMT_BUCKET_PREFIX`; derive fixed roots.
   - `startup_example.sh`: remove `BMT_BUCKET_PREFIX` metadata/env flow and watcher arg.
@@ -68,10 +68,10 @@ Fail-fast guards protect against leftover non-empty legacy prefix configuration 
 
 ### Phase 5: Devtools
 
-- All `devtools/bucket_*` scripts: remove `bucket_prefix` parameters and `bucket_prefix_parent` manifest fields.
-- `devtools/bmt_monitor.py`: remove `--bucket-prefix`; use fixed runtime root; remove prefix fields from monitor state.
-- `devtools/gh_show_env.py`: remove `BMT_BUCKET_PREFIX` from env display.
-- `devtools/gh_validate_vm_vars.py`: remove `BMT_BUCKET_PREFIX` validation.
+- All `tools/bucket_*` scripts: remove `bucket_prefix` parameters and `bucket_prefix_parent` manifest fields.
+- `tools/bmt_monitor.py`: remove `--bucket-prefix`; use fixed runtime root; remove prefix fields from monitor state.
+- `tools/gh_show_env.py`: remove `BMT_BUCKET_PREFIX` from env display.
+- `tools/gh_validate_vm_vars.py`: remove `BMT_BUCKET_PREFIX` validation.
 
 ### Phase 6: Tests
 
@@ -96,7 +96,7 @@ Update active docs only (do not modify `docs/plans/archive/**`):
 - `docs/architecture.md`
 - `docs/implementation.md`
 - `docs/github-actions-and-cli-tools.md`
-- `remote/code/bootstrap/README.md`
+- `deploy/code/bootstrap/README.md`
 - `docs/plans/migration-to-production.md`
 - `CLAUDE.md`
 - `README.md`
@@ -138,12 +138,12 @@ rg '\-\-bucket-prefix' --glob '!docs/plans/archive/**' --glob '!docs/plans/PLAN.
 
 Do these in order so the workflow and VM run the same code and bucket state you expect:
 
-1. **Sync bucket first** — Upload local `remote/code` and `remote/runtime` to GCS so the bucket matches your working tree. Then commit/push so the pre-commit hook (advisory sync check) can verify successfully:
+1. **Sync bucket first** — Upload local `deploy/code` and `deploy/runtime` to GCS so the bucket matches your working tree. Then commit/push so the pre-commit hook (advisory sync check) can verify successfully:
    ```bash
-   just sync-remote && just sync-runtime-seed && just verify-sync
+   just sync-deploy && just sync-runtime-seed && just verify-sync
    ```
    Requires `GCS_BUCKET` set. Do this before committing so that when you push, the VM will run the same assets you just synced.
-2. **Commit and push your branch** — All cutover changes must be committed and pushed. The BMT workflow is triggered from the branch head; uncommitted or unpushed changes will not run on the VM. Syncing before commit ensures the pre-commit hook (see `.pre-commit-config.yaml` and `scripts/hooks/pre-commit-sync-remote.sh`) sees the bucket in sync.
+2. **Commit and push your branch** — All cutover changes must be committed and pushed. The BMT workflow is triggered from the branch head; uncommitted or unpushed changes will not run on the VM. Syncing before commit ensures the pre-commit hook (see `.pre-commit-config.yaml` and `scripts/hooks/pre-commit-sync-deploy.sh`) sees the bucket in sync.
 3. **Verify repo vars** — `just repo-vars-check` passes with no `BMT_BUCKET_PREFIX` drift.
 4. **Confirm VM state** — VM is in `TERMINATED` state (so the next trigger will start it cleanly).
 

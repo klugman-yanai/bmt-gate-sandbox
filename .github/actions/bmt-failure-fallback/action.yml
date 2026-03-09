@@ -111,7 +111,7 @@ runs:
         ORCH_TRIGGER_WRITTEN: ${{ inputs.handoff_run_trigger_written }}
         DISPATCH_HEAD_SHA: ${{ inputs.dispatch_head_sha }}
         DISPATCH_PR_NUMBER: ${{ inputs.dispatch_pr_number }}
-      run: bash .github/bmt/scripts/bmt_workflow.sh resolve-failure-context
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh resolve-failure-context
 
     - name: Classify failure reason
       id: reason
@@ -170,15 +170,14 @@ runs:
         HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
         GITHUB_TOKEN: ${{ github.token }}
         BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
-        BMT_FAILURE_STATUS_DESCRIPTION: "${{ inputs.handoff_run_handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: VM accepted zero runtime-supported legs.' || 'BMT cancelled: VM handshake timeout before pickup.' }}"
-      run: bash .github/bmt/scripts/bmt_workflow.sh post-handoff-timeout-status
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh post-handoff-timeout-status
 
     - name: Cleanup failed trigger artifacts
       if: steps.failctx.outputs.trigger_written == 'true'
       shell: bash
-      run: bash .github/bmt/scripts/bmt_workflow.sh cleanup-failed-trigger-artifacts
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh cleanup-failed-trigger-artifacts
 
     - name: Stop VM after workflow failure
       if: steps.failctx.outputs.trigger_written == 'true'
       shell: bash
-      run: bash .github/bmt/scripts/bmt_workflow.sh stop-vm-best-effort
+      run: bash packages/bmt-cli/scripts/bmt_workflow.sh stop-vm-best-effort

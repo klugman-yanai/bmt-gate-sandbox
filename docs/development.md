@@ -13,12 +13,12 @@ This document covers the **current** development workflow: setup, testing, lint/
    uv pip install -e .
    ```
 
-   The editable install makes the `ci` package (and devtools) available for tests and CLI.
+   The editable install makes the `ci` package (and tools) available for tests and CLI.
 
 2. **Environment:** For local BMT runs you only need local paths (no GCS). For bucket sync, runner upload, and VM-related commands, set the canonical vars (see [configuration.md](configuration.md)). Typical local use:
 
    ```bash
-   export GCS_BUCKET="<your-bucket>"   # for bucket_* and just sync-remote, validate-bucket, etc.
+   export GCS_BUCKET="<your-bucket>"   # for bucket_* and just sync-deploy, validate-bucket, etc.
    ```
 
    Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` for VM serial, validate-vm-vars, and CI workflow.
@@ -44,11 +44,11 @@ Covers: pointer resolution and path construction in the manager (`tests/sk/test_
 Runs the **local** batch runner (different code path from the VM manager). Useful for runner/config/score logic without cloud:
 
 ```bash
-uv run python devtools/bmt_run_local.py \
+uv run python tools/bmt_run_local.py \
   --bmt-id false_reject_namuh \
-  --jobs-config remote/code/sk/config/bmt_jobs.json \
-  --runner remote/runtime/sk/runners/kardome_runner \
-  --runtime-root remote/runtime \
+  --jobs-config deploy/code/sk/config/bmt_jobs.json \
+  --runner deploy/runtime/sk/runners/kardome_runner \
+  --runtime-root deploy/runtime \
   --dataset-root data/sk/inputs/false_rejects \
   --workers 4
 ```
@@ -60,11 +60,11 @@ Requires `gcloud` auth and a bucket with config/runner/dataset synced.
 **1. One-off manager run** — Run the VM-side manager locally; it reads `current.json` (or bootstraps), writes under `snapshots/<run_id>/`, and emits a summary:
 
 ```bash
-uv run python remote/code/sk/bmt_manager.py \
+uv run python deploy/code/sk/bmt_manager.py \
   --bucket "<bucket>" \
   --project-id sk \
   --bmt-id false_reject_namuh \
-  --jobs-config remote/code/sk/config/bmt_jobs.json \
+  --jobs-config deploy/code/sk/config/bmt_jobs.json \
   --workspace-root ./local_batch \
   --run-context dev \
   --run-id test-run-$(date +%s) \
@@ -80,7 +80,7 @@ Then inspect GCS: `gs://<bucket>/runtime/<results_prefix>/snapshots/<run_id>/` s
 ```bash
 uv run python .github/scripts/ci_driver.py wait \
   --manifest '<json with legs: project, bmt_id, run_id, triggered_at>' \
-  --config-root remote/code \
+  --config-root deploy/code \
   --bucket "<bucket>" \
   --timeout-sec 60
 ```
@@ -104,7 +104,7 @@ just lint
 ```
 
 - **ruff:** Line length 120, Python 3.12 target.
-- **basedpyright:** Type checking across `.github/scripts`, `remote/`, `devtools/`.
+- **basedpyright:** Type checking across `.github/scripts`, `deploy/`, `tools/`.
 
 ---
 
@@ -117,11 +117,12 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just test` | Unit tests (pytest). |
 | `just lint` | ruff check + format check + basedpyright. |
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --auto`). |
-| `just sync-remote` | Sync `remote/code` to `<code-root>` (requires `GCS_BUCKET`). Skip when already in sync; use `--force` to re-sync. |
-| `just sync-runtime-seed` | Sync `remote/runtime` to `<runtime-root>`. Skip when already in sync; use `--force` to re-sync. |
-| `just verify-sync` | Verify `remote/code` and `remote/runtime` match bucket manifests. |
+| `just sync-remote` | Sync `deploy/code` to `<code-root>` (requires `GCS_BUCKET`). Skip when already in sync; use `--force` to re-sync. |
+| `just sync-runtime-seed` | Sync `deploy/runtime` to `<runtime-root>`. Skip when already in sync; use `--force` to re-sync. |
+| `just verify-sync` | Verify `deploy/code` and `deploy/runtime` match bucket manifests. |
+| `just deploy` | **Single deploy entrypoint:** runs `just sync-remote` then `just verify-sync`. Run before `just prod-ci-local` to push the deploy surface to the bucket. |
 | `just clean-bloat [--scope code\|runtime\|both] [--execute]` | List/remove Python/uv bloat in GCS (dry-run by default). **Dangerous** with `--execute`. |
-| `just validate-layout` | Validate canonical `remote/` mirror policy. |
+| `just validate-layout` | Validate canonical `deploy/` mirror policy. |
 | `just validate-repo-layout` | Validate repo top-level layout policy (root clutter + tracked path policy). |
 | `just upload-runner` | Upload runner to bucket. Skip when size unchanged; use `--force` to re-upload. |
 | `just upload-wavs <source_dir>` | Upload wav dataset to bucket (explicit source path, e.g. `data/sk/inputs/false_rejects`). Skip when dest in sync; use `--force` to re-upload. |
@@ -129,7 +130,7 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just sync-vm-metadata` | Sync startup-critical VM metadata from repo configuration. Skip when already in sync; use `--force` to re-sync. |
 | `just start-vm [args]` | Manual VM start wrapper for debug/maintenance/testing. |
 | `just wait-handshake <workflow_run_id>` | Wait for VM ack under runtime triggers. |
-| `just show-env` | Print env var names used by CI, VM, and devtools. |
+| `just show-env` | Print env var names used by CI, VM, and tools. |
 | `just repo-vars-check` | Check repo vars against contract + optional overrides + branch-rule consistency (e.g. `BMT_STATUS_CONTEXT`). |
 | `just repo-vars-apply` | Apply vars to GitHub (with optional args). Skip when vars already match; use `--force` to re-set all managed vars. |
 | `just validate-vm-vars` | Ensure repo vars match VM metadata. |
@@ -145,46 +146,45 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 
 There is **no formal build step** for the BMT pipeline. Deployment is:
 
-1. **Manual sync `remote/code` to `<code-root>`** so VM boot and orchestrator fetches match local source:
+1. **Manual sync `deploy/code` to `<code-root>`** so VM boot and orchestrator fetches match local source:
 
    ```bash
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_sync_remote.py
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_verify_remote_sync.py
-   # or: just sync-remote && just verify-sync
+   GCS_BUCKET="<bucket>" just deploy
+   # or stepwise: just sync-remote && just verify-sync
    ```
 
    Notes:
-   - `remote/code/_tools/uv/linux-x86_64/uv.sha256` is the pinned UV checksum.
-   - `bucket_sync_remote.py` uploads the local `uv` binary to `<code-root>/_tools/uv/linux-x86_64/uv` and validates it against that checksum.
+   - `deploy/code/_tools/uv/linux-x86_64/uv.sha256` is the pinned UV checksum.
+   - `bucket_sync_deploy.py` uploads the local `uv` binary to `<code-root>/_tools/uv/linux-x86_64/uv` and validates it against that checksum.
    - Override local UV path during sync with `BMT_UV_TOOL_PATH=/path/to/uv`.
 
-2. **Manual sync `remote/runtime` seed to `<runtime-root>`** when seed artifacts change:
+2. **Manual sync `deploy/runtime` seed to `<runtime-root>`** when seed artifacts change:
 
    ```bash
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_sync_runtime_seed.py
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_verify_runtime_seed_sync.py
+   GCS_BUCKET="<bucket>" uv run python tools/bucket_sync_runtime_seed.py
+   GCS_BUCKET="<bucket>" uv run python tools/bucket_verify_runtime_seed_sync.py
    # or: just sync-runtime-seed && just verify-sync
    ```
 
 3. **Upload runner and datasets** as needed:
 
 ```bash
-GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_runner.py --runner-path <path>
-GCS_BUCKET="<bucket>" uv run python devtools/bucket_upload_wavs.py --source-dir data/sk/inputs/false_rejects
+GCS_BUCKET="<bucket>" uv run python tools/bucket_upload_runner.py --runner-path <path>
+GCS_BUCKET="<bucket>" uv run python tools/bucket_upload_wavs.py --source-dir data/sk/inputs/false_rejects
 ```
 
 Dataset policy:
 - `data/` is the local authoritative source for large WAV corpora.
-- `remote/runtime/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
+- `deploy/runtime/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
 
 4. **Validate bucket contract:**
 
    ```bash
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_validate_contract.py [--require-runner]
+   GCS_BUCKET="<bucket>" uv run python tools/bucket_validate_contract.py [--require-runner]
    # or: just validate-bucket
    ```
 
-CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `remote/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../remote/code/bootstrap/README.md](../remote/code/bootstrap/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
+CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `deploy/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../deploy/code/bootstrap/README.md](../deploy/code/bootstrap/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
 
 ### Cleaning GCS and VM of Python/uv bloat
 
@@ -202,20 +202,20 @@ To remove existing `__pycache__`, `.pyc`, `.venv`, and similar bloat from the bu
 
 Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/<run_id>.json`.
 
-**Before testing a live PR:** Sync the bucket first (`just sync-remote && just sync-runtime-seed && just verify-sync`), then commit and push your branch. Syncing before commit ensures the advisory pre-commit hook (`.pre-commit-config.yaml` / `scripts/hooks/pre-commit-sync-remote.sh`) sees the bucket in sync; the VM will then run the same code and config as your branch.
+**Before testing a live PR:** Sync the bucket first (`just sync-deploy && just sync-runtime-seed && just verify-sync`), then commit and push your branch. Syncing before commit ensures the advisory pre-commit hook (`.pre-commit-config.yaml` / `scripts/hooks/pre-commit-sync-deploy.sh`) sees the bucket in sync; the VM will then run the same code and config as your branch.
 
 1. **Validate local layout and code sync**
 
    ```bash
    just validate-layout
-   just sync-remote
+   just sync-deploy
    just verify-sync
    ```
 
 2. **Validate bucket bootstrap objects**
 
    ```bash
-   GCS_BUCKET="<bucket>" uv run python devtools/bucket_validate_contract.py
+   GCS_BUCKET="<bucket>" uv run python tools/bucket_validate_contract.py
    gcloud storage ls "gs://<bucket>/code/pyproject.toml"
    gcloud storage ls "gs://<bucket>/code/uv.lock"
    gcloud storage ls "gs://<bucket>/code/_tools/uv/linux-x86_64/uv"
