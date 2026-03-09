@@ -13,11 +13,11 @@ def _repo_root() -> Path:
 
 
 def _bootstrap_path(rel: str) -> Path:
-    return _repo_root() / "remote" / "code" / "bootstrap" / rel
+    return _repo_root() / "deploy" / "code" / "bootstrap" / rel
 
 
 def _metadata_wrapper_path() -> Path:
-    return _repo_root() / ".github" / "bmt" / "cli" / "resources" / "startup_wrapper.sh"
+    return _repo_root() / "packages" / "bmt-cli" / "cli" / "resources" / "startup_wrapper.sh"
 
 
 def _write_executable(path: Path, content: str) -> None:

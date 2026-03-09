@@ -95,7 +95,7 @@ jobs:
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
-        run: bash .github/bmt/scripts/bmt_workflow.sh warn-artifact-missing
+        run: bash packages/bmt-cli/scripts/bmt_workflow.sh warn-artifact-missing
 
       - name: Setup GCP and uv
         if: steps.download.outcome == 'success'
@@ -112,7 +112,7 @@ jobs:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
           SOURCE_REF: ${{ needs.prepare.outputs.head_sha }}
-        run: bash .github/bmt/scripts/bmt_workflow.sh upload-runner-to-gcs
+        run: bash packages/bmt-cli/scripts/bmt_workflow.sh upload-runner-to-gcs
         continue-on-error: true
 
       - name: Warn if GCS upload failed
@@ -120,14 +120,14 @@ jobs:
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
-        run: bash .github/bmt/scripts/bmt_workflow.sh warn-upload-failed
+        run: bash packages/bmt-cli/scripts/bmt_workflow.sh warn-upload-failed
 
       - name: Record uploaded project marker
         if: steps.download.outcome == 'success' && steps.upload.outcome == 'success'
         env:
           WORKFLOW_RUN_ID: ${{ github.run_id }}
           PROJECT: ${{ matrix.project }}
-        run: bash .github/bmt/scripts/bmt_workflow.sh record-uploaded-project-marker
+        run: bash packages/bmt-cli/scripts/bmt_workflow.sh record-uploaded-project-marker
 
   classify-handoff:
     name: 03 Classify Handoff Path

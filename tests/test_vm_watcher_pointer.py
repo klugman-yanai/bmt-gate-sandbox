@@ -5,10 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Ensure remote/code is on path so we can import vm_watcher
+# Ensure deploy/code is on path so we can import vm_watcher
 _ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "remote" / "code") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "remote" / "code"))
+if str(_ROOT / "deploy" / "code") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "deploy" / "code"))
 
 import vm_watcher as watcher  # type: ignore[import-not-found]  # noqa: E402
 

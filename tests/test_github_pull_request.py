@@ -1,4 +1,4 @@
-"""Tests for remote/code/lib/github_pull_request.py."""
+"""Tests for deploy/code/lib/github_pull_request.py."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import urllib.error
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "remote" / "code" / "lib") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "remote" / "code" / "lib"))
+if str(_ROOT / "deploy" / "code" / "lib") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "deploy" / "code" / "lib"))
 
 import github_pull_request  # type: ignore[import-not-found]  # noqa: E402
 
