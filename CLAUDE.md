@@ -4,9 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**bmt-cloud-dev** is where BMT (Benchmark/Milestone Testing) logic is planned and you interface with the GCP VM/bucket. You author config/scripts here, test locally, and push assets via devtools; the CI workflow in this repo is copied to production manually. It orchestrates remote VM-based BMT execution (e.g. sk) via Google Cloud, scoring audio quality metrics (NAMUH counter values) against a baseline to gate CI.
+**bmt-gcloud** (this repo) exists to give you a **reliable way to test production CI locally using the real VM and GCS** — no mocks. That is the main purpose. Everything in the repo supports it:
+
+- **Mirror `remote/`** — Local mirror of the bucket namespace (code + runtime seed). Sync/pull from GCS so you develop against the same layout the VM uses; see `remote/README.md`.
+- **Test suite** — Unit and integration tests for BMT logic, gate, pointer/snapshot flow, and CI commands. Use real VM/GCS when you need to validate the full production path.
+- **Dev QoL** — Devtools (bucket sync, upload, validate, local BMT, monitor), Just recipes, repo-vars and VM helpers for managing BMTs and debugging handoff.
+
+You author config/scripts here, test locally against real infra, and push assets via devtools; the CI workflow in this repo is copied to production manually. It orchestrates remote VM-based BMT execution (e.g. sk) via Google Cloud, scoring audio quality metrics (NAMUH counter values) against a baseline to gate CI.
 
 **Conventions:** `remote/` is the source of truth for deployable VM code/config/templates and syncs manually to bucket `code/`; runtime artifacts live under bucket `runtime/`. Default jobs config for local runs is `remote/code/sk/config/bmt_jobs.json`.
+
+**Canonical flow for testing production CI locally:** [docs/testing-production-ci-locally.md](docs/testing-production-ci-locally.md).
 
 ## Time and clocks
 

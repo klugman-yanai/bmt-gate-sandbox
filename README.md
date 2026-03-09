@@ -1,6 +1,12 @@
 # bmt-cloud-dev
 
-Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This repo owns the BMT workflow, VM watcher and orchestrator logic, and the GCS bucket contract used by GitHub Actions. Local devtools provide sync, upload, and validation against the bucket.
+**Purpose:** This repo exists so you can **reliably test production CI locally using the real VM and GCS** — no mocks. That is the main goal. Supporting that goal are:
+
+1. **Mirror of remote (VM/GCS)** — The `remote/` directory is the local mirror of the bucket namespace. Sync/pull from GCS so you develop against the same code and layout the VM uses. See [remote/README.md](remote/README.md).
+2. **Test suite** — Unit and integration tests for BMT logic, gate, pointer/snapshot flow, and CI commands. Run without GCS/VM when possible; use real bucket/VM when you need to validate the full path.
+3. **Dev QoL tools** — Just recipes, devtools (sync, upload, validate, local BMT, monitor), and repo-vars/VM helpers for managing BMTs and debugging handoff.
+
+Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This repo owns the BMT workflow, VM watcher and orchestrator logic, and the GCS bucket contract used by GitHub Actions.
 
 ## Features
 
@@ -72,6 +78,8 @@ See [docs/architecture.md](docs/architecture.md) and [docs/configuration.md](doc
 
 ## Local usage
 
+**Testing production CI locally with real VM/GCS:** Follow [Testing production CI locally](docs/testing-production-ci-locally.md). Set repo vars (or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`), sync the mirror (`just sync-remote`, `just verify-sync`), then run `just prod-ci-local` or the manual sequence in that doc. Use `just monitor` or `just gcs-trigger <run_id>` to inspect; verify in GCS or via Check Run. See also [docs/development.md](docs/development.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
+
 - **Local BMT batch** (no cloud): `uv run python devtools/bmt_run_local.py --bmt-id ... --jobs-config ... --runner ... --runtime-root remote/runtime --dataset-root ... --workers 4`. See [docs/development.md](docs/development.md).
 - **Bucket tools** (set `GCS_BUCKET`): `just sync-remote`, `just verify-sync`, `just sync-runtime-seed`, `just upload-runner`, `just upload-wavs <source_dir>`, `just validate-bucket`.
 
@@ -90,8 +98,8 @@ See [remote/README.md](remote/README.md) for canonical mirror policy.
 
 | Doc | Description |
 |-----|--------------|
-| [README.md](README.md) | This file — overview, features, config, local usage. |
-| [CLAUDE.md](CLAUDE.md) | AI/maintainer guide — code layout, time/clocks, devtools, lint/test, CI and VM layout, env vars. |
+| [README.md](README.md) | This file — **purpose** (test prod CI locally with real VM/GCS), features, config, local usage. |
+| [CLAUDE.md](CLAUDE.md) | AI/maintainer guide — purpose, code layout, time/clocks, devtools, lint/test, CI and VM layout, env vars. |
 | [docs/architecture.md](docs/architecture.md) | Trigger-and-stop, GCS contract, script map, diagrams. |
 | [docs/implementation.md](docs/implementation.md) | Data flow, reliability, limitations. |
 | [docs/development.md](docs/development.md) | Setup, testing, lint/typecheck, Justfile, deploy. |
@@ -100,6 +108,7 @@ See [remote/README.md](remote/README.md) for canonical mirror policy.
 | [docs/github-app-permissions.md](docs/github-app-permissions.md) | GitHub App permissions and how to check them. |
 | [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md) | Actions summaries, re-run, debug; `gh` CLI; retention policy. |
 | [docs/plans/future-architecture.md](docs/plans/future-architecture.md) | Planned changes (SDK, Pydantic, bmt_lib, PR comments). |
+| [docs/plans/high-level-design-improvements.md](docs/plans/high-level-design-improvements.md) | Purpose-driven design improvements (first-class local prod CI test, doc flow, production surface, test tiers). |
 | [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md) | Enabling BMT in production repo. |
 | [remote/README.md](remote/README.md) | Local bucket mirror policy. |
 | [remote/code/bootstrap/README.md](remote/code/bootstrap/README.md) | VM bootstrap and auth. |
