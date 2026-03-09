@@ -1,9 +1,9 @@
-"""Tests for gate/status helpers in devtools/bmt_run_local.py."""
+"""Tests for gate/status helpers in tools/bmt_run_local.py."""
 
 import importlib
 import sys
 
-# bmt_run_local lives in devtools/; conftest.py adds devtools to sys.path.
+# bmt_run_local lives in tools/; conftest.py adds tools to sys.path.
 batch = importlib.import_module("bmt_run_local")
 compute_gate = batch.compute_gate
 resolve_status = batch.resolve_status

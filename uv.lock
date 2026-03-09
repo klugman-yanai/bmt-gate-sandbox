@@ -11,7 +11,7 @@ members = [
 [[package]]
 name = "bmt"
 version = "0.1.0"
-source = { editable = ".github/bmt" }
+source = { editable = "packages/bmt-cli" }
 
 [[package]]
 name = "bmt-cloud-dev"
@@ -45,7 +45,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bmt", editable = ".github/bmt" },
+    { name = "bmt", editable = "packages/bmt-cli" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "cryptography", marker = "extra == 'vm'", specifier = ">=41.0" },
     { name = "pyjwt", marker = "extra == 'vm'", specifier = ">=2.0" },
