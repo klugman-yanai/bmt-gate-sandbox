@@ -44,7 +44,7 @@ flowchart LR
     B --> R[runtime root]
 
     subgraph CodeRoot[code root gs://bucket/code]
-      RC[remote sync mirror]
+      RC[deploy sync mirror]
       BOOT[bootstrap scripts]
       ORCH[root_orchestrator.py]
       CFG[bmt_projects and jobs config]
@@ -91,10 +91,25 @@ Fixed roots (no parent prefix):
 
 Separation rules:
 
-1. `remote/code` sync writes only to `code_root`.
+1. `deploy/code` sync writes only to `code_root`.
 2. Triggers, status, runners, datasets, outputs, results write only to `runtime_root`.
 3. Watcher and monitor must resolve identical runtime URIs.
-4. `remote/` remains a 1:1 local bucket mirror with only `code/` and `runtime/` at top level.
+4. `deploy/` remains a 1:1 local bucket mirror with only `code/` and `runtime/` at top level.
+
+## Production surface
+
+What must match production when this repo is used as the source for CI and the bucket:
+
+| Artifact | Description |
+|----------|-------------|
+| **Workflow files** | `.github/workflows/bmt.yml`, `.github/workflows/build-and-test.yml` (when present), `.github/workflows/dummy-build-and-test.yml` (bmt-gcloud test workflow). |
+| **Composite actions** | All `.github/actions/` that run the CLI or setup: bmt-prepare, bmt-classify-handoff, bmt-handoff-run, bmt-write-summary, bmt-failure-fallback, bmt-job-setup; checkout-and-restore, restore-snapshot, setup-build-env, setup-gcp-uv. |
+| **packages/bmt-cli** | BMT CLI used by workflows (`uv run --project packages/bmt-cli bmt <cmd>`). Python-only; no `.github/bmt/scripts/`. |
+| **deploy/code/** | Layout synced to `gs://<bucket>/code`: bootstrap, root_orchestrator.py, vm_watcher.py, lib/, sk/, config, bmt_projects.json. |
+| **GCS layout** | `code/` and `runtime/` roots; triggers, acks, status, snapshots, current.json under runtime. |
+| **VM bootstrap** | Startup script, uv artifact, install_deps contract; branch-protection status context (e.g. `BMT_STATUS_CONTEXT`). |
+
+**Dev-only (not deployed):** `tools/`, Justfile, `tests/`, `config/repo_vars.toml`, `.local/`. `.github/` is aligned with core-main (Python CLI only).
 
 ## End-to-end flow
 
@@ -125,21 +140,21 @@ Separation rules:
 
 | File | Role |
 |---|---|
-| `remote/code/vm_watcher.py` | Trigger polling, leg orchestration, status/check publishing, pointer promotion. |
-| `remote/code/root_orchestrator.py` | Fetch code-root assets and run per-leg manager. |
-| `remote/code/sk/bmt_manager.py` | Run runner and upload canonical snapshot artifacts. |
-| `remote/code/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress operations. |
+| `deploy/code/vm_watcher.py` | Trigger polling, leg orchestration, status/check publishing, pointer promotion. |
+| `deploy/code/root_orchestrator.py` | Fetch code-root assets and run per-leg manager. |
+| `deploy/code/sk/bmt_manager.py` | Run runner and upload canonical snapshot artifacts. |
+| `deploy/code/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress operations. |
 
-### Devtools
+### Tools
 
 | File | Role |
 |---|---|
-| `devtools/bucket_sync_remote.py` | Manual code-root sync + manifest write. |
-| `devtools/bucket_verify_remote_sync.py` | Verify local `remote/code` digest vs uploaded code manifest. |
-| `devtools/bucket_upload_runner.py` | Runtime runner upload helper. |
-| `devtools/bucket_upload_wavs.py` | Runtime dataset upload helper. |
-| `devtools/bucket_validate_contract.py` | Validate split contract (code + runtime canonical objects). |
-| `devtools/bmt_monitor.py` | Runtime-prefix-aware live monitor. |
+| `tools/bucket_sync_remote.py` | Manual code-root sync + manifest write. |
+| `tools/bucket_verify_remote_sync.py` | Verify local `deploy/code` digest vs uploaded code manifest. |
+| `tools/bucket_upload_runner.py` | Runtime runner upload helper. |
+| `tools/bucket_upload_wavs.py` | Runtime dataset upload helper. |
+| `tools/bucket_validate_contract.py` | Validate split contract (code + runtime canonical objects). |
+| `tools/bmt_monitor.py` | Runtime-prefix-aware live monitor. |
 
 ## Trigger payload contract
 
@@ -163,7 +178,7 @@ Required fields:
 - Dependency install contract is code-root `pyproject.toml` + `uv.lock` (`bootstrap/install_deps.sh` uses `uv sync --extra vm --frozen`)
 - `startup-script-url` mode remains optional for manual setup/cutover
 
-Rollback path: `remote/code/bootstrap/rollback_vm_startup_to_inline.sh`
+Rollback path: `deploy/code/bootstrap/rollback_vm_startup_to_inline.sh`
 
 ## Workspace contract
 

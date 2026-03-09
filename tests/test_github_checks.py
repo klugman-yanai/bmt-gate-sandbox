@@ -6,11 +6,11 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-_LIB = _ROOT / "remote" / "code" / "lib"
+_LIB = _ROOT / "deploy" / "code" / "lib"
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
-import github_checks  # type: ignore[import-not-found]
+import github_checks  # type: ignore[import-not-found]  # noqa: E402
 
 
 def test_render_results_table_shows_last_passing_score_when_available() -> None:

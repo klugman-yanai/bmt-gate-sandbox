@@ -130,9 +130,9 @@ max-complexity = 10
     "PT018",   # compound assertions OK in tests
     "SLF001",  # private member access OK in tests
 ]
-"devtools/**" = [
+"tools/**" = [
     "ERA001",  # commented code OK during development
-    "T20",     # print OK in devtools CLI scripts
+    "T20",     # print OK in tools CLI scripts
     "E402",    # module import not at top (path/setup before imports)
     "PLR0911", # many returns OK (e.g. generators)
     "PLR0912", # many branches OK
@@ -154,7 +154,7 @@ max-complexity = 10
     "PLR0912", # many branches OK
     "PLR0915", # many statements OK
 ]
-"remote/**" = [
+"deploy/**" = [
     "T20",     # print OK in VM-side scripts
     "ARG001",  # unused args OK (argparse/interface)
     "FBT001",  # boolean positional args (ThreadPoolExecutor, etc.)

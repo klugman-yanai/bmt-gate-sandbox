@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "devtools") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "devtools"))
+if str(_ROOT / "tools") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "tools"))
 
 import gh_repo_vars as repo_vars  # type: ignore[import-not-found]  # noqa: E402
 

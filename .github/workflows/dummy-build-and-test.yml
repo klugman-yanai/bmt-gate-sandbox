@@ -120,7 +120,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DEFAULT_HEAD_SHA: ${{ github.sha }}
           DEFAULT_HEAD_BRANCH: ${{ github.ref_name }}
-        run: bash .github/bmt/scripts/ci_workflow.sh resolve-head-context
+        run: bash packages/bmt-cli/scripts/ci_workflow.sh resolve-head-context
 
       - id: map-test-pr
         if: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'test/check-bmt-gate-') }}
@@ -248,7 +248,7 @@ jobs:
         continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
         env:
           MATRIX_CONFIGURE: ${{ matrix.configure }}
-        run: bash .github/bmt/scripts/ci_workflow.sh stage-release-runner
+        run: bash packages/bmt-cli/scripts/ci_workflow.sh stage-release-runner
 
       - name: Soft check (Xtensa/Hexagon) (dummy)
         if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
@@ -263,7 +263,7 @@ jobs:
         if: contains(matrix.configure, '_gcc_Release') && !contains(matrix.configure, 'xtensa') && !contains(matrix.configure, 'hexagon')
         env:
           MATRIX_CONFIGURE: ${{ matrix.configure }}
-        run: bash .github/bmt/scripts/ci_workflow.sh compute-preset-info
+        run: bash packages/bmt-cli/scripts/ci_workflow.sh compute-preset-info
 
       - name: Upload runner artifact
         if: steps.preset-info.outcome == 'success'
