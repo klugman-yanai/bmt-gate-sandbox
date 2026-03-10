@@ -99,11 +99,15 @@ def _prune_workspace(workspace_root: Path, keep_recent_per_bmt: int = 2) -> None
 
 def _gcloud_cp(src: str, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
-    _ = subprocess.run(["gcloud", "storage", "cp", src, str(dst), "--quiet"], check=True)
+    _ = subprocess.run(
+        ["gcloud", "storage", "cp", src, str(dst), "--quiet"], check=True, capture_output=True, text=True
+    )
 
 
 def _gcloud_upload(src: Path, dst: str) -> None:
-    _ = subprocess.run(["gcloud", "storage", "cp", str(src), dst, "--quiet"], check=True)
+    _ = subprocess.run(
+        ["gcloud", "storage", "cp", str(src), dst, "--quiet"], check=True, capture_output=True, text=True
+    )
 
 
 def _load_json(path: Path) -> dict[str, Any]:

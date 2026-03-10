@@ -33,6 +33,18 @@ inputs:
   service_account:
     description: GCP service account email for WIF
     required: true
+  gcp_project:
+    description: GCP project ID (for summary)
+    required: false
+    default: ""
+  gcp_zone:
+    description: GCP zone (for summary)
+    required: false
+    default: ""
+  gcs_bucket:
+    description: GCS bucket (for summary)
+    required: false
+    default: ""
 
 outputs:
   selected_vm:
@@ -181,3 +193,7 @@ runs:
         handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
         handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
         failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"
+        vm_name: ${{ steps.select-vm.outputs.selected_vm }}
+        gcp_project: ${{ inputs.gcp_project }}
+        gcp_zone: ${{ inputs.gcp_zone }}
+        gcs_bucket: ${{ inputs.gcs_bucket }}

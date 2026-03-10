@@ -69,7 +69,7 @@ fi
 # Remove synced Python bytecode/cache bloat, but keep the persistent VM virtualenv.
 _clean_bloat() {
   local root="${1:?}"
-  find "$root" -type d \( -name '__pycache__' -o -name 'venv' -o -name '.uv' \
+  find "$root" -type d \( -name '__pycache__' -o -name 'venv' \
     -o -name '.mypy_cache' -o -name '.pytest_cache' -o -name '.ruff_cache' -o -name '.tox' -o -name '.eggs' \) \
     -exec rm -rf {} + 2>/dev/null || true
   find "$root" -type d -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true

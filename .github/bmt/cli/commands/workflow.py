@@ -69,6 +69,16 @@ def run_filter_upload_matrix() -> None:
     include = matrix.get("include", [])
     if not isinstance(include, list):
         raise TypeError("RUNNER_MATRIX.include must be a JSON array")
+
+    available_artifacts_raw = os.environ.get("AVAILABLE_ARTIFACTS", "[]")
+    try:
+        available_artifacts = json.loads(available_artifacts_raw)
+    except json.JSONDecodeError:
+        available_artifacts = []
+    if not isinstance(available_artifacts, list):
+        available_artifacts = []
+    artifact_set = {str(a).strip() for a in available_artifacts if str(a).strip()}
+
     root = _workflow_runtime_root()
     run_id = os.environ.get("GITHUB_RUN_ID") or _workflow_run_id()
     need_include: list[dict[str, str]] = []
@@ -81,11 +91,16 @@ def run_filter_upload_matrix() -> None:
         preset = str(entry.get("preset", "")).strip()
         if not project or not preset:
             continue
+        if artifact_set and f"runner-{preset}" not in artifact_set:
+            print(
+                f"::notice::Skip upload for {project}/{preset}: artifact not in available list (will show as Skipped)."
+            )
+            continue
         meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
         payload, err = gcs.download_json(meta_uri)
         if payload and str(payload.get("source_ref", "")).strip() == head_sha:
             print(
-                f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]}"
+                f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]} (will show as Skipped)."
             )
             if project not in projects_written:
                 marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
@@ -97,13 +112,15 @@ def run_filter_upload_matrix() -> None:
     out = {"include": need_include}
     out_json = json.dumps(out, separators=(",", ":"))
     path = _github_output()
+    keys = [f"{e['project']}|{e['preset']}" for e in need_include]
     with path.open("a", encoding="utf-8") as f:
         f.write(f"matrix_need_upload<<FILTER_EOF\n{out_json}\nFILTER_EOF\n")
+        f.write(f"matrix_need_upload_keys={json.dumps(keys)}\n")
     need_count = len(need_include)
     total = len(include)
     print(
-        f"::notice::Filter upload matrix: {need_count} leg(s) need upload; "
-        f"{total - need_count} already on GCS for ref {head_sha[:7]}"
+        f"::notice::Filter upload matrix: {need_count} job(s) need upload; "
+        f"{total - need_count} already on GCS or no artifact (will show as Skipped)."
     )
 
 
@@ -150,31 +167,33 @@ def run_summarize_matrix_handshake() -> None:
     requested = sorted(
         {str(e.get("project", "")).strip() for e in runner_matrix.get("include", []) if e}
     )
-    bmt_legs = sorted(
+    bmt_jobs = sorted(
         {str(e.get("project", "")).strip() for e in filtered_matrix.get("include", []) if e}
     )
     lines = [
-        "## BMT Matrix Handshake",
+        "## Runner upload & VM handshake (snapshot)",
         "",
-        "| Project | Runner uploaded | BMT leg | Status |",
-        "|---------|----------------|---------|--------|",
+        "Snapshot from workflow logs at run time. For live status see the **Checks** tab.",
+        "",
+        "| Project | Runner uploaded | Status |",
+        "|---------|----------------|--------|",
     ]
     for proj in requested:
         if not proj:
             continue
         up = "yes" if proj in accepted else "skipped"
-        if proj in bmt_legs:
-            leg = "yes"
-            status = "Requested (awaiting VM capability ack)"
+        if proj in bmt_jobs:
+            status = "Requested"
         else:
-            leg = "-"
             status = "Upload failed/warning" if up == "skipped" else "No BMT config"
-        lines.append(f"| {proj} | {up} | {leg} | {status} |")
+        lines.append(f"| {proj} | {up} | {status} |")
     lines.extend(
         [
             "",
+            "The VM reports which requested jobs it supports. See the **Checks** tab for outcome.",
+            "",
             f"**Runners uploaded (supported):** {len(accepted)}",
-            f"**BMT legs to run:** {len(bmt_legs)}",
+            f"**BMT jobs to run:** {len(bmt_jobs)}",
         ]
     )
     _append_step_summary("\n".join(lines) + "\n")
@@ -378,6 +397,10 @@ def run_write_handoff_summary() -> None:
     run_url = f"{server}/{repo_slug}/actions/runs/{run_id}" if run_id else ""
     repo_url = f"{server}/{repository}"
     pr_url = f"{repo_url}/pull/{pr_number}" if pr_number else ""
+    vm_name = (os.environ.get("BMT_VM_NAME") or "").strip()
+    gcp_project = (os.environ.get("GCP_PROJECT") or "").strip()
+    gcp_zone = (os.environ.get("GCP_ZONE") or "").strip()
+    gcs_bucket = (os.environ.get("GCS_BUCKET") or "").strip()
     runner_matrix = json.loads(runner_matrix_raw)
     accepted_projects = json.loads(accepted_projects_raw)
     filtered_matrix = json.loads(filtered_matrix_raw)
@@ -390,20 +413,32 @@ def run_write_handoff_summary() -> None:
     if not handoff_state_line:
         handoff_state_line = {
             "run_success": "Handoff complete: VM acknowledged trigger.",
-            "skip": "Handoff complete: no supported uploaded legs to hand off.",
+            "skip": "Handoff complete: no supported uploaded jobs to hand off.",
             "failure": "Handoff failed: VM did not acknowledge trigger.",
         }.get(mode, "Handoff state unavailable. Check this workflow run.")
     bmt_status_ctx = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
-    status_icon = "✅" if mode == "run_success" else ("⏭️" if mode == "skip" else "❌")
-    ref_line = f"[#{pr_number}]({pr_url})" if pr_url else f"`{head_branch}` @ `{head_sha[:7]}`"
-    handshake_icon = "✅" if handshake_ok == "true" else "❌"
+    status_icon = "🟡" if mode == "run_success" else ("⏭️" if mode == "skip" else "❌")
+    pr_link = f"[PR #{pr_number}]({pr_url})" if pr_url else f"`{head_branch}` @ `{head_sha[:7]}`"
+    handshake_icon = "🟡" if handshake_ok == "true" else "❌"
+    running_on_parts = []
+    if vm_name:
+        running_on_parts.append(f"VM **{vm_name}**")
+    if gcp_project:
+        running_on_parts.append(f"project `{gcp_project}`")
+    if gcp_zone:
+        running_on_parts.append(f"zone `{gcp_zone}`")
+    if gcs_bucket:
+        running_on_parts.append(f"bucket `{gcs_bucket}`")
+    running_on_line = " · ".join(running_on_parts) if running_on_parts else "—"
+
     lines = [
         f"## {status_icon} BMT Handoff — {handoff_state_line}",
         "",
-        f"| | |",
-        f"|---|---|",
-        f"| Ref | {ref_line} |",
-        f"| Handshake | {handshake_icon} |",
+        "| | |",
+        "|---|---|",
+        f"| **PR** | {pr_link} |",
+        f"| **BMT running on** | {running_on_line} |",
+        f"| VM handshake | {handshake_icon} |",
     ]
     if failure_reason:
         lines.append(f"| Failure | {failure_reason} |")
@@ -411,6 +446,6 @@ def run_write_handoff_summary() -> None:
         lines.append(f"| Handshake URI | `{handshake_uri}` |")
     lines.extend([
         "",
-        f"`{bmt_status_ctx}` is posted by the VM after tests complete.",
+        f"`{bmt_status_ctx}` is updated by the VM after tests complete. For final result open the **Checks** tab (top of the PR).",
     ])
     _append_step_summary("\n".join(lines) + "\n")

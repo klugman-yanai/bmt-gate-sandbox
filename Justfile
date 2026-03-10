@@ -18,6 +18,10 @@ lint:
 sync-remote:
     uv run python tools/bucket_sync_remote.py
 
+# Pull bucket content into deploy/ so local is 1:1 with bucket (code + runtime, excluding ephemeral paths)
+pull-remote:
+    uv run python tools/bucket_pull_remote.py
+
 sync-runtime-seed:
     uv run python tools/bucket_sync_runtime_seed.py
 

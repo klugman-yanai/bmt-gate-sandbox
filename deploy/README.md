@@ -25,6 +25,7 @@ Any extra top-level directory (for example `deploy/vmfs`, `deploy/bucket`, `depl
 
 - Sync code mirror: `just sync-remote`
 - Sync runtime seed mirror: `just sync-runtime-seed`
+- **Pull bucket into local deploy/** (refresh from GCS so local has all code + runtime artifacts, e.g. after CI uploads): `just pull-remote` (requires `GCS_BUCKET`). Excludes ephemeral paths (triggers, results, outputs, inputs, .venv) so layout stays valid.
 - Verify both mirrors against bucket manifests: `just verify-sync`
 - Validate local layout policy: `just validate-layout`
 - Pre-commit hook (`scripts/hooks/pre-commit-sync-remote.sh`) blocks commits that touch `deploy/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`).

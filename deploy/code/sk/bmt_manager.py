@@ -106,11 +106,15 @@ def _gcs_exists(uri: str) -> bool:
 def _gcloud_cp(src: str, dst: Path | str) -> None:
     dst_path = Path(dst) if not isinstance(dst, Path) else dst
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-    _ = subprocess.run(["gcloud", "storage", "cp", src, str(dst_path), "--quiet"], check=True)
+    _ = subprocess.run(
+        ["gcloud", "storage", "cp", src, str(dst_path), "--quiet"], check=True, capture_output=True, text=True
+    )
 
 
 def _gcloud_upload(src: Path, dst_uri: str) -> None:
-    _ = subprocess.run(["gcloud", "storage", "cp", str(src), dst_uri, "--quiet"], check=True)
+    _ = subprocess.run(
+        ["gcloud", "storage", "cp", str(src), dst_uri, "--quiet"], check=True, capture_output=True, text=True
+    )
 
 
 def _gcloud_rsync(src: str, dst: Path | str, delete: bool = False) -> None:
@@ -120,7 +124,7 @@ def _gcloud_rsync(src: str, dst: Path | str, delete: bool = False) -> None:
     if delete:
         cmd.append("--delete-unmatched-destination-objects")
     cmd.extend([src, str(dst_path), "--quiet"])
-    _ = subprocess.run(cmd, check=True)
+    _ = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
 # Exclude Python/uv cache and bloat when uploading dirs to GCS (e.g. logs, outputs).
@@ -149,7 +153,7 @@ def _gcloud_rsync_to_gcs(src: Path | str, dst_uri: str, delete: bool = False) ->
     for pattern in _UPLOAD_EXCLUDE:
         cmd.extend(["--exclude", pattern])
     cmd.extend([str(src_path), dst_uri, "--quiet"])
-    _ = subprocess.run(cmd, check=True)
+    _ = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
 # Compatibility helper aliases used by tests and external monkeypatching.
@@ -327,6 +331,20 @@ def _effective_gate_comparison(bmt_id: str, comparison: str) -> str:
     return normalized
 
 
+def _all_failures_are_timeouts(file_results: list[dict[str, Any]]) -> bool:
+    """True if every non-zero exit in file_results is a timeout (exit_code 124 or error timeout_after_)."""
+    failed = [r for r in file_results if int(r.get("exit_code", 0)) != 0]
+    if not failed:
+        return False
+    for r in failed:
+        if int(r.get("exit_code", 0)) != 124:
+            return False
+        err = (r.get("error") or "").strip()
+        if err and "timeout_after_" not in err:
+            return False
+    return True
+
+
 def _gate_result(
     comparison: str,
     current_score: float,
@@ -398,7 +416,6 @@ def _run_one(
     enable_overrides: dict[str, Any],
     counter_re: re.Pattern[str],
     runner_env: dict[str, str],
-    timeout_sec: int = 0,
 ) -> dict[str, Any]:
     rel = wav_path.relative_to(inputs_root)
     output_path = outputs_dir / rel
@@ -431,22 +448,16 @@ def _run_one(
                 str(runner_path),
                 str(temp_path),
             ]
-        proc_timeout = timeout_sec if timeout_sec > 0 else None
         with log_path.open("w", encoding="utf-8") as log_file:
-            try:
-                proc = subprocess.run(
-                    runner_cmd,
-                    cwd=str(runtime_dir),
-                    env=runner_env,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    check=False,
-                    timeout=proc_timeout,
-                )
-                exit_code = proc.returncode
-            except subprocess.TimeoutExpired:
-                exit_code = 124
-                error = f"timeout_after_{timeout_sec}s"
+            proc = subprocess.run(
+                runner_cmd,
+                cwd=str(runtime_dir),
+                env=runner_env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            exit_code = proc.returncode
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -474,7 +485,7 @@ def main() -> int:
     args = parse_args()
     run_id = args.run_id.strip()
     started_at = _now_iso()
-    start_timestamp = time.time()
+    start_timestamp = time.monotonic()
     runtime_bucket_root = _runtime_bucket_root(args.bucket)
     code_bucket_root = _code_bucket_root(args.bucket)
     runtime_prefix = "runtime"
@@ -538,7 +549,6 @@ def main() -> int:
     logs_prefix = str(paths_cfg.get("logs_prefix", f"{results_prefix}/logs")).rstrip("/")
 
     runtime_cfg = bmt_cfg.get("runtime", {}) if isinstance(bmt_cfg.get("runtime"), dict) else {}
-    runner_timeout_sec = int(runtime_cfg.get("runner_timeout_sec", 0) or 0)
     cache_cfg = runtime_cfg.get("cache", {}) if isinstance(runtime_cfg.get("cache"), dict) else {}
     cache_enabled = bool(cache_cfg.get("enabled", True))
     cache_default = str(_default_cache_root())
@@ -705,7 +715,7 @@ def main() -> int:
     if args.human:
         print(f"Running {args.project_id}.{args.bmt_id} on {total} wav files")
 
-    setup_end_timestamp = time.time()
+    setup_end_timestamp = time.monotonic()
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(
@@ -721,7 +731,6 @@ def main() -> int:
                 enable_overrides,
                 counter_re,
                 runtime_env,
-                runner_timeout_sec,
             ): wav
             for wav in wav_files
         }
@@ -743,7 +752,7 @@ def main() -> int:
                         files_total=total,
                     )
 
-    execution_end_timestamp = time.time()
+    execution_end_timestamp = time.monotonic()
     file_results.sort(key=lambda item: item["file"])
     failed_count = sum(1 for item in file_results if int(item["exit_code"]) != 0)
     raw_score = sum(int(item["namuh_count"]) for item in file_results) / len(file_results) if file_results else 0.0
@@ -767,6 +776,10 @@ def main() -> int:
     delta_from_previous = (aggregate_score - last_score) if last_score is not None else None
     gate = _gate_result(comparison, aggregate_score, last_score, failed_count, args.run_context, tolerance_abs)
     status, reason_code = _resolve_status(gate, warning_policy)
+    # Distinguish timeout from other runner failures so UI and logs show the root cause.
+    if reason_code == "runner_failures" and failed_count > 0 and _all_failures_are_timeouts(file_results):
+        reason_code = "runner_timeout"
+        gate = {**gate, "reason": "runner_timeout"}
     if demo_force_pass and status == "fail":
         status = "pass"
         reason_code = "demo_force_pass"
@@ -889,7 +902,7 @@ def main() -> int:
 
     # Calculate orchestration timing
     completed_at = _now_iso()
-    total_duration_sec = int(time.time() - start_timestamp)
+    total_duration_sec = int(time.monotonic() - start_timestamp)
     setup_sec = int(setup_end_timestamp - start_timestamp)
     execution_sec = int(execution_end_timestamp - setup_end_timestamp)
     upload_sec = total_duration_sec - setup_sec - execution_sec

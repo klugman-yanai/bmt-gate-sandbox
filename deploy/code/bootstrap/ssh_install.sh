@@ -11,7 +11,7 @@
 #
 # Example:
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-vm GCS_BUCKET=my-bucket
-#   ./deploy/code/bootstrap/ssh_install.sh
+#   ./remote/code/bootstrap/ssh_install.sh
 
 set -euo pipefail
 

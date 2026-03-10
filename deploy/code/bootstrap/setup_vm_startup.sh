@@ -16,7 +16,7 @@
 #
 # Example (match your GitHub Actions variables):
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-vm GCS_BUCKET=my-bmt-bucket
-#   ./deploy/code/bootstrap/setup_vm_startup.sh
+#   ./remote/code/bootstrap/setup_vm_startup.sh
 
 set -euo pipefail
 
@@ -49,4 +49,4 @@ gcloud compute instances add-metadata "$BMT_VM_NAME" \
   --metadata "GCS_BUCKET=${GCS_BUCKET},BMT_REPO_ROOT=${BMT_REPO_ROOT},startup-script=,startup-script-url=${CODE_WRAPPER_URL}"
 
 echo "Done. On next boot the VM will sync code from ${CODE_WRAPPER_URL} and run watcher."
-echo "Rollback path: ./deploy/code/bootstrap/rollback_vm_startup_to_inline.sh"
+echo "Rollback path: ./remote/code/bootstrap/rollback_vm_startup_to_inline.sh"

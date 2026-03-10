@@ -20,6 +20,10 @@ on:
       pr_number:
         description: "PR number when head_event is pull_request"
         required: false
+      available_artifacts:
+        description: "JSON array of runner artifact names (e.g. [\"runner-sk_gcc_release\"]) so uploads without artifact show as Skipped"
+        required: false
+        default: "[]"
   workflow_call:
     inputs:
       ci_run_id:
@@ -44,6 +48,11 @@ on:
         required: false
         type: string
         default: ""
+      available_artifacts:
+        description: "JSON array of runner artifact names (e.g. [\"runner-sk_gcc_release\"]) so uploads without artifact show as Skipped"
+        required: false
+        type: string
+        default: "[]"
     outputs:
       bmt_gate_passed:
         description: "Handoff succeeded (write-summary ran)."
@@ -97,6 +106,7 @@ jobs:
       run_context: ${{ steps.run-context.outputs.run_context }}
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
       matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
+      matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -147,13 +157,22 @@ jobs:
           RUNNER_MATRIX: ${{ steps.prepare.outputs.runner_matrix }}
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          AVAILABLE_ARTIFACTS: ${{ inputs.available_artifacts || '[]' }}
         run: uv run --project .github/bmt bmt filter-upload-matrix
 
+      - name: Workflow summary notice
+        run: |
+          echo '## 🟡 Workflow summary (snapshot)' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This workflow **triggered the BMT VM** and the VM **has started its work**. This page is a **snapshot** of the run at one point in time. It does **not** mean BMT passed or that the PR will be accepted or rejected." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Where to see live BMT status and final result:** Open the **Checks** tab (at the top of the PR). An automated PR comment will also include a link to the Checks tab." >> "$GITHUB_STEP_SUMMARY"
   upload-runners:
     name: Upload • ${{ matrix.project }}
     needs: prepare
     runs-on: ubuntu-22.04
     continue-on-error: true
+    if: contains(fromJson(needs.prepare.outputs.matrix_need_upload_keys), format('{0}|{1}', matrix.project, matrix.preset))
     permissions:
       contents: read
       actions: read
@@ -161,7 +180,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix_need_upload) }}
+      matrix: ${{ fromJson(needs.prepare.outputs.runner_matrix) }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -280,6 +299,9 @@ jobs:
           accepted_projects: ${{ steps.classify.outputs.accepted_projects }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
+          gcp_zone: ${{ env.GCP_ZONE }}
+          gcs_bucket: ${{ env.GCS_BUCKET }}
       # No separate write-summary step needed; bmt-handoff-run already writes
       # the handoff summary internally (bmt-write-summary with if: always()).
 
