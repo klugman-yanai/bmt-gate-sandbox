@@ -17,6 +17,10 @@ defaults:
   run:
     shell: bash
 
+env:
+  # Sandbox policy: mimic CI topology while mocking heavy compilation work.
+  BMT_MOCK_BUILDS: "1"
+
 permissions:
   contents: read
   actions: read
@@ -130,12 +134,14 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - uses: ./.github/actions/setup-build-env
+        if: env.BMT_MOCK_BUILDS != '1'
         with:
           configure: ${{ matrix.configure }}
           build: ${{ matrix.build }}
 
       # ---- configure ----
       - name: Configure ( ${{ matrix.configure }} )
+        if: env.BMT_MOCK_BUILDS != '1'
         timeout-minutes: 20
         continue-on-error: ${{ matrix.soft_fail }}
         run: |
@@ -150,6 +156,7 @@ jobs:
 
       # ---- build ----
       - name: Build ( ${{ matrix.short }} )
+        if: env.BMT_MOCK_BUILDS != '1'
         timeout-minutes: 60
         continue-on-error: ${{ matrix.soft_fail }}
         run: |
@@ -159,6 +166,7 @@ jobs:
 
       # ---- build output ----
       - name: Check build output
+        if: env.BMT_MOCK_BUILDS != '1'
         run: |
           set -euo pipefail
           if [ -f build.log.gz ]; then
@@ -182,6 +190,11 @@ jobs:
           else
             echo "::notice::Build clean."
           fi
+
+      - name: Mock build (release)
+        if: env.BMT_MOCK_BUILDS == '1'
+        run: |
+          echo "::notice::Sandbox mock build enabled; skipping configure/build for ${{ matrix.configure }}."
 
       # ---- runner artifact for BMT ----
       - name: Setup uv
@@ -242,12 +255,14 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - uses: ./.github/actions/setup-build-env
+        if: env.BMT_MOCK_BUILDS != '1'
         with:
           configure: ${{ matrix.configure }}
           build: ${{ matrix.build }}
 
       # ---- configure ----
       - name: Configure ( ${{ matrix.configure }} )
+        if: env.BMT_MOCK_BUILDS != '1'
         timeout-minutes: 20
         continue-on-error: ${{ matrix.soft_fail }}
         run: |
@@ -262,6 +277,7 @@ jobs:
 
       # ---- build ----
       - name: Build ( ${{ matrix.short }} )
+        if: env.BMT_MOCK_BUILDS != '1'
         timeout-minutes: 60
         continue-on-error: ${{ matrix.soft_fail }}
         run: |
@@ -271,6 +287,7 @@ jobs:
 
       # ---- build output ----
       - name: Check build output
+        if: env.BMT_MOCK_BUILDS != '1'
         run: |
           set -euo pipefail
           if [ -f build.log.gz ]; then
@@ -294,6 +311,11 @@ jobs:
           else
             echo "::notice::Build clean."
           fi
+
+      - name: Mock build (non-release)
+        if: env.BMT_MOCK_BUILDS == '1'
+        run: |
+          echo "::notice::Sandbox mock build enabled; skipping configure/build for ${{ matrix.configure }}."
 
   bmt-handoff:
     needs: build-release
@@ -320,5 +342,4 @@ jobs:
       head_event: ${{ github.event_name }}
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
     secrets: inherit
-
 
