@@ -1,4 +1,4 @@
-name: BMT Handoff
+name: BMT
 run-name: "BMT Handoff • ${{ inputs.head_branch || github.event.inputs.head_branch }} • ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
 
 on:
@@ -80,6 +80,7 @@ jobs:
   # Success: prepare → upload-runners → handoff (classify + run + summary).
   # Failure: any prior fails → failure-fallback. bmt-outcome fans in both paths for workflow outputs.
   prepare:
+    name: Prepare
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -147,7 +148,7 @@ jobs:
         run: uv run --project .github/bmt bmt filter-upload-matrix
 
   upload-runners:
-    name: 03 Upload Runners • ${{ matrix.project }}
+    name: Upload • ${{ matrix.project }}
     needs: prepare
     runs-on: ubuntu-22.04
     continue-on-error: true
@@ -219,6 +220,7 @@ jobs:
           echo '{}' | gsutil cp - "gs://${GCS_BUCKET}/runtime/_workflow/uploaded/${{ github.run_id }}/${{ matrix.project }}.json"
 
   handoff:
+    name: Handoff
     needs: [prepare, upload-runners]
     runs-on: ubuntu-22.04
     permissions:
@@ -279,6 +281,7 @@ jobs:
       # the handoff summary internally (bmt-write-summary with if: always()).
 
   failure-fallback:
+    name: Fallback
     needs: [prepare, handoff]
     # Runs when prepare or handoff failed (not cancelled).
     if: >-
@@ -345,6 +348,7 @@ jobs:
           bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
 
   bmt-outcome:
+    name: Gate
     needs: [handoff, failure-fallback]
     if: always()
     runs-on: ubuntu-22.04
