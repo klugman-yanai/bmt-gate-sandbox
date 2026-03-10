@@ -220,7 +220,7 @@ jobs:
       && contains(
         fromJson('["dev","ci/check-bmt-gate"]'),
         (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-          && github.event.pull_request.head.ref
+          && github.base_ref
           || github.ref_name
       )
     permissions:
