@@ -35,6 +35,9 @@ inputs:
     required: true
 
 outputs:
+  selected_vm:
+    description: VM name selected from pool for this run
+    value: ${{ steps.select-vm.outputs.selected_vm }}
   trigger_written:
     description: Whether the run trigger was written to GCS
     value: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
@@ -60,6 +63,15 @@ runs:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}
         service_account: ${{ inputs.service_account }}
         python_version: "3.12"
+
+    - name: Select available VM from pool
+      id: select-vm
+      shell: bash
+      run: |
+        uv run --project .github/bmt bmt select-available-vm
+        # Export selected VM as BMT_VM_NAME so all subsequent steps in this job use it
+        selected_vm="$(grep '^selected_vm=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
+        echo "BMT_VM_NAME=${selected_vm}" >> "$GITHUB_ENV"
 
     - name: Preflight runtime trigger queue (stale cleanup)
       id: preflight

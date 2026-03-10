@@ -396,23 +396,21 @@ def run_write_handoff_summary() -> None:
     bmt_status_ctx = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
     status_icon = "✅" if mode == "run_success" else ("⏭️" if mode == "skip" else "❌")
     ref_line = f"[#{pr_number}]({pr_url})" if pr_url else f"`{head_branch}` @ `{head_sha[:7]}`"
+    handshake_icon = "✅" if handshake_ok == "true" else "❌"
     lines = [
         f"## {status_icon} BMT Handoff — {handoff_state_line}",
         "",
         f"| | |",
         f"|---|---|",
         f"| Ref | {ref_line} |",
-        f"| Projects | `{requested_projects}` ({uploaded_count}/{requested_count} uploaded, {legs_planned} leg(s) handed off) |",
-        f"| Trigger | written={trigger_written} · vm_started={vm_started} · handshake={handshake_ok} |",
+        f"| Handshake | {handshake_icon} |",
     ]
     if failure_reason:
         lines.append(f"| Failure | {failure_reason} |")
-    if handshake_uri:
+    if mode == "failure" and handshake_uri:
         lines.append(f"| Handshake URI | `{handshake_uri}` |")
     lines.extend([
         "",
-        f"Gate: `{bmt_status_ctx}` is set by the VM after execution completes.",
+        f"`{bmt_status_ctx}` is posted by the VM after tests complete.",
     ])
-    if mode == "failure":
-        lines.append("Inspect this run's trigger and handshake steps for diagnostics.")
     _append_step_summary("\n".join(lines) + "\n")

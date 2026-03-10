@@ -121,10 +121,15 @@ def run_select_available_vm() -> None:
             return
 
     status_summary = ", ".join(f"{v}={s}" for v, s in statuses.items())
-    raise RuntimeError(
-        f"All VMs in pool are busy — none in TERMINATED state ({status_summary}). "
-        "Retry once a run completes or add more VMs to BMT_VM_POOL."
+    msg = (
+        f"All {len(pool)} VM(s) in pool are busy — none in TERMINATED state "
+        f"({status_summary}). "
+        "Wait for an in-progress BMT workflow to finish, then re-trigger this workflow. "
+        "To support more concurrent runs, add additional VMs to BMT_VM_POOL."
     )
+    from .. import gh_output as _gho
+    _gho.gh_warning(msg)
+    raise RuntimeError(msg)
 
 
 # ---------------------------------------------------------------------------
