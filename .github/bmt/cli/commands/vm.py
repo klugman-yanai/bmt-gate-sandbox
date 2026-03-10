@@ -124,10 +124,7 @@ def run_select_available_vm() -> None:
             )
     else:
         pool = [cfg.bmt_vm_name]
-        gh_warning(
-            "BMT_VM_POOL is unset; using single VM (BMT_VM_NAME). "
-            "Set BMT_VM_POOL to a JSON array of at least two VM names for concurrent runs."
-        )
+        print("BMT_VM_POOL is unset; using workflow default single VM (BMT_VM_NAME).")
 
     print(f"VM pool ({len(pool)} instance(s)): {pool}")
     statuses: dict[str, str] = {}
