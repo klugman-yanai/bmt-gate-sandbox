@@ -78,50 +78,13 @@ bmt_cmd_summarize_matrix_handshake() {
     echo "::error::RUNNER_MATRIX and FILTERED_MATRIX are required"
     exit 1
   fi
-  if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    echo "::error::GITHUB_STEP_SUMMARY is not set"
-    exit 1
-  fi
 
   echo "$runner_matrix" > /tmp/runner_matrix.json
   echo "$filtered_matrix" > /tmp/filtered_matrix.json
 
-  requested="$(jq -c '[.include[].project] | unique | sort' /tmp/runner_matrix.json)"
-  bmt_legs="$(jq -c '[.include[].project] | unique | sort' /tmp/filtered_matrix.json)"
+  local uploaded_count bmt_leg_count
+  uploaded_count="$(echo "$accepted" | jq 'length')"
+  bmt_leg_count="$(jq -c '[.include[].project] | unique | length' /tmp/filtered_matrix.json)"
 
-  {
-    echo "## BMT Matrix Handshake"
-    echo
-    echo "| Project | Runner uploaded | BMT leg | Status |"
-    echo "|---------|----------------|---------|--------|"
-  } >>"$GITHUB_STEP_SUMMARY"
-
-  while IFS= read -r proj; do
-    [[ -z "$proj" ]] && continue
-    if echo "$accepted" | jq -e --arg p "$proj" 'index($p)' >/dev/null; then
-      up="yes"
-    else
-      up="skipped"
-    fi
-
-    if echo "$bmt_legs" | jq -e --arg p "$proj" 'index($p)' >/dev/null; then
-      leg="yes"
-      status="Requested (awaiting VM capability ack)"
-    else
-      leg="-"
-      if [[ "$up" == "skipped" ]]; then
-        status="Upload failed/warning"
-      else
-        status="No BMT config"
-      fi
-    fi
-
-    echo "| ${proj} | ${up} | ${leg} | ${status} |" >>"$GITHUB_STEP_SUMMARY"
-  done < <(echo "$requested" | jq -r '.[]')
-
-  {
-    echo
-    echo "**Runners uploaded (supported):** $(echo "$accepted" | jq 'length')"
-    echo "**BMT legs to run:** $(echo "$bmt_legs" | jq 'length')"
-  } >>"$GITHUB_STEP_SUMMARY"
+  echo "::notice::Matrix handshake: uploaded=${uploaded_count} legs=${bmt_leg_count}"
 }

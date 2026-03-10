@@ -17,24 +17,7 @@ bmt_cmd_show_handshake_guidance() {
   ack_uri="${root}/triggers/acks/${run_id}.json"
   trigger_uri="${root}/triggers/runs/${run_id}.json"
 
-  {
-    echo "## VM handshake timeout: ${timeout}s (set repo var BMT_HANDSHAKE_TIMEOUT_SEC to override)"
-    echo
-    if [[ "$restart_vm" == "true" ]]; then
-      echo "- Handshake mode: **post-cleanup restart branch** (stale trigger cleanup count: \`${stale_count}\`)"
-      echo "- Timeout policy: base \`${base_timeout}\` + 60s warmup after forced restart."
-    else
-      echo "- Handshake mode: **standard branch** (no stale trigger cleanup)."
-    fi
-    echo
-    echo "### Check VM / GCS while waiting"
-    echo "- **Trigger file** (VM reads this): \`${trigger_uri}\`"
-    echo "- **Ack file** (VM writes this when ready): \`${ack_uri}\`"
-    echo "- Handshake confirms VM pickup only; final \`${BMT_STATUS_CONTEXT:-BMT Gate}\` status is posted after VM completion."
-    echo "- **GCS:** \`gcloud storage cat \"${ack_uri}\"\` (after VM writes ack)"
-    echo "- **VM serial output:** \`gcloud compute instances get-serial-port-output ${BMT_VM_NAME} --zone=${GCP_ZONE}\`"
-    echo "- **Local TUI monitor:** \`just monitor --run-id ${run_id}\` or \`uv run python tools/bmt_monitor.py --run-id ${run_id} --bucket ${GCS_BUCKET}\`"
-  } >>"$GITHUB_STEP_SUMMARY"
+  echo "::notice::Handshake timeout=${timeout}s restart_vm=${restart_vm} trigger=${trigger_uri} ack=${ack_uri}"
 }
 
 bmt_cmd_wait_handshake() {
@@ -111,34 +94,5 @@ bmt_cmd_show_handshake_summary() {
     exit 1
   fi
 
-  {
-    echo "## VM Handshake Response"
-    echo
-    if [[ "$restart_vm" == "true" ]]; then
-      echo "- Handshake branch: **post-cleanup-restart**"
-    else
-      echo "- Handshake branch: **standard**"
-    fi
-    echo "- Stale cleanup count: **${stale_count}**"
-    echo "- Ack URI: \`${handshake_uri}\`"
-    echo "- Requested legs: **${requested_count}**"
-    echo "- Accepted legs: **${accepted_count}**"
-    echo "- Support resolution version: \`${support_version}\`"
-    echo "- Run disposition: \`${run_disposition}\`"
-    echo
-    echo "| Project | BMT ID | Run ID | Status |"
-    echo "|---------|--------|--------|--------|"
-  } >>"$GITHUB_STEP_SUMMARY"
-
-  if echo "$ack_payload" | jq -e '.requested_legs | type == "array" and length > 0' >/dev/null; then
-    echo "$ack_payload" | jq -r '
-      .requested_legs[]
-      | "| \(.project // "?") | \(.bmt_id // "?") | \(.run_id // "?") | " +
-        (if .decision == "accepted" then "Will run" else "Will skip: \(.reason // "unknown")" end) +
-        " |"
-    ' >>"$GITHUB_STEP_SUMMARY"
-  else
-    echo "$ack_payload" | jq -r '.accepted_legs[]? | "| \(.project // "?") | \(.bmt_id // "?") | \(.run_id // "?") | Will run |"' >>"$GITHUB_STEP_SUMMARY"
-    echo "$ack_payload" | jq -r '.rejected_legs[]? | "| \(.project // "?") | \(.bmt_id // "?") | \(.run_id // "?") | Will skip: \(.reason // "unknown") |"' >>"$GITHUB_STEP_SUMMARY"
-  fi
+  echo "::notice::Handshake response: requested=${requested_count} accepted=${accepted_count} disposition=${run_disposition} version=${support_version}"
 }

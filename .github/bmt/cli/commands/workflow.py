@@ -170,33 +170,7 @@ def run_summarize_matrix_handshake() -> None:
     bmt_jobs = sorted(
         {str(e.get("project", "")).strip() for e in filtered_matrix.get("include", []) if e}
     )
-    lines = [
-        "## Runner upload & VM handshake (snapshot)",
-        "",
-        "Snapshot from workflow logs at run time. For live status see the **Checks** tab.",
-        "",
-        "| Project | Runner uploaded | Status |",
-        "|---------|----------------|--------|",
-    ]
-    for proj in requested:
-        if not proj:
-            continue
-        up = "yes" if proj in accepted else "skipped"
-        if proj in bmt_jobs:
-            status = "Requested"
-        else:
-            status = "Upload failed/warning" if up == "skipped" else "No BMT config"
-        lines.append(f"| {proj} | {up} | {status} |")
-    lines.extend(
-        [
-            "",
-            "The VM reports which requested jobs it supports. See the **Checks** tab for outcome.",
-            "",
-            f"**Runners uploaded (supported):** {len(accepted)}",
-            f"**BMT jobs to run:** {len(bmt_jobs)}",
-        ]
-    )
-    _append_step_summary("\n".join(lines) + "\n")
+    print(f"::notice::Matrix handshake: uploaded={len(accepted)} legs={len(bmt_jobs)}")
 
 
 # ---- Trigger / handshake ----
@@ -379,16 +353,11 @@ def run_write_handoff_summary() -> None:
     repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
     head_sha = os.environ.get("HEAD_SHA", "")
     head_branch = os.environ.get("HEAD_BRANCH", "")
-    head_event = os.environ.get("HEAD_EVENT", "")
     pr_number = os.environ.get("PR_NUMBER", "")
-    routing_decision = os.environ.get("ROUTING_DECISION", "unknown")
-    runner_matrix_raw = os.environ.get("RUNNER_MATRIX", '{"include":[]}')
-    accepted_projects_raw = os.environ.get("ACCEPTED_PROJECTS", "[]")
     filtered_matrix_raw = os.environ.get("FILTERED_MATRIX", '{"include":[]}')
     trigger_written = os.environ.get("TRIGGER_WRITTEN", "false")
     vm_started = os.environ.get("VM_STARTED", "false")
     handshake_ok = os.environ.get("HANDSHAKE_OK", "false")
-    handshake_uri = os.environ.get("HANDSHAKE_URI", "")
     handoff_state_line = os.environ.get("HANDOFF_STATE_LINE", "")
     failure_reason = os.environ.get("FAILURE_REASON", "")
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
@@ -397,55 +366,47 @@ def run_write_handoff_summary() -> None:
     run_url = f"{server}/{repo_slug}/actions/runs/{run_id}" if run_id else ""
     repo_url = f"{server}/{repository}"
     pr_url = f"{repo_url}/pull/{pr_number}" if pr_number else ""
-    vm_name = (os.environ.get("BMT_VM_NAME") or "").strip()
-    gcp_project = (os.environ.get("GCP_PROJECT") or "").strip()
-    gcp_zone = (os.environ.get("GCP_ZONE") or "").strip()
-    gcs_bucket = (os.environ.get("GCS_BUCKET") or "").strip()
-    runner_matrix = json.loads(runner_matrix_raw)
-    accepted_projects = json.loads(accepted_projects_raw)
-    filtered_matrix = json.loads(filtered_matrix_raw)
-    requested_count = len({e.get("project") for e in runner_matrix.get("include", []) if e})
-    uploaded_count = len(accepted_projects) if isinstance(accepted_projects, list) else 0
-    legs_planned = len(filtered_matrix.get("include", []))
-    requested_projects = ", ".join(
-        sorted({str(e.get("project", "")).strip() for e in runner_matrix.get("include", []) if e})
-    )
+    legs_planned = len(json.loads(filtered_matrix_raw).get("include", []))
     if not handoff_state_line:
         handoff_state_line = {
             "run_success": "Handoff complete: VM acknowledged trigger.",
-            "skip": "Handoff complete: no supported uploaded jobs to hand off.",
+            "skip": "Handoff complete: no supported uploaded legs to hand off.",
             "failure": "Handoff failed: VM did not acknowledge trigger.",
         }.get(mode, "Handoff state unavailable. Check this workflow run.")
-    bmt_status_ctx = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
-    status_icon = "🟡" if mode == "run_success" else ("⏭️" if mode == "skip" else "❌")
-    pr_link = f"[PR #{pr_number}]({pr_url})" if pr_url else f"`{head_branch}` @ `{head_sha[:7]}`"
-    handshake_icon = "🟡" if handshake_ok == "true" else "❌"
-    running_on_parts = []
-    if vm_name:
-        running_on_parts.append(f"VM **{vm_name}**")
-    if gcp_project:
-        running_on_parts.append(f"project `{gcp_project}`")
-    if gcp_zone:
-        running_on_parts.append(f"zone `{gcp_zone}`")
-    if gcs_bucket:
-        running_on_parts.append(f"bucket `{gcs_bucket}`")
-    running_on_line = " · ".join(running_on_parts) if running_on_parts else "—"
+
+    # Links line: PR · Workflow run · SHA on branch
+    link_parts = []
+    if pr_url:
+        link_parts.append(f"PR [#{pr_number}]({pr_url})")
+    if run_url:
+        link_parts.append(f"[Workflow run]({run_url})")
+    link_parts.append(f"`{head_sha[:7]}` on `{head_branch}`")
+    links_line = " · ".join(link_parts)
+
+    trigger_icon = "✅" if trigger_written == "true" else "❌"
+    vm_icon = "✅" if vm_started == "true" else "❌"
+    handshake_icon = "✅" if handshake_ok == "true" else "❌"
 
     lines = [
-        f"## {status_icon} BMT Handoff — {handoff_state_line}",
+        "## BMT Handoff",
+        "",
+        links_line,
         "",
         "| | |",
         "|---|---|",
-        f"| **PR** | {pr_link} |",
-        f"| **BMT running on** | {running_on_line} |",
-        f"| VM handshake | {handshake_icon} |",
+        f"| Trigger written | {trigger_icon} |",
+        f"| VM started | {vm_icon} |",
+        f"| Handshake acked | {handshake_icon} |",
+        f"| Legs handed off | **{legs_planned}** |",
+        "",
+        handoff_state_line,
     ]
     if failure_reason:
-        lines.append(f"| Failure | {failure_reason} |")
-    if mode == "failure" and handshake_uri:
-        lines.append(f"| Handshake URI | `{handshake_uri}` |")
+        lines.extend(["", f"> ⚠️ {failure_reason}"])
     lines.extend([
         "",
-        f"`{bmt_status_ctx}` is updated by the VM after tests complete. For final result open the **Checks** tab (top of the PR).",
+        "_BMT result will appear in the PR **Checks** tab and **Comments** — not here._",
     ])
+    if mode == "failure":
+        lines.extend(["", "_Handoff failed — inspect the trigger and handshake steps above for details._"])
     _append_step_summary("\n".join(lines) + "\n")

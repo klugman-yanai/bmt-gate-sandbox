@@ -186,18 +186,7 @@ bmt_cmd_preflight_trigger_queue() {
     fi
   done
 
-  {
-    echo "## Runtime Trigger Preflight"
-    echo
-    echo "- Run context: \`${run_context}\`"
-    echo "- Preempt PR stale queue: \`${preempt_on_pr}\`"
-    echo "- Stale trigger threshold (seconds): \`${stale_sec}\`"
-    echo "- Trigger metadata keep recent: \`${keep_recent}\`"
-    echo "- Runtime root: \`${root}\`"
-    echo "- Existing trigger files: **${#existing[@]}**"
-    echo "- Invalid trigger files: **${#invalid[@]}**"
-    echo "- Blocking trigger files: **${#blocking[@]}**"
-  } >>"$GITHUB_STEP_SUMMARY"
+  echo "::notice::Preflight: existing=${#existing[@]} invalid=${#invalid[@]} blocking=${#blocking[@]} context=${run_context}"
 
   invalid_removed=0
   invalid_missing=0
@@ -216,14 +205,7 @@ bmt_cmd_preflight_trigger_queue() {
   done
 
   if [[ "$invalid_removed" -gt 0 || "$invalid_missing" -gt 0 || "$invalid_failed" -gt 0 ]]; then
-    {
-      echo
-      echo "### Invalid trigger cleanup"
-      echo
-      echo "- Removed invalid run triggers: **${invalid_removed}**"
-      echo "- Already missing (concurrently deleted): **${invalid_missing}**"
-      echo "- Failed invalid-trigger removals: **${invalid_failed}**"
-    } >>"$GITHUB_STEP_SUMMARY"
+    echo "::notice::Invalid trigger cleanup: removed=${invalid_removed} missing=${invalid_missing} failed=${invalid_failed}"
   fi
   if [[ "$invalid_failed" -gt 0 ]]; then
     echo "::error::Failed to remove ${invalid_failed} invalid trigger file(s) under ${runs_prefix}. Ensure the workflow service account has storage.objects.delete on the bucket."
@@ -231,32 +213,12 @@ bmt_cmd_preflight_trigger_queue() {
   fi
 
   if [[ "${#blocking[@]}" -eq 0 ]]; then
-    echo "- Action: no blocking trigger cleanup required." >>"$GITHUB_STEP_SUMMARY"
+    echo "::notice::No blocking trigger cleanup required."
   elif [[ "$run_context" == "pr" && "$preempt_on_pr" != "true" ]]; then
-    {
-      echo "- Action: observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); no trigger deletion, no forced VM restart."
-      echo
-      echo "### Existing queue entries"
-      echo
-      echo "| Trigger URI |"
-      echo "|------------|"
-    } >>"$GITHUB_STEP_SUMMARY"
-    for uri in "${blocking[@]}"; do
-      echo "| \`${uri}\` |" >>"$GITHUB_STEP_SUMMARY"
-    done
+    echo "::notice::Observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); ${#blocking[@]} blocking trigger(s)."
     exit 0
   else
-    {
-      echo
-      echo "### Stale triggers found (to remove)"
-      echo
-      echo "| Trigger URI |"
-      echo "|------------|"
-    } >>"$GITHUB_STEP_SUMMARY"
-
-    for uri in "${blocking[@]}"; do
-      echo "| \`${uri}\` |" >>"$GITHUB_STEP_SUMMARY"
-    done
+    echo "::notice::Removing ${#blocking[@]} stale trigger(s)."
 
     removed=0
     missing=0
@@ -279,19 +241,7 @@ bmt_cmd_preflight_trigger_queue() {
       echo "restart_vm=true" >>"$GITHUB_OUTPUT"
     fi
 
-    {
-      echo
-      echo "### Preflight cleanup result"
-      echo
-      echo "- Removed stale run triggers: **${removed}**"
-      echo "- Already missing (concurrently deleted): **${missing}**"
-      echo "- Failed removals: **${failed}**"
-      if [[ "$removed" -gt 0 ]]; then
-        echo "- Requested VM clean restart before handshake: **yes**"
-      else
-        echo "- Requested VM clean restart before handshake: **no**"
-      fi
-    } >>"$GITHUB_STEP_SUMMARY"
+    echo "::notice::Preflight cleanup: removed=${removed} missing=${missing} failed=${failed} restart_vm=$( [[ "$removed" -gt 0 ]] && echo yes || echo no )"
 
     if [[ "$failed" -gt 0 ]]; then
       echo "::error::Failed to remove ${failed} stale trigger file(s) under ${runs_prefix}. Ensure the workflow service account has storage.objects.delete on the bucket."
@@ -303,25 +253,9 @@ bmt_cmd_preflight_trigger_queue() {
   trim_acks="$(bmt__trim_trigger_family_keep_recent "${root}/triggers/acks/" "$keep_recent")"
   trim_status="$(bmt__trim_trigger_family_keep_recent "${root}/triggers/status/" "$keep_recent")"
   trimmed=$((trim_runs + trim_acks + trim_status))
-  {
-    echo
-    echo "### Metadata retention trim"
-    echo
-    echo "- Trimmed trigger-run JSONs: **${trim_runs}**"
-    echo "- Trimmed handshake-ack JSONs: **${trim_acks}**"
-    echo "- Trimmed runtime-status JSONs: **${trim_status}**"
-    echo "- Total metadata objects trimmed: **${trimmed}**"
-  } >>"$GITHUB_STEP_SUMMARY"
-
-  for prefix_uri in \
-    "${root}/triggers/runs/" \
-    "${root}/triggers/acks/" \
-    "${root}/triggers/status/"; do
-    # gcloud returns non-zero when a prefix has no objects; treat that as count=0.
-    count="$(gcloud storage ls "$prefix_uri" 2>/dev/null | wc -l | tr -d ' ' || true)"
-    count="${count:-0}"
-    echo "- ${prefix_uri} count after cleanup: ${count}" >>"$GITHUB_STEP_SUMMARY"
-  done
+  if [[ "$trimmed" -gt 0 ]]; then
+    echo "::notice::Metadata trim: runs=${trim_runs} acks=${trim_acks} status=${trim_status} total=${trimmed}"
+  fi
 }
 
 bmt_cmd_write_run_trigger() {
