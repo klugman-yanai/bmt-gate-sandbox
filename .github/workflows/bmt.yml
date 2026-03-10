@@ -293,6 +293,9 @@ jobs:
           accepted_projects: ${{ steps.classify.outputs.accepted_projects }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
+          gcp_zone: ${{ env.GCP_ZONE }}
+          gcs_bucket: ${{ env.GCS_BUCKET }}
       # No separate write-summary step needed; bmt-handoff-run already writes
       # the handoff summary internally (bmt-write-summary with if: always()).
 
