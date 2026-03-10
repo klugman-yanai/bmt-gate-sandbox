@@ -92,8 +92,9 @@ def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -
 
 
 def run_select_available_vm() -> None:
-    """Select the first TERMINATED VM from BMT_VM_POOL (or BMT_VM_NAME) and output selected_vm.
-    Fails fast if all VMs are busy (not TERMINATED), avoiding silent handshake timeouts."""
+    """Select the first TERMINATED VM from BMT_VM_POOL (or BMT_VM_NAME as single-VM fallback).
+    Pool should have at least two replicas; the second stays TERMINATED until needed.
+    Fails fast if all VMs are busy, with a clear 'No BMT VM is available' message."""
     cfg = get_config()
     cfg.require_gcp()
     project = cfg.gcp_project
@@ -106,8 +107,17 @@ def run_select_available_vm() -> None:
         if not isinstance(pool, list) or not pool:
             raise RuntimeError("BMT_VM_POOL must be a non-empty JSON array of VM name strings")
         pool = [str(v).strip() for v in pool if str(v).strip()]
+        if len(pool) < 2:
+            gh_warning(
+                "BMT_VM_POOL should list at least two VM replicas; the second remains off until needed. "
+                f"Currently {len(pool)} VM(s); a third concurrent run will see 'No BMT VM is available'."
+            )
     else:
         pool = [cfg.bmt_vm_name]
+        gh_warning(
+            "BMT_VM_POOL is unset; using single VM (BMT_VM_NAME). "
+            "Set BMT_VM_POOL to a JSON array of at least two VM names for concurrent runs."
+        )
 
     print(f"VM pool ({len(pool)} instance(s)): {pool}")
     statuses: dict[str, str] = {}
@@ -127,8 +137,8 @@ def run_select_available_vm() -> None:
         "Wait for an in-progress BMT workflow to finish, then re-trigger this workflow. "
         "To support more concurrent runs, add additional VMs to BMT_VM_POOL."
     )
-    from .. import gh_output as _gho
-    _gho.gh_warning(msg)
+    gh_error(f"No BMT VM is available. {msg}")
+    gh_warning(msg)
     raise RuntimeError(msg)
 
 

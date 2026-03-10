@@ -43,6 +43,7 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `BMT_CLOUD_RUN_JOB` | — | Cloud Run Job name when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
 | `BMT_CLOUD_RUN_REGION` | — | Cloud Run region when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for runtime handshake wait. |
+| `BMT_VM_POOL` | — | JSON array of VM instance names (e.g. `["bmt-vm-1","bmt-vm-2"]`). Recommend at least two replicas; the second stays TERMINATED until needed. If unset, single VM `BMT_VM_NAME` is used. When all VMs in the pool are busy, the workflow fails with **No BMT VM is available** and asks the user to re-trigger later. |
 | `BMT_PREEMPT_ON_PR_STALE_QUEUE` | `"1"` | If stale queue files exist for PR runs, preflight cleanup may force clean runtime restart to avoid stalled handoffs. |
 | `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
 | `BMT_TRIGGER_METADATA_KEEP_RECENT` | `"2"` | Number of recent trigger metadata files (`acks/status`) retained after cleanup. |
