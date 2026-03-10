@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cli import gcs
@@ -54,6 +55,28 @@ def _trigger_identity(uri: str) -> tuple[str, str, str]:
     ctx = str(payload.get("run_context", ""))
     pr = str(payload.get("pull_request_number", ""))
     return (repo, ctx, pr)
+
+
+def _trigger_age_seconds(uri: str, *, now: datetime | None = None) -> int | None:
+    """Return trigger age in seconds from payload.triggered_at, or None when unavailable/invalid."""
+    payload, _ = gcs.download_json(uri)
+    if not payload:
+        return None
+    raw = payload.get("triggered_at")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    value = raw.strip()
+    if value.endswith("Z"):
+        value = f"{value[:-1]}+00:00"
+    try:
+        triggered_at = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if triggered_at.tzinfo is None:
+        triggered_at = triggered_at.replace(tzinfo=UTC)
+    now_ts = (now or datetime.now(UTC)).timestamp()
+    age = int(now_ts - triggered_at.timestamp())
+    return max(age, 0)
 
 
 def _gcs_rm_idempotent(uri: str) -> str:
@@ -192,10 +215,29 @@ def run_preflight_trigger_queue() -> None:
         if run_context == "pr" and not preempt_on_pr:
             return
 
-        print(f"::notice::Removing {len(blocking)} stale trigger(s).")
+        stale_blocking: list[str] = []
+        preserved_blocking = 0
+        now = datetime.now(UTC)
+        for uri in blocking:
+            age_sec = _trigger_age_seconds(uri, now=now)
+            if age_sec is not None and age_sec >= stale_sec:
+                stale_blocking.append(uri)
+            else:
+                preserved_blocking += 1
+
+        if stale_blocking:
+            print(
+                f"::notice::Removing {len(stale_blocking)} stale trigger(s) "
+                f"(threshold={stale_sec}s)."
+            )
+        if preserved_blocking:
+            print(
+                f"::notice::Preserved {preserved_blocking} active/unknown-age trigger(s); "
+                "will not delete in-flight non-PR queue entries."
+            )
 
         removed = missing = failed = 0
-        for uri in blocking:
+        for uri in stale_blocking:
             try:
                 outcome = _gcs_rm_idempotent(uri)
                 if outcome == "removed":
@@ -215,7 +257,10 @@ def run_preflight_trigger_queue() -> None:
                 f.write("restart_vm=true\n")
 
         restart = "yes" if removed > 0 else "no"
-        print(f"::notice::Preflight cleanup: removed={removed} missing={missing} failed={failed} restart_vm={restart}")
+        print(
+            f"::notice::Preflight cleanup: removed={removed} missing={missing} failed={failed} "
+            f"preserved={preserved_blocking} restart_vm={restart}"
+        )
         if failed > 0:
             raise RuntimeError(
                 f"Failed to remove {failed} stale trigger file(s) under {runs_prefix}. "
