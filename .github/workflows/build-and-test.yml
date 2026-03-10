@@ -215,11 +215,19 @@ jobs:
     if: >-
       success()
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      && contains(
-        fromJson('["dev","ci/check-bmt-gate"]'),
-        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-          && github.event.pull_request.head.ref
-          || github.ref_name
+      && (
+        contains(
+          fromJson('["dev","ci/check-bmt-gate"]'),
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+            && github.event.pull_request.head.ref
+            || github.ref_name
+        )
+        || startsWith(
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+            && github.event.pull_request.head.ref
+            || github.ref_name,
+          'test/check-bmt-gate-'
+        )
       )
     permissions:
       actions: read
