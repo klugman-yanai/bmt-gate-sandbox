@@ -105,6 +105,17 @@ runs:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
       run: uv run --project .github/bmt bmt wait-handshake
 
+    - name: Post pending status — VM acknowledged
+      if: steps.handshake.outcome == 'success'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        BMT_STATUS_CONTEXT: ${{ env.BMT_STATUS_CONTEXT }}
+        BMT_PROGRESS_DESCRIPTION: "BMT: VM acknowledged — running tests…"
+        TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: uv run --project .github/bmt bmt post-pending-status
+
     - name: Handshake timeout diagnostics
       if: ${{ always() && steps.handshake.outcome == 'failure' }}
       shell: bash

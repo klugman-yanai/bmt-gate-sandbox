@@ -285,6 +285,30 @@ def run_handshake_timeout_diagnostics() -> None:
     gh_endgroup()
 
 
+# ---- Status updates ----
+
+
+def run_post_pending_status() -> None:
+    """Post a pending commit status to show BMT progress in PR checks.
+    Reads REPOSITORY/GITHUB_REPOSITORY, HEAD_SHA, GITHUB_TOKEN, BMT_STATUS_CONTEXT,
+    BMT_PROGRESS_DESCRIPTION, and optional TARGET_URL from env."""
+    repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
+    head_sha = os.environ.get("HEAD_SHA", "")
+    context = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
+    description = os.environ.get("BMT_PROGRESS_DESCRIPTION", "BMT in progress…")
+    target_url = os.environ.get("TARGET_URL") or None
+    if not repository or not head_sha:
+        gh_warning("Skipping pending status post (missing repository or head_sha).")
+        return
+    try:
+        github_api.post_commit_status(
+            repository, head_sha, "pending", context, description, target_url=target_url
+        )
+        gh_notice(f"Posted pending status '{context}': {description}")
+    except github_api.GitHubApiError as e:
+        gh_warning(f"Failed to post pending status for {head_sha}: {e}")
+
+
 # ---- Failure / summary ----
 
 
