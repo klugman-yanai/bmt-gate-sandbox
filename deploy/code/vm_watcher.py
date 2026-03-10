@@ -1565,6 +1565,14 @@ def _process_run_trigger(  # noqa: PLR0911
                         current_status["legs_completed"] = accepted_completed
                         current_status["elapsed_sec"] = int(time.time() - start_timestamp)
 
+                        # ETA for check run: extrapolate from elapsed time and legs completed
+                        if accepted_completed > 0 and accepted_completed < accepted_leg_count:
+                            remaining_legs = accepted_leg_count - accepted_completed
+                            avg_sec_per_leg = current_status["elapsed_sec"] / accepted_completed
+                            current_status["eta_sec"] = int(avg_sec_per_leg * remaining_legs)
+                        else:
+                            current_status["eta_sec"] = None
+
                         if exec_idx + 1 < accepted_leg_count:
                             next_idx = int(accepted_exec_legs[exec_idx + 1]["index"])
                             current_status["current_leg"] = current_status["legs"][next_idx].copy()
