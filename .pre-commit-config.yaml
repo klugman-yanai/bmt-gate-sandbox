@@ -5,7 +5,7 @@ repos:
   - repo: local
     hooks:
       - id: verify-remote-bucket-sync
-        name: Advisory deploy/ bucket sync check
+        name: deploy/ bucket sync check
         entry: scripts/hooks/pre-commit-sync-remote.sh
         language: script
         files: ^deploy/
