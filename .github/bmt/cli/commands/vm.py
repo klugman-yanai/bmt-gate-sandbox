@@ -439,16 +439,17 @@ def run_sync_metadata() -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_wait_handshake() -> None:
+def run_wait_handshake(timeout_sec: int | None = None) -> None:
     """Wait for VM handshake ack written under triggers/acks/<workflow_run_id>.json."""
     cfg = get_config()
     cfg.require_gcp()
     bucket = cfg.gcs_bucket
     workflow_run_id = require_env("GITHUB_RUN_ID")
     github_output = require_env("GITHUB_OUTPUT")
-    timeout_sec = cfg.bmt_handshake_timeout_sec
+    if timeout_sec is None:
+        timeout_sec = cfg.bmt_handshake_timeout_sec
     if not (1 <= timeout_sec <= 3600):
-        raise RuntimeError(f"BMT_HANDSHAKE_TIMEOUT_SEC must be 1-3600s, got {timeout_sec}")
+        raise RuntimeError(f"Handshake timeout must be 1-3600s, got {timeout_sec}")
     poll_interval_sec = 5
     project = cfg.gcp_project
     zone = cfg.gcp_zone

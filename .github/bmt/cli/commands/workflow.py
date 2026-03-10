@@ -224,23 +224,22 @@ def run_wait_handshake() -> None:
 
     base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "180"))
     restart_vm = os.environ.get("RESTART_VM", "false").lower() in ("true", "1", "yes")
+    vm_reused_running = os.environ.get("VM_REUSED_RUNNING", "false").lower() in ("true", "1", "yes")
     stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")
-    timeout = base_timeout + 60 if restart_vm else base_timeout
-    if restart_vm:
+
+    if vm_reused_running:
+        timeout = 600
+        gh_notice(f"Handshake branch=reuse-running timeout={timeout}s")
+    elif restart_vm:
+        timeout = base_timeout + 60
         print(
             f"::notice::Handshake branch=post-cleanup-restart stale_cleanup_count={stale_count} timeout={timeout}s"
         )
     else:
+        timeout = base_timeout
         gh_notice(f"Handshake branch=standard timeout={timeout}s")
-    prev = os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC")
-    os.environ["BMT_HANDSHAKE_TIMEOUT_SEC"] = str(timeout)
-    try:
-        vm.run_wait_handshake()
-    finally:
-        if prev is not None:
-            os.environ["BMT_HANDSHAKE_TIMEOUT_SEC"] = prev
-        else:
-            os.environ.pop("BMT_HANDSHAKE_TIMEOUT_SEC", None)
+
+    vm.run_wait_handshake(timeout_sec=timeout)
 
 
 def run_handshake_timeout_diagnostics() -> None:

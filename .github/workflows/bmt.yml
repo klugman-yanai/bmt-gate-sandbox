@@ -228,6 +228,24 @@ jobs:
         run: |
           echo "::warning::Runner upload failed for ${{ matrix.project }} (${{ matrix.preset }}). BMT will continue with other runners."
 
+      - name: Sign runner provenance (SLSA L2)
+        if: steps.download.outcome == 'success' && steps.upload.outcome == 'success'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          provenance_uri="gs://${GCS_BUCKET}/runtime/${{ matrix.project }}/runners/${{ matrix.preset }}/runner.slsa.json"
+          local_prov="$(mktemp --suffix=.slsa.json)"
+          gcloud storage cp "$provenance_uri" "$local_prov"
+          bundle_file="$(mktemp --suffix=.bundle)"
+          cosign sign-blob \
+            --bundle="$bundle_file" \
+            --yes \
+            "$local_prov"
+          bundle_uri="gs://${GCS_BUCKET}/runtime/${{ matrix.project }}/runners/${{ matrix.preset }}/runner.slsa.bundle"
+          gcloud storage cp "$bundle_file" "$bundle_uri"
+          echo "::notice::Runner provenance signed (Sigstore/Rekor) → ${bundle_uri}"
+
       - name: Record uploaded project marker
         if: steps.download.outcome == 'success' && steps.upload.outcome == 'success'
         run: |
