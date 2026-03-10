@@ -86,6 +86,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
+      statuses: write
     outputs:
       run_id: ${{ steps.prepare.outputs.run_id }}
       head_sha: ${{ steps.prepare.outputs.head_sha }}
@@ -138,6 +139,15 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           python_version: "3.12"
+
+      - name: Post pending status — preparing
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+          BMT_STATUS_CONTEXT: ${{ env.BMT_STATUS_CONTEXT }}
+          BMT_PROGRESS_DESCRIPTION: "BMT: uploading runners…"
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: uv run --project .github/bmt bmt post-pending-status
 
       - id: filter
         env:
@@ -227,6 +237,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
+      statuses: write
     outputs:
       # Step-level results for failure-fallback diagnostics
       classify_result: ${{ steps.classify.outcome || 'skipped' }}
@@ -255,6 +266,15 @@ jobs:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           run-id: ${{ needs.prepare.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post pending status — handing off
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+          BMT_STATUS_CONTEXT: ${{ env.BMT_STATUS_CONTEXT }}
+          BMT_PROGRESS_DESCRIPTION: "BMT: handing off to VM…"
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: uv run --project .github/bmt bmt post-pending-status
 
       - id: classify
         uses: ./.github/actions/bmt-classify-handoff

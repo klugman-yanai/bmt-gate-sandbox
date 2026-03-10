@@ -40,6 +40,7 @@ COMMANDS = {
     "write-run-trigger": trigger.run_trigger,
     "force-clean-vm-restart": workflow.run_force_clean_vm_restart,
     "handshake-timeout-diagnostics": workflow.run_handshake_timeout_diagnostics,
+    "post-pending-status": workflow.run_post_pending_status,
     "post-handoff-timeout-status": workflow.run_post_handoff_timeout_status,
     "cleanup-failed-trigger-artifacts": workflow.run_cleanup_failed_trigger_artifacts,
     "write-handoff-summary": workflow.run_write_handoff_summary,
