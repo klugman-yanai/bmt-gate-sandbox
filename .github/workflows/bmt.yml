@@ -72,7 +72,7 @@ env:
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
-  BMT_VM_POOL: ${{ vars.BMT_VM_POOL }}  # recommend at least 2 VMs; second stays off until needed; 3rd run gets "No BMT VM is available"
+  BMT_VM_POOL: ${{ vars.BMT_VM_POOL }}  # optional workflow-owned multi-VM pool (JSON array)
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
   BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
@@ -238,6 +238,10 @@ jobs:
     name: Handoff
     needs: [prepare, upload-runners]
     runs-on: ubuntu-22.04
+    # Repo-wide handoff serialization: one VM handoff active at a time across all branches/events.
+    concurrency:
+      group: bmt-handoff-${{ github.repository }}
+      cancel-in-progress: false
     permissions:
       contents: read
       actions: read
@@ -257,6 +261,8 @@ jobs:
       handshake_ok: ${{ steps.run.outputs.handshake_ok || 'false' }}
       handshake_uri: ${{ steps.run.outputs.handshake_uri || '' }}
       vm_started: ${{ steps.run.outputs.vm_started || 'false' }}
+      vm_start_failure_class: ${{ steps.run.outputs.vm_start_failure_class || '' }}
+      vm_start_failure_message: ${{ steps.run.outputs.vm_start_failure_message || '' }}
       handoff_reason: ${{ steps.run.outputs.handoff_reason || '' }}
     steps:
       - name: Checkout repo (for local actions)
@@ -349,14 +355,16 @@ jobs:
           VM_STARTED: ${{ needs.handoff.outputs.vm_started || 'false' }}
           HANDSHAKE_OK: ${{ needs.handoff.outputs.handshake_ok || 'false' }}
           HANDSHAKE_URI: ${{ needs.handoff.outputs.handshake_uri || '' }}
+          VM_START_FAILURE_CLASS: ${{ needs.handoff.outputs.vm_start_failure_class || '' }}
+          VM_START_FAILURE_MESSAGE: ${{ needs.handoff.outputs.vm_start_failure_message || '' }}
           HANDOFF_REASON: ${{ needs.handoff.outputs.handoff_reason || '' }}
         run: |
           echo "classify_outputs=$(jq -nc --arg path "$CLASSIFY_PATH" --arg has_legs "$HAS_LEGS" \
             --argjson accepted "$ACCEPTED_PROJECTS" --argjson matrix "$FILTERED_MATRIX" \
             '{path:$path, has_legs:$has_legs, accepted_projects:$accepted, filtered_matrix:$matrix}')" >> "$GITHUB_OUTPUT"
           echo "handoff_outputs=$(jq -nc --arg tw "$TRIGGER_WRITTEN" --arg vs "$VM_STARTED" --arg ho "$HANDSHAKE_OK" \
-            --arg hu "$HANDSHAKE_URI" --arg hr "$HANDOFF_REASON" \
-            '{trigger_written:$tw, vm_started:$vs, handshake_ok:$ho, handshake_uri:$hu, handoff_reason:$hr}')" >> "$GITHUB_OUTPUT"
+            --arg hu "$HANDSHAKE_URI" --arg hr "$HANDOFF_REASON" --arg sc "$VM_START_FAILURE_CLASS" --arg sm "$VM_START_FAILURE_MESSAGE" \
+            '{trigger_written:$tw, vm_started:$vs, handshake_ok:$ho, handshake_uri:$hu, handoff_reason:$hr, vm_start_failure_class:$sc, vm_start_failure_message:$sm}')" >> "$GITHUB_OUTPUT"
 
       - name: Failure fallback
         if: >-

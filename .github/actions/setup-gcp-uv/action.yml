@@ -35,6 +35,10 @@ runs:
       with:
         version: "0.10.9"
         python-version: ${{ inputs.python_version }}
+        # Disable setup-uv cache path in handoff jobs to avoid noisy Node deprecation warnings
+        # from upstream cache internals in failure-focused logs.
+        restore-cache: "false"
+        save-cache: "false"
 
     - name: Sync BMT uv environment
       if: ${{ inputs.install_uv == 'true' }}
