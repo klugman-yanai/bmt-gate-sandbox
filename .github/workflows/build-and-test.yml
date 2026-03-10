@@ -85,11 +85,7 @@ jobs:
                   ),
                   soft_fail: (
                     (.configure | test("xtensa"; "i")) or
-                    (.configure | test("hexagon"; "i")) or
-                    (.configure | test("android"; "i")) or
-                    (.configure | test("webos"; "i")) or
-                    (.configure | test("armv7"; "i")) or
-                    (.configure | test("arm_linux"; "i"))
+                    (.configure | test("hexagon"; "i"))
                   )
                 }
             ]' CMakePresets.json)
