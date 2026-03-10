@@ -92,6 +92,7 @@ runs:
       shell: bash
       env:
         RUN_CONTEXT: ${{ inputs.run_context }}
+        PR_NUMBER: ${{ inputs.pr_number }}
       run: uv run --project .github/bmt bmt preflight-trigger-queue
 
     - name: Write run trigger to GCS
