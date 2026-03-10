@@ -21,14 +21,6 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
-    },
-    {
-      "name": "MOCK_xtensa_Release",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/MOCK/xtensa_Release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
     }
   ],
   "buildPresets": [
@@ -39,10 +31,6 @@
     {
       "name": "MOCK_gcc_Debug-build",
       "configurePreset": "MOCK_gcc_Debug"
-    },
-    {
-      "name": "MOCK_xtensa_Release-build",
-      "configurePreset": "MOCK_xtensa_Release"
     }
   ]
 }
