@@ -370,66 +370,25 @@ def run_write_handoff_summary() -> None:
             "failure": "Handoff failed: VM did not acknowledge trigger.",
         }.get(mode, "Handoff state unavailable. Check this workflow run.")
     bmt_status_ctx = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
-    bmt_runtime_ctx = os.environ.get("BMT_RUNTIME_CONTEXT", "BMT Runtime")
+    status_icon = "✅" if mode == "run_success" else ("⏭️" if mode == "skip" else "❌")
+    ref_line = f"[#{pr_number}]({pr_url})" if pr_url else f"`{head_branch}` @ `{head_sha[:7]}`"
     lines = [
-        "## BMT Handoff Summary",
+        f"## {status_icon} BMT Handoff — {handoff_state_line}",
         "",
-        "### 1) Handoff Overview",
-        f"- Repository: `{repository}`",
-        f"- Head SHA: `{head_sha}`",
-        f"- Head branch: `{head_branch}`",
-        f"- Head event: `{head_event}`",
-        f"- Workflow run: [Open run]({run_url})",
-        f"- PR: [#{pr_number}]({pr_url})" if pr_url else "- PR: _(not a pull request run)_",
-        "",
-        "### 2) Routing Decision",
-        f"- Selected path: `{routing_decision}`",
+        f"| | |",
+        f"|---|---|",
+        f"| Ref | {ref_line} |",
+        f"| Projects | `{requested_projects}` ({uploaded_count}/{requested_count} uploaded, {legs_planned} leg(s) handed off) |",
+        f"| Trigger | written={trigger_written} · vm_started={vm_started} · handshake={handshake_ok} |",
     ]
-    if routing_decision == "run":
-        lines.append(
-            "- Reason: supported legs exist and at least one supported runner upload succeeded."
-        )
-    elif routing_decision == "skip_no_legs":
-        lines.append("- Reason: no supported uploaded legs to hand off.")
-    else:
-        lines.append("- Reason: path classification unavailable due to upstream failure.")
-    lines.extend(
-        [
-            "",
-            "### 3) Delivery State",
-            f"- Trigger written: **{trigger_written}**",
-            f"- VM start invoked: **{vm_started}**",
-            f"- Handshake acknowledged: **{handshake_ok}**",
-            f"- Handshake URI: `{handshake_uri}`" if handshake_uri else "",
-            f"- Requested projects: **{requested_count}**",
-            f"- Uploaded supported projects: **{uploaded_count}**",
-            f"- Legs handed off: **{legs_planned}**",
-            f"- Requested list: `{requested_projects}`" if requested_projects else "",
-            "",
-            "### 4) Ownership Notice",
-            "- This workflow validates **handoff only**.",
-            "- Handshake success means VM pickup only; final gate updates after VM execution completes.",
-            f"- Runtime progress context: `{bmt_runtime_ctx}` (non-gating).",
-            f"- Final merge gate context: `{bmt_status_ctx}`.",
-            "- BMT result is reported by the VM to **PR checks and PR comments**.",
-            f"- {handoff_state_line}",
-            f"- Failure reason: {failure_reason}" if failure_reason else "",
-            "",
-            "### 5) Next Actions",
-        ]
-    )
-    if pr_url:
-        lines.append(f"1. Open the PR: [#{pr_number}]({pr_url})")
-        lines.append("2. Check PR **Checks** for VM-owned BMT status context.")
-        lines.append("3. Check PR **Comments** for VM-posted BMT outcome details.")
-    else:
-        lines.append(
-            "1. Open this workflow run and use dispatch inputs to locate the target commit/PR."
-        )
-        lines.append("2. Verify commit checks for VM-owned BMT status context.")
-        lines.append("3. Check repository PR comments for VM-posted BMT outcome details.")
+    if failure_reason:
+        lines.append(f"| Failure | {failure_reason} |")
+    if handshake_uri:
+        lines.append(f"| Handshake URI | `{handshake_uri}` |")
+    lines.extend([
+        "",
+        f"Gate: `{bmt_status_ctx}` is set by the VM after execution completes.",
+    ])
     if mode == "failure":
-        lines.append(
-            "4. If handoff failed, inspect this run's diagnostics (trigger + handshake sections)."
-        )
-    _append_step_summary("\n".join(line for line in lines if line) + "\n")
+        lines.append("Inspect this run's trigger and handshake steps for diagnostics.")
+    _append_step_summary("\n".join(lines) + "\n")
