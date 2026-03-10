@@ -187,7 +187,7 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
         with:
-          version: "v0.10.9"
+          version: "0.10.9"
 
       - name: Sync BMT
         run: uv sync --project .github/bmt

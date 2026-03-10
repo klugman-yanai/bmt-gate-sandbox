@@ -314,7 +314,7 @@ Add this job after the `build` job (at the end of the file):
           private-key: ${{ secrets.BMT_DISPATCH_APP_PRIVATE_KEY }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
 
