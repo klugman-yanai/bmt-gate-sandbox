@@ -72,7 +72,6 @@ env:
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
-  BMT_VM_POOL: ${{ vars.BMT_VM_POOL }}  # recommend at least 2 VMs; second stays off until needed; 3rd run gets "No BMT VM is available"
   BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
   BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
