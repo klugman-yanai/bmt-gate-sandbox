@@ -172,7 +172,6 @@ jobs:
     needs: prepare
     runs-on: ubuntu-22.04
     continue-on-error: true
-    if: contains(fromJson(needs.prepare.outputs.matrix_need_upload_keys), format('{0}|{1}', matrix.project, matrix.preset))
     permissions:
       contents: read
       actions: read
@@ -180,7 +179,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJson(needs.prepare.outputs.runner_matrix) }}
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix_need_upload) }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
