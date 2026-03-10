@@ -85,7 +85,11 @@ jobs:
                   ),
                   soft_fail: (
                     (.configure | test("xtensa"; "i")) or
-                    (.configure | test("hexagon"; "i"))
+                    (.configure | test("hexagon"; "i")) or
+                    (.configure | test("android"; "i")) or
+                    (.configure | test("webos"; "i")) or
+                    (.configure | test("armv7"; "i")) or
+                    (.configure | test("arm_linux"; "i"))
                   )
                 }
             ]' CMakePresets.json)
@@ -179,7 +183,7 @@ jobs:
         if: ${{ matrix.is_release }}
         uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4
         with:
-          version: "v0.5.11"
+          version: "0.10.9"
 
       - name: Sync BMT
         if: ${{ matrix.is_release }}
