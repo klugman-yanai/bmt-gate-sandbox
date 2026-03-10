@@ -96,6 +96,8 @@ See [deploy/README.md](deploy/README.md) for canonical mirror policy.
 
 ## Documentation
 
+Full index: [docs/README.md](docs/README.md).
+
 | Doc | Description |
 |-----|--------------|
 | [README.md](README.md) | This file — **purpose** (test prod CI locally with real VM/GCS), features, config, local usage. |
