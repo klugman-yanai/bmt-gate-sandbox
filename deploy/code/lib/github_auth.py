@@ -40,7 +40,7 @@ def _resolve_env_value(
         return value, canonical_name
 
     if canonical_prefix.startswith("GITHUB_APP_"):
-        alias_prefix = f"GH_APP_{canonical_prefix[len('GITHUB_APP_'):]}"
+        alias_prefix = f"GH_APP_{canonical_prefix[len('GITHUB_APP_') :]}"
         alias_name = f"{alias_prefix}_{suffix}"
         alias_value = os.environ.get(alias_name, "").strip()
         if alias_value:
@@ -173,7 +173,7 @@ def _resolve_config_path(config_path: str | Path | None) -> Path:
 
     # VM fallbacks: /opt/bmt must match config/env_contract.json defaults.BMT_REPO_ROOT.
     repo_root = os.environ.get("BMT_REPO_ROOT", "").strip() or "/opt/bmt"
-    legacy = Path(repo_root) / "deploy" / "code" / "config" / "github_repos.json"
+    legacy = Path(repo_root) / "remote" / "config" / "github_repos.json"
     if legacy.is_file():
         return legacy
 

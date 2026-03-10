@@ -65,71 +65,31 @@ bmt_cmd_write_handoff_summary() {
   fi
 
   {
-    echo "## BMT Handoff Summary"
+    echo "## BMT Handoff"
     echo
-    echo "### 1) Handoff Overview"
-    echo "- Repository: \`${repository}\`"
-    echo "- Head SHA: \`${head_sha}\`"
-    echo "- Head branch: \`${head_branch}\`"
-    echo "- Head event: \`${head_event}\`"
-    echo "- Workflow run: [Open run](${run_url})"
     if [[ -n "$pr_url" ]]; then
-      echo "- PR: [#${pr_number}](${pr_url})"
+      echo "PR [#${pr_number}](${pr_url}) · [Workflow run](${run_url}) · \`${head_sha:0:7}\` on \`${head_branch}\`"
     else
-      echo "- PR: _(not a pull request run)_"
+      echo "[Workflow run](${run_url}) · \`${head_sha:0:7}\` on \`${head_branch}\`"
     fi
     echo
-    echo "### 2) Routing Decision"
-    echo "- Selected path: \`${routing_decision}\`"
-    case "$routing_decision" in
-      run)
-        echo "- Reason: supported legs exist and at least one supported runner upload succeeded."
-        ;;
-      skip_no_legs)
-        echo "- Reason: no supported uploaded legs to hand off."
-        ;;
-      *)
-        echo "- Reason: path classification unavailable due to upstream failure."
-        ;;
-    esac
+    echo "| | |"
+    echo "|---|---|"
+    if [[ "$trigger_written" == "true" ]]; then echo "| Trigger written | ✅ |"; else echo "| Trigger written | ❌ |"; fi
+    if [[ "$vm_started" == "true" ]]; then echo "| VM started | ✅ |"; else echo "| VM started | ❌ |"; fi
+    if [[ "$handshake_ok" == "true" ]]; then echo "| Handshake acked | ✅ |"; else echo "| Handshake acked | ❌ |"; fi
+    echo "| Legs handed off | **${legs_planned}** |"
     echo
-    echo "### 3) Delivery State"
-    echo "- Trigger written: **${trigger_written}**"
-    echo "- VM start invoked: **${vm_started}**"
-    echo "- Handshake acknowledged: **${handshake_ok}**"
-    if [[ -n "$handshake_uri" ]]; then
-      echo "- Handshake URI: \`${handshake_uri}\`"
-    fi
-    echo "- Requested projects: **${requested_count}**"
-    echo "- Uploaded supported projects: **${uploaded_count}**"
-    echo "- Legs handed off: **${legs_planned}**"
-    if [[ -n "$requested_projects" ]]; then
-      echo "- Requested list: \`${requested_projects}\`"
-    fi
-    echo
-    echo "### 4) Ownership Notice"
-    echo "- This workflow validates **handoff only**."
-    echo "- Handshake success means VM pickup only; final gate updates after VM execution completes."
-    echo "- Runtime progress context: \`${BMT_RUNTIME_CONTEXT:-BMT Runtime}\` (non-gating)."
-    echo "- Final merge gate context: \`${BMT_STATUS_CONTEXT:-BMT Gate}\`."
-    echo "- BMT result is reported by the VM to **PR checks and PR comments**."
-    echo "- ${handoff_state_line}"
+    echo "${handoff_state_line}"
     if [[ -n "$failure_reason" ]]; then
-      echo "- Failure reason: ${failure_reason}"
+      echo
+      echo "> ⚠️ ${failure_reason}"
     fi
     echo
-    echo "### 5) Next Actions"
-    if [[ -n "$pr_url" ]]; then
-      echo "1. Open the PR: [#${pr_number}](${pr_url})"
-      echo "2. Check PR **Checks** for VM-owned BMT status context."
-      echo "3. Check PR **Comments** for VM-posted BMT outcome details."
-    else
-      echo "1. Open this workflow run and use dispatch inputs to locate the target commit/PR."
-      echo "2. Verify commit checks for VM-owned BMT status context."
-      echo "3. Check repository PR comments for VM-posted BMT outcome details."
-    fi
+    echo "_BMT result will appear in the PR **Checks** tab and **Comments** — not here._"
     if [[ "$mode" == "failure" ]]; then
-      echo "4. If handoff failed, inspect this run's diagnostics (trigger + handshake sections)."
+      echo
+      echo "_Handoff failed — inspect the trigger and handshake steps above for details._"
     fi
   } >>"$GITHUB_STEP_SUMMARY"
 }

@@ -153,13 +153,20 @@ gcloud compute ssh "$BMT_IMAGE_BUILDER_VM_NAME" \
     sudo cp -a /tmp/bmt-code/. /opt/bmt/
     if [[ -f /opt/bmt/_tools/uv/linux-x86_64/uv ]]; then
       sudo chmod +x /opt/bmt/_tools/uv/linux-x86_64/uv
-      sudo BMT_UV_BIN=/opt/bmt/_tools/uv/linux-x86_64/uv bash /opt/bmt/bootstrap/install_deps.sh /opt/bmt
+      UV_BIN=/opt/bmt/_tools/uv/linux-x86_64/uv
     elif command -v uv >/dev/null 2>&1; then
-      sudo bash /opt/bmt/bootstrap/install_deps.sh /opt/bmt
+      UV_BIN=$(command -v uv)
     else
       echo '::error::No uv binary found (neither /opt/bmt/_tools/uv nor PATH uv).' >&2
       exit 1
     fi
+    echo 'Installing Google Cloud Ops Agent for Cloud Logging...'
+    curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+    sudo bash add-google-cloud-ops-agent-repo.sh --also-install
+    rm -f add-google-cloud-ops-agent-repo.sh
+    echo 'Pre-installing Python 3.12 via uv (as root so the baked venv uses it)...'
+    sudo "$UV_BIN" python install 3.12
+    sudo BMT_UV_BIN="$UV_BIN" bash /opt/bmt/bootstrap/install_deps.sh /opt/bmt
     sudo python3 - <<'PY'
 import hashlib
 import json

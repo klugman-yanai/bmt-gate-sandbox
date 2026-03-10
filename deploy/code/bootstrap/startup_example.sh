@@ -209,10 +209,23 @@ fi
 
 _access_secret() {
   local secret_name="$1"
+  local -a location_flag=()
+  if [[ -n "${BMT_SECRETS_LOCATION:-}" ]]; then
+    location_flag=(--location="${BMT_SECRETS_LOCATION}")
+  fi
   gcloud secrets versions access latest \
     --secret="$secret_name" \
-    --location="${BMT_SECRETS_LOCATION:-}" \
+    "${location_flag[@]}" \
     --project="${GCP_PROJECT}" 2>/dev/null
+}
+
+_access_secret_with_retry() {
+  local secret_name="$1" attempt delay=2 out
+  for attempt in 1 2 3; do
+    out=$(_access_secret "$secret_name") && { printf '%s' "$out"; return 0; }
+    [[ "$attempt" -lt 3 ]] && echo "  Secret access attempt ${attempt}/3 failed for ${secret_name}; retrying in ${delay}s." >&2 && sleep "$delay" && delay=$((delay * 2))
+  done
+  return 1
 }
 
 _load_github_app_credentials() {
@@ -238,7 +251,7 @@ _load_github_app_credentials() {
 
   local candidate
   for candidate in "${candidate_prefixes[@]}"; do
-    app_id=$(_access_secret "${candidate}_ID" 2>/dev/null || true)
+    app_id=$(_access_secret_with_retry "${candidate}_ID" 2>/dev/null || true)
     if [[ -n "$app_id" ]]; then
       selected_prefix="$candidate"
       break
@@ -250,14 +263,14 @@ _load_github_app_credentials() {
   fi
 
   for candidate in "${candidate_prefixes[@]}"; do
-    installation_id=$(_access_secret "${candidate}_INSTALLATION_ID" 2>/dev/null || true)
+    installation_id=$(_access_secret_with_retry "${candidate}_INSTALLATION_ID" 2>/dev/null || true)
     if [[ -n "$installation_id" ]]; then
       [[ -z "$selected_prefix" ]] && selected_prefix="$candidate"
       break
     fi
   done
   for candidate in "${candidate_prefixes[@]}"; do
-    private_key=$(_access_secret "${candidate}_PRIVATE_KEY" 2>/dev/null || true)
+    private_key=$(_access_secret_with_retry "${candidate}_PRIVATE_KEY" 2>/dev/null || true)
     if [[ -n "$private_key" ]]; then
       [[ -z "$selected_prefix" ]] && selected_prefix="$candidate"
       break

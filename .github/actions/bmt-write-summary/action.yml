@@ -61,6 +61,22 @@ inputs:
     description: Failure reason when mode is failure
     required: false
     default: ""
+  vm_name:
+    description: BMT VM instance name (Google Cloud)
+    required: false
+    default: ""
+  gcp_project:
+    description: GCP project ID
+    required: false
+    default: ""
+  gcp_zone:
+    description: GCP zone (e.g. europe-west4-a)
+    required: false
+    default: ""
+  gcs_bucket:
+    description: GCS bucket used for triggers/artifacts
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -84,4 +100,8 @@ runs:
         HANDSHAKE_URI: ${{ inputs.handshake_uri }}
         HANDOFF_STATE_LINE: ${{ inputs.handoff_state_line }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
+        BMT_VM_NAME: ${{ inputs.vm_name }}
+        GCP_PROJECT: ${{ inputs.gcp_project }}
+        GCP_ZONE: ${{ inputs.gcp_zone }}
+        GCS_BUCKET: ${{ inputs.gcs_bucket }}
       run: uv run --project .github/bmt bmt write-handoff-summary

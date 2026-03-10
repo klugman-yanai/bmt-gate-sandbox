@@ -76,6 +76,29 @@ subnetwork="$(jq -r '.networkInterfaces[0].subnetwork // "" | split("/") | last'
 service_account="$(jq -r '.serviceAccounts[0].email // ""' "$base_json")"
 scopes="$(jq -r '(.serviceAccounts[0].scopes // []) | join(",")' "$base_json")"
 tags="$(jq -r '(.tags.items // []) | join(",")' "$base_json")"
+boot_disk_source="$(jq -r '(.disks // [] | map(select(.boot == true)) | .[0].source // "" | split("/") | last)' "$base_json")"
+boot_disk_size_gb="$(jq -r '(.disks // [] | map(select(.boot == true)) | .[0].diskSizeGb) // ""' "$base_json")"
+boot_disk_type=""
+if [[ -n "$boot_disk_source" ]]; then
+  boot_disk_type_uri="$(
+    gcloud compute disks describe "$boot_disk_source" \
+      --project="$GCP_PROJECT" \
+      --zone="$GCP_ZONE" \
+      --format='value(type)' 2>/dev/null || true
+  )"
+  if [[ -n "$boot_disk_type_uri" ]]; then
+    boot_disk_type="${boot_disk_type_uri##*/}"
+  fi
+  boot_disk_size_from_disk="$(
+    gcloud compute disks describe "$boot_disk_source" \
+      --project="$GCP_PROJECT" \
+      --zone="$GCP_ZONE" \
+      --format='value(sizeGb)' 2>/dev/null || true
+  )"
+  if [[ -n "$boot_disk_size_from_disk" ]]; then
+    boot_disk_size_gb="$boot_disk_size_from_disk"
+  fi
+fi
 gcs_bucket="$(jq -r '((.metadata.items // []) | map(select(.key=="GCS_BUCKET")) | .[0].value) // ""' "$base_json")"
 bmt_repo_root="$(jq -r '((.metadata.items // []) | map(select(.key=="BMT_REPO_ROOT")) | .[0].value) // "/opt/bmt"' "$base_json")"
 startup_script="$(jq -r '((.metadata.items // []) | map(select(.key=="startup-script")) | .[0].value) // ""' "$base_json")"
@@ -120,6 +143,12 @@ fi
 if [[ -n "$scopes" ]]; then
   create_cmd+=(--scopes="$scopes")
 fi
+if [[ -n "$boot_disk_size_gb" ]]; then
+  create_cmd+=(--boot-disk-size="${boot_disk_size_gb}GB")
+fi
+if [[ -n "$boot_disk_type" ]]; then
+  create_cmd+=(--boot-disk-type="$boot_disk_type")
+fi
 if [[ -n "$tags" ]]; then
   create_cmd+=(--tags="$tags")
 fi
@@ -130,6 +159,7 @@ if [[ -n "$startup_script" ]]; then
 fi
 
 echo "Creating green VM ${BMT_GREEN_VM_NAME} from image ${BMT_IMAGE_NAME}..."
+echo "Inherited boot disk profile: size=${boot_disk_size_gb:-<default>}GB type=${boot_disk_type:-<default>}"
 "${create_cmd[@]}"
 
 echo "Green VM created:"

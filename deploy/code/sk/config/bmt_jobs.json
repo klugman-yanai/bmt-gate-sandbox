@@ -15,7 +15,6 @@
       },
       "runtime": {
         "num_source_test": 0,
-        "runner_timeout_sec": 120,
         "enable_overrides": {
           "KWS_CONFIG.KWS_ENABLE": true,
           "BIOMETRICS_CONFIG.BIO_ENABLE": false
