@@ -137,11 +137,40 @@ bmt__trim_trigger_family_keep_recent() {
   return 0
 }
 
+bmt__trigger_age_sec() {
+  local uri payload triggered_at now_epoch triggered_epoch
+  uri="$1"
+  now_epoch="$2"
+
+  payload="$(gcloud storage cat "$uri" 2>/dev/null || true)"
+  if [[ -z "$payload" ]]; then
+    echo ""
+    return 0
+  fi
+  triggered_at="$(echo "$payload" | jq -r '.triggered_at // empty' 2>/dev/null || true)"
+  if [[ -z "$triggered_at" ]]; then
+    echo ""
+    return 0
+  fi
+  triggered_epoch="$(date -u -d "$triggered_at" +%s 2>/dev/null || true)"
+  if [[ -z "$triggered_epoch" ]]; then
+    echo ""
+    return 0
+  fi
+  if (( now_epoch < triggered_epoch )); then
+    echo 0
+    return 0
+  fi
+  echo $((now_epoch - triggered_epoch))
+  return 0
+}
+
 bmt_cmd_preflight_trigger_queue() {
   local run_id root runs_prefix current_uri run_context
   local preempt_on_pr_raw preempt_on_pr stale_sec keep_recent
-  local -a existing blocking invalid
-  local uri removed missing failed invalid_removed invalid_missing invalid_failed rid count prefix_uri trimmed outcome
+  local -a existing blocking invalid stale_blocking
+  local uri removed missing failed invalid_removed invalid_missing invalid_failed rid count prefix_uri trimmed outcome age_sec
+  local preserved_blocking now_epoch
   local trim_runs trim_acks trim_status
 
   require_cmd gcloud
@@ -150,6 +179,9 @@ bmt_cmd_preflight_trigger_queue() {
   run_context="${RUN_CONTEXT:-dev}"
   preempt_on_pr_raw="${BMT_PREEMPT_ON_PR_STALE_QUEUE:-1}"
   stale_sec="${BMT_TRIGGER_STALE_SEC:-900}"
+  if ! [[ "$stale_sec" =~ ^[0-9]+$ ]]; then
+    stale_sec=900
+  fi
   keep_recent="${BMT_TRIGGER_METADATA_KEEP_RECENT:-2}"
   if ! [[ "$keep_recent" =~ ^[0-9]+$ ]]; then
     keep_recent=2
@@ -218,12 +250,29 @@ bmt_cmd_preflight_trigger_queue() {
     echo "::notice::Observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); ${#blocking[@]} blocking trigger(s)."
     exit 0
   else
-    echo "::notice::Removing ${#blocking[@]} stale trigger(s)."
+    stale_blocking=()
+    preserved_blocking=0
+    now_epoch="$(date -u +%s)"
+    for uri in "${blocking[@]}"; do
+      age_sec="$(bmt__trigger_age_sec "$uri" "$now_epoch")"
+      if [[ -n "$age_sec" ]] && (( age_sec >= stale_sec )); then
+        stale_blocking+=("$uri")
+      else
+        preserved_blocking=$((preserved_blocking + 1))
+      fi
+    done
+
+    if [[ "${#stale_blocking[@]}" -gt 0 ]]; then
+      echo "::notice::Removing ${#stale_blocking[@]} stale trigger(s) (threshold=${stale_sec}s)."
+    fi
+    if [[ "$preserved_blocking" -gt 0 ]]; then
+      echo "::notice::Preserved ${preserved_blocking} active/unknown-age trigger(s); will not delete in-flight non-PR queue entries."
+    fi
 
     removed=0
     missing=0
     failed=0
-    for uri in "${blocking[@]}"; do
+    for uri in "${stale_blocking[@]}"; do
       outcome="$(bmt__gcs_rm_idempotent "$uri" error)" || { failed=$((failed + 1)); continue; }
       if [[ "$outcome" == "removed" ]]; then
         removed=$((removed + 1))
@@ -241,7 +290,7 @@ bmt_cmd_preflight_trigger_queue() {
       echo "restart_vm=true" >>"$GITHUB_OUTPUT"
     fi
 
-    echo "::notice::Preflight cleanup: removed=${removed} missing=${missing} failed=${failed} restart_vm=$( [[ "$removed" -gt 0 ]] && echo yes || echo no )"
+    echo "::notice::Preflight cleanup: removed=${removed} missing=${missing} failed=${failed} preserved=${preserved_blocking} restart_vm=$( [[ "$removed" -gt 0 ]] && echo yes || echo no )"
 
     if [[ "$failed" -gt 0 ]]; then
       echo "::error::Failed to remove ${failed} stale trigger file(s) under ${runs_prefix}. Ensure the workflow service account has storage.objects.delete on the bucket."
