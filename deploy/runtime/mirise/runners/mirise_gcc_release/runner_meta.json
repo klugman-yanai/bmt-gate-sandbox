@@ -1,0 +1,28 @@
+{
+  "uploaded_at": "2026-03-08T19:47:56Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "mirise",
+  "preset": "mirise_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 57576,
+      "sha256": "6589ba12e1e0f6064817f4fc0e6c5de02fde10050f264ec94cf40c8fd2b95e9b"
+    },
+    {
+      "name": "libKardome.so",
+      "size": 1127976,
+      "sha256": "4fa51d12e5d820a0d1ec54aca8d5870c75483ca6ecb1105a33d6dc60bf073468"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "libKardome.so",
+      "size": 1127976,
+      "sha256": "4fa51d12e5d820a0d1ec54aca8d5870c75483ca6ecb1105a33d6dc60bf073468"
+    }
+  ],
+  "skipped_unchanged_files": [
+    "kardome_runner"
+  ]
+}

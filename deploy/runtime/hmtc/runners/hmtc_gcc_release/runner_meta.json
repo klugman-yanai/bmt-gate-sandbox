@@ -1,0 +1,28 @@
+{
+  "uploaded_at": "2026-03-08T19:42:35Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "hmtc",
+  "preset": "hmtc_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 17456,
+      "sha256": "fb9428732c14e14e49878b89793a0fbb2479ee7d99629e8f8f1a5ff1bad52f80"
+    },
+    {
+      "name": "libKardome.so",
+      "size": 5159528,
+      "sha256": "697ddff321794cb551b33bc07b0f51fdf2546b7846ad8bd684f8c6188bce8612"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "libKardome.so",
+      "size": 5159528,
+      "sha256": "697ddff321794cb551b33bc07b0f51fdf2546b7846ad8bd684f8c6188bce8612"
+    }
+  ],
+  "skipped_unchanged_files": [
+    "kardome_runner"
+  ]
+}

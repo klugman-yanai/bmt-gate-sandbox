@@ -94,6 +94,10 @@ On the VM, these are the runtime credentials expected by `vm_watcher.py`. For ev
 | `GH_APP_PROD_ID`, `GH_APP_PROD_INSTALLATION_ID`, `GH_APP_PROD_PRIVATE_KEY` | Alias fallback names accepted by VM/runtime tooling (canonical `GITHUB_APP_*` takes precedence). |
 | `BMT_UV_BIN` | Optional debug override for uv binary path on VM (bootstrap default is self-heal from pinned code artifact). |
 
+**Different apps per repo:** bmt-gate-sandbox uses the **TEST** app (secrets `GITHUB_APP_TEST_*`); Kardome-org/core-main uses the **PROD** app (secrets `GITHUB_APP_PROD_*`). The repo → app mapping is in **deploy/code/config/github_repos.json** (`secret_prefix` per repository).
+
+**Regional secrets:** GitHub App secrets are stored in GCP Secret Manager in region **europe-west4**. The VM bootstrap (`startup_example.sh`) sets `BMT_SECRETS_LOCATION` from the VM zone (e.g. `europe-west4-a` → `europe-west4`) so `gcloud secrets` uses the regional endpoint. Create and access secrets with `--location=europe-west4`.
+
 Repository mapping is in **deploy/code/config/github_repos.json**. See [../deploy/code/lib/github_auth.py](../deploy/code/lib/github_auth.py) for resolution logic.
 
 ---

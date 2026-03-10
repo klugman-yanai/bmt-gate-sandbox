@@ -1,0 +1,71 @@
+{
+  "REF_PATH": "/tmp/dummy/ref.wav",
+  "MICS_PATH": "/tmp/dummy/mics.wav",
+  "KARDOME_OUTPUT_PATH": "/tmp/dummy/kardome_output.wav",
+  "USER_OUTPUT_PATH": "/tmp/dummy/user_output.wav",
+  "CALIB_BIN_PATH": "/tmp/dummy/calib.bin",
+  "NUM_SOURCE_TEST": 0,
+  "QUIET_PATH": "/tmp/dummy/quiet.wav",
+  "ZONE1_PATH": "/tmp/dummy/zone1.wav",
+  "ZONE2_PATH": "/tmp/dummy/zone2.wav",
+  "ZONE3_PATH": "/tmp/dummy/zone3.wav",
+  "ZONE4_PATH": "/tmp/dummy/zone4.wav",
+  "ZONE5_PATH": "/tmp/dummy/zone5.wav",
+  "ZONE6_PATH": "/tmp/dummy/zone6.wav",
+  "KWS_CONFIG": {
+    "KWS_ENABLE": true,
+    "CALIB_KWS_ENABLE": false,
+    "CALIB_KWS_PATH": "/tmp/dummy/kws_calib/",
+    "OUTPUT_AI_MODEL_ENABLE": false,
+    "MANUAL_INDICATOR_ENABLE": false,
+    "INPUT_INDICATOR_PATH": "/tmp/dummy/is_vad.txt",
+    "OUTPUT_KWS_PATH": "/tmp/dummy/kws_out/",
+    "KWS_PRED_FILE_ENABLE": false,
+    "KWS_PRED_FILE_PATH": "/tmp/dummy/kws_pred.txt"
+  },
+  "BIOMETRICS_CONFIG": {
+    "BIO_ENABLE": false,
+    "CALIB_BIO_PATH": "/tmp/dummy/bio_calib.bin"
+  },
+  "SPOT_FORMER_CONFIG": {
+    "AFE_ENABLE": true,
+    "SF_ENABLE": true,
+    "HPF_ENABLE": true,
+    "SF_MODE": 0,
+    "SF_AGILITY": 95,
+    "SF_ADAPTIVE_NOISE_ENABLE": true,
+    "SF_ADAPTIVE_NOISE_SENSITIVITY": 8,
+    "IND_MODE": 7,
+    "IND_SHADOW_LENGTH": 1
+  },
+  "BANDPASS_CONFIG": {
+    "BANDPASS_HPF_ENABLE": true,
+    "BANDPASS_HPF_CUTOFF_HZ": 150,
+    "BANDPASS_HPF_ROLLOFF_DB": 24,
+    "BANDPASS_LPF_ENABLE": false,
+    "BANDPASS_LPF_CUTOFF_HZ": 8000,
+    "BANDPASS_LPF_ROLLOFF_DB": 24
+  },
+  "EC_CONFIG": {
+    "AEC_ENABLE": true,
+    "AEC_ADAPTIVE_DELAY_ENABLE": true,
+    "AEC_AGILITY": 995,
+    "AEC_HISTORY": 2,
+    "AEC_CONSTANT_DELAY_ENABLE": false,
+    "AEC_CONSTANT_DELAY_VALUE": 0,
+    "DING_ENABLE": false
+  },
+  "POST_FILTER_CONFIG": {
+    "PF_AEC_ENABLE": true,
+    "PF_AEC_AGGRESSIVE": 1,
+    "PF_SF_ENABLE": true,
+    "PF_SF_SPECTRAL_AGGRESSIVE": 8,
+    "PF_SF_BIN_AGGRESSIVE": 100,
+    "PF_SF_SMOOTH": 4,
+    "PF_NOISE_GATE_ENABLE": false,
+    "PF_NOISE_GATE_THRESHOLD": 0,
+    "PF_NOISE_GATE_ATTENUATION": 0,
+    "PF_COMFORT_NOISE_ENABLE": true,
+    "PF_COMFORT_NOISE_SCALE": 1
+  }
+}

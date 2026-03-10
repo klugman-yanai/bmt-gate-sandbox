@@ -1,0 +1,28 @@
+{
+  "uploaded_at": "2026-03-08T19:50:33Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "skyworth",
+  "preset": "skyworth_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 57624,
+      "sha256": "f5095f4e628b9875060121524e056eab2fe63c071f7054d5c896af11974b3934"
+    },
+    {
+      "name": "libKardome.so",
+      "size": 5102288,
+      "sha256": "06197d878ce5718abd9cadd759321b9d22db0518bc61b6c18aacdffbf553db75"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "libKardome.so",
+      "size": 5102288,
+      "sha256": "06197d878ce5718abd9cadd759321b9d22db0518bc61b6c18aacdffbf553db75"
+    }
+  ],
+  "skipped_unchanged_files": [
+    "kardome_runner"
+  ]
+}

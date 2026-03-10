@@ -1,0 +1,10 @@
+name=bmt-performance-gate
+machineType=e2-standard-4
+status=TERMINATED
+serviceAccount=bmt-runner-sa@train-kws-202311.iam.gserviceaccount.com
+network=default
+subnetwork=default
+tags=bmt-gate
+gcs_bucket=train-kws-202311-bmt-gate
+bmt_repo_root=/opt/bmt
+startup_script_url_set=false

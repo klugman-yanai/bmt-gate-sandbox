@@ -26,6 +26,8 @@ Summary of official docs and tools useful for BMT workflows, status/checks, and 
 
 Useful for docs and Justfile: tell devs they can **open the PR checks in the browser** with `gh pr checks --web` or by clicking the check in the PR, and **watch until done** with `gh pr checks --watch`.
 
+**Monitoring expected behavior:** To properly trigger and monitor CI (workflow run, BMT handoff, and gate outcome), **open a PR** targeting `ci/check-bmt-gate` or `dev`. The PR gives one run per push, full job topology in the Checks tab, and the BMT status/Check Run in one place. Pushing directly to the branch also triggers the workflow but a PR is the right way to validate expected behavior end-to-end.
+
 ---
 
 ## Check Runs API (what the VM posts)

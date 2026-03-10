@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "synced_at": "2026-03-02T12:45:49Z",
+  "source_dir": "remote/runtime",
+  "source_dir_name": "runtime",
+  "source_file_count": 20,
+  "source_digest_sha256": "c086fd8337a46bdb869c76a0c7e189e33f663dc3d366cb01b1d0d2337c55272f",
+  "source_files": [
+    {
+      "path": "sk/inputs/false_rejects/ambient/.keep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "sk/inputs/false_rejects/music/.keep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "sk/inputs/false_rejects/quiet/.keep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "sk/runners/kardome_runner",
+      "sha256": "75e2715f82cfc68c23640285b50dbe022dcb41571ed57dcd1b28bad6075c35d3",
+      "size": 57880
+    },
+    {
+      "path": "sk/runners/lib/ld-linux-x86-64.so.2",
+      "sha256": "8e0a8ea9bb70925c7130a51892dac0c588987777f9ee2a395513baa61419ea7a",
+      "size": 246688
+    },
+    {
+      "path": "sk/runners/lib/libKardome.so",
+      "sha256": "dc9795656d9cc9b1ff4b03af10b6e4267f68fce554994e39840a73b218e4d49e",
+      "size": 6180336
+    },
+    {
+      "path": "sk/runners/lib/libc.so.6",
+      "sha256": "18f44469bb2ab2329ba48e5ca4902999c67cf4d11dc7fa30f4b3acf35a620410",
+      "size": 2178264
+    },
+    {
+      "path": "sk/runners/lib/libdl.so.2",
+      "sha256": "80dad9aa5b55268c6039132b9c339bea5db35116637ce87d1bfc243c8714d347",
+      "size": 14280
+    },
+    {
+      "path": "sk/runners/lib/libgcc_s.so.1",
+      "sha256": "966f531454b0add4b4a93b298fdaaced726673e03b3f75c39d653c2e76e458b4",
+      "size": 215280
+    },
+    {
+      "path": "sk/runners/lib/libm.so.6",
+      "sha256": "cb780392feffbd09fa43ab9084b0cd37acbb051e95fba68981aa3e58521cae68",
+      "size": 989528
+    },
+    {
+      "path": "sk/runners/lib/libonnxruntime.so",
+      "sha256": "2b8275e2615c3a5fc8e34202d3901ad5d1e9e98e9d8a9ed5d9aaf7570ba362cb",
+      "size": 24
+    },
+    {
+      "path": "sk/runners/lib/libonnxruntime.so.1",
+      "sha256": "3da6146e14e7b8aaec625dde11d6114c7457c87a5f93d744897da8781e35c673",
+      "size": 21042416
+    },
+    {
+      "path": "sk/runners/lib/libonnxruntime.so.1.11.1",
+      "sha256": "9bf6e2a0e4aa8b8ae83cb87bd73c1375a5ab66a028b83cd178ae718dd29eeb8f",
+      "size": 15086128
+    },
+    {
+      "path": "sk/runners/lib/libpthread.so.0",
+      "sha256": "8b9b6c62e02f19c3ae7a95419ef713ae533d9cbaf9698315d1a32df4516a142f",
+      "size": 14288
+    },
+    {
+      "path": "sk/runners/lib/librt.so.1",
+      "sha256": "49d2ad8dc4f796f7cafd58bca0e75a3580fb4974ab9a29b1d6cd4f0dd33a9eca",
+      "size": 14352
+    },
+    {
+      "path": "sk/runners/lib/libstdc++.so.6",
+      "sha256": "4cc2c1bce719faf8da78c2d952f18f7552fd011cfcd5b97003969db4d6eab719",
+      "size": 2993104
+    },
+    {
+      "path": "sk/runners/lib/libtensorflow-lite.so",
+      "sha256": "aaffa1936ce024f68e7e5b6f9c3481d8f910774012c878f3b5522c458571c358",
+      "size": 90172704
+    },
+    {
+      "path": "sk/runners/lib/libtensorflowlite_c.so",
+      "sha256": "c2cd95e64de45341e64cc536da209debc78110540c29f47cb97c7941e47792ec",
+      "size": 6475160
+    },
+    {
+      "path": "sk/runners/sk_gcc_release/kardome_runner",
+      "sha256": "75e2715f82cfc68c23640285b50dbe022dcb41571ed57dcd1b28bad6075c35d3",
+      "size": 57880
+    },
+    {
+      "path": "sk/runners/sk_gcc_release/runner_latest_meta.json",
+      "sha256": "94c6223b52cf0ea975c7a1517f41840479ed0c52db1e5222c5d4f2a88410bd9c",
+      "size": 153
+    }
+  ],
+  "allow_generated_artifacts": false,
+  "bucket": "train-kws-202311-bmt-gate",
+  "runtime_prefix": "runtime"
+}

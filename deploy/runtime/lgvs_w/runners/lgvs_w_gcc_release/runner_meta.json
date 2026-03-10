@@ -1,0 +1,21 @@
+{
+  "uploaded_at": "2026-03-08T19:47:34Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "lgvs_w",
+  "preset": "lgvs_w_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 5503424,
+      "sha256": "45258cff133107817901f5484a7665bc8ada73b62b485cf4e093a8db2315b910"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "kardome_runner",
+      "size": 5503424,
+      "sha256": "45258cff133107817901f5484a7665bc8ada73b62b485cf4e093a8db2315b910"
+    }
+  ],
+  "skipped_unchanged_files": []
+}

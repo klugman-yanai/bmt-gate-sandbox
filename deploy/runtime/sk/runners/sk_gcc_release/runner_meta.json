@@ -1,0 +1,31 @@
+{
+  "uploaded_at": "2026-03-10T10:34:06Z",
+  "source_ref": "ad2b3677e58bd308aff7e1082cefa2f17d7064f1",
+  "project": "sk",
+  "preset": "sk_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "libKardome.so",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "kardome_runner",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "libKardome.so",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "skipped_unchanged_files": []
+}

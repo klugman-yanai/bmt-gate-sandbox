@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "synced_at": "2026-03-05T13:02:38Z",
+  "source_dir": "remote/code",
+  "source_dir_name": "code",
+  "source_file_count": 33,
+  "source_digest_sha256": "01c4fd9c2c81474df0b4bf43c24bff64c041b6f0f2b7d17e4fb79a98e307ef4f",
+  "source_files": [
+    {
+      "path": ".python-version",
+      "sha256": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d",
+      "size": 5
+    },
+    {
+      "path": "_tools/uv/linux-x86_64/uv.sha256",
+      "sha256": "20c9898f0ebcd66efe99763ca0b40739b69ec832b856f974dca3c171b75a22ef",
+      "size": 69
+    },
+    {
+      "path": "bmt_projects.json",
+      "sha256": "e119a87471179d68fcd20c96e98bdaabc3c8e343777ed18f4a863e63a07a4749",
+      "size": 157
+    },
+    {
+      "path": "bootstrap/README.md",
+      "sha256": "b17e501df36d2a23f4e410c7a4bedaaea8023e7fe2dae8ef0eb2690cd365076a",
+      "size": 3489
+    },
+    {
+      "path": "bootstrap/audit_vm_and_bucket.sh",
+      "sha256": "b3b27dab284110da3bd7b9588840a35edaa1c12662af5ac70aabfc79cd7560e9",
+      "size": 2454
+    },
+    {
+      "path": "bootstrap/bmt-watcher.service.example",
+      "sha256": "b7f639063a5e8943d55aeeaf4e646141bca6a4d512b16922f0a150fad8a29f6e",
+      "size": 1126
+    },
+    {
+      "path": "bootstrap/build_bmt_image.sh",
+      "sha256": "1a2cbea3113c8389c3c819a5e9eb8059b4dd4da5199ec3a0493374325879db33",
+      "size": 8162
+    },
+    {
+      "path": "bootstrap/create_bmt_green_vm.sh",
+      "sha256": "3f9ea979945490abede7a072e18b61a1eb663753be242acc4cee7f5aa9b7bf95",
+      "size": 6358
+    },
+    {
+      "path": "bootstrap/cutover_bmt_vm.sh",
+      "sha256": "2213aab33d06fb1709b3210143c072c5a2a6aaeb13d00af12bd5637d325b93bd",
+      "size": 1445
+    },
+    {
+      "path": "bootstrap/ensure_uv.sh",
+      "sha256": "d4810b8ba1e7b0ab1a10127a27bb44fd4e03c8778d94fea7c716cdbda4b409d4",
+      "size": 2721
+    },
+    {
+      "path": "bootstrap/export_vm_spec.sh",
+      "sha256": "03a5cbb7ed572f28f0751e75884dd7de0514f0e4a38964bcf4fe8b53cd081af1",
+      "size": 2040
+    },
+    {
+      "path": "bootstrap/install_deps.sh",
+      "sha256": "83591ca98f65db4fa64498da51333fbb5efb20bd77515f5304587b2b3c442c07",
+      "size": 2782
+    },
+    {
+      "path": "bootstrap/out/bmt-performance-gate-spec-20260304T120611Z.json",
+      "sha256": "4e94b98de457a29de7df6f4e20fa2b218b1cc062a64056b9b18a9846b3ac707c",
+      "size": 16637
+    },
+    {
+      "path": "bootstrap/out/bmt-performance-gate-spec-20260304T120611Z.summary.txt",
+      "sha256": "8eae6ca1fe62edb9730568b40b150b8d5c630346313d5fcb4dfaca67feb69d4a",
+      "size": 278
+    },
+    {
+      "path": "bootstrap/rollback_bmt_vm.sh",
+      "sha256": "bd4ce79cfd7f078c1c85625aa1c9b0774eb00f2932d5fa8fe8d25e65b55a9704",
+      "size": 1173
+    },
+    {
+      "path": "bootstrap/rollback_vm_startup_to_inline.sh",
+      "sha256": "c19a0fdfc3e5a4a430b4b6d7872e44f648114a70de560ee5614aa6d8f4bfa639",
+      "size": 997
+    },
+    {
+      "path": "bootstrap/setup_vm_startup.sh",
+      "sha256": "eea4d00dbb094ead759220682c9e8425bd93b75eca6887579402a87e1c8ec001",
+      "size": 2238
+    },
+    {
+      "path": "bootstrap/ssh_install.sh",
+      "sha256": "31b079dc134821252807c5035de5cfd06d15126462629762f2e97b2b1a57e4e4",
+      "size": 1560
+    },
+    {
+      "path": "bootstrap/startup_example.sh",
+      "sha256": "faaedf03aaf42dc6ee9e2e6c162ee17abf36516f05f1dbbf01c47f958ce73608",
+      "size": 11530
+    },
+    {
+      "path": "bootstrap/startup_wrapper.sh",
+      "sha256": "8651319e53dea7c63de18e52e776c1ad2d8587c99c62e3bf3a64fab61065284b",
+      "size": 2847
+    },
+    {
+      "path": "config/github_repos.json",
+      "sha256": "1dcec75f4350cc0be5e605d8dc4fcc9ec02630b76f85bf0eec389e4ad997e9a2",
+      "size": 436
+    },
+    {
+      "path": "lib/github_auth.py",
+      "sha256": "34a829c4c4d9720cf156609f5ee2f6935098bcea13cf7fb90426691a69b7f6ad",
+      "size": 10279
+    },
+    {
+      "path": "lib/github_checks.py",
+      "sha256": "6da88f9e3461e3e158f7e4ca4fd4b484463e35e35bdec979c641ae0727323735",
+      "size": 11266
+    },
+    {
+      "path": "lib/github_pr_comment.py",
+      "sha256": "dcd6f4a76f25482d4eea48f6b86723fb7d9ee8843769dd8ee902d3adf502d127",
+      "size": 4786
+    },
+    {
+      "path": "lib/github_pull_request.py",
+      "sha256": "65c76313731e0f01e80b3e956169bb65115eee150863e140c8bf1f88f26e6b27",
+      "size": 3340
+    },
+    {
+      "path": "lib/status_file.py",
+      "sha256": "45228280aff2fe71e45e949772f0fff61052d9c14d9d80c18d61fbc003db39e5",
+      "size": 3883
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "5e327829fa4f1c0daf0a4e0696a345974cbcbc277663443aff9f2be8329a542c",
+      "size": 229
+    },
+    {
+      "path": "root_orchestrator.py",
+      "sha256": "14d71009e8d98db42b078346d0855b8273ae972415503db3c1b3c12869e460cb",
+      "size": 9439
+    },
+    {
+      "path": "sk/bmt_manager.py",
+      "sha256": "e1c5d63c9c005086b67a378e92afd64bac6da252688158d9c7550b4b6d3404e7",
+      "size": 36022
+    },
+    {
+      "path": "sk/config/bmt_jobs.json",
+      "sha256": "86c37a015ba61d7403152dbb08773ed7a77ac6e57325f0ade93f01cfce7729b6",
+      "size": 1274
+    },
+    {
+      "path": "sk/config/input_template.json",
+      "sha256": "545cd43f74cf2811d86091719e7d491cbf685d09e1b576e837da2ecd94fbefd0",
+      "size": 3856
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "d949d3210c760828e1721d951aa12be415e2217f1a41546bbbec6b58c5aa6a49",
+      "size": 50938
+    },
+    {
+      "path": "vm_watcher.py",
+      "sha256": "c954a863cc7487bc2cb1639b6d99dffc029c5f76a4182df4b6c885b98dd97b31",
+      "size": 82394
+    }
+  ],
+  "git_commit_sha": "5d19b7d5897cf715f375f576877ab91cb852c23a",
+  "bucket": "train-kws-202311-bmt-gate",
+  "code_prefix": "code",
+  "uv_artifact_uri": "gs://train-kws-202311-bmt-gate/code/_tools/uv/linux-x86_64/uv",
+  "uv_artifact_sha256": "5d9ad60f047f1e03d70bc514e1453ff08f77efebf16b0b494465af122a21dc32",
+  "uv_artifact_source": ".local/pinned-uv",
+  "include_runtime_artifacts": false,
+  "excluded_patterns": [
+    "(^|/)__pycache__(/|$)",
+    "__pycache__",
+    "\\.pyc$",
+    "\\.pyo$",
+    "(^|/)\\.venv(/|$)",
+    "(^|/)venv(/|$)",
+    "(^|/)\\.uv(/|$)",
+    "(^|/)\\.mypy_cache(/|$)",
+    "(^|/)\\.pytest_cache(/|$)",
+    "(^|/)\\.ruff_cache(/|$)",
+    "(^|/)\\.tox(/|$)",
+    "(^|/)\\.eggs(/|$)",
+    "(^|/)[^/]+\\.egg-info(/|$)",
+    "\\.egg$",
+    "(^|/)triggers(/|$)",
+    "(^|/)sk/inputs(/|$)",
+    "(^|/)sk/outputs(/|$)",
+    "(^|/)sk/results(/|$)"
+  ]
+}

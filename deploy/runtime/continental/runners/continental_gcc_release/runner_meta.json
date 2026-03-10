@@ -1,0 +1,28 @@
+{
+  "uploaded_at": "2026-03-08T19:43:08Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "continental",
+  "preset": "continental_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 21984,
+      "sha256": "5865707f5584c955ea5588d073109fe11bc27317110f418d7aa2cd3700f296b5"
+    },
+    {
+      "name": "libKardome.so",
+      "size": 16525624,
+      "sha256": "d72029a14a1dbd9ea7dec02fa16e029da9f2bded4fa6530662391d998aa0990c"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "libKardome.so",
+      "size": 16525624,
+      "sha256": "d72029a14a1dbd9ea7dec02fa16e029da9f2bded4fa6530662391d998aa0990c"
+    }
+  ],
+  "skipped_unchanged_files": [
+    "kardome_runner"
+  ]
+}

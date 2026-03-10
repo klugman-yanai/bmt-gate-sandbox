@@ -1,0 +1,28 @@
+{
+  "uploaded_at": "2026-03-08T19:42:15Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "woven",
+  "preset": "woven_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 21368,
+      "sha256": "3b208169fa3cd5ef3c58cbe89e54ca7fa937d5e1161e3fd11a7b25b1726dfef9"
+    },
+    {
+      "name": "libKardome.so",
+      "size": 12587904,
+      "sha256": "9fecaabadda3e92309f184e01a3d58d3d3e1f7475af113ef0f41b2215901bfdf"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "libKardome.so",
+      "size": 12587904,
+      "sha256": "9fecaabadda3e92309f184e01a3d58d3d3e1f7475af113ef0f41b2215901bfdf"
+    }
+  ],
+  "skipped_unchanged_files": [
+    "kardome_runner"
+  ]
+}

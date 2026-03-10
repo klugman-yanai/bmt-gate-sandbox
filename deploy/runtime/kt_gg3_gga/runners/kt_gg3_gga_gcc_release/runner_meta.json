@@ -1,0 +1,21 @@
+{
+  "uploaded_at": "2026-03-08T19:44:54Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "kt_gg3_gga",
+  "preset": "kt_gg3_gga_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 1263904,
+      "sha256": "a7386fe8b288b05488674a7461e9da9b4d46840c927634da9ddabab116161eb8"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "kardome_runner",
+      "size": 1263904,
+      "sha256": "a7386fe8b288b05488674a7461e9da9b4d46840c927634da9ddabab116161eb8"
+    }
+  ],
+  "skipped_unchanged_files": []
+}

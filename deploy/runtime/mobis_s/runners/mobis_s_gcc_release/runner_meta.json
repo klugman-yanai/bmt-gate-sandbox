@@ -1,0 +1,21 @@
+{
+  "uploaded_at": "2026-03-08T19:49:42Z",
+  "source_ref": "2117c8340b1d7b49dc93e3c87b4bb6b60175c841",
+  "project": "mobis_s",
+  "preset": "mobis_s_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 1340120,
+      "sha256": "2e1f11813fc59edda28fc717d389f4f20230334486f7210ea9a169d0c39b9ebb"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "kardome_runner",
+      "size": 1340120,
+      "sha256": "2e1f11813fc59edda28fc717d389f4f20230334486f7210ea9a169d0c39b9ebb"
+    }
+  ],
+  "skipped_unchanged_files": []
+}

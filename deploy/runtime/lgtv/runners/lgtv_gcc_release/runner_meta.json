@@ -1,0 +1,21 @@
+{
+  "uploaded_at": "2026-03-06T13:48:54Z",
+  "source_ref": "fa87ca41bedba563c84d8d7f55c20e4aa2b6dac3",
+  "project": "lgtv",
+  "preset": "lgtv_gcc_release",
+  "files": [
+    {
+      "name": "kardome_runner",
+      "size": 34936,
+      "sha256": "ac8a726deb7d4e5da80f47d759b21ebf6806138977a1e92169add507d9f86674"
+    }
+  ],
+  "uploaded_files": [
+    {
+      "name": "kardome_runner",
+      "size": 34936,
+      "sha256": "ac8a726deb7d4e5da80f47d759b21ebf6806138977a1e92169add507d9f86674"
+    }
+  ],
+  "skipped_unchanged_files": []
+}

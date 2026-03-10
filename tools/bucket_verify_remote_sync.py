@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Verify local deploy/code matches the manifest uploaded to code/_meta/remote_manifest.json."""
+"""Verify local deploy/code matches the manifest uploaded to code/current/_meta/remote_manifest.json."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,44 +15,16 @@ from click_exit import run_click_command
 _path = Path(__file__).resolve().parent
 if str(_path) not in sys.path:
     sys.path.insert(0, str(_path))
+from bucket_sync_remote import CURRENT_PREFIX, UV_ARTIFACT_REL, UV_CHECKSUM_REL, UV_RELEASE_SPEC_REL, _iter_source_files
 from repo_paths import DEFAULT_CONFIG_ROOT
 from shared_bucket_env import bucket_option, code_bucket_root_uri
-
-DEFAULT_CODE_EXCLUDES = (
-    r"(^|/)__pycache__(/|$)",
-    r"__pycache__",
-    r"\.pyc$",
-    r"\.pyo$",
-    r"(^|/)\.venv(/|$)",
-    r"(^|/)venv(/|$)",
-    r"(^|/)\.uv(/|$)",
-    r"(^|/)\.mypy_cache(/|$)",
-    r"(^|/)\.pytest_cache(/|$)",
-    r"(^|/)\.ruff_cache(/|$)",
-    r"(^|/)\.tox(/|$)",
-    r"(^|/)\.eggs(/|$)",
-    r"(^|/)[^/]+\.egg-info(/|$)",
-    r"\.egg$",
-    r"(^|/)triggers(/|$)",
-    r"(^|/)sk/inputs(/|$)",
-    r"(^|/)sk/outputs(/|$)",
-    r"(^|/)sk/results(/|$)",
-)
-
-UV_ARTIFACT_REL = "_tools/uv/linux-x86_64/uv"
-UV_CHECKSUM_REL = "_tools/uv/linux-x86_64/uv.sha256"
-
-
-def _matches(patterns: tuple[str, ...], rel: str) -> bool:
-    return any(re.search(pattern, rel) for pattern in patterns)
+from uv_pin import read_pinned_binary_sha
 
 
 def _local_digest(src: Path, include_runtime_artifacts: bool) -> tuple[str, int]:
     files: list[tuple[str, str, int]] = []
-    for path in sorted(p for p in src.rglob("*") if p.is_file()):
+    for path in _iter_source_files(src, include_runtime_artifacts):
         rel = path.relative_to(src).as_posix()
-        if not include_runtime_artifacts and _matches(DEFAULT_CODE_EXCLUDES, rel):
-            continue
         h = hashlib.sha256()
         with path.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -93,17 +64,6 @@ def _download_text(uri: str) -> str:
     return proc.stdout
 
 
-def _extract_sha(raw: str) -> str:
-    for line in raw.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        token = stripped.split()[0]
-        if token:
-            return token
-    return ""
-
-
 def _gcs_exists(uri: str) -> bool:
     proc = subprocess.run(
         ["gcloud", "storage", "ls", uri],
@@ -120,7 +80,7 @@ def _gcs_exists(uri: str) -> bool:
 @click.option(
     "--include-runtime-artifacts",
     is_flag=True,
-    help="Include runtime-generated paths (triggers, inputs, outputs, results).",
+    help="Deprecated compatibility flag (allowlist already excludes runtime artifacts).",
 )
 def main(bucket: str, src_dir: str, include_runtime_artifacts: bool) -> int:
     if not bucket:
@@ -133,7 +93,8 @@ def main(bucket: str, src_dir: str, include_runtime_artifacts: bool) -> int:
         return 1
 
     code_root = code_bucket_root_uri(bucket)
-    manifest_uri = f"{code_root}/_meta/remote_manifest.json"
+    current_root = f"{code_root}/{CURRENT_PREFIX}"
+    manifest_uri = f"{current_root}/_meta/remote_manifest.json"
     local_digest, local_count = _local_digest(src, include_runtime_artifacts)
     manifest = _download_manifest(manifest_uri)
 
@@ -151,24 +112,20 @@ def main(bucket: str, src_dir: str, include_runtime_artifacts: bool) -> int:
         )
         return 1
 
-    local_sha_file = src / UV_CHECKSUM_REL
-    if not local_sha_file.is_file():
-        click.echo(f"::error::Missing local pinned uv checksum file: {local_sha_file}", err=True)
-        return 1
-    local_uv_sha = _extract_sha(local_sha_file.read_text(encoding="utf-8"))
-    if not local_uv_sha:
-        click.echo(f"::error::Invalid local pinned uv checksum file: {local_sha_file}", err=True)
-        return 1
+    local_uv_sha = read_pinned_binary_sha(src / UV_CHECKSUM_REL, filename="uv")
 
-    uv_uri = f"{code_root}/{UV_ARTIFACT_REL}"
-    uv_sha_uri = f"{code_root}/{UV_CHECKSUM_REL}"
-    if not _gcs_exists(uv_uri):
-        click.echo(f"::error::Missing pinned uv artifact in code namespace: {uv_uri}", err=True)
-        return 1
-    if not _gcs_exists(uv_sha_uri):
-        click.echo(f"::error::Missing pinned uv checksum in code namespace: {uv_sha_uri}", err=True)
-        return 1
-    remote_uv_sha = _extract_sha(_download_text(uv_sha_uri))
+    uv_uri = f"{current_root}/{UV_ARTIFACT_REL}"
+    uv_sha_uri = f"{current_root}/{UV_CHECKSUM_REL}"
+    uv_release_uri = f"{current_root}/{UV_RELEASE_SPEC_REL}"
+    for uri in (uv_uri, uv_sha_uri, uv_release_uri):
+        if not _gcs_exists(uri):
+            click.echo(f"::error::Missing required pinned uv object: {uri}", err=True)
+            return 1
+
+    # Reuse strict parser for remote checksum content.
+    from uv_pin import parse_sha256_line
+
+    remote_uv_sha = parse_sha256_line(_download_text(uv_sha_uri), require_filename="uv")
     if remote_uv_sha != local_uv_sha:
         click.echo(
             f"::error::Pinned uv checksum mismatch between local source and bucket ({local_uv_sha} != {remote_uv_sha})",
