@@ -1,0 +1,416 @@
+"""BMT workflow step commands (replace bmt_workflow.sh)."""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+from pathlib import Path
+
+from cli import shared, gcs, github_api
+from cli.gh_output import gh_endgroup, gh_group, gh_notice, gh_warning
+from cli.shared import _workflow_run_id, _workflow_runtime_root, get_config
+
+
+def _github_output() -> Path:
+    out = os.environ.get("GITHUB_OUTPUT")
+    if not out:
+        raise RuntimeError("GITHUB_OUTPUT is not set")
+    return Path(out)
+
+
+def _append_step_summary(text: str) -> None:
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        raise RuntimeError("GITHUB_STEP_SUMMARY is not set")
+    with Path(path).open("a", encoding="utf-8") as f:
+        f.write(text)
+
+
+# ---- Context (bmt-prepare) ----
+# emit-bmt-context, validate-required-vars, guard-no-legacy-prefix are now inlined as shell in bmt-prepare/action.yml.
+
+
+def run_resolve_failure_context() -> None:
+    path = _github_output()
+    mode = "no_context" if os.environ.get("PREPARE_RESULT") == "failure" else "context"
+    head_sha = (
+        os.environ.get("PREPARE_HEAD_SHA")
+        or os.environ.get("DISPATCH_HEAD_SHA")
+        or os.environ.get("GITHUB_SHA", "")
+    )
+    pr_number = os.environ.get("PREPARE_PR_NUMBER") or os.environ.get("DISPATCH_PR_NUMBER") or ""
+    vm_handshake_result = (
+        "failure"
+        if (
+            os.environ.get("ORCH_HAS_LEGS") == "true"
+            and os.environ.get("ORCH_HANDSHAKE_OK") != "true"
+        )
+        else "success"
+    )
+    trigger_written = "true" if os.environ.get("ORCH_TRIGGER_WRITTEN") == "true" else "false"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(f"mode={mode}\n")
+        f.write(f"head_sha={head_sha}\n")
+        f.write(f"pr_number={pr_number}\n")
+        f.write(f"vm_handshake_result={vm_handshake_result}\n")
+        f.write(f"trigger_written={trigger_written}\n")
+
+
+# ---- Upload ----
+
+
+def run_filter_upload_matrix() -> None:
+    runner_matrix_raw = os.environ.get("RUNNER_MATRIX")
+    head_sha = os.environ.get("HEAD_SHA")
+    if not runner_matrix_raw or not head_sha:
+        raise RuntimeError("RUNNER_MATRIX and HEAD_SHA are required")
+    matrix = json.loads(runner_matrix_raw)
+    include = matrix.get("include", [])
+    if not isinstance(include, list):
+        raise TypeError("RUNNER_MATRIX.include must be a JSON array")
+    root = _workflow_runtime_root()
+    run_id = os.environ.get("GITHUB_RUN_ID") or _workflow_run_id()
+    need_include: list[dict[str, str]] = []
+    projects_written: set[str] = set()
+
+    for entry in include:
+        if not isinstance(entry, dict):
+            continue
+        project = str(entry.get("project", "")).strip()
+        preset = str(entry.get("preset", "")).strip()
+        if not project or not preset:
+            continue
+        meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
+        payload, err = gcs.download_json(meta_uri)
+        if payload and str(payload.get("source_ref", "")).strip() == head_sha:
+            print(
+                f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]}"
+            )
+            if project not in projects_written:
+                marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
+                with contextlib.suppress(gcs.GcsError):
+                    gcs.write_object(marker_uri, "{}")
+                projects_written.add(project)
+            continue
+        need_include.append(entry)
+    out = {"include": need_include}
+    out_json = json.dumps(out, separators=(",", ":"))
+    path = _github_output()
+    with path.open("a", encoding="utf-8") as f:
+        f.write(f"matrix_need_upload<<FILTER_EOF\n{out_json}\nFILTER_EOF\n")
+    need_count = len(need_include)
+    total = len(include)
+    print(
+        f"::notice::Filter upload matrix: {need_count} leg(s) need upload; "
+        f"{total - need_count} already on GCS for ref {head_sha[:7]}"
+    )
+
+
+# warn-artifact-missing is now inlined as shell in bmt.yml.
+
+
+def run_upload_runner_to_gcs() -> None:
+    from cli.commands import upload_runner
+
+    runner_dir = Path("artifact/Runners")
+    if (runner_dir / "kardome_runner").is_file():
+        with contextlib.suppress(OSError):
+            (runner_dir / "kardome_runner").chmod(0o755)
+    upload_runner.run()
+
+
+# warn-upload-failed and record-uploaded-project-marker are now inlined as shell in bmt.yml.
+
+
+def run_resolve_uploaded_projects() -> None:
+    run_id = _workflow_run_id()
+    root = _workflow_runtime_root()
+    prefix = f"{root}/_workflow/uploaded/{run_id}/"
+    uris = gcs.list_prefix(prefix)
+    names = sorted(u.split("/")[-1].replace(".json", "") for u in uris if u.endswith(".json"))
+    accepted = json.dumps(names)
+    Path("accepted.txt").write_text(accepted)
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with Path(path).open("a", encoding="utf-8") as f:
+            f.write(f"accepted_projects={accepted}\n")
+    gh_notice(f"Runners uploaded for projects: {accepted}")
+
+
+def run_summarize_matrix_handshake() -> None:
+    runner_matrix_raw = os.environ.get("RUNNER_MATRIX", "{}")
+    accepted_raw = os.environ.get("ACCEPTED", "[]")
+    filtered_raw = os.environ.get("FILTERED_MATRIX", "{}")
+    if not runner_matrix_raw or not filtered_raw:
+        raise RuntimeError("RUNNER_MATRIX and FILTERED_MATRIX are required")
+    runner_matrix = json.loads(runner_matrix_raw)
+    accepted = json.loads(accepted_raw)
+    filtered_matrix = json.loads(filtered_raw)
+    requested = sorted(
+        {str(e.get("project", "")).strip() for e in runner_matrix.get("include", []) if e}
+    )
+    bmt_legs = sorted(
+        {str(e.get("project", "")).strip() for e in filtered_matrix.get("include", []) if e}
+    )
+    lines = [
+        "## BMT Matrix Handshake",
+        "",
+        "| Project | Runner uploaded | BMT leg | Status |",
+        "|---------|----------------|---------|--------|",
+    ]
+    for proj in requested:
+        if not proj:
+            continue
+        up = "yes" if proj in accepted else "skipped"
+        if proj in bmt_legs:
+            leg = "yes"
+            status = "Requested (awaiting VM capability ack)"
+        else:
+            leg = "-"
+            status = "Upload failed/warning" if up == "skipped" else "No BMT config"
+        lines.append(f"| {proj} | {up} | {leg} | {status} |")
+    lines.extend(
+        [
+            "",
+            f"**Runners uploaded (supported):** {len(accepted)}",
+            f"**BMT legs to run:** {len(bmt_legs)}",
+        ]
+    )
+    _append_step_summary("\n".join(lines) + "\n")
+
+
+# ---- Trigger / handshake ----
+
+
+# preflight-trigger-queue and write-run-trigger wrappers removed; registered directly in driver.py.
+
+
+def run_force_clean_vm_restart() -> None:
+    import time
+
+    cfg = get_config()
+    cfg.require_gcp()
+    stale_count = int(os.environ.get("STALE_CLEANUP_COUNT", "0"))
+    print(f"Stale trigger cleanup removed {stale_count} file(s); forcing clean VM restart.")
+    try:
+        payload = shared.vm_describe(cfg.gcp_project, cfg.gcp_zone, cfg.bmt_vm_name)
+        status_before = str(payload.get("status", "UNKNOWN"))
+    except shared.GcloudError:
+        status_before = "UNKNOWN"
+    print(f"VM status before restart action: {status_before}")
+    if status_before != "TERMINATED":
+        shared.run_capture(
+            [
+                "gcloud",
+                "compute",
+                "instances",
+                "stop",
+                cfg.bmt_vm_name,
+                "--zone",
+                cfg.gcp_zone,
+                "--project",
+                cfg.gcp_project,
+            ]
+        )
+    for _ in range(24):
+        try:
+            payload = shared.vm_describe(cfg.gcp_project, cfg.gcp_zone, cfg.bmt_vm_name)
+            status_now = str(payload.get("status", "UNKNOWN"))
+        except shared.GcloudError:
+            status_now = "UNKNOWN"
+        if status_now == "TERMINATED":
+            print("VM reached TERMINATED; proceeding with normal start step.")
+            return
+        time.sleep(5)
+    raise RuntimeError("VM did not reach TERMINATED before restart sequence.")
+
+
+def run_wait_handshake() -> None:
+    from cli.commands import vm
+
+    base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "180"))
+    restart_vm = os.environ.get("RESTART_VM", "false").lower() in ("true", "1", "yes")
+    stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")
+    timeout = base_timeout + 60 if restart_vm else base_timeout
+    if restart_vm:
+        print(
+            f"::notice::Handshake branch=post-cleanup-restart stale_cleanup_count={stale_count} timeout={timeout}s"
+        )
+    else:
+        gh_notice(f"Handshake branch=standard timeout={timeout}s")
+    prev = os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC")
+    os.environ["BMT_HANDSHAKE_TIMEOUT_SEC"] = str(timeout)
+    try:
+        vm.run_wait_handshake()
+    finally:
+        if prev is not None:
+            os.environ["BMT_HANDSHAKE_TIMEOUT_SEC"] = prev
+        else:
+            os.environ.pop("BMT_HANDSHAKE_TIMEOUT_SEC", None)
+
+
+def run_handshake_timeout_diagnostics() -> None:
+    run_id = _workflow_run_id()
+    root = _workflow_runtime_root()
+    trigger_uri = f"{root}/triggers/runs/{run_id}.json"
+    ack_uri = f"{root}/triggers/acks/{run_id}.json"
+    cfg = get_config()
+    gh_group("GCS trigger/ack diagnostics")
+    print(f"Trigger URI: {trigger_uri}")
+    print(f"Ack URI: {ack_uri}")
+
+    for uri in (trigger_uri, ack_uri):
+        with contextlib.suppress(gcs.GcsError):
+            raw = gcs.read_object(uri)
+            text = raw.decode("utf-8", errors="replace")
+            for line in text.splitlines()[:120]:
+                print(line)
+    gh_endgroup()
+    gh_group("VM instance diagnostics")
+    with contextlib.suppress(shared.GcloudError):
+        payload = shared.vm_describe(cfg.gcp_project, cfg.gcp_zone, cfg.bmt_vm_name)
+        for k in ("name", "status", "lastStartTimestamp", "lastStopTimestamp"):
+            print(f"{k}: {payload.get(k)}")
+        items = (payload.get("metadata") or {}).get("items") or []
+        for item in items:
+            if isinstance(item, dict):
+                print(f"  {item.get('key')}: {item.get('value')}")
+    gh_endgroup()
+    gh_group("VM serial output tail")
+    with contextlib.suppress(shared.GcloudError):
+        serial = shared.vm_serial_output(cfg.gcp_project, cfg.gcp_zone, cfg.bmt_vm_name)
+        for line in serial.splitlines()[-200:]:
+            print(line)
+    gh_endgroup()
+
+
+# ---- Status updates ----
+
+
+def run_post_pending_status() -> None:
+    """Post a pending commit status to show BMT progress in PR checks.
+    Reads REPOSITORY/GITHUB_REPOSITORY, HEAD_SHA, GITHUB_TOKEN, BMT_STATUS_CONTEXT,
+    BMT_PROGRESS_DESCRIPTION, and optional TARGET_URL from env."""
+    repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
+    head_sha = os.environ.get("HEAD_SHA", "")
+    context = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
+    description = os.environ.get("BMT_PROGRESS_DESCRIPTION", "BMT in progress…")
+    target_url = os.environ.get("TARGET_URL") or None
+    if not repository or not head_sha:
+        gh_warning("Skipping pending status post (missing repository or head_sha).")
+        return
+    try:
+        github_api.post_commit_status(
+            repository, head_sha, "pending", context, description, target_url=target_url
+        )
+        gh_notice(f"Posted pending status '{context}': {description}")
+    except github_api.GitHubApiError as e:
+        gh_warning(f"Failed to post pending status for {head_sha}: {e}")
+
+
+# ---- Failure / summary ----
+
+
+def run_post_handoff_timeout_status() -> None:
+    repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
+    head_sha = os.environ.get("HEAD_SHA", "")
+    context = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
+    description = os.environ.get(
+        "BMT_FAILURE_STATUS_DESCRIPTION",
+        "BMT cancelled: VM handshake timeout before pickup.",
+    )
+    if not repository or not head_sha:
+        gh_warning("Skipping fallback status post (missing repository/head_sha/token).")
+        return
+    try:
+        if not github_api.should_post_failure_status(repository, head_sha, context):
+            print(
+                f"::notice::Fallback status skipped: '{context}' is already terminal for {head_sha}."
+            )
+            return
+        github_api.post_commit_status(repository, head_sha, "error", context, description)
+        gh_notice(f"Posted fallback terminal status '{context}=error' for {head_sha}.")
+    except github_api.GitHubApiError as e:
+        gh_warning(f"Failed to post fallback terminal status for {head_sha}: {e}")
+
+
+def run_cleanup_failed_trigger_artifacts() -> None:
+    run_id = _workflow_run_id()
+    root = _workflow_runtime_root()
+
+    for name in ("runs", "acks", "status"):
+        uri = f"{root}/triggers/{name}/{run_id}.json"
+        with contextlib.suppress(gcs.GcsError):
+            gcs.delete_object(uri)
+    gh_group("Trigger family counts after cleanup")
+    for name in ("runs", "acks", "status"):
+        prefix = f"{root}/triggers/{name}/"
+        uris = gcs.list_prefix(prefix)
+        count = len([u for u in uris if u.endswith(".json")])
+        print(f"{prefix} {count}")
+    gh_endgroup()
+
+
+# stop-vm-best-effort is now inlined as shell in bmt-failure-fallback/action.yml.
+
+
+def run_write_handoff_summary() -> None:
+    mode = os.environ.get("MODE", "")
+    repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
+    head_sha = os.environ.get("HEAD_SHA", "")
+    head_branch = os.environ.get("HEAD_BRANCH", "")
+    head_event = os.environ.get("HEAD_EVENT", "")
+    pr_number = os.environ.get("PR_NUMBER", "")
+    routing_decision = os.environ.get("ROUTING_DECISION", "unknown")
+    runner_matrix_raw = os.environ.get("RUNNER_MATRIX", '{"include":[]}')
+    accepted_projects_raw = os.environ.get("ACCEPTED_PROJECTS", "[]")
+    filtered_matrix_raw = os.environ.get("FILTERED_MATRIX", '{"include":[]}')
+    trigger_written = os.environ.get("TRIGGER_WRITTEN", "false")
+    vm_started = os.environ.get("VM_STARTED", "false")
+    handshake_ok = os.environ.get("HANDSHAKE_OK", "false")
+    handshake_uri = os.environ.get("HANDSHAKE_URI", "")
+    handoff_state_line = os.environ.get("HANDOFF_STATE_LINE", "")
+    failure_reason = os.environ.get("FAILURE_REASON", "")
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    repo_slug = os.environ.get("GITHUB_REPOSITORY", repository)
+    run_url = f"{server}/{repo_slug}/actions/runs/{run_id}" if run_id else ""
+    repo_url = f"{server}/{repository}"
+    pr_url = f"{repo_url}/pull/{pr_number}" if pr_number else ""
+    runner_matrix = json.loads(runner_matrix_raw)
+    accepted_projects = json.loads(accepted_projects_raw)
+    filtered_matrix = json.loads(filtered_matrix_raw)
+    requested_count = len({e.get("project") for e in runner_matrix.get("include", []) if e})
+    uploaded_count = len(accepted_projects) if isinstance(accepted_projects, list) else 0
+    legs_planned = len(filtered_matrix.get("include", []))
+    requested_projects = ", ".join(
+        sorted({str(e.get("project", "")).strip() for e in runner_matrix.get("include", []) if e})
+    )
+    if not handoff_state_line:
+        handoff_state_line = {
+            "run_success": "Handoff complete: VM acknowledged trigger.",
+            "skip": "Handoff complete: no supported uploaded legs to hand off.",
+            "failure": "Handoff failed: VM did not acknowledge trigger.",
+        }.get(mode, "Handoff state unavailable. Check this workflow run.")
+    bmt_status_ctx = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
+    status_icon = "✅" if mode == "run_success" else ("⏭️" if mode == "skip" else "❌")
+    ref_line = f"[#{pr_number}]({pr_url})" if pr_url else f"`{head_branch}` @ `{head_sha[:7]}`"
+    handshake_icon = "✅" if handshake_ok == "true" else "❌"
+    lines = [
+        f"## {status_icon} BMT Handoff — {handoff_state_line}",
+        "",
+        f"| | |",
+        f"|---|---|",
+        f"| Ref | {ref_line} |",
+        f"| Handshake | {handshake_icon} |",
+    ]
+    if failure_reason:
+        lines.append(f"| Failure | {failure_reason} |")
+    if mode == "failure" and handshake_uri:
+        lines.append(f"| Handshake URI | `{handshake_uri}` |")
+    lines.extend([
+        "",
+        f"`{bmt_status_ctx}` is posted by the VM after tests complete.",
+    ])
+    _append_step_summary("\n".join(lines) + "\n")

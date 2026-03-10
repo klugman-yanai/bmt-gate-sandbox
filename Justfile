@@ -107,6 +107,9 @@ check-vm-gcs run_id:
 show-env:
     uv run python tools/gh_show_env.py
 
+diff-core-main:
+    uv run python tools/diff_github_core_main.py
+
 repo-vars-check:
     uv run python tools/gh_repo_vars.py
 

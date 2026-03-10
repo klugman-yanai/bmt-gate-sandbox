@@ -44,33 +44,46 @@ runs:
   using: composite
   steps:
     - name: Install uv
-      uses: astral-sh/setup-uv@v4
+      uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4
       with:
+        version: "0.10.9"
         python-version: "3.12"
 
     - name: Sync BMT uv environment
       shell: bash
-      run: uv sync --project packages/bmt-cli
+      run: uv sync --project .github/bmt
 
     - id: ctx
       shell: bash
-      env:
-        DISPATCH_CI_RUN_ID: ${{ inputs.ci_run_id }}
-        DISPATCH_HEAD_SHA: ${{ inputs.head_sha }}
-        DISPATCH_HEAD_BRANCH: ${{ inputs.head_branch }}
-        DISPATCH_HEAD_EVENT: ${{ inputs.head_event }}
-        DISPATCH_PR_NUMBER: ${{ inputs.pr_number }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh emit-bmt-context
+      run: |
+        {
+          echo "run_id=${{ inputs.ci_run_id }}"
+          echo "head_sha=${{ inputs.head_sha }}"
+          echo "head_branch=${{ inputs.head_branch }}"
+          echo "head_event=${{ inputs.head_event }}"
+          echo "pr_number=${{ inputs.pr_number }}"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Validate required configuration variables
       shell: bash
       run: |
-        bash packages/bmt-cli/scripts/bmt_workflow.sh guard-no-legacy-prefix
-        bash packages/bmt-cli/scripts/bmt_workflow.sh validate-required-vars
+        if [[ -n "${BMT_BUCKET_PREFIX:-}" ]]; then
+          echo "::error::Legacy BMT_BUCKET_PREFIX is set in repository variables. BMT_BUCKET_PREFIX has been removed; clear it in Settings."
+          exit 1
+        fi
+        missing=()
+        for var in GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT GCP_ZONE BMT_VM_NAME; do
+          [[ -n "${!var:-}" ]] || missing+=("$var")
+        done
+        if [[ ${#missing[@]} -gt 0 ]]; then
+          echo "::error::Missing required repo vars: ${missing[*]}"
+          exit 1
+        fi
+        echo "Proceeding with BMT"
 
     - id: parse
       shell: bash
       env:
         BMT_OUTPUT_FORMAT: bmt
         BMT_OUTPUT_KEY: runner_matrix
-      run: uv run --project packages/bmt-cli bmt parse-release-runners
+      run: uv run --project .github/bmt bmt parse-release-runners

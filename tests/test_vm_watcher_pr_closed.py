@@ -50,6 +50,25 @@ def _run_payload(*, run_context: str = "pr", include_pr: bool = True, leg_count:
     return payload
 
 
+def _accepted_requested_legs(legs_raw: list[Any]) -> list[dict[str, Any]]:
+    """Return requested_legs with all legs accepted (for tests that mock GCS resolution)."""
+    result: list[dict[str, Any]] = []
+    for idx, leg in enumerate(legs_raw):
+        if not isinstance(leg, dict):
+            continue
+        result.append(
+            {
+                "index": idx,
+                "project": str(leg.get("project", "?")),
+                "bmt_id": str(leg.get("bmt_id", "?")),
+                "run_id": str(leg.get("run_id", f"run-{idx}")),
+                "decision": "accepted",
+                "reason": None,
+            }
+        )
+    return result
+
+
 def test_closed_before_pickup_skips_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     status_store = _StatusStore()
     handshake_payload: dict[str, Any] = {}
@@ -202,6 +221,11 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
     )
 
     monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload())
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+    )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
@@ -310,6 +334,11 @@ def test_superseded_mid_run_cancels_between_legs_and_upserts_commit_comment(
     )
 
     monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload())
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+    )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
@@ -396,6 +425,11 @@ def test_closed_mid_run_posts_terminal_error_when_first_status_post_fails(
     )
 
     monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload())
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+    )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
@@ -460,6 +494,11 @@ def test_final_check_run_is_created_at_completion_if_startup_creation_fails(
 
     monkeypatch.setattr(
         watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -530,6 +569,11 @@ def test_pr_state_api_failure_fails_open_and_completes(
     post_status_states: list[str] = []
 
     monkeypatch.setattr(watcher, "_gcloud_download_json", lambda _uri: _run_payload())
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+    )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
@@ -600,6 +644,11 @@ def test_non_pr_run_does_not_check_pr_state(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(
         watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
     )
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+    )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
@@ -656,6 +705,11 @@ def test_completed_status_wins_against_late_heartbeat_write(monkeypatch: pytest.
 
     monkeypatch.setattr(
         watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -715,6 +769,11 @@ def test_orchestrator_download_failure_marks_status_failed(monkeypatch: pytest.M
 
     monkeypatch.setattr(
         watcher, "_gcloud_download_json", lambda _uri: _run_payload(run_context="dev", include_pr=False, leg_count=1)
+    )
+    monkeypatch.setattr(
+        watcher,
+        "_resolve_requested_legs",
+        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)

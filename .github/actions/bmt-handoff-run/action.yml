@@ -16,9 +16,8 @@ inputs:
     required: false
     default: ""
   run_context:
-    description: Resolved run context (pr vs dev). If not set, derived from head_event.
-    required: false
-    default: ""
+    description: Resolved run context (pr or dev) from prepare; VM uses for PR-state checks
+    required: true
   filtered_matrix:
     description: JSON matrix of legs to run (from classify-handoff)
     required: true
@@ -36,6 +35,9 @@ inputs:
     required: true
 
 outputs:
+  selected_vm:
+    description: VM name selected from pool for this run
+    value: ${{ steps.select-vm.outputs.selected_vm }}
   trigger_written:
     description: Whether the run trigger was written to GCS
     value: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
@@ -62,75 +64,49 @@ runs:
         service_account: ${{ inputs.service_account }}
         python_version: "3.12"
 
-    - name: Validate WIF/provider consistency
+    - name: Select available VM from pool
+      id: select-vm
       shell: bash
       run: |
-        set -euo pipefail
-        provider="${GCP_WIF_PROVIDER:-}"
-        project_id="${GCP_PROJECT:-}"
-        if [[ -z "$provider" || -z "$project_id" ]]; then
-          echo "::error::GCP_WIF_PROVIDER and GCP_PROJECT must be set."
-          exit 1
-        fi
-        if [[ ! "$provider" =~ ^projects/([0-9]+)/locations/global/workloadIdentityPools/([^/]+)/providers/([^/]+)$ ]]; then
-          echo "::error::Invalid GCP_WIF_PROVIDER format: '$provider'"
-          echo "::error::Expected: projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>"
-          exit 1
-        fi
-        provider_project_number="${BASH_REMATCH[1]}"
-        actual_project_number="$(gcloud projects describe "$project_id" --format='value(projectNumber)' 2>/dev/null || true)"
-        if [[ -z "$actual_project_number" ]]; then
-          echo "::error::Could not resolve project number for GCP_PROJECT='$project_id'."
-          exit 1
-        fi
-        if [[ "$provider_project_number" != "$actual_project_number" ]]; then
-          echo "::error::GCP_WIF_PROVIDER project number mismatch."
-          echo "::error::provider=$provider_project_number project=$actual_project_number"
-          exit 1
-        fi
-        echo "Validated GCP_WIF_PROVIDER project-number alignment."
+        uv run --project .github/bmt bmt select-available-vm
+        # Export selected VM as BMT_VM_NAME so all subsequent steps in this job use it
+        selected_vm="$(grep '^selected_vm=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
+        echo "BMT_VM_NAME=${selected_vm}" >> "$GITHUB_ENV"
 
     - name: Preflight runtime trigger queue (stale cleanup)
       id: preflight
       shell: bash
       env:
-        RUN_CONTEXT: ${{ inputs.run_context || (inputs.head_event == 'pull_request' && 'pr' || 'dev') }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh preflight-trigger-queue
+        RUN_CONTEXT: ${{ inputs.run_context }}
+      run: uv run --project .github/bmt bmt preflight-trigger-queue
 
     - name: Write run trigger to GCS
       id: trigger
       shell: bash
       env:
         FILTERED_MATRIX_JSON: ${{ inputs.filtered_matrix }}
-        RUN_CONTEXT: ${{ inputs.run_context || (inputs.head_event == 'pull_request' && 'pr' || 'dev') }}
+        RUN_CONTEXT: ${{ inputs.run_context }}
         HEAD_EVENT: ${{ inputs.head_event }}
         HEAD_SHA: ${{ inputs.head_sha }}
         HEAD_BRANCH: ${{ inputs.head_branch }}
         PR_NUMBER: ${{ inputs.pr_number }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh write-run-trigger
+      run: uv run --project .github/bmt bmt write-run-trigger
 
     - name: Sync VM metadata from workflow config
       shell: bash
-      run: uv run --project packages/bmt-cli bmt sync-vm-metadata
+      run: uv run --project .github/bmt bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
       if: steps.preflight.outputs.restart_vm == 'true'
       shell: bash
       env:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh force-clean-vm-restart
+      run: uv run --project .github/bmt bmt force-clean-vm-restart
 
     - name: Start BMT VM
       id: start-vm
       shell: bash
-      run: uv run --project packages/bmt-cli bmt start-vm
-
-    - name: Show handshake guidance
-      shell: bash
-      env:
-        RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
-        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh show-handshake-guidance
+      run: uv run --project .github/bmt bmt start-vm
 
     - name: Wait for VM handshake ack
       id: handshake
@@ -139,24 +115,12 @@ runs:
         WORKFLOW_RUN_ID: ${{ github.run_id }}
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh wait-handshake
+      run: uv run --project .github/bmt bmt wait-handshake
 
     - name: Handshake timeout diagnostics
       if: ${{ always() && steps.handshake.outcome == 'failure' }}
       shell: bash
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh handshake-timeout-diagnostics
-
-    - name: Show VM handshake summary
-      if: steps.handshake.outcome == 'success'
-      shell: bash
-      env:
-        ACK_PAYLOAD: ${{ steps.handshake.outputs.handshake_payload }}
-        HANDSHAKE_URI: ${{ steps.handshake.outputs.handshake_uri }}
-        HANDSHAKE_REQUESTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_requested_leg_count }}
-        HANDSHAKE_ACCEPTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_accepted_leg_count }}
-        RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
-        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh show-handshake-summary
+      run: uv run --project .github/bmt bmt handshake-timeout-diagnostics
 
     - name: Fail when VM accepts zero runtime-supported legs
       id: accept-guard

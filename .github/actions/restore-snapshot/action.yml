@@ -1,0 +1,33 @@
+name: Restore repo snapshot
+description: Download and extract the repo-snapshot artifact
+
+inputs:
+  run-id:
+    description: "Run ID to download artifact from (omit for current run)"
+    required: false
+  github-token:
+    description: "GitHub token for cross-run artifact download"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    # run-id set → download from that run; omit → current run. Empty string can yield "Not Found".
+    - name: Download repo-snapshot (from current run)
+      if: ${{ inputs.run-id == '' || inputs.run-id == null }}
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+      with:
+        name: repo-snapshot
+
+    - name: Download repo-snapshot (from run ${{ inputs.run-id }})
+      if: ${{ inputs.run-id != '' && inputs.run-id != null }}
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+      with:
+        name: repo-snapshot
+        run-id: ${{ inputs.run-id }}
+        github-token: ${{ inputs.github-token }}
+
+    - name: Extract repo snapshot
+      shell: bash
+      run: tar -xzf repo-snapshot.tar.gz -C .
