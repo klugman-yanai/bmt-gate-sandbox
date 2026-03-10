@@ -127,19 +127,7 @@ def run_preflight_trigger_queue() -> None:
         if summary:
             summary.write("\n".join(lines) + "\n")
 
-    summary_write(
-        "## Runtime Trigger Preflight",
-        "",
-        f"- Run context: `{run_context}`",
-        f"- Preempt PR stale queue: `{preempt_on_pr}`",
-        f"- Stale trigger threshold (seconds): `{stale_sec}`",
-        f"- Trigger metadata keep recent: `{keep_recent}`",
-        f"- Runtime root: `{root}`",
-        f"- Existing trigger files: **{len(existing)}**",
-        f"- Invalid trigger files: **{len(invalid)}**",
-        f"- Blocking trigger files: **{len(blocking)}**",
-    )
-
+    # Only write to step summary when something actionable happened (cleanup or errors).
     invalid_removed = invalid_missing = invalid_failed = 0
     for uri in invalid:
         try:
@@ -171,7 +159,7 @@ def run_preflight_trigger_queue() -> None:
         )
 
     if not blocking:
-        summary_write("- Action: no blocking trigger cleanup required.")
+        pass  # No summary when no action required.
     elif run_context == "pr" and preempt_on_pr:
         current_pr = os.environ.get("PR_NUMBER", "").strip()
         current_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
@@ -188,8 +176,7 @@ def run_preflight_trigger_queue() -> None:
             summary_write("", "### Same-PR stale triggers found (to remove)", "")
             for uri in same_pr_blocking:
                 summary_write(f"| `{uri}` |")
-        else:
-            summary_write("- Action: no same-PR stale trigger cleanup required.")
+        # When same_pr_blocking is empty, no summary line.
 
         if preserved_blocking:
             summary_write("", "### Preserved queue entries (different PR/run context)", "")
@@ -217,18 +204,19 @@ def run_preflight_trigger_queue() -> None:
             if removed > 0:
                 f.write("restart_vm=true\n")
 
-        summary_write(
-            "",
-            "### Preflight cleanup result",
-            "",
-            f"- Removed same-PR stale run triggers: **{removed}**",
-            f"- Already missing: **{missing}**",
-            f"- Failed removals: **{failed}**",
-            f"- Preserved queue entries: **{len(preserved_blocking)}**",
-            "- Requested VM clean restart before handshake: **yes**"
-            if removed > 0
-            else "- Requested VM clean restart: **no**",
-        )
+        if same_pr_blocking:
+            summary_write(
+                "",
+                "### Preflight cleanup result",
+                "",
+                f"- Removed same-PR stale run triggers: **{removed}**",
+                f"- Already missing: **{missing}**",
+                f"- Failed removals: **{failed}**",
+                f"- Preserved queue entries: **{len(preserved_blocking)}**",
+                "- Requested VM clean restart before handshake: **yes**"
+                if removed > 0
+                else "- Requested VM clean restart: **no**",
+            )
         if failed > 0:
             raise RuntimeError(
                 f"Failed to remove {failed} same-PR stale trigger file(s) under {runs_prefix}. "
@@ -236,9 +224,6 @@ def run_preflight_trigger_queue() -> None:
             )
     else:
         if run_context == "pr" and not preempt_on_pr:
-            summary_write(
-                "- Action: observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); no trigger deletion."
-            )
             if summary:
                 summary.close()
             return
@@ -287,23 +272,21 @@ def run_preflight_trigger_queue() -> None:
     remaining = [u for u in gcs.list_prefix(runs_prefix) if u.endswith(".json")]
     if remaining:
         trim_runs = 0
-        summary_write("- Skipped trigger-run metadata trim: queue entries still exist.")
     else:
         trim_runs = _trim_trigger_family_keep_recent(f"{root}/triggers/runs/", keep_recent)
     trim_acks = _trim_trigger_family_keep_recent(f"{root}/triggers/acks/", keep_recent)
     trim_status = _trim_trigger_family_keep_recent(f"{root}/triggers/status/", keep_recent)
-    summary_write(
-        "",
-        "### Metadata retention trim",
-        "",
-        f"- Trimmed trigger-run JSONs: **{trim_runs}**",
-        f"- Trimmed handshake-ack JSONs: **{trim_acks}**",
-        f"- Trimmed runtime-status JSONs: **{trim_status}**",
-        f"- Total metadata objects trimmed: **{trim_runs + trim_acks + trim_status}**",
-    )
-    for prefix in (f"{root}/triggers/runs/", f"{root}/triggers/acks/", f"{root}/triggers/status/"):
-        count = len([u for u in gcs.list_prefix(prefix) if u.endswith(".json")])
-        summary_write(f"- {prefix} count after cleanup: {count}")
+    total_trimmed = trim_runs + trim_acks + trim_status
+    if total_trimmed > 0:
+        summary_write(
+            "",
+            "### Metadata retention trim",
+            "",
+            f"- Trimmed trigger-run JSONs: **{trim_runs}**",
+            f"- Trimmed handshake-ack JSONs: **{trim_acks}**",
+            f"- Trimmed runtime-status JSONs: **{trim_status}**",
+            f"- Total metadata objects trimmed: **{total_trimmed}**",
+        )
 
     if summary:
         summary.close()
