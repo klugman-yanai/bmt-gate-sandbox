@@ -4,7 +4,7 @@ requires = ["uv_build>=0.10.7,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-# Workspace root: minimal stub package so uv_build has one module; real CLI is in workspace member packages/bmt-cli.
+# Workspace root: minimal stub package so uv_build has one module; BMT CLI lives in .github/bmt.
 module-name = "bmt_cloud_dev"
 module-root = "."
 
@@ -21,10 +21,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-bmt = { workspace = true }
-
-[tool.uv.workspace]
-members = ["packages/bmt-cli"]
+bmt = { path = ".github/bmt", editable = true }
 
 [project.optional-dependencies]
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
@@ -33,7 +30,7 @@ vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# bmt is a workspace member (.github/bmt); root no longer builds it via setuptools find.
+# bmt is sourced from .github/bmt; root package remains a minimal stub.
 
 [tool.basedpyright]
 include = ["."]
@@ -41,7 +38,7 @@ exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime"
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
-extraPaths = ["packages/bmt-cli"]
+extraPaths = [".github/bmt"]
 # Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
 reportExplicitAny = false
 reportAny = false

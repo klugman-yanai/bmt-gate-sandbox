@@ -57,10 +57,10 @@ validate-bucket:
 
 # VM control (manual debug/maintenance/testing only; sync-vm-metadata: skip when in sync, use --force to re-sync)
 sync-vm-metadata:
-    uv run --project packages/bmt-cli bmt sync-vm-metadata
+    uv run --project .github/bmt bmt sync-vm-metadata
 
 start-vm *args:
-    uv run --project packages/bmt-cli bmt start-vm --allow-manual-start {{args}}
+    uv run --project .github/bmt bmt start-vm --allow-manual-start {{args}}
 
 wait-handshake workflow_run_id timeout_sec="180":
     #!/usr/bin/env -S bash -eu
@@ -72,7 +72,7 @@ wait-handshake workflow_run_id timeout_sec="180":
     export GCP_ZONE="${GCP_ZONE:-}"
     export BMT_VM_NAME="${BMT_VM_NAME:-}"
     mkdir -p .local
-    uv run --project packages/bmt-cli bmt wait-handshake
+    uv run --project .github/bmt bmt wait-handshake
 
 # Runtime observability
 monitor *args:

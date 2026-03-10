@@ -1,188 +1,107 @@
 from __future__ import annotations
 
-import os
-import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parents[1]
+_CLI_ROOT = _ROOT / ".github" / "bmt"
+if str(_CLI_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CLI_ROOT))
+
+from cli import gcs  # noqa: E402
+from cli.commands import workflow_trigger  # noqa: E402
 
 
-def _write_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
-    path.chmod(0o755)
+def _valid_trigger_payload(*, triggered_at: str) -> dict[str, object]:
+    return {
+        "workflow_run_id": "111",
+        "repository": "foo/bar",
+        "sha": "0123456789abcdef0123456789abcdef01234567",
+        "ref": "refs/heads/dev",
+        "bucket": "test-bucket",
+        "legs": [{"project": "sk", "bmt_id": "x", "run_id": "r1"}],
+        "triggered_at": triggered_at,
+    }
 
 
-def test_preflight_trigger_queue_treats_not_found_delete_as_success(tmp_path: Path) -> None:
+def test_preflight_trigger_queue_treats_not_found_delete_as_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """
-    Simulate a race where a stale trigger is listed but is deleted before we rm it.
+    Simulate a race where a stale trigger is listed but deleted before remove.
 
-    Expected behavior: preflight exits 0 and does not fail the workflow.
+    Expected behavior: preflight exits successfully and does not request VM restart.
     """
-    repo = _repo_root()
+    run_uri = "gs://test-bucket/runtime/triggers/runs/111.json"
+    runs_prefix = "gs://test-bucket/runtime/triggers/runs/"
+    listed_once = {"value": False}
 
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir(parents=True, exist_ok=True)
-    state_file = tmp_path / "state.txt"
+    def _list_prefix(prefix: str) -> list[str]:
+        if prefix == runs_prefix and not listed_once["value"]:
+            listed_once["value"] = True
+            return [run_uri]
+        return []
 
-    # Stub jq: validation should pass (exit 0).
-    _write_executable(fake_bin / "jq", "#!/usr/bin/env bash\nexit 0\n")
+    def _download_json(uri: str) -> tuple[dict[str, object] | None, str | None]:
+        if uri == run_uri:
+            return _valid_trigger_payload(triggered_at="2000-01-01T00:00:00Z"), None
+        return None, "not found"
 
-    # Stub gcloud for the limited commands used by preflight-trigger-queue.
-    # - First `storage ls` on the runs prefix returns one stale trigger.
-    # - Subsequent `storage ls` calls return nothing (as if it disappeared).
-    # - `storage rm` for the stale trigger returns non-zero and prints the well-known not-found message.
-    gcloud_stub = f"""#!/usr/bin/env bash
-set -euo pipefail
+    def _delete_object(uri: str) -> None:
+        if uri == run_uri:
+            raise gcs.GcsError("404 not found")
 
-if [[ "${{1:-}}" != "storage" ]]; then
-  echo "unexpected gcloud command: $*" >&2
-  exit 2
-fi
+    monkeypatch.setenv("GCS_BUCKET", "test-bucket")
+    monkeypatch.setenv("GITHUB_RUN_ID", "222")
+    monkeypatch.setenv("RUN_CONTEXT", "dev")
+    monkeypatch.setenv("BMT_TRIGGER_STALE_SEC", "900")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output.txt"))
+    monkeypatch.setattr(workflow_trigger.gcs, "list_prefix", _list_prefix)
+    monkeypatch.setattr(workflow_trigger.gcs, "download_json", _download_json)
+    monkeypatch.setattr(workflow_trigger.gcs, "delete_object", _delete_object)
 
-sub="${{2:-}}"
-shift 2 || true
+    workflow_trigger.run_preflight_trigger_queue()
 
-case "$sub" in
-  ls)
-    prefix="${{1:-}}"
-    # First list returns a stale trigger; later lists return empty.
-    if [[ "$prefix" == *"/runtime/triggers/runs/"* ]]; then
-      if [[ ! -f "{state_file}" ]]; then
-        echo "gs://test-bucket/runtime/triggers/runs/111.json"
-        : > "{state_file}"
-      fi
-      exit 0
-    fi
-    # Count-after-cleanup calls for acks/status and other prefixes should succeed with empty output.
-    exit 0
-    ;;
-  cat)
-    # Payload doesn't matter because jq is stubbed to succeed.
-    echo "{{}}"
-    exit 0
-    ;;
-  rm)
-    uri="${{1:-}}"
-    if [[ "$uri" == "gs://test-bucket/runtime/triggers/runs/111.json" ]]; then
-      echo "One or more URLs matched no objects." >&2
-      exit 1
-    fi
-    # acks/status best-effort deletes: also behave as not-found.
-    echo "One or more URLs matched no objects." >&2
-    exit 1
-    ;;
-  *)
-    echo "unexpected gcloud storage subcommand: $sub ($*)" >&2
-    exit 2
-    ;;
-esac
-"""
-    _write_executable(fake_bin / "gcloud", gcloud_stub)
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
-    env["GCS_BUCKET"] = "test-bucket"
-    env["GITHUB_RUN_ID"] = "222"
-    env["RUN_CONTEXT"] = "dev"
-    env["GITHUB_OUTPUT"] = str(tmp_path / "github_output.txt")
-    env["GITHUB_STEP_SUMMARY"] = str(tmp_path / "step_summary.md")
-
-    proc = subprocess.run(
-        ["bash", "packages/bmt-cli/scripts/bmt_workflow.sh", "preflight-trigger-queue"],
-        cwd=repo,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, proc.stdout + "\n" + proc.stderr
-
-    out_text = Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8")
+    out_text = Path(tmp_path / "github_output.txt").read_text(encoding="utf-8")
     assert "restart_vm=false" in out_text
     assert "stale_cleanup_count=0" in out_text
 
 
-def test_preflight_trigger_queue_preserves_fresh_non_pr_trigger(tmp_path: Path) -> None:
+def test_preflight_trigger_queue_preserves_fresh_non_pr_trigger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Fresh non-PR triggers must be preserved (no cross-run trigger deletion)."""
-    repo = _repo_root()
+    run_uri = "gs://test-bucket/runtime/triggers/runs/111.json"
+    runs_prefix = "gs://test-bucket/runtime/triggers/runs/"
+    rm_called = {"value": False}
 
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir(parents=True, exist_ok=True)
-    rm_called = tmp_path / "rm_called.txt"
+    def _list_prefix(prefix: str) -> list[str]:
+        if prefix == runs_prefix:
+            return [run_uri]
+        return []
 
-    # Stub jq:
-    # - validation query (-e) succeeds;
-    # - triggered_at query (-r '.triggered_at // empty') returns a fresh timestamp.
-    jq_stub = """#!/usr/bin/env bash
-set -euo pipefail
-if [[ "$*" == *".triggered_at // empty"* ]]; then
-  echo "2099-01-01T00:00:00Z"
-  exit 0
-fi
-exit 0
-"""
-    _write_executable(fake_bin / "jq", jq_stub)
+    def _download_json(uri: str) -> tuple[dict[str, object] | None, str | None]:
+        if uri == run_uri:
+            return _valid_trigger_payload(triggered_at="2099-01-01T00:00:00Z"), None
+        return None, "not found"
 
-    gcloud_stub = f"""#!/usr/bin/env bash
-set -euo pipefail
+    def _delete_object(_uri: str) -> None:
+        rm_called["value"] = True
 
-if [[ "${{1:-}}" != "storage" ]]; then
-  echo "unexpected gcloud command: $*" >&2
-  exit 2
-fi
+    monkeypatch.setenv("GCS_BUCKET", "test-bucket")
+    monkeypatch.setenv("GITHUB_RUN_ID", "222")
+    monkeypatch.setenv("RUN_CONTEXT", "dev")
+    monkeypatch.setenv("BMT_TRIGGER_STALE_SEC", "900")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output.txt"))
+    monkeypatch.setattr(workflow_trigger.gcs, "list_prefix", _list_prefix)
+    monkeypatch.setattr(workflow_trigger.gcs, "download_json", _download_json)
+    monkeypatch.setattr(workflow_trigger.gcs, "delete_object", _delete_object)
 
-sub="${{2:-}}"
-shift 2 || true
+    workflow_trigger.run_preflight_trigger_queue()
 
-case "$sub" in
-  ls)
-    prefix="${{1:-}}"
-    if [[ "$prefix" == *"/runtime/triggers/runs/"* ]]; then
-      echo "gs://test-bucket/runtime/triggers/runs/111.json"
-      exit 0
-    fi
-    exit 0
-    ;;
-  cat)
-    cat <<'EOF'
-{{"workflow_run_id":"111","repository":"foo/bar","sha":"0123456789abcdef0123456789abcdef01234567","ref":"refs/heads/dev","bucket":"test-bucket","legs":[{{"project":"sk","bmt_id":"x","run_id":"r1"}}],"triggered_at":"2099-01-01T00:00:00Z"}}
-EOF
-    exit 0
-    ;;
-  rm)
-    : > "{rm_called}"
-    exit 0
-    ;;
-  *)
-    echo "unexpected gcloud storage subcommand: $sub ($*)" >&2
-    exit 2
-    ;;
-esac
-"""
-    _write_executable(fake_bin / "gcloud", gcloud_stub)
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
-    env["GCS_BUCKET"] = "test-bucket"
-    env["GITHUB_RUN_ID"] = "222"
-    env["RUN_CONTEXT"] = "dev"
-    env["BMT_TRIGGER_STALE_SEC"] = "900"
-    env["GITHUB_OUTPUT"] = str(tmp_path / "github_output.txt")
-    env["GITHUB_STEP_SUMMARY"] = str(tmp_path / "step_summary.md")
-
-    proc = subprocess.run(
-        ["bash", "packages/bmt-cli/scripts/bmt_workflow.sh", "preflight-trigger-queue"],
-        cwd=repo,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, proc.stdout + "\n" + proc.stderr
-
-    out_text = Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8")
+    out_text = Path(tmp_path / "github_output.txt").read_text(encoding="utf-8")
     assert "restart_vm=false" in out_text
     assert "stale_cleanup_count=0" in out_text
-    assert not rm_called.exists(), "fresh trigger must not be deleted"
+    assert rm_called["value"] is False, "fresh trigger must not be deleted"

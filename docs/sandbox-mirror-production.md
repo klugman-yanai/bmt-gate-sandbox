@@ -22,7 +22,7 @@ The **bmt-gate-sandbox** repo (klugman-yanai/bmt-gate-sandbox) should mirror **p
    When updating the sandbox repo from bmt-gcloud:
    - Copy `.github/workflows/dummy-build-and-test.yml` → sandbox `.github/workflows/build-and-test.yml`
    - Copy `.github/workflows/bmt.yml` and `.github/actions/*` from bmt-gcloud (or core-main once aligned)
-   - Ensure sandbox has the same structure for BMT (e.g. `.github/bmt` or `packages/bmt-cli` as used by the workflow)
+   - Ensure sandbox has the same BMT CLI path and structure (`.github/bmt`) as production.
 
 3. **Repo variables and secrets**  
    Use the **sandbox** GCP/GitHub App configuration (WIF, VM name, bucket, BMT dispatch App, etc.) as defined in `config/env_contract.json` and repo settings. Only the **workflow shape and conditions** mirror production; credentials and resources stay sandbox-specific.
