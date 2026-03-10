@@ -17,7 +17,7 @@ inputs:
 
 outputs:
   path:
-    description: Handoff path decision (run or skip_no_legs)
+    description: Handoff path decision (run or skip_no_legs; job fails when skip_no_legs)
     value: ${{ steps.route.outputs.path }}
   has_legs:
     description: Whether filtered matrix has at least one leg
@@ -41,13 +41,7 @@ runs:
 
     - id: list
       shell: bash
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh resolve-uploaded-projects
-
-    - id: matrix
-      shell: bash
-      env:
-        BMT_CONFIG_ROOT: deploy/code
-      run: uv run --project packages/bmt-cli bmt matrix
+      run: uv run --project .github/bmt bmt resolve-uploaded-projects
 
     - id: filter
       shell: bash
@@ -55,16 +49,7 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         FULL_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED_PROJECTS: ${{ steps.list.outputs.accepted_projects }}
-      run: uv run --project packages/bmt-cli bmt filter-supported-matrix
-
-    - id: route
-      shell: bash
-      run: |
-        if [[ "${{ steps.filter.outputs.has_legs }}" == "true" ]]; then
-          echo "path=run" >>"$GITHUB_OUTPUT"
-        else
-          echo "path=skip_no_legs" >>"$GITHUB_OUTPUT"
-        fi
+      run: uv run --project .github/bmt bmt filter-supported-matrix
 
     - name: Show matrix classification details
       shell: bash
@@ -72,4 +57,15 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED: ${{ steps.list.outputs.accepted_projects }}
         FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
-      run: bash packages/bmt-cli/scripts/bmt_workflow.sh summarize-matrix-handshake
+      run: uv run --project .github/bmt bmt summarize-matrix-handshake
+
+    - id: route
+      shell: bash
+      run: |
+        if [[ "${{ steps.filter.outputs.has_legs }}" == "true" ]]; then
+          echo "path=run" >>"$GITHUB_OUTPUT"
+        else
+          echo "::error::No supported uploaded legs to hand off. BMT requires at least one supported runner."
+          echo "path=skip_no_legs" >>"$GITHUB_OUTPUT"
+          exit 1
+        fi
