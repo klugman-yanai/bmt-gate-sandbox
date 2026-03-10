@@ -92,9 +92,19 @@ def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -
 
 
 def run_select_available_vm() -> None:
-    """Select the first TERMINATED VM from BMT_VM_POOL (or BMT_VM_NAME as single-VM fallback).
-    Pool should have at least two replicas; the second stays TERMINATED until needed.
-    Fails fast if all VMs are busy, with a clear 'No BMT VM is available' message."""
+    """Select a VM from BMT_VM_POOL (or BMT_VM_NAME as single-VM fallback).
+
+    Available VMs are started when needed; they are not necessarily already running.
+    - Prefer the first TERMINATED VM: we will start it and assign this run's trigger to it.
+      Example: vm-0 is RUNNING or STOPPING (e.g. previous run or its cleanup); vm-1 is
+      TERMINATED → select vm-1, start it, and assign the same PR/run to vm-1.
+    - Only if no TERMINATED VM exists (e.g. single-VM pool and it is RUNNING after
+      cancel-in-progress), fall back to the first RUNNING VM and reuse it (longer
+      handshake timeout while it picks up our trigger).
+
+    VMs in STOPPING or other non-TERMINATED, non-RUNNING states are skipped so we
+    wake up another replica (e.g. vm-1) when one (vm-0) is in terminating cleanup.
+    Fails only if no VM in the pool is TERMINATED or RUNNING."""
     cfg = get_config()
     cfg.require_gcp()
     project = cfg.gcp_project
@@ -125,14 +135,29 @@ def run_select_available_vm() -> None:
         status = _vm_status(project, zone, vm_name)
         statuses[vm_name] = status
         print(f"  {vm_name}: {status}")
+        # Prefer TERMINATED: start this VM and assign our trigger (e.g. vm-1 when vm-0 is STOPPING).
         if status == "TERMINATED":
-            print(f"Selected VM: {vm_name} (TERMINATED — available)")
+            print(f"Selected VM: {vm_name} (TERMINATED — will start and assign this run)")
             write_github_output(github_output, "selected_vm", vm_name)
+            write_github_output(github_output, "vm_reused_running", "false")
+            return
+
+    # No TERMINATED VM (e.g. single VM and it is RUNNING, or all replicas busy/STOPPING):
+    # reuse first RUNNING VM so we don't fail; handoff uses longer handshake timeout.
+    for vm_name in pool:
+        if statuses.get(vm_name) == "RUNNING":
+            print(f"Selected VM: {vm_name} (RUNNING — reusing to avoid cold-start timeout)")
+            gh_warning(
+                f"No TERMINATED VM in pool; reusing RUNNING VM {vm_name}. "
+                "Handshake may take longer until the VM picks up this run's trigger."
+            )
+            write_github_output(github_output, "selected_vm", vm_name)
+            write_github_output(github_output, "vm_reused_running", "true")
             return
 
     status_summary = ", ".join(f"{v}={s}" for v, s in statuses.items())
     msg = (
-        f"All {len(pool)} VM(s) in pool are busy — none in TERMINATED state "
+        f"All {len(pool)} VM(s) in pool are busy — none TERMINATED or RUNNING "
         f"({status_summary}). "
         "Wait for an in-progress BMT workflow to finish, then re-trigger this workflow. "
         "To support more concurrent runs, add additional VMs to BMT_VM_POOL."
