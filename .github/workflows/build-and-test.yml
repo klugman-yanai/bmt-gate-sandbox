@@ -26,6 +26,9 @@ concurrency:
   group: ci-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
+# Pass rule (aligned with dev/production): all build jobs must pass for the workflow to pass.
+# - build-release + build-non-release: full matrix; both jobs are required (failure of either fails the run).
+# - bmt-handoff: runs after release builds only (does not wait on non-release) and must pass when it runs.
 jobs:
   checkout-once:
     runs-on: ubuntu-latest
@@ -64,6 +67,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       presets: ${{ steps.parse.outputs.presets }}
+      release_presets: ${{ steps.parse.outputs.release_presets }}
+      non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
     steps:
       - name: Checkout CMakePresets.json
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -94,8 +99,10 @@ jobs:
                 }
             ]' CMakePresets.json)
           echo "presets=$presets" >>"$GITHUB_OUTPUT"
+          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
+          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
 
-  build:
+  build-release:
     needs: [checkout-once, extract-presets]
     runs-on: ubuntu-latest
     permissions:
@@ -105,7 +112,7 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix:
-        include: ${{ fromJson(needs.extract-presets.outputs.presets) }}
+        include: ${{ fromJson(needs.extract-presets.outputs.release_presets) }}
 
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
@@ -176,32 +183,27 @@ jobs:
             echo "::notice::Build clean."
           fi
 
-      # ---- runner artifact for BMT (release presets only) ----
+      # ---- runner artifact for BMT ----
       - name: Setup uv
-        if: ${{ matrix.is_release }}
         uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a  # v4
         with:
-          version: "0.10.9"
+          version: "v0.10.9"
 
       - name: Sync BMT
-        if: ${{ matrix.is_release }}
         run: uv sync --project .github/bmt
 
       - name: Stage release runner payload
-        if: ${{ matrix.is_release }}
         env:
           MATRIX_CONFIGURE: ${{ matrix.configure }}
         run: uv run --project .github/bmt bmt stage-release-runner
 
       - name: Compute runner artifact info
-        if: ${{ matrix.is_release }}
         id: runner-artifact
         env:
           MATRIX_CONFIGURE: ${{ matrix.configure }}
         run: uv run --project .github/bmt bmt compute-preset-info
 
       - name: Upload runner artifact
-        if: ${{ matrix.is_release }}
         timeout-minutes: 8
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
@@ -212,10 +214,91 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-non-release:
+    needs: [checkout-once, extract-presets]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.extract-presets.outputs.non_release_presets) }}
+
+    env:
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+
+    steps:
+      - name: Checkout repo (for local actions)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          sparse-checkout: .github
+
+      - uses: ./.github/actions/checkout-and-restore
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - uses: ./.github/actions/setup-build-env
+        with:
+          configure: ${{ matrix.configure }}
+          build: ${{ matrix.build }}
+
+      # ---- configure ----
+      - name: Configure ( ${{ matrix.configure }} )
+        timeout-minutes: 20
+        continue-on-error: ${{ matrix.soft_fail }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.configure }}" == *webos* || "${{ matrix.build }}" == *webos* ]]; then
+            cmake --preset "${{ matrix.configure }}" \
+              -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+          else
+            cmake --preset "${{ matrix.configure }}"
+          fi
+
+      # ---- build ----
+      - name: Build ( ${{ matrix.short }} )
+        timeout-minutes: 60
+        continue-on-error: ${{ matrix.soft_fail }}
+        run: |
+          set -euo pipefail
+          cmake --build --preset "${{ matrix.build }}" 2>&1 | tee build.log
+          gzip -9 build.log
+
+      # ---- build output ----
+      - name: Check build output
+        run: |
+          set -euo pipefail
+          if [ -f build.log.gz ]; then
+            warnings=$(zgrep -c "warning:" build.log.gz || true)
+            errors=$(zgrep -c "error:"   build.log.gz || true)
+          elif [ -f build.log ]; then
+            warnings=$(grep -c "warning:" build.log || true)
+            errors=$(grep -c "error:"   build.log || true)
+          else
+            echo "No build log found"; exit 0
+          fi
+          echo "Warnings: $warnings"
+          echo "Errors  : $errors"
+          if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
+            if [ "${{ matrix.soft_fail }}" = "true" ]; then
+              echo "::warning::Embedded build had $warnings warnings and $errors errors — NOT failing CI."
+            else
+              echo "::error::Build failed – $warnings warnings, $errors errors."
+              exit 1
+            fi
+          else
+            echo "::notice::Build clean."
+          fi
+
   bmt-handoff:
-    needs: build
+    needs: build-release
     if: >-
-      success()
+      always() && (needs.build-release.result == 'success' || needs.build-release.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       && contains(
         fromJson('["dev","ci/check-bmt-gate"]'),
