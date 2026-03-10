@@ -210,7 +210,17 @@ def run() -> None:
     if not uploaded:
         unchanged = ", ".join(skipped) if skipped else "none"
         print(f"Runner upload skipped: no content changes for {project}/{preset} ({unchanged})")
-        return  # No GCS writes; workflow may still record project marker if ref already present
+        # Still write provenance so the Sign step has a file to sign even when runner is unchanged.
+        _write_runner_provenance(
+            bucket=bucket,
+            root=root,
+            dest_prefix=dest_prefix,
+            local_files=local_files,
+            source_ref=source_ref,
+            project=project,
+            preset=preset,
+        )
+        return
 
     meta = {
         "uploaded_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
