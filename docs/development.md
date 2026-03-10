@@ -202,7 +202,7 @@ To remove existing `__pycache__`, `.pyc`, `.venv`, and similar bloat from the bu
 
 Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/<run_id>.json`.
 
-**Before testing a live PR:** Sync the bucket first (`just sync-deploy && just sync-runtime-seed && just verify-sync`), then commit and push your branch. Syncing before commit ensures the advisory pre-commit hook (`.pre-commit-config.yaml` / `scripts/hooks/pre-commit-sync-deploy.sh`) sees the bucket in sync; the VM will then run the same code and config as your branch.
+**Before testing a live PR:** Sync the bucket first (`just sync-remote && just verify-sync`), then commit and push your branch. The pre-commit hook blocks commits that touch `deploy/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`), so the VM runs the same code and config as your branch.
 
 1. **Validate local layout and code sync**
 
