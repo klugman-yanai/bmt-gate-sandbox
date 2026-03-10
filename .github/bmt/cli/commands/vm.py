@@ -87,6 +87,47 @@ def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -
 
 
 # ---------------------------------------------------------------------------
+# select-available-vm
+# ---------------------------------------------------------------------------
+
+
+def run_select_available_vm() -> None:
+    """Select the first TERMINATED VM from BMT_VM_POOL (or BMT_VM_NAME) and output selected_vm.
+    Fails fast if all VMs are busy (not TERMINATED), avoiding silent handshake timeouts."""
+    cfg = get_config()
+    cfg.require_gcp()
+    project = cfg.gcp_project
+    zone = cfg.gcp_zone
+    github_output = require_env("GITHUB_OUTPUT")
+
+    pool_raw = os.environ.get("BMT_VM_POOL", "").strip()
+    if pool_raw:
+        pool = json.loads(pool_raw)
+        if not isinstance(pool, list) or not pool:
+            raise RuntimeError("BMT_VM_POOL must be a non-empty JSON array of VM name strings")
+        pool = [str(v).strip() for v in pool if str(v).strip()]
+    else:
+        pool = [cfg.bmt_vm_name]
+
+    print(f"VM pool ({len(pool)} instance(s)): {pool}")
+    statuses: dict[str, str] = {}
+    for vm_name in pool:
+        status = _vm_status(project, zone, vm_name)
+        statuses[vm_name] = status
+        print(f"  {vm_name}: {status}")
+        if status == "TERMINATED":
+            print(f"Selected VM: {vm_name} (TERMINATED — available)")
+            write_github_output(github_output, "selected_vm", vm_name)
+            return
+
+    status_summary = ", ".join(f"{v}={s}" for v, s in statuses.items())
+    raise RuntimeError(
+        f"All VMs in pool are busy — none in TERMINATED state ({status_summary}). "
+        "Retry once a run completes or add more VMs to BMT_VM_POOL."
+    )
+
+
+# ---------------------------------------------------------------------------
 # start-vm
 # ---------------------------------------------------------------------------
 

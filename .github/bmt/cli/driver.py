@@ -27,6 +27,7 @@ COMMANDS = {
     "filter-supported-matrix": matrix.run_filter,
     "parse-release-runners": matrix.run_release_runners,
     "upload-runner": upload_runner.run,
+    "select-available-vm": vm.run_select_available_vm,
     "start-vm": vm.run_start,
     "sync-vm-metadata": vm.run_sync_metadata,
     "wait-handshake": workflow.run_wait_handshake,
