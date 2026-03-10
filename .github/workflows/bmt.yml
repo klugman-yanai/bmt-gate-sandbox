@@ -79,7 +79,8 @@ permissions:
 
 jobs:
   # Success: prepare → upload-runners → handoff (classify + run + summary).
-  # Failure: any prior fails → failure-fallback. bmt-outcome fans in both paths for workflow outputs.
+  # Failure: prepare or handoff fails → Gate runs fallback (post status, cleanup) then sets outputs.
+  # Gate (bmt-outcome) always runs after handoff and sets workflow outputs.
   prepare:
     name: Prepare
     runs-on: ubuntu-22.04
@@ -282,16 +283,10 @@ jobs:
       # No separate write-summary step needed; bmt-handoff-run already writes
       # the handoff summary internally (bmt-write-summary with if: always()).
 
-  failure-fallback:
-    name: Fallback
+  bmt-outcome:
+    name: Gate
     needs: [prepare, handoff]
-    # Runs when prepare or handoff failed (not cancelled).
-    if: >-
-      ${{ always()
-          && needs.prepare.result != 'cancelled'
-          && needs.handoff.result != 'cancelled'
-          && (needs.prepare.result == 'failure'
-              || needs.handoff.result == 'failure') }}
+    if: always()
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -300,8 +295,14 @@ jobs:
       statuses: write
     env:
       BMT_VM_NAME: ${{ needs.handoff.outputs.selected_vm || vars.BMT_VM_NAME }}
+    outputs:
+      bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
+      bmt_fallback_run: ${{ steps.outcome.outputs.bmt_fallback_run }}
     steps:
       - name: Checkout repo (for local actions)
+        if: >-
+          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
@@ -309,33 +310,42 @@ jobs:
           sparse-checkout: .github
 
       - uses: ./.github/actions/bmt-job-setup
+        if: >-
+          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build diagnostic context from merged handoff outputs
+        if: >-
+          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
         id: ctx
         shell: bash
         run: |
           classify_outputs=$(jq -nc \
-            --arg path       '${{ needs.handoff.outputs.classify_path }}' \
-            --arg has_legs   '${{ needs.handoff.outputs.has_legs }}' \
-            --argjson accepted_projects '${{ needs.handoff.outputs.accepted_projects }}' \
-            --argjson filtered_matrix   '${{ needs.handoff.outputs.filtered_matrix }}' \
+            --arg path       '${{ needs.handoff.outputs.classify_path || 'unknown' }}' \
+            --arg has_legs   '${{ needs.handoff.outputs.has_legs || 'false' }}' \
+            --argjson accepted_projects '${{ needs.handoff.outputs.accepted_projects || '[]' }}' \
+            --argjson filtered_matrix   '${{ needs.handoff.outputs.filtered_matrix || '{"include":[]}' }}' \
             '{path: $path, has_legs: $has_legs, accepted_projects: $accepted_projects, filtered_matrix: $filtered_matrix}')
           echo "classify_outputs=$classify_outputs" >> "$GITHUB_OUTPUT"
 
           handoff_outputs=$(jq -nc \
-            --arg trigger_written '${{ needs.handoff.outputs.trigger_written }}' \
-            --arg vm_started      '${{ needs.handoff.outputs.vm_started }}' \
-            --arg handshake_ok    '${{ needs.handoff.outputs.handshake_ok }}' \
-            --arg handshake_uri   '${{ needs.handoff.outputs.handshake_uri }}' \
-            --arg handoff_reason  '${{ needs.handoff.outputs.handoff_reason }}' \
+            --arg trigger_written '${{ needs.handoff.outputs.trigger_written || 'false' }}' \
+            --arg vm_started      '${{ needs.handoff.outputs.vm_started || 'false' }}' \
+            --arg handshake_ok    '${{ needs.handoff.outputs.handshake_ok || 'false' }}' \
+            --arg handshake_uri   '${{ needs.handoff.outputs.handshake_uri || '' }}' \
+            --arg handoff_reason  '${{ needs.handoff.outputs.handoff_reason || '' }}' \
             '{trigger_written: $trigger_written, vm_started: $vm_started, handshake_ok: $handshake_ok, handshake_uri: $handshake_uri, handoff_reason: $handoff_reason}')
           echo "handoff_outputs=$handoff_outputs" >> "$GITHUB_OUTPUT"
 
       - name: Failure fallback
+        if: >-
+          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
         uses: ./.github/actions/bmt-failure-fallback
         with:
           prepare_result: ${{ needs.prepare.result }}
@@ -351,16 +361,7 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
           bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
 
-  bmt-outcome:
-    name: Gate
-    needs: [handoff, failure-fallback]
-    if: always()
-    runs-on: ubuntu-22.04
-    outputs:
-      bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
-      bmt_fallback_run: ${{ steps.outcome.outputs.bmt_fallback_run }}
-    steps:
       - id: outcome
         run: |
           echo "bmt_gate_passed=${{ needs.handoff.result == 'success' }}" >> "$GITHUB_OUTPUT"
-          echo "bmt_fallback_run=${{ needs.failure-fallback.result == 'success' }}" >> "$GITHUB_OUTPUT"
+          echo "bmt_fallback_run=${{ needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled' && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure') }}" >> "$GITHUB_OUTPUT"
