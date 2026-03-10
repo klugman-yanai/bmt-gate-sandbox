@@ -27,5 +27,5 @@ Any extra top-level directory (for example `deploy/vmfs`, `deploy/bucket`, `depl
 - Sync runtime seed mirror: `just sync-runtime-seed`
 - Verify both mirrors against bucket manifests: `just verify-sync`
 - Validate local layout policy: `just validate-layout`
-- Pre-commit advisory hook (`scripts/hooks/pre-commit-sync-remote.sh`) warns when `deploy/` and bucket manifests diverge.
+- Pre-commit hook (`scripts/hooks/pre-commit-sync-remote.sh`) blocks commits that touch `deploy/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`).
 - Local diagnostics are non-authoritative and belong under `.local/diagnostics/`.

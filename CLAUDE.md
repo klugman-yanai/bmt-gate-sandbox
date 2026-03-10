@@ -164,7 +164,7 @@ python3 tools/bmt_run_local.py \
 
 Bucket is read from canonical `GCS_BUCKET`; shared helpers live in `tools/shared_bucket_env.py` (fixed code root `gs://<bucket>/code`, runtime root `gs://<bucket>/runtime`). From repo root use `just sync-remote && just verify-sync` (with `GCS_BUCKET`) to update code root manually, and `just show-env` to print the env var names used by CI, VM, and local tools.
 
-**Pre-commit assist:** The prod workflow does not sync `deploy/` to GCS. `.pre-commit-config.yaml` provides an advisory (non-blocking) `deploy/` sync helper.
+**Pre-commit:** The workflow does not sync `deploy/` to GCS. The pre-commit hook (`verify-remote-bucket-sync`) **blocks** commits that touch `deploy/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`). Run `just sync-remote && just verify-sync` before committing deploy changes so the VM has the same code.
 
 ```bash
 GCS_BUCKET="<bucket>" python3 tools/bucket_sync_remote.py
@@ -276,7 +276,7 @@ gh variable set BMT_STATUS_CONTEXT "BMT Gate (test)"
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
 
-**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all` or a JSON array e.g. `["sk"]`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
+**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all` or a JSON array e.g. `["sk"]`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`), `BMT_VM_POOL` (recommend at least two VM names as a JSON array so two concurrent runs can each get a VM; the second replica stays TERMINATED until needed; if unset, single VM `BMT_VM_NAME` is used and a third run will see "No BMT VM is available"). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
 
 For **local** use (e.g. `deploy/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 
