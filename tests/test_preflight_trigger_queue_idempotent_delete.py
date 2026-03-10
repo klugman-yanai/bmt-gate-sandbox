@@ -103,3 +103,86 @@ esac
     assert "restart_vm=false" in out_text
     assert "stale_cleanup_count=0" in out_text
 
+
+def test_preflight_trigger_queue_preserves_fresh_non_pr_trigger(tmp_path: Path) -> None:
+    """Fresh non-PR triggers must be preserved (no cross-run trigger deletion)."""
+    repo = _repo_root()
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir(parents=True, exist_ok=True)
+    rm_called = tmp_path / "rm_called.txt"
+
+    # Stub jq:
+    # - validation query (-e) succeeds;
+    # - triggered_at query (-r '.triggered_at // empty') returns a fresh timestamp.
+    jq_stub = """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *".triggered_at // empty"* ]]; then
+  echo "2099-01-01T00:00:00Z"
+  exit 0
+fi
+exit 0
+"""
+    _write_executable(fake_bin / "jq", jq_stub)
+
+    gcloud_stub = f"""#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${{1:-}}" != "storage" ]]; then
+  echo "unexpected gcloud command: $*" >&2
+  exit 2
+fi
+
+sub="${{2:-}}"
+shift 2 || true
+
+case "$sub" in
+  ls)
+    prefix="${{1:-}}"
+    if [[ "$prefix" == *"/runtime/triggers/runs/"* ]]; then
+      echo "gs://test-bucket/runtime/triggers/runs/111.json"
+      exit 0
+    fi
+    exit 0
+    ;;
+  cat)
+    cat <<'EOF'
+{{"workflow_run_id":"111","repository":"foo/bar","sha":"0123456789abcdef0123456789abcdef01234567","ref":"refs/heads/dev","bucket":"test-bucket","legs":[{{"project":"sk","bmt_id":"x","run_id":"r1"}}],"triggered_at":"2099-01-01T00:00:00Z"}}
+EOF
+    exit 0
+    ;;
+  rm)
+    : > "{rm_called}"
+    exit 0
+    ;;
+  *)
+    echo "unexpected gcloud storage subcommand: $sub ($*)" >&2
+    exit 2
+    ;;
+esac
+"""
+    _write_executable(fake_bin / "gcloud", gcloud_stub)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
+    env["GCS_BUCKET"] = "test-bucket"
+    env["GITHUB_RUN_ID"] = "222"
+    env["RUN_CONTEXT"] = "dev"
+    env["BMT_TRIGGER_STALE_SEC"] = "900"
+    env["GITHUB_OUTPUT"] = str(tmp_path / "github_output.txt")
+    env["GITHUB_STEP_SUMMARY"] = str(tmp_path / "step_summary.md")
+
+    proc = subprocess.run(
+        ["bash", "packages/bmt-cli/scripts/bmt_workflow.sh", "preflight-trigger-queue"],
+        cwd=repo,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + "\n" + proc.stderr
+
+    out_text = Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8")
+    assert "restart_vm=false" in out_text
+    assert "stale_cleanup_count=0" in out_text
+    assert not rm_called.exists(), "fresh trigger must not be deleted"
