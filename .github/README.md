@@ -18,6 +18,6 @@ If reusable job-level logic is needed, use native `workflow_call` reusable workf
 
 1. `google-github-actions/auth@v2` (Workload Identity Federation)
 2. `google-github-actions/setup-gcloud@v2`
-3. Optional `astral-sh/setup-uv@v4`
+3. Optional `astral-sh/setup-uv@v7`
 
 This keeps auth/toolchain versions in one place and removes duplicated setup blocks from workflows. Per-job `permissions` are still defined in each workflow job.
