@@ -154,9 +154,31 @@ def test_startup_example_handles_home_unset(tmp_path: Path) -> None:
     shutil.copy2(_bootstrap_path("ensure_uv.sh"), bootstrap_dir / "ensure_uv.sh")
     (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
+    # Minimal pyproject so startup script can compute dep fingerprint and skip install
+    (repo_root / "pyproject.toml").write_text(
+        "[project]\nname=\"bmt-test\"\nversion=\"0.1.0\"\n", encoding="utf-8"
+    )
+    (repo_root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
     venv_python = repo_root / ".venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True, exist_ok=True)
     _write_executable(venv_python, "#!/usr/bin/env bash\nexit 0\n")
+    # Match startup script fingerprint so it skips install_deps
+    result = subprocess.run(
+        [
+            "bash", "-c",
+            "sha256sum pyproject.toml uv.lock | sha256sum | awk '{print $1}'",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    result.check_returncode()
+    dep_fingerprint = result.stdout.strip()
+    (repo_root / ".venv").mkdir(parents=True, exist_ok=True)
+    (repo_root / ".venv" / ".bmt_dep_fingerprint").write_text(
+        dep_fingerprint + "\n", encoding="utf-8"
+    )
 
     fake_uv = tmp_path / "uv"
     _write_executable(fake_uv, "#!/usr/bin/env bash\nexit 0\n")

@@ -18,21 +18,22 @@ Bootstrap scripts here configure the VM to load watcher code from GCS and execut
 
 ## Scripts
 
-| Script | Purpose |
-| --- | --- |
-| `setup_vm_startup.sh` | Optional/manual: set VM to `startup-script-url` mode using wrapper in GCS. |
-| `rollback_vm_startup_to_inline.sh` | Restore legacy inline startup-script mode. |
-| `startup_wrapper.sh` | Sync code into `BMT_REPO_ROOT`, then run `startup_example.sh`. |
-| `ensure_uv.sh` | Resolve `uv` from `BMT_UV_BIN`, PATH, or pinned code artifact + checksum. |
-| `startup_example.sh` | Install deps only when fingerprint changes, load secrets, run watcher, self-stop VM. |
-| `install_deps.sh` | Run `uv sync --extra vm` and write dependency fingerprint stamp under `.venv/.bmt_dep_fingerprint`. |
-| `export_vm_spec.sh` | Export current VM spec (JSON + summary) for rollback/auditing. |
-| `build_bmt_image.sh` | Build pre-baked runtime image from bucket code (`code/`) with deps preinstalled. |
-| `create_bmt_green_vm.sh` | Create `${BMT_VM_NAME}-v2` from baked image using source VM settings. |
-| `cutover_bmt_vm.sh` | Cut over repo `BMT_VM_NAME` GitHub variable to green VM. |
-| `rollback_bmt_vm.sh` | Roll back repo `BMT_VM_NAME` GitHub variable to blue VM. |
-| `audit_vm_and_bucket.sh` | Audit VM paths and bucket trigger/results layout. |
-| `bmt-watcher.service.example` | Optional systemd service example. |
+| Script | Role | Purpose |
+| --- | --- | --- |
+| `startup_wrapper.sh` | **required** | Sync code into `BMT_REPO_ROOT`, then run `startup_example.sh`. Used by VM metadata startup. |
+| `startup_example.sh` | **required** | Install deps when fingerprint changes, load secrets, run watcher, self-stop VM. |
+| `ensure_uv.sh` | **required** | Resolve `uv` from `BMT_UV_BIN`, PATH, or pinned code artifact + checksum. |
+| `install_deps.sh` | **required** | Run `uv sync` and write dependency fingerprint stamp under `.venv/.bmt_dep_fingerprint`. |
+| `setup_vm_startup.sh` | ops-only | Optional/manual: set VM to `startup-script-url` mode using wrapper in GCS. |
+| `rollback_vm_startup_to_inline.sh` | ops-only | Restore legacy inline startup-script mode. |
+| `export_vm_spec.sh` | ops-only | Export current VM spec (JSON + summary) for rollback/auditing. |
+| `build_bmt_image.sh` | ops-only | Build pre-baked runtime image from bucket code (`code/`) with deps preinstalled. |
+| `create_bmt_green_vm.sh` | ops-only | Create `${BMT_VM_NAME}-v2` from baked image using source VM settings. |
+| `cutover_bmt_vm.sh` | ops-only | Cut over repo `BMT_VM_NAME` GitHub variable to green VM. |
+| `rollback_bmt_vm.sh` | ops-only | Roll back repo `BMT_VM_NAME` GitHub variable to blue VM. |
+| `audit_vm_and_bucket.sh` | ops-only | Audit VM paths and bucket trigger/results layout. |
+| `ssh_install.sh` | ops-only | SSH-based install helper for VM. |
+| `bmt-watcher.service.example` | example | Optional systemd service example. |
 
 ## Required variables
 

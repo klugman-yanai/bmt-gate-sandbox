@@ -16,6 +16,8 @@ You author config/scripts here, test locally against real infra, and push assets
 
 **Canonical flow for testing production CI locally:** [docs/testing-production-ci-locally.md](docs/testing-production-ci-locally.md).
 
+**Docs index:** [docs/README.md](docs/README.md).
+
 ## Time and clocks
 
 Use a single, consistent approach for time so timestamps and durations stay correct and comparable:
@@ -51,6 +53,19 @@ Scripts organized by category prefix:
 - `bmt_monitor.py` — Live TUI dashboard for workflow/VM/GCS status
 - `gh_show_env.py` — Show env vars used by CI, VM, and tools
 - `gh_app_perms.py` — Fetch GitHub App permissions via JWT
+- `gh_repo_vars.py` — Repo vars check/apply; use with `just repo-vars-check`, `just repo-vars-apply`
+- `gh_validate_vm_vars.py` — Validate VM-related vars; `just validate-vm-vars`
+- `bucket_verify_remote_sync.py`, `bucket_verify_runtime_seed_sync.py` — Verify sync (used by `just verify-sync`)
+- `bucket_clean_bloat.py` — Remove Python/uv bloat from GCS; `just clean-bloat`
+- `deploy_layout_policy.py` — Validate `deploy/` as 1:1 bucket mirror; **`just validate-layout`**
+- `repo_layout_policy.py` — Validate repo root (allowed/required top-level); **`just validate-repo-layout`**
+- `env_surface_report.py` — Env surface report (optional)
+- `diff_github_core_main.py` — Diff this repo vs core-main; run with `CORE_MAIN=<path> uv run python tools/diff_github_core_main.py` (see [docs/drift-core-main-vs-bmt-gcloud.md](docs/drift-core-main-vs-bmt-gcloud.md); `just diff-core-main` if defined)
+- `bmt_wait_verdicts.py` — Wait for verdicts (optional/local)
+
+**Layout validators:** Use **`just validate-layout`** to check the `deploy/` directory (code + runtime) matches the bucket mirror contract. Use **`just validate-repo-layout`** to check repo root (allowed top-level dirs/files, required paths). Run both when changing layout or adding root-level entries.
+
+**Config vs repo vars:** **`config/bmt/`** holds shell bootstrap (`.env.example`, `.env.dev`, `.env.prod`, `bootstrap_gh_vars.sh`) for one-off `gh variable set` / `gh secret set` from env files. **`tools/gh_repo_vars.py`** is the programmatic way to check or apply repo vars; use `just repo-vars-check` and `just repo-vars-apply` for day-to-day sync. Use config/bmt when bootstrapping a new repo or loading from env files; use gh_repo_vars for drift check and apply.
 
 All scripts use `click` for CLI parsing. Run `just` to see available recipes.
 
