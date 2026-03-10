@@ -41,7 +41,7 @@ runs:
 
     - name: Checkout (attempt 1, depth=1)
       id: attempt1
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       continue-on-error: true
       timeout-minutes: 5
       with:
@@ -60,7 +60,7 @@ runs:
     - name: Checkout (attempt 2, depth=1)
       id: attempt2
       if: steps.attempt1.outcome == 'failure'
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       continue-on-error: true
       timeout-minutes: 5
       with:
@@ -79,7 +79,7 @@ runs:
     - name: Checkout (attempt 3, depth=0)
       id: attempt3
       if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       continue-on-error: true
       timeout-minutes: 10
       with:
@@ -103,7 +103,7 @@ runs:
 
     - name: Checkout (attempt 4, fallback ref)
       if: steps.attempt3.outcome == 'failure' && inputs.fallback_ref != '' && steps.refkind.outputs.is_sha != 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       timeout-minutes: 10
       with:
         repository: ${{ inputs.repository }}
