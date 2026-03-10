@@ -24,7 +24,7 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     "config",
     "tools",
     "docs",
-    "original_build-and-test.yml",
+    "packages",
     "pyproject.toml",
     "pyrightconfig.json",
     "deploy",
@@ -32,6 +32,8 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     "scripts",
     "tests",
     "uv.lock",
+    ".canary-bmt-pr-test-20260305",
+    "bmt_cloud_dev",
 }
 
 FORBIDDEN_TRACKED_PREFIXES = (

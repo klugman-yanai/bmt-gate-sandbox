@@ -1,0 +1,309 @@
+"""Preflight trigger queue cleanup (same logic as bmt_workflow.sh preflight-trigger-queue)."""
+
+from __future__ import annotations
+
+import contextlib
+import os
+from pathlib import Path
+
+from cli import gcs
+from cli.shared import _workflow_run_id, _workflow_runtime_root
+
+
+def _trigger_payload_is_valid(uri: str) -> bool:
+    payload, err = gcs.download_json(uri)
+    if not payload or err:
+        return False
+    wid = payload.get("workflow_run_id")
+    if not (isinstance(wid, (str, int)) and str(wid)):
+        return False
+    repo = payload.get("repository")
+    if not (isinstance(repo, str) and "/" in repo):
+        return False
+    sha = payload.get("sha")
+    if not (
+        isinstance(sha, str) and len(sha) == 40 and all(c in "0123456789abcdefABCDEF" for c in sha)
+    ):
+        return False
+    ref = payload.get("ref")
+    if not (isinstance(ref, str) and ref.startswith("refs/")):
+        return False
+    bucket = payload.get("bucket")
+    if not (isinstance(bucket, str) and len(bucket) > 0):
+        return False
+    legs = payload.get("legs")
+    if not isinstance(legs, list) or len(legs) == 0:
+        return False
+    for leg in legs:
+        if not isinstance(leg, dict):
+            return False
+        if not (
+            str(leg.get("project", "")).strip()
+            and str(leg.get("bmt_id", "")).strip()
+            and str(leg.get("run_id", "")).strip()
+        ):
+            return False
+    return True
+
+
+def _trigger_identity(uri: str) -> tuple[str, str, str]:
+    payload, _ = gcs.download_json(uri)
+    if not payload:
+        return ("", "", "")
+    repo = str(payload.get("repository", ""))
+    ctx = str(payload.get("run_context", ""))
+    pr = str(payload.get("pull_request_number", ""))
+    return (repo, ctx, pr)
+
+
+def _gcs_rm_idempotent(uri: str) -> str:
+    """Return 'removed' or 'missing'. Raise on real error."""
+    try:
+        gcs.delete_object(uri)
+        return "removed"
+    except gcs.GcsError as e:
+        if "404" in str(e) or "not found" in str(e).lower():
+            return "missing"
+        raise
+
+
+def _trim_trigger_family_keep_recent(prefix_uri: str, keep_recent: int) -> int:
+    uris = [u for u in gcs.list_prefix(prefix_uri) if u.endswith(".json")]
+    if not uris:
+        return 0
+    run_ids = []
+    for u in uris:
+        name = u.split("/")[-1].replace(".json", "")
+        if name:
+            run_ids.append(name)
+    run_ids.sort(reverse=True)
+    keep_ids = run_ids[:keep_recent]
+    keep_set = set(keep_ids)
+    removed = 0
+    for u in uris:
+        rid = u.split("/")[-1].replace(".json", "")
+        if rid not in keep_set:
+            with contextlib.suppress(gcs.GcsError):
+                gcs.delete_object(u)
+                removed += 1
+    return removed
+
+
+def run_preflight_trigger_queue() -> None:
+    run_id = _workflow_run_id()
+    run_context = os.environ.get("RUN_CONTEXT", "dev")
+    preempt_raw = (os.environ.get("BMT_PREEMPT_ON_PR_STALE_QUEUE") or "1").strip().lower()
+    preempt_on_pr = preempt_raw in ("1", "true", "yes", "on")
+    stale_sec = int(os.environ.get("BMT_TRIGGER_STALE_SEC", "900"))
+    keep_recent = max(1, int(os.environ.get("BMT_TRIGGER_METADATA_KEEP_RECENT", "2")))
+    root = _workflow_runtime_root()
+    runs_prefix = f"{root}/triggers/runs/"
+    current_uri = f"{runs_prefix}{run_id}.json"
+
+    path = os.environ.get("GITHUB_OUTPUT")
+    if not path:
+        raise RuntimeError("GITHUB_OUTPUT is not set")
+    out = Path(path)
+    with out.open("a", encoding="utf-8") as f:
+        f.write("restart_vm=false\nstale_cleanup_count=0\n")
+
+    existing = [u for u in gcs.list_prefix(runs_prefix) if u.endswith(".json")]
+    blocking = []
+    invalid = []
+    for uri in existing:
+        if uri == current_uri:
+            continue
+        if _trigger_payload_is_valid(uri):
+            blocking.append(uri)
+        else:
+            invalid.append(uri)
+
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    summary = None
+    if summary_path:
+        summary = Path(summary_path).open("a", encoding="utf-8")  # noqa: SIM115
+
+    def summary_write(*lines: str) -> None:
+        if summary:
+            summary.write("\n".join(lines) + "\n")
+
+    summary_write(
+        "## Runtime Trigger Preflight",
+        "",
+        f"- Run context: `{run_context}`",
+        f"- Preempt PR stale queue: `{preempt_on_pr}`",
+        f"- Stale trigger threshold (seconds): `{stale_sec}`",
+        f"- Trigger metadata keep recent: `{keep_recent}`",
+        f"- Runtime root: `{root}`",
+        f"- Existing trigger files: **{len(existing)}**",
+        f"- Invalid trigger files: **{len(invalid)}**",
+        f"- Blocking trigger files: **{len(blocking)}**",
+    )
+
+    invalid_removed = invalid_missing = invalid_failed = 0
+    for uri in invalid:
+        try:
+            outcome = _gcs_rm_idempotent(uri)
+            if outcome == "removed":
+                invalid_removed += 1
+            else:
+                invalid_missing += 1
+        except gcs.GcsError:
+            invalid_failed += 1
+        rid = uri.split("/")[-1].replace(".json", "")
+        for sub in ("acks", "status"):
+            with contextlib.suppress(gcs.GcsError):
+                gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
+
+    if invalid_removed or invalid_missing or invalid_failed:
+        summary_write(
+            "",
+            "### Invalid trigger cleanup",
+            "",
+            f"- Removed invalid run triggers: **{invalid_removed}**",
+            f"- Already missing: **{invalid_missing}**",
+            f"- Failed invalid-trigger removals: **{invalid_failed}**",
+        )
+    if invalid_failed > 0:
+        raise RuntimeError(
+            f"Failed to remove {invalid_failed} invalid trigger file(s) under {runs_prefix}. "
+            "Ensure the workflow service account has storage.objects.delete on the bucket."
+        )
+
+    if not blocking:
+        summary_write("- Action: no blocking trigger cleanup required.")
+    elif run_context == "pr" and preempt_on_pr:
+        current_pr = os.environ.get("PR_NUMBER", "").strip()
+        current_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        same_pr_blocking = []
+        preserved_blocking = []
+        for uri in blocking:
+            repo, ctx, pr = _trigger_identity(uri)
+            if ctx == "pr" and repo == current_repo and pr == current_pr:
+                same_pr_blocking.append(uri)
+            else:
+                preserved_blocking.append(uri)
+
+        if same_pr_blocking:
+            summary_write("", "### Same-PR stale triggers found (to remove)", "")
+            for uri in same_pr_blocking:
+                summary_write(f"| `{uri}` |")
+        else:
+            summary_write("- Action: no same-PR stale trigger cleanup required.")
+
+        if preserved_blocking:
+            summary_write("", "### Preserved queue entries (different PR/run context)", "")
+            for uri in preserved_blocking:
+                summary_write(f"| `{uri}` |")
+            summary_write("- Isolation policy: different PRs are never preempted by this run.")
+
+        removed = missing = failed = 0
+        for uri in same_pr_blocking:
+            try:
+                outcome = _gcs_rm_idempotent(uri)
+                if outcome == "removed":
+                    removed += 1
+                else:
+                    missing += 1
+            except gcs.GcsError:
+                failed += 1
+            rid = uri.split("/")[-1].replace(".json", "")
+            for sub in ("acks", "status"):
+                with contextlib.suppress(gcs.GcsError):
+                    gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
+
+        with out.open("a", encoding="utf-8") as f:
+            f.write(f"stale_cleanup_count={removed}\n")
+            if removed > 0:
+                f.write("restart_vm=true\n")
+
+        summary_write(
+            "",
+            "### Preflight cleanup result",
+            "",
+            f"- Removed same-PR stale run triggers: **{removed}**",
+            f"- Already missing: **{missing}**",
+            f"- Failed removals: **{failed}**",
+            f"- Preserved queue entries: **{len(preserved_blocking)}**",
+            "- Requested VM clean restart before handshake: **yes**"
+            if removed > 0
+            else "- Requested VM clean restart: **no**",
+        )
+        if failed > 0:
+            raise RuntimeError(
+                f"Failed to remove {failed} same-PR stale trigger file(s) under {runs_prefix}. "
+                "Ensure the workflow service account has storage.objects.delete on the bucket."
+            )
+    else:
+        if run_context == "pr" and not preempt_on_pr:
+            summary_write(
+                "- Action: observational only (BMT_PREEMPT_ON_PR_STALE_QUEUE disabled); no trigger deletion."
+            )
+            if summary:
+                summary.close()
+            return
+
+        summary_write("", "### Stale triggers found (to remove)", "")
+        for uri in blocking:
+            summary_write(f"| `{uri}` |")
+
+        removed = missing = failed = 0
+        for uri in blocking:
+            try:
+                outcome = _gcs_rm_idempotent(uri)
+                if outcome == "removed":
+                    removed += 1
+                else:
+                    missing += 1
+            except gcs.GcsError:
+                failed += 1
+            rid = uri.split("/")[-1].replace(".json", "")
+            for sub in ("acks", "status"):
+                with contextlib.suppress(gcs.GcsError):
+                    gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
+
+        with out.open("a", encoding="utf-8") as f:
+            f.write(f"stale_cleanup_count={removed}\n")
+            if removed > 0:
+                f.write("restart_vm=true\n")
+
+        summary_write(
+            "",
+            "### Preflight cleanup result",
+            "",
+            f"- Removed stale run triggers: **{removed}**",
+            f"- Already missing: **{missing}**",
+            f"- Failed removals: **{failed}**",
+            "- Requested VM clean restart before handshake: **yes**"
+            if removed > 0
+            else "- Requested VM clean restart: **no**",
+        )
+        if failed > 0:
+            raise RuntimeError(
+                f"Failed to remove {failed} stale trigger file(s) under {runs_prefix}. "
+                "Ensure the workflow service account has storage.objects.delete on the bucket."
+            )
+
+    remaining = [u for u in gcs.list_prefix(runs_prefix) if u.endswith(".json")]
+    if remaining:
+        trim_runs = 0
+        summary_write("- Skipped trigger-run metadata trim: queue entries still exist.")
+    else:
+        trim_runs = _trim_trigger_family_keep_recent(f"{root}/triggers/runs/", keep_recent)
+    trim_acks = _trim_trigger_family_keep_recent(f"{root}/triggers/acks/", keep_recent)
+    trim_status = _trim_trigger_family_keep_recent(f"{root}/triggers/status/", keep_recent)
+    summary_write(
+        "",
+        "### Metadata retention trim",
+        "",
+        f"- Trimmed trigger-run JSONs: **{trim_runs}**",
+        f"- Trimmed handshake-ack JSONs: **{trim_acks}**",
+        f"- Trimmed runtime-status JSONs: **{trim_status}**",
+        f"- Total metadata objects trimmed: **{trim_runs + trim_acks + trim_status}**",
+    )
+    for prefix in (f"{root}/triggers/runs/", f"{root}/triggers/acks/", f"{root}/triggers/status/"):
+        count = len([u for u in gcs.list_prefix(prefix) if u.endswith(".json")])
+        summary_write(f"- {prefix} count after cleanup: {count}")
+
+    if summary:
+        summary.close()

@@ -6,7 +6,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 # Workspace root: minimal stub package so uv_build has one module; real CLI is in workspace member packages/bmt-cli.
 module-name = "bmt_cloud_dev"
-module-root = "src"
+module-root = "."
 
 [project]
 name = "bmt-cloud-dev"

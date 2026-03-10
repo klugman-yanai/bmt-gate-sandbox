@@ -90,7 +90,7 @@ esac
     env["GITHUB_STEP_SUMMARY"] = str(tmp_path / "step_summary.md")
 
     proc = subprocess.run(
-        ["bash", ".github/bmt/scripts/bmt_workflow.sh", "preflight-trigger-queue"],
+        ["bash", "packages/bmt-cli/scripts/bmt_workflow.sh", "preflight-trigger-queue"],
         cwd=repo,
         env=env,
         check=False,
