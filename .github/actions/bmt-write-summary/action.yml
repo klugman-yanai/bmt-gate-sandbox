@@ -1,12 +1,12 @@
 name: BMT Write Handoff Summary
-description: Write handoff summary to GITHUB_STEP_SUMMARY. Pass all context as inputs.
+description: Write handoff summary to GITHUB_STEP_SUMMARY.
 
 inputs:
   mode:
-    description: Summary mode (e.g. skip, run_success, failure)
+    description: Summary mode (run_success, skip, failure)
     required: true
   repository:
-    description: GitHub repository (e.g. owner/repo)
+    description: GitHub repository (owner/repo)
     required: true
   head_sha:
     description: Head commit SHA
@@ -14,27 +14,12 @@ inputs:
   head_branch:
     description: Head branch name
     required: true
-  head_event:
-    description: Event that triggered CI (pull_request or push)
-    required: true
   pr_number:
-    description: PR number when head_event is pull_request
+    description: PR number (empty for push events)
     required: false
     default: ""
-  routing_decision:
-    description: Handoff path (run, skip_no_legs, unknown)
-    required: false
-    default: "unknown"
-  runner_matrix:
-    description: JSON runner matrix
-    required: false
-    default: '{"include":[]}'
-  accepted_projects:
-    description: JSON array of accepted project names
-    required: false
-    default: "[]"
   filtered_matrix:
-    description: JSON filtered matrix
+    description: JSON filtered matrix of legs
     required: false
     default: '{"include":[]}'
   trigger_written:
@@ -49,32 +34,12 @@ inputs:
     description: Whether VM acknowledged trigger
     required: false
     default: "false"
-  handshake_uri:
-    description: GCS URI of handshake ack
-    required: false
-    default: ""
   handoff_state_line:
     description: One-line handoff state for summary
     required: false
     default: ""
   failure_reason:
     description: Failure reason when mode is failure
-    required: false
-    default: ""
-  vm_name:
-    description: BMT VM instance name (Google Cloud)
-    required: false
-    default: ""
-  gcp_project:
-    description: GCP project ID
-    required: false
-    default: ""
-  gcp_zone:
-    description: GCP zone (e.g. europe-west4-a)
-    required: false
-    default: ""
-  gcs_bucket:
-    description: GCS bucket used for triggers/artifacts
     required: false
     default: ""
 
@@ -88,20 +53,11 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
         HEAD_SHA: ${{ inputs.head_sha }}
         HEAD_BRANCH: ${{ inputs.head_branch }}
-        HEAD_EVENT: ${{ inputs.head_event }}
         PR_NUMBER: ${{ inputs.pr_number }}
-        ROUTING_DECISION: ${{ inputs.routing_decision }}
-        RUNNER_MATRIX: ${{ inputs.runner_matrix }}
-        ACCEPTED_PROJECTS: ${{ inputs.accepted_projects }}
         FILTERED_MATRIX: ${{ inputs.filtered_matrix }}
         TRIGGER_WRITTEN: ${{ inputs.trigger_written }}
         VM_STARTED: ${{ inputs.vm_started }}
         HANDSHAKE_OK: ${{ inputs.handshake_ok }}
-        HANDSHAKE_URI: ${{ inputs.handshake_uri }}
         HANDOFF_STATE_LINE: ${{ inputs.handoff_state_line }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
-        BMT_VM_NAME: ${{ inputs.vm_name }}
-        GCP_PROJECT: ${{ inputs.gcp_project }}
-        GCP_ZONE: ${{ inputs.gcp_zone }}
-        GCS_BUCKET: ${{ inputs.gcs_bucket }}
       run: uv run --project .github/bmt bmt write-handoff-summary

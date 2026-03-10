@@ -118,16 +118,6 @@ def run_preflight_trigger_queue() -> None:
         else:
             invalid.append(uri)
 
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    summary = None
-    if summary_path:
-        summary = Path(summary_path).open("a", encoding="utf-8")  # noqa: SIM115
-
-    def summary_write(*lines: str) -> None:
-        if summary:
-            summary.write("\n".join(lines) + "\n")
-
-    # Only write to step summary when something actionable happened (cleanup or errors).
     invalid_removed = invalid_missing = invalid_failed = 0
     for uri in invalid:
         try:
@@ -144,14 +134,7 @@ def run_preflight_trigger_queue() -> None:
                 gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
 
     if invalid_removed or invalid_missing or invalid_failed:
-        summary_write(
-            "",
-            "### Invalid trigger cleanup",
-            "",
-            f"- Removed invalid run triggers: **{invalid_removed}**",
-            f"- Already missing: **{invalid_missing}**",
-            f"- Failed invalid-trigger removals: **{invalid_failed}**",
-        )
+        print(f"::notice::Invalid trigger cleanup: removed={invalid_removed} missing={invalid_missing} failed={invalid_failed}")
     if invalid_failed > 0:
         raise RuntimeError(
             f"Failed to remove {invalid_failed} invalid trigger file(s) under {runs_prefix}. "
@@ -173,16 +156,9 @@ def run_preflight_trigger_queue() -> None:
                 preserved_blocking.append(uri)
 
         if same_pr_blocking:
-            summary_write("", "### Same-PR stale triggers found (to remove)", "")
-            for uri in same_pr_blocking:
-                summary_write(f"| `{uri}` |")
-        # When same_pr_blocking is empty, no summary line.
-
+            print(f"::notice::Same-PR stale triggers to remove: {len(same_pr_blocking)}")
         if preserved_blocking:
-            summary_write("", "### Preserved queue entries (different PR/run context)", "")
-            for uri in preserved_blocking:
-                summary_write(f"| `{uri}` |")
-            summary_write("- Isolation policy: different PRs are never preempted by this run.")
+            print(f"::notice::Preserved queue entries (different PR): {len(preserved_blocking)}")
 
         removed = missing = failed = 0
         for uri in same_pr_blocking:
@@ -205,18 +181,8 @@ def run_preflight_trigger_queue() -> None:
                 f.write("restart_vm=true\n")
 
         if same_pr_blocking:
-            summary_write(
-                "",
-                "### Preflight cleanup result",
-                "",
-                f"- Removed same-PR stale run triggers: **{removed}**",
-                f"- Already missing: **{missing}**",
-                f"- Failed removals: **{failed}**",
-                f"- Preserved queue entries: **{len(preserved_blocking)}**",
-                "- Requested VM clean restart before handshake: **yes**"
-                if removed > 0
-                else "- Requested VM clean restart: **no**",
-            )
+            restart = "yes" if removed > 0 else "no"
+            print(f"::notice::Preflight cleanup: removed={removed} missing={missing} failed={failed} preserved={len(preserved_blocking)} restart_vm={restart}")
         if failed > 0:
             raise RuntimeError(
                 f"Failed to remove {failed} same-PR stale trigger file(s) under {runs_prefix}. "
@@ -224,13 +190,9 @@ def run_preflight_trigger_queue() -> None:
             )
     else:
         if run_context == "pr" and not preempt_on_pr:
-            if summary:
-                summary.close()
             return
 
-        summary_write("", "### Stale triggers found (to remove)", "")
-        for uri in blocking:
-            summary_write(f"| `{uri}` |")
+        print(f"::notice::Removing {len(blocking)} stale trigger(s).")
 
         removed = missing = failed = 0
         for uri in blocking:
@@ -252,17 +214,8 @@ def run_preflight_trigger_queue() -> None:
             if removed > 0:
                 f.write("restart_vm=true\n")
 
-        summary_write(
-            "",
-            "### Preflight cleanup result",
-            "",
-            f"- Removed stale run triggers: **{removed}**",
-            f"- Already missing: **{missing}**",
-            f"- Failed removals: **{failed}**",
-            "- Requested VM clean restart before handshake: **yes**"
-            if removed > 0
-            else "- Requested VM clean restart: **no**",
-        )
+        restart = "yes" if removed > 0 else "no"
+        print(f"::notice::Preflight cleanup: removed={removed} missing={missing} failed={failed} restart_vm={restart}")
         if failed > 0:
             raise RuntimeError(
                 f"Failed to remove {failed} stale trigger file(s) under {runs_prefix}. "
@@ -278,15 +231,4 @@ def run_preflight_trigger_queue() -> None:
     trim_status = _trim_trigger_family_keep_recent(f"{root}/triggers/status/", keep_recent)
     total_trimmed = trim_runs + trim_acks + trim_status
     if total_trimmed > 0:
-        summary_write(
-            "",
-            "### Metadata retention trim",
-            "",
-            f"- Trimmed trigger-run JSONs: **{trim_runs}**",
-            f"- Trimmed handshake-ack JSONs: **{trim_acks}**",
-            f"- Trimmed runtime-status JSONs: **{trim_status}**",
-            f"- Total metadata objects trimmed: **{total_trimmed}**",
-        )
-
-    if summary:
-        summary.close()
+        print(f"::notice::Metadata trim: runs={trim_runs} acks={trim_acks} status={trim_status} total={total_trimmed}")

@@ -161,12 +161,7 @@ jobs:
         run: uv run --project .github/bmt bmt filter-upload-matrix
 
       - name: Workflow summary notice
-        run: |
-          echo '## 🟡 Workflow summary (snapshot)' >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "This workflow **triggered the BMT VM** and the VM **has started its work**. This page is a **snapshot** of the run at one point in time. It does **not** mean BMT passed or that the PR will be accepted or rejected." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Where to see live BMT status and final result:** Open the **Checks** tab (at the top of the PR). An automated PR comment will also include a link to the Checks tab." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "::notice::BMT result will appear in the PR Checks tab and Comments, not in this workflow summary."
   upload-runners:
     name: Upload • ${{ matrix.project }}
     needs: prepare
@@ -298,9 +293,6 @@ jobs:
           accepted_projects: ${{ steps.classify.outputs.accepted_projects }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          gcp_zone: ${{ env.GCP_ZONE }}
-          gcs_bucket: ${{ env.GCS_BUCKET }}
       # No separate write-summary step needed; bmt-handoff-run already writes
       # the handoff summary internally (bmt-write-summary with if: always()).
 
@@ -345,23 +337,23 @@ jobs:
           && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
         id: ctx
         shell: bash
+        env:
+          CLASSIFY_PATH: ${{ needs.handoff.outputs.classify_path || 'unknown' }}
+          HAS_LEGS: ${{ needs.handoff.outputs.has_legs || 'false' }}
+          ACCEPTED_PROJECTS: ${{ needs.handoff.outputs.accepted_projects || '[]' }}
+          FILTERED_MATRIX: ${{ needs.handoff.outputs.filtered_matrix || '{"include":[]}' }}
+          TRIGGER_WRITTEN: ${{ needs.handoff.outputs.trigger_written || 'false' }}
+          VM_STARTED: ${{ needs.handoff.outputs.vm_started || 'false' }}
+          HANDSHAKE_OK: ${{ needs.handoff.outputs.handshake_ok || 'false' }}
+          HANDSHAKE_URI: ${{ needs.handoff.outputs.handshake_uri || '' }}
+          HANDOFF_REASON: ${{ needs.handoff.outputs.handoff_reason || '' }}
         run: |
-          classify_outputs=$(jq -nc \
-            --arg path       '${{ needs.handoff.outputs.classify_path || 'unknown' }}' \
-            --arg has_legs   '${{ needs.handoff.outputs.has_legs || 'false' }}' \
-            --argjson accepted_projects '${{ needs.handoff.outputs.accepted_projects || '[]' }}' \
-            --argjson filtered_matrix   '${{ needs.handoff.outputs.filtered_matrix || '{"include":[]}' }}' \
-            '{path: $path, has_legs: $has_legs, accepted_projects: $accepted_projects, filtered_matrix: $filtered_matrix}')
-          echo "classify_outputs=$classify_outputs" >> "$GITHUB_OUTPUT"
-
-          handoff_outputs=$(jq -nc \
-            --arg trigger_written '${{ needs.handoff.outputs.trigger_written || 'false' }}' \
-            --arg vm_started      '${{ needs.handoff.outputs.vm_started || 'false' }}' \
-            --arg handshake_ok    '${{ needs.handoff.outputs.handshake_ok || 'false' }}' \
-            --arg handshake_uri   '${{ needs.handoff.outputs.handshake_uri || '' }}' \
-            --arg handoff_reason  '${{ needs.handoff.outputs.handoff_reason || '' }}' \
-            '{trigger_written: $trigger_written, vm_started: $vm_started, handshake_ok: $handshake_ok, handshake_uri: $handshake_uri, handoff_reason: $handoff_reason}')
-          echo "handoff_outputs=$handoff_outputs" >> "$GITHUB_OUTPUT"
+          echo "classify_outputs=$(jq -nc --arg path "$CLASSIFY_PATH" --arg has_legs "$HAS_LEGS" \
+            --argjson accepted "$ACCEPTED_PROJECTS" --argjson matrix "$FILTERED_MATRIX" \
+            '{path:$path, has_legs:$has_legs, accepted_projects:$accepted, filtered_matrix:$matrix}')" >> "$GITHUB_OUTPUT"
+          echo "handoff_outputs=$(jq -nc --arg tw "$TRIGGER_WRITTEN" --arg vs "$VM_STARTED" --arg ho "$HANDSHAKE_OK" \
+            --arg hu "$HANDSHAKE_URI" --arg hr "$HANDOFF_REASON" \
+            '{trigger_written:$tw, vm_started:$vs, handshake_ok:$ho, handshake_uri:$hu, handoff_reason:$hr}')" >> "$GITHUB_OUTPUT"
 
       - name: Failure fallback
         if: >-
