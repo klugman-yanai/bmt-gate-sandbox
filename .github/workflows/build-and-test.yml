@@ -2,6 +2,10 @@ name: CI
 
 on:
   workflow_dispatch:
+  push:
+    # Only ci/check-bmt-gate (integration branch): PR branches trigger via pull_request, so one run per push.
+    branches:
+      - ci/check-bmt-gate
   pull_request:
     branches:
       - dev
@@ -117,8 +121,6 @@ jobs:
       - uses: ./.github/actions/checkout-and-restore
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          run-id: ${{ github.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: ./.github/actions/setup-build-env
         with:
@@ -215,19 +217,11 @@ jobs:
     if: >-
       success()
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      && (
-        contains(
-          fromJson('["dev","ci/check-bmt-gate"]'),
-          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
-        )
-        || startsWith(
-          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name,
-          'test/check-bmt-gate-'
-        )
+      && contains(
+        fromJson('["dev","ci/check-bmt-gate"]'),
+        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+          && github.event.pull_request.head.ref
+          || github.ref_name
       )
     permissions:
       actions: read

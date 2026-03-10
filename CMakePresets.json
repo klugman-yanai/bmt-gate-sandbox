@@ -7,17 +7,17 @@
   },
   "configurePresets": [
     {
-      "name": "MOCK_gcc_Release",
+      "name": "sk_gcc_Release",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/MOCK/gcc_Release",
+      "binaryDir": "${sourceDir}/build/sk/gcc_Release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "MOCK_gcc_Debug",
+      "name": "sk_gcc_Debug",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/MOCK/gcc_Debug",
+      "binaryDir": "${sourceDir}/build/sk/gcc_Debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -25,12 +25,12 @@
   ],
   "buildPresets": [
     {
-      "name": "MOCK_gcc_Release-build",
-      "configurePreset": "MOCK_gcc_Release"
+      "name": "sk_gcc_Release-build",
+      "configurePreset": "sk_gcc_Release"
     },
     {
-      "name": "MOCK_gcc_Debug-build",
-      "configurePreset": "MOCK_gcc_Debug"
+      "name": "sk_gcc_Debug-build",
+      "configurePreset": "sk_gcc_Debug"
     }
   ]
 }
