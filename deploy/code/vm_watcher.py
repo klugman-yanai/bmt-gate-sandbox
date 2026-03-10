@@ -1192,7 +1192,41 @@ def _process_run_trigger(  # noqa: PLR0911
 
     github_token = github_token_resolver(repository)
     if not github_token:
-        print(f"  Error: GitHub App auth could not be resolved for {repository}; keeping trigger for retry")
+        print(
+            f"  Error: GitHub App auth could not be resolved for {repository}; "
+            "writing handshake ack so workflow does not time out, then skipping run."
+        )
+        # Resolve legs so we can write a valid handshake ack (workflow expects it and times out otherwise).
+        bucket = str(run_payload.get("bucket", "")).strip()
+        code_bucket_root = _code_bucket_root(bucket) if bucket else default_code_bucket_root
+        runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
+        requested_legs = _resolve_requested_legs(legs_raw=legs_raw, code_bucket_root=code_bucket_root)
+        accepted_legs = [{"project": str(l.get("project", "?")), "bmt_id": str(l.get("bmt_id", "?")), "run_id": str(l.get("run_id", "?"))} for l in requested_legs if l.get("decision") == "accepted"]
+        rejected_legs = [
+            {"index": int(l.get("index", -1)), "project": str(l.get("project", "?")), "bmt_id": str(l.get("bmt_id", "?")), "run_id": str(l.get("run_id", "?")), "reason": "github_auth_failed"}
+            for l in requested_legs
+        ]
+        handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
+        handshake_payload = {
+            "support_resolution_version": "v2",
+            "workflow_run_id": str(workflow_run_id),
+            "received_at": _now_iso(),
+            "repository": repository,
+            "sha": sha,
+            "run_context": run_context,
+            "run_trigger_uri": run_trigger_uri,
+            "requested_leg_count": len(requested_legs),
+            "accepted_leg_count": 0,
+            "requested_legs": requested_legs,
+            "accepted_legs": [],
+            "rejected_legs": rejected_legs,
+            "run_disposition": "accepted_but_empty",
+            "skip_reason": "github_auth_failed",
+            "vm": {"hostname": os.uname().nodename, "pid": os.getpid()},
+        }
+        if _gcloud_upload_json(handshake_uri, handshake_payload):
+            print(f"  Wrote VM handshake ack (auth failed): {handshake_uri}")
+        _gcloud_rm(run_trigger_uri)
         return
 
     if not legs_raw:

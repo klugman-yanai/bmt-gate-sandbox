@@ -1,0 +1,8 @@
+{
+  "version": "0.10.9",
+  "artifact_url": "https://github.com/astral-sh/uv/releases/download/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz",
+  "artifact_sha256": "20d79708222611fa540b5c9ed84f352bcd3937740e51aacc0f8b15b271c57594",
+  "binary_sha256": "8f8aa2a27b00bf3b35880b2e943bb8fd58714abe0981f8467b90e75faab41131",
+  "binary_name": "uv",
+  "glibc_max": "2.35"
+}

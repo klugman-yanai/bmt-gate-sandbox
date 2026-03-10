@@ -41,6 +41,8 @@ Bootstrap scripts here configure the VM to load watcher code from GCS and execut
 - `BMT_VM_NAME`
 - `GCS_BUCKET`
 
+**GitHub App secrets (VM):** Stored in GCP Secret Manager in region **europe-west4**, labeled TEST vs PROD. bmt-gate-sandbox uses `GITHUB_APP_TEST_*`; core-main uses `GITHUB_APP_PROD_*`. Bootstrap derives `BMT_SECRETS_LOCATION` from the VM zone so `gcloud secrets` uses the regional endpoint (`--location=europe-west4`).
+
 Optional:
 
 - `BMT_REPO_ROOT` (default `/opt/bmt`)
