@@ -139,7 +139,7 @@ case "$cmd" in
         chmod +x "$binary_dir/Runners/kardome_runner"
         echo "Using real runner from deploy/runtime/sk/runners/ (production-like artifact)"
       else
-        echo "::warning::No real runner for $project; creating placeholder for path-only test"
+        echo "::notice::No real runner for $project; creating placeholder for path-only test"
         touch "$binary_dir/Runners/kardome_runner" "$binary_dir/Kardome/libKardome.so"
         chmod +x "$binary_dir/Runners/kardome_runner"
       fi
