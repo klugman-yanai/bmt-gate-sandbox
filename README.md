@@ -117,6 +117,7 @@ Full index: [docs/README.md](docs/README.md).
 
 ## Notes
 
+- CI canary: trigger workflow (no functional change).
 - Ad-hoc diagnostics: use `.local/diagnostics/` only; do not commit.
 - `uv run bmt ...` commands are for manual/local use only; `bmt.yml` drives normal CI execution.
 - Manual VM start: `just start-vm` (debug/maintenance/testing only); routine starts come from `bmt.yml`.
