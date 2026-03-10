@@ -38,6 +38,9 @@ outputs:
   selected_vm:
     description: VM name selected from pool for this run
     value: ${{ steps.select-vm.outputs.selected_vm }}
+  vm_reused_running:
+    description: Whether a RUNNING VM was reused (no TERMINATED available); handshake uses longer timeout
+    value: ${{ steps.select-vm.outputs.vm_reused_running || 'false' }}
   trigger_written:
     description: Whether the run trigger was written to GCS
     value: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
@@ -115,7 +118,14 @@ runs:
         WORKFLOW_RUN_ID: ${{ github.run_id }}
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: uv run --project .github/bmt bmt wait-handshake
+      run: |
+        # When reusing a RUNNING VM (e.g. after cancel-in-progress), the VM may still be processing
+        # the previous trigger; use a longer handshake timeout so we don't fail before it picks up ours.
+        if [[ "${{ steps.select-vm.outputs.vm_reused_running }}" == "true" ]]; then
+          export BMT_HANDSHAKE_TIMEOUT_SEC="${BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING:-600}"
+          echo "Using extended handshake timeout (reused RUNNING VM): ${BMT_HANDSHAKE_TIMEOUT_SEC}s"
+        fi
+        uv run --project .github/bmt bmt wait-handshake
 
     - name: Handshake timeout diagnostics
       if: ${{ always() && steps.handshake.outcome == 'failure' }}
