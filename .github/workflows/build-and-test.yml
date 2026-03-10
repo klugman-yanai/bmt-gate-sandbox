@@ -121,6 +121,8 @@ jobs:
       - uses: ./.github/actions/checkout-and-restore
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          run-id: ${{ github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: ./.github/actions/setup-build-env
         with:
