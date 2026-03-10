@@ -96,7 +96,6 @@ jobs:
       run_context: ${{ steps.run-context.outputs.run_context }}
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
       matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
-      selected_vm: ${{ steps.select-vm.outputs.selected_vm }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -140,10 +139,6 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           python_version: "3.12"
-
-      - name: Select available VM from pool
-        id: select-vm
-        run: uv run --project .github/bmt bmt select-available-vm
 
       - id: filter
         env:
@@ -233,8 +228,6 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    env:
-      BMT_VM_NAME: ${{ needs.prepare.outputs.selected_vm || vars.BMT_VM_NAME }}
     outputs:
       # Step-level results for failure-fallback diagnostics
       classify_result: ${{ steps.classify.outcome || 'skipped' }}
@@ -245,6 +238,7 @@ jobs:
       accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
       filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
       # Handoff-run outputs
+      selected_vm: ${{ steps.run.outputs.selected_vm || '' }}
       trigger_written: ${{ steps.run.outputs.trigger_written || 'false' }}
       handshake_ok: ${{ steps.run.outputs.handshake_ok || 'false' }}
       handshake_uri: ${{ steps.run.outputs.handshake_uri || '' }}
@@ -305,7 +299,7 @@ jobs:
       id-token: write
       statuses: write
     env:
-      BMT_VM_NAME: ${{ needs.prepare.outputs.selected_vm || vars.BMT_VM_NAME }}
+      BMT_VM_NAME: ${{ needs.handoff.outputs.selected_vm || vars.BMT_VM_NAME }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
