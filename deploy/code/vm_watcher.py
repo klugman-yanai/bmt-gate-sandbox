@@ -1144,7 +1144,8 @@ def _process_run_trigger(  # noqa: PLR0911
     default_runtime_bucket_root: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
-) -> None:
+) -> bool:
+    """Returns True if trigger was consumed (exit-after-run may fire), False if kept for retry."""
     """Download run trigger, run each leg, aggregate, post commit status, release locks, delete trigger."""
     downloaded = _gcloud_download_json(run_trigger_uri)
     if (
@@ -1162,7 +1163,7 @@ def _process_run_trigger(  # noqa: PLR0911
             _gcloud_rm(run_trigger_uri)
         else:
             print(f"  Deferring run trigger after transient download/auth issue: {run_trigger_uri}")
-        return
+        return False
 
     legs_raw = run_payload.get("legs") or []
     if not isinstance(legs_raw, list):
@@ -1193,7 +1194,7 @@ def _process_run_trigger(  # noqa: PLR0911
     github_token = github_token_resolver(repository)
     if not github_token:
         print(f"  Error: GitHub App auth could not be resolved for {repository}; keeping trigger for retry")
-        return
+        return False
 
     if not legs_raw:
         print(f"  Run trigger has no legs: {run_trigger_uri}")
@@ -2013,14 +2014,14 @@ def main() -> int:
             for run_trigger_uri in run_trigger_uris:
                 if _shutdown:
                     break
-                _process_run_trigger(
+                trigger_consumed = _process_run_trigger(
                     run_trigger_uri,
                     code_bucket_root,
                     runtime_bucket_root,
                     workspace_root,
                     github_token_resolver,
                 )
-                if exit_after_run:
+                if exit_after_run and trigger_consumed:
                     print("Exit-after-run: done, exiting so VM can stop.")
                     return 0
         elif idle_deadline is not None and time.monotonic() >= idle_deadline:

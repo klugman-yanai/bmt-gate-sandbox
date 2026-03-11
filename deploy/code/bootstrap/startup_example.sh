@@ -67,6 +67,15 @@ _stop_instance_best_effort() {
 _on_exit() {
   local rc=$?
   trap - EXIT
+  # Upload watcher log to GCS before stopping VM (best-effort; never blocks stop).
+  if [[ -f "${BMT_LOG_FILE:-}" && -n "${GCS_BUCKET:-}" ]]; then
+    local _log_vm_name
+    _log_vm_name=$(curl -sS -H "Metadata-Flavor: Google" \
+      "http://metadata.google.internal/computeMetadata/v1/instance/name" 2>/dev/null || echo "unknown")
+    gcloud storage cp "$BMT_LOG_FILE" \
+      "gs://${GCS_BUCKET}/runtime/logs/${_log_vm_name}-$(date +%Y%m%dT%H%M%S).log" \
+      --quiet 2>/dev/null || echo "Warning: watcher log upload to GCS failed." >&2
+  fi
   _stop_instance_best_effort "$rc"
   exit "$rc"
 }
@@ -302,14 +311,20 @@ _load_github_app_credentials "prod environment" "GITHUB_APP_PROD"
 
 # 4. Run watcher once with uv-managed Python and always attempt self-stop afterwards.
 #    This prevents stale RUNNING VMs after failed runs/startup errors.
+#    Tee all output to a log file; _on_exit uploads it to GCS for post-mortem debugging.
+BMT_LOG_FILE="/tmp/bmt-watcher-$(date +%Y%m%dT%H%M%S).log"
+echo "Watcher log: ${BMT_LOG_FILE} (will be uploaded to gs://${GCS_BUCKET}/runtime/logs/ on exit)"
+
 WATCHER_EXIT=0
-if (cd "$BMT_REPO_ROOT" && "${UV_BIN}" run python vm_watcher.py \
-  --bucket "$GCS_BUCKET" \
-  --workspace-root "$BMT_WORKSPACE_ROOT" \
-  --exit-after-run); then
-  WATCHER_EXIT=0
-else
-  WATCHER_EXIT=$?
+(
+  cd "$BMT_REPO_ROOT"
+  "${UV_BIN}" run python vm_watcher.py \
+    --bucket "$GCS_BUCKET" \
+    --workspace-root "$BMT_WORKSPACE_ROOT" \
+    --exit-after-run 2>&1 | tee "$BMT_LOG_FILE"
+  exit "${PIPESTATUS[0]}"
+) || WATCHER_EXIT=$?
+if [[ "$WATCHER_EXIT" -ne 0 ]]; then
   echo "Watcher exited with non-zero status: ${WATCHER_EXIT}"
 fi
 
