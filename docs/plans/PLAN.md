@@ -31,15 +31,13 @@ Fail-fast guards protect against leftover non-empty legacy prefix configuration 
 
 3. **CI model types** (`.github/scripts/ci/models.py`) — Remove parent-prefix helpers; make code/runtime root helpers fixed; remove `LegOutcome.bucket_prefix`.
 
-4. **Env contract** (`config/env_contract.json`) — Remove `BMT_BUCKET_PREFIX` from all contexts, defaults, and consistency checks.
+4. **Env contract** — Repo vars contract and behavioral defaults live in `tools/repo_vars_contract.py`. Remove any `BMT_BUCKET_PREFIX` from required/optional/defaults if still present.
 
 ## Implementation Plan
 
 ### Phase 1: Contract and Config Baseline
 
-- `config/env_contract.json`: remove `BMT_BUCKET_PREFIX` from all contexts, defaults, and `consistency_checks.repo_vs_vm_metadata`.
-- `config/repo_vars.toml`: remove any `BMT_BUCKET_PREFIX` entry.
-- Keep `GCS_BUCKET` as the canonical bucket identifier.
+- `tools/repo_vars_contract.py`: ensure no `BMT_BUCKET_PREFIX` in required/optional/defaults; keep `GCS_BUCKET` as the canonical bucket identifier.
 
 ### Phase 2: CI Models and Shared Libraries
 

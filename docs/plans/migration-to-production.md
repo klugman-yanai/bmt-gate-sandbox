@@ -115,9 +115,10 @@ cp "$DEV/.github/scripts/workflows/cmd/upload.sh" "$PROD/.github/scripts/workflo
 mkdir -p "$PROD/.github/actions/setup-gcp-uv"
 cp "$DEV/.github/actions/setup-gcp-uv/action.yml" "$PROD/.github/actions/setup-gcp-uv/"
 
-# Config (env contract — used by run_trigger.py for BMT_STATUS_CONTEXT default)
+# Config (env contract lives in tools/repo_vars_contract.py in bmt-gcloud)
+# For prod, ensure DEFAULT_ENV_CONTRACT_PATH or equivalent points to the contract used by run_trigger for BMT_STATUS_CONTEXT default.
 mkdir -p "$PROD/config"
-cp "$DEV/config/env_contract.json" "$PROD/config/"
+# If prod uses a JSON contract file, copy from dev; else contract is in code (repo_vars_contract).
 ```
 
 ### Step 2b: Create prod-specific `repo_paths.py`
@@ -137,8 +138,9 @@ from __future__ import annotations
 # In production, bmt.yml always passes --config-root "$BMT_CONFIG_ROOT".
 DEFAULT_CONFIG_ROOT = "gcp/code"
 DEFAULT_RUNTIME_ROOT = "gcp/runtime"
-DEFAULT_ENV_CONTRACT_PATH = "config/env_contract.json"
-DEFAULT_REPO_VARS_PATH = "config/repo_vars.toml"
+DEFAULT_ENV_CONTRACT_PATH = "tools/repo_vars_contract.py"  # or prod path to contract module/file
+# Optional repo vars override (TOML/JSON) if prod uses one:
+# DEFAULT_REPO_VARS_PATH = "config/repo_vars.toml"
 ```
 
 ### Step 2c: Create prod `pyproject.toml`

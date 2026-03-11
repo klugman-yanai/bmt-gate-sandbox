@@ -55,7 +55,7 @@ Based on the project’s **purpose** — reliably test production CI locally usi
 
 - **Document the production surface** in one place (e.g. in `docs/architecture.md` or a new “Production surface” section):
   - What is copied or reused in production: workflow files (e.g. `bmt.yml`, dispatch), `.github/bmt` CLI (or equivalent), `remote/code` layout and contracts (trigger payload, GCS layout, VM bootstrap).
-  - What stays dev-only: devtools, Justfile, tests, local config (e.g. `config/repo_vars.toml`), `.local/`.
+  - What stays dev-only: devtools, Justfile, tests, local config (e.g. `tools/repo_vars_contract.py` or optional overrides), `.local/`.
 - Add a short checklist or script that validates “local workflow steps match production” (e.g. same bmt subcommands, same trigger payload shape).
 
 **Outcome:** Clear contract for “testing production CI” = “running the same production surface locally,” with less risk of accidental divergence.

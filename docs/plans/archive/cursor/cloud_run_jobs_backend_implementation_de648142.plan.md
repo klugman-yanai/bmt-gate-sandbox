@@ -48,7 +48,7 @@ The current handoff action does the following for every run:
 
 ## What already exists
 
-- **Config:** [docs/configuration.md](docs/configuration.md), [config/env_contract.json](config/env_contract.json), [.github/bmt/config/.env.example](.github/bmt/config/.env.example) define `BMT_RUNTIME_BACKEND` (`vm` | `cloud_run_job`), `BMT_CLOUD_RUN_JOB`, `BMT_CLOUD_RUN_REGION`. Workflow [.github/workflows/bmt.yml](.github/workflows/bmt.yml) passes these into the handoff job.
+- **Config:** [docs/configuration.md](docs/configuration.md), [tools/repo_vars_contract.py](tools/repo_vars_contract.py), [.github/bmt/config/.env.example](.github/bmt/config/.env.example) define `BMT_RUNTIME_BACKEND` (`vm` | `cloud_run_job`), `BMT_CLOUD_RUN_JOB`, `BMT_CLOUD_RUN_REGION`. Workflow [.github/workflows/bmt.yml](.github/workflows/bmt.yml) passes these into the handoff job.
 - **Trigger and handshake:** Trigger is written to `runtime/triggers/runs/<workflow_run_id>.json`; ack is at `runtime/triggers/acks/<workflow_run_id>.json`. [.github/bmt/cli/commands/vm.py](.github/bmt/cli/commands/vm.py) `run_wait_handshake()` polls GCS for the ack using `GITHUB_RUN_ID` and `GCS_BUCKET` — no VM-specific path. Handshake is backend-agnostic.
 - **Tests:** [tests/test_wait_handshake.py](tests/test_wait_handshake.py) (handshake success/timeout/v2 fields), [tests/test_start_vm.py](tests/test_start_vm.py) (start-vm only), [tests/test_ci_commands.py](tests/test_ci_commands.py) (CLI command names). No Cloud Run or backend branch is tested yet.
 

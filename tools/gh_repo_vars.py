@@ -378,7 +378,7 @@ def _render(value: str) -> str:
     "--contract",
     default=None,
     type=click.Path(path_type=Path),
-    help="Env contract path (default: Terraform outputs from infra/terraform)",
+    help="Env contract path (default: tools/repo_vars_contract.py).",
 )
 @click.option("--apply", is_flag=True, help="Apply missing/drifted variables to GitHub")
 @click.option("--prune-extra", is_flag=True, help="Delete repo vars not declared in config (only with --apply)")
