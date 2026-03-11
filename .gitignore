@@ -1,6 +1,4 @@
-*.zip
-# Explicit: large dataset zips (do not commit)
-**/sk_false_rejects.zip
+**.zip
 
 # Build/output junk
 build/
