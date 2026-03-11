@@ -29,10 +29,6 @@ REQUIRED_CODE = [
     "sk/bmt_manager.py",
     "sk/config/bmt_jobs.json",
     "sk/config/input_template.json",
-    "uv.lock",
-    "_tools/uv/linux-x86_64/uv",
-    "_tools/uv/linux-x86_64/uv.sha256",
-    "bootstrap/ensure_uv.sh",
     "bootstrap/startup_wrapper.sh",
 ]
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install VM dependencies for vm_watcher into REPO_ROOT/.venv.
-# Prefers uv (if available) for speed; falls back to pip for portability.
+# Uses pip for portability (no external tool dependencies).
 # Usage: install_deps.sh REPO_ROOT
 
 set -euo pipefail
@@ -16,16 +16,11 @@ if [[ ! -f "$PYPROJECT" ]]; then
   echo "::error::Missing pyproject.toml at $PYPROJECT; cannot install dependencies." >&2
   exit 1
 fi
-UVLOCK="${REPO_ROOT}/uv.lock"
 VENV="${REPO_ROOT}/.venv"
 DEP_STAMP="${VENV}/.bmt_dep_fingerprint"
 
 _compute_dep_fingerprint() {
   local repo_root="$1"
-  if [[ -f "${repo_root}/pyproject.toml" && -f "${repo_root}/uv.lock" ]]; then
-    sha256sum "${repo_root}/pyproject.toml" "${repo_root}/uv.lock" | sha256sum | awk '{print $1}'
-    return 0
-  fi
   if [[ -f "${repo_root}/pyproject.toml" ]]; then
     sha256sum "${repo_root}/pyproject.toml" | awk '{print $1}'
     return 0
@@ -33,46 +28,27 @@ _compute_dep_fingerprint() {
   return 1
 }
 
-# Attempt uv-based install first (fast, uses lock file).
-UV_BIN="${UV_BIN:-${BMT_UV_BIN:-$(command -v uv 2>/dev/null || true)}}"
-if [[ -n "${UV_BIN}" && -x "${UV_BIN}" ]]; then
-  cd "$REPO_ROOT"
-  if [[ -f "$UVLOCK" ]]; then
-    echo "Installing deps via uv sync --extra vm --frozen"
-    "$UV_BIN" sync --extra vm --frozen
-  else
-    echo "Installing deps via uv sync --extra vm (no lock file)"
-    "$UV_BIN" sync --extra vm
-  fi
-  echo "uv install complete."
-else
-  # Fallback: system python3 + pip.
-  # Extract package list from pyproject.toml dependencies and vm extras.
-  echo "uv not available; falling back to pip install."
-
-  PYTHON3="$(command -v python3 || true)"
-  if [[ -z "${PYTHON3}" || ! -x "${PYTHON3}" ]]; then
-    echo "::error::Neither uv nor python3 found; cannot install dependencies." >&2
-    exit 1
-  fi
-
-  # Create venv if missing.
-  if [[ ! -d "${VENV}" ]]; then
-    echo "Creating venv at ${VENV}"
-    "${PYTHON3}" -m venv "${VENV}"
-  fi
-
-  # Install packages from pyproject.toml (base deps + vm extras).
-  # These are pinned in pyproject.toml; for exact versions use pip with constraints from uv.lock.
-  "${VENV}/bin/pip" install --quiet --upgrade pip
-  "${VENV}/bin/pip" install --quiet \
-    "httpx>=0.27" \
-    "google-cloud-storage>=2.16" \
-    "google-cloud-pubsub>=2.21" \
-    "PyJWT>=2.0" \
-    "cryptography>=41.0"
-  echo "pip install complete."
+python3_bin="$(command -v python3 || true)"
+if [[ -z "${python3_bin}" || ! -x "${python3_bin}" ]]; then
+  echo "::error::python3 not found; cannot install dependencies." >&2
+  exit 1
 fi
+
+# Create venv if missing.
+if [[ ! -d "${VENV}" ]]; then
+  echo "Creating venv at ${VENV}"
+  "${python3_bin}" -m venv "${VENV}"
+fi
+
+# Install packages from pyproject.toml (base deps + vm extras).
+"${VENV}/bin/pip" install --quiet --upgrade pip
+"${VENV}/bin/pip" install --quiet \
+  "httpx>=0.27" \
+  "google-cloud-storage>=2.16" \
+  "google-cloud-pubsub>=2.21" \
+  "PyJWT>=2.0" \
+  "cryptography>=41.0"
+echo "pip install complete."
 
 # Write fingerprint stamp.
 if dep_fingerprint="$(_compute_dep_fingerprint "$REPO_ROOT")"; then

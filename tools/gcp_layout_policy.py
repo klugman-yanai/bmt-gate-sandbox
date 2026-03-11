@@ -19,10 +19,7 @@ ALLOWED_TOP_LEVEL = {
 REQUIRED_CODE_FILES = (
     "pyproject.toml",
     "root_orchestrator.py",
-    "uv.lock",
     "vm_watcher.py",
-    "_tools/uv/linux-x86_64/uv.sha256",
-    "bootstrap/ensure_uv.sh",
     "bootstrap/startup_wrapper.sh",
     "bootstrap/startup_example.sh",
     "config/github_repos.json",

@@ -349,25 +349,6 @@ def run_sync_metadata() -> None:
     bucket = cfg.gcs_bucket
     repo_root = (os.environ.get("BMT_REPO_ROOT") or "/opt/bmt").strip() or "/opt/bmt"
     startup_wrapper_script = _load_startup_wrapper_script()
-    code_root = shared.code_bucket_root_uri(bucket)
-
-    required_code_objects = (
-        f"{code_root}/pyproject.toml",
-        f"{code_root}/uv.lock",
-        f"{code_root}/bootstrap/startup_example.sh",
-        f"{code_root}/vm_watcher.py",
-        f"{code_root}/root_orchestrator.py",
-        f"{code_root}/_tools/uv/linux-x86_64/uv",
-        f"{code_root}/_tools/uv/linux-x86_64/uv.sha256",
-    )
-    missing_objects = [uri for uri in required_code_objects if not shared.gcs_exists(uri)]
-    if missing_objects:
-        joined = "\n".join(f"  - {uri}" for uri in missing_objects)
-        raise RuntimeError(
-            "Missing required code objects in bucket namespace. "
-            "Sync code mirror first (just sync-gcp && just verify-sync):\n"
-            f"{joined}"
-        )
 
     # Fail-fast: reject non-empty legacy BMT_BUCKET_PREFIX in VM metadata
     try:

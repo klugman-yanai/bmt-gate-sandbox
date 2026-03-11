@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,10 +48,6 @@ DEFAULT_CODE_EXCLUDES = (
     r"(^|/)sk/outputs(/|$)",
     r"(^|/)sk/results(/|$)",
 )
-
-UV_ARTIFACT_REL = "_tools/uv/linux-x86_64/uv"
-UV_CHECKSUM_REL = "_tools/uv/linux-x86_64/uv.sha256"
-
 
 def _matches(patterns: tuple[str, ...], rel: str) -> bool:
     return any(re.search(pattern, rel) for pattern in patterns)
@@ -149,69 +143,6 @@ def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
         return proc.returncode
 
 
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _read_expected_sha(path: Path) -> str:
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        token = stripped.split()[0]
-        if token:
-            return token
-    return ""
-
-
-def _upload_pinned_uv_artifact(src: Path, dest_root: str) -> dict[str, str]:
-    sha_file = src / UV_CHECKSUM_REL
-    if not sha_file.is_file():
-        raise RuntimeError(f"Missing pinned uv checksum file: {sha_file}")
-
-    expected_sha = _read_expected_sha(sha_file)
-    if not expected_sha:
-        raise RuntimeError(f"Invalid uv checksum file (missing digest): {sha_file}")
-
-    uv_path_raw = (os.environ.get("BMT_UV_TOOL_PATH") or "").strip()
-    if uv_path_raw:
-        uv_tool_path = Path(uv_path_raw)
-    else:
-        uv_on_path = shutil.which("uv")
-        if not uv_on_path:
-            raise RuntimeError("uv binary not found. Set BMT_UV_TOOL_PATH or install uv locally.")
-        uv_tool_path = Path(uv_on_path)
-    if not uv_tool_path.is_file():
-        raise RuntimeError(f"Configured uv artifact path is not a file: {uv_tool_path}")
-
-    actual_sha = _sha256_file(uv_tool_path)
-    if actual_sha != expected_sha:
-        raise RuntimeError(
-            "Pinned uv checksum mismatch. "
-            f"Expected {expected_sha} from {sha_file}, got {actual_sha} from {uv_tool_path}. "
-            "Update gcp/code/_tools/uv/linux-x86_64/uv.sha256 only when intentionally pinning a new uv build."
-        )
-
-    artifact_uri = f"{dest_root}/{UV_ARTIFACT_REL}"
-    click.echo(f"Uploading pinned uv artifact -> {artifact_uri}")
-    proc = subprocess.run(
-        ["gcloud", "storage", "cp", str(uv_tool_path), artifact_uri, "--quiet"],
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"Failed to upload pinned uv artifact to {artifact_uri}")
-
-    return {
-        "uv_artifact_uri": artifact_uri,
-        "uv_artifact_sha256": actual_sha,
-        "uv_artifact_source": str(uv_tool_path),
-    }
-
-
 @click.command()
 @bucket_option
 @click.option("--src-dir", default=DEFAULT_CONFIG_ROOT, help="Source directory to sync (canonical code mirror)")
@@ -252,17 +183,8 @@ def main(
             remote_digest = str(manifest.get("source_digest_sha256", "")).strip()
             remote_count = int(manifest.get("source_file_count", -1))
             if local_digest == remote_digest and local_count == remote_count:
-                skip = True
-                if not include_runtime_artifacts:
-                    local_uv_sha = (
-                        _read_expected_sha(src / UV_CHECKSUM_REL) if (src / UV_CHECKSUM_REL).is_file() else ""
-                    )
-                    remote_uv = str(manifest.get("uv_artifact_sha256", "")).strip()
-                    if remote_uv and local_uv_sha != remote_uv:
-                        skip = False
-                if skip:
-                    click.echo("Code already in sync with bucket; skipping. Use --force to re-sync.")
-                    return 0
+                click.echo("Code already in sync with bucket; skipping. Use --force to re-sync.")
+                return 0
 
     cmd = ["gcloud", "storage", "rsync", "--recursive"]
     if delete:
@@ -279,16 +201,9 @@ def main(
     if rc != 0:
         return rc
 
-    try:
-        uv_metadata = _upload_pinned_uv_artifact(src, dest)
-    except RuntimeError as exc:
-        click.echo(f"::error::{exc}", err=True)
-        return 1
-
     manifest = _local_manifest(src, include_runtime_artifacts)
     manifest["bucket"] = bucket
     manifest["code_prefix"] = "code"
-    manifest.update(uv_metadata)
     manifest["include_runtime_artifacts"] = include_runtime_artifacts
     if not include_runtime_artifacts:
         manifest["excluded_patterns"] = list(DEFAULT_CODE_EXCLUDES)

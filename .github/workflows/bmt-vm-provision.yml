@@ -49,6 +49,29 @@ jobs:
         with:
           terraform_version: "~> 1.7"
 
+      - name: Enforce runtime image policy
+        env:
+          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+        run: |
+          set -euo pipefail
+          expected_family="${{ vars.BMT_EXPECTED_IMAGE_FAMILY }}"
+          expected_family="${expected_family:-bmt-runtime}"
+          if [[ "${{ inputs.image_family }}" != "${expected_family}" ]]; then
+            echo "::error::image_family must be '${expected_family}', got '${{ inputs.image_family }}'"
+            exit 1
+          fi
+          if [[ -n "${{ inputs.image_name }}" ]]; then
+            image_ref="${{ inputs.image_name }}"
+            image_name="${image_ref##*/}"
+            resolved_family="$(gcloud compute images describe "${image_name}" \
+              --project="${GCP_PROJECT}" \
+              --format='value(family)')"
+            if [[ "${resolved_family}" != "${expected_family}" ]]; then
+              echo "::error::image_name '${image_ref}' belongs to family '${resolved_family}', expected '${expected_family}'"
+              exit 1
+            fi
+          fi
+
       - name: Terraform init
         working-directory: infra/terraform
         run: |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Example startup script for the BMT watcher VM.
-# 1. Install VM deps once (uv sync --extra vm from uv.lock; .venv under BMT_REPO_ROOT is persistent across stop/start).
+# 1. Validate pre-baked runtime environment (no boot-time dependency install).
 # 2. Fetch GitHub App credentials from Secret Manager and export.
 # 3. Start vm_watcher.py.
 #
@@ -12,6 +12,9 @@
 set -euo pipefail
 
 _self_stop_enabled="${BMT_SELF_STOP:-1}"
+BMT_LOG_FILE="/tmp/bmt-startup-$(date +%Y%m%dT%H%M%S).log"
+touch "$BMT_LOG_FILE"
+exec > >(tee -a "$BMT_LOG_FILE") 2>&1
 
 # shellcheck disable=SC2329
 _stop_instance_best_effort() {
@@ -82,6 +85,8 @@ _on_exit() {
 
 trap _on_exit EXIT
 
+echo "Startup log: ${BMT_LOG_FILE}"
+
 # --- Read from GCP instance metadata if not already set (matches GH variables) ---
 _read_meta() {
   local key="$1"
@@ -120,67 +125,46 @@ fi
 
 VENV="${BMT_REPO_ROOT}/.venv"
 WATCHER="${BMT_REPO_ROOT}/vm_watcher.py"
-DEP_STAMP="${VENV}/.bmt_dep_fingerprint"
 
 if [[ ! -f "${WATCHER}" ]]; then
   echo "::error::Missing watcher entrypoint: ${WATCHER}" >&2
   exit 1
 fi
 
-# 1. (Optional) Resolve uv binary for dep install fallback — not required if venv is pre-baked.
-ENSURE_UV="${BMT_REPO_ROOT}/bootstrap/ensure_uv.sh"
-UV_BIN=""
-if [[ -f "${ENSURE_UV}" ]]; then
-  # shellcheck source=/dev/null
-  source "${ENSURE_UV}" 2>/dev/null || true
+PYTHON_BIN="${VENV}/bin/python"
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+  echo "::error::Missing pre-baked python at ${PYTHON_BIN}" >&2
+  echo "::error::Runtime dependency install is disabled at startup; rebuild/provision image." >&2
+  exit 1
 fi
 
-# 2. Install deps when required (fingerprint or import mismatch).
-_compute_dep_fingerprint() {
-  local repo_root="$1"
-  local pyproject="${repo_root}/pyproject.toml"
-  local uvlock="${repo_root}/uv.lock"
-  if [[ -f "$pyproject" && -f "$uvlock" ]]; then
-    sha256sum "$pyproject" "$uvlock" | sha256sum | awk '{print $1}'
-    return 0
-  fi
-  if [[ -f "$pyproject" ]]; then
-    sha256sum "$pyproject" | awk '{print $1}'
-    return 0
-  fi
-  return 1
-}
+if ! "${PYTHON_BIN}" - <<'PY'
+import importlib.util
+import sys
 
-dep_fingerprint="$(_compute_dep_fingerprint "$BMT_REPO_ROOT" || true)"
-deps_reason=""
-needs_deps_install=0
+required = [
+    "jwt",
+    "cryptography",
+    "httpx",
+    "google.cloud.storage",
+]
+missing = [name for name in required if importlib.util.find_spec(name) is None]
+if (
+    importlib.util.find_spec("google.cloud.pubsub_v1") is None
+    and importlib.util.find_spec("google.cloud.pubsub") is None
+):
+    missing.append("google.cloud.pubsub_v1|google.cloud.pubsub")
 
-if [[ ! -d "$VENV" ]]; then
-  needs_deps_install=1
-  deps_reason="venv_missing"
-elif [[ ! -x "${VENV}/bin/python" ]] || ! "${VENV}/bin/python" -c "import jwt" 2>/dev/null; then
-  needs_deps_install=1
-  deps_reason="runtime_import_check_failed"
-elif [[ -z "$dep_fingerprint" ]]; then
-  needs_deps_install=1
-  deps_reason="fingerprint_unavailable"
-elif [[ ! -f "$DEP_STAMP" ]]; then
-  needs_deps_install=1
-  deps_reason="fingerprint_stamp_missing"
-else
-  current_fingerprint="$(tr -d '[:space:]' <"$DEP_STAMP" || true)"
-  if [[ "$current_fingerprint" != "$dep_fingerprint" ]]; then
-    needs_deps_install=1
-    deps_reason="fingerprint_mismatch"
-  fi
+if missing:
+    print("Missing required pre-baked modules:", ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+PY
+then
+  echo "::error::Pre-baked runtime import validation failed." >&2
+  echo "::error::Runtime dependency install is disabled at startup; rebuild/provision image." >&2
+  exit 1
 fi
-
-if [[ "$needs_deps_install" -eq 1 ]]; then
-  echo "Dependency install required (${deps_reason})."
-  bash "${BMT_REPO_ROOT}/bootstrap/install_deps.sh" "$BMT_REPO_ROOT"
-else
-  echo "Dependency fingerprint match (${dep_fingerprint}); skipping install."
-fi
+echo "Pre-baked runtime validation passed."
 
 # 3. Fetch secrets and export.
 # Canonical groups:
@@ -299,15 +283,7 @@ _load_github_app_credentials "test environment" "GITHUB_APP_TEST"
 _load_github_app_credentials "prod environment" "GITHUB_APP_PROD"
 
 # 4. Run watcher using the pre-baked venv python.
-#    Tee all output to a log file; _on_exit uploads it to GCS for post-mortem debugging.
-PYTHON_BIN="${VENV}/bin/python"
-if [[ ! -x "${PYTHON_BIN}" ]]; then
-  echo "::error::No python at ${PYTHON_BIN}; dep install may have failed." >&2
-  exit 1
-fi
-
-BMT_LOG_FILE="/tmp/bmt-watcher-$(date +%Y%m%dT%H%M%S).log"
-echo "Watcher log: ${BMT_LOG_FILE} (will be uploaded to gs://${GCS_BUCKET}/runtime/logs/ on exit)"
+echo "Launching watcher from pre-baked runtime."
 
 WATCHER_EXIT=0
 _watcher_extra_args=()
@@ -322,8 +298,7 @@ fi
     --bucket "$GCS_BUCKET" \
     --workspace-root "$BMT_WORKSPACE_ROOT" \
     --exit-after-run \
-    "${_watcher_extra_args[@]}" 2>&1 | tee "$BMT_LOG_FILE"
-  exit "${PIPESTATUS[0]}"
+    "${_watcher_extra_args[@]}"
 ) || WATCHER_EXIT=$?
 if [[ "$WATCHER_EXIT" -ne 0 ]]; then
   echo "Watcher exited with non-zero status: ${WATCHER_EXIT}"

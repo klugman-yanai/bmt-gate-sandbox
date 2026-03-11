@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a pre-baked BMT runtime image (deps preinstalled, code still synced at runtime).
+# Build a pre-baked BMT runtime image (code + deps baked into /opt/bmt).
 # Uses bucket code as source of truth for bake content.
 #
 # Required env vars:
@@ -10,6 +10,8 @@
 #   BMT_IMAGE_NAME                  (default: <family>-YYYYMMDD-HHMMSS)
 #   BMT_BASE_IMAGE_FAMILY           (default: ubuntu-2204-lts)
 #   BMT_BASE_IMAGE_PROJECT          (default: ubuntu-os-cloud)
+#   BMT_EXPECTED_IMAGE_FAMILY       (default: bmt-runtime)
+#   BMT_EXPECTED_BASE_IMAGE_FAMILY  (default: ubuntu-2204-lts)
 #   BMT_IMAGE_BUILDER_MACHINE_TYPE  (default: e2-standard-4)
 #   BMT_IMAGE_BUILDER_VM_NAME       (default: <BMT_VM_NAME>-image-builder-<timestamp>)
 #   BMT_KEEP_IMAGE_BUILDER          (default: 0; set 1 for debugging failures)
@@ -28,11 +30,22 @@ GCS_BUCKET="${GCS_BUCKET:-}"
 BMT_IMAGE_FAMILY="${BMT_IMAGE_FAMILY:-bmt-runtime}"
 BMT_BASE_IMAGE_FAMILY="${BMT_BASE_IMAGE_FAMILY:-ubuntu-2204-lts}"
 BMT_BASE_IMAGE_PROJECT="${BMT_BASE_IMAGE_PROJECT:-ubuntu-os-cloud}"
+BMT_EXPECTED_IMAGE_FAMILY="${BMT_EXPECTED_IMAGE_FAMILY:-bmt-runtime}"
+BMT_EXPECTED_BASE_IMAGE_FAMILY="${BMT_EXPECTED_BASE_IMAGE_FAMILY:-ubuntu-2204-lts}"
 BMT_IMAGE_BUILDER_MACHINE_TYPE="${BMT_IMAGE_BUILDER_MACHINE_TYPE:-e2-standard-4}"
 BMT_KEEP_IMAGE_BUILDER="${BMT_KEEP_IMAGE_BUILDER:-0}"
 
 if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$BMT_VM_NAME" || -z "$GCS_BUCKET" ]]; then
   echo "Set GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, and GCS_BUCKET." >&2
+  exit 1
+fi
+
+if [[ "${BMT_IMAGE_FAMILY}" != "${BMT_EXPECTED_IMAGE_FAMILY}" ]]; then
+  echo "::error::Image family policy violation: got '${BMT_IMAGE_FAMILY}', expected '${BMT_EXPECTED_IMAGE_FAMILY}'." >&2
+  exit 1
+fi
+if [[ "${BMT_BASE_IMAGE_FAMILY}" != "${BMT_EXPECTED_BASE_IMAGE_FAMILY}" ]]; then
+  echo "::error::Base image family policy violation: got '${BMT_BASE_IMAGE_FAMILY}', expected '${BMT_EXPECTED_BASE_IMAGE_FAMILY}'." >&2
   exit 1
 fi
 
@@ -151,22 +164,17 @@ gcloud compute ssh "$BMT_IMAGE_BUILDER_VM_NAME" \
     sudo rm -rf /opt/bmt
     sudo mkdir -p /opt/bmt
     sudo cp -a /tmp/bmt-code/. /opt/bmt/
-    if [[ -f /opt/bmt/_tools/uv/linux-x86_64/uv ]]; then
-      sudo chmod +x /opt/bmt/_tools/uv/linux-x86_64/uv
-      UV_BIN=/opt/bmt/_tools/uv/linux-x86_64/uv
-    elif command -v uv >/dev/null 2>&1; then
-      UV_BIN=$(command -v uv)
-    else
-      echo '::error::No uv binary found (neither /opt/bmt/_tools/uv nor PATH uv).' >&2
-      exit 1
-    fi
+    GLIBC_VERSION_RAW=\$(ldd --version 2>/dev/null | head -n1 || true)
+    printf 'GLIBC_VERSION=%s\n' \"\$GLIBC_VERSION_RAW\" | sudo tee /tmp/bmt-image-build-meta.env >/dev/null
     echo 'Installing Google Cloud Ops Agent for Cloud Logging...'
     curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
     sudo bash add-google-cloud-ops-agent-repo.sh --also-install
     rm -f add-google-cloud-ops-agent-repo.sh
-    echo 'Pre-installing Python 3.12 via uv (as root so the baked venv uses it)...'
-    sudo "$UV_BIN" python install 3.12
-    sudo BMT_UV_BIN="$UV_BIN" bash /opt/bmt/bootstrap/install_deps.sh /opt/bmt
+    echo 'Installing Python 3.12 via deadsnakes PPA...'
+    sudo add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
+    sudo apt-get update -q
+    sudo apt-get install -y -q python3.12 python3.12-venv python3.12-dev
+    sudo bash /opt/bmt/bootstrap/install_deps.sh /opt/bmt
     sudo python3 - <<'PY'
 import hashlib
 import json
@@ -174,21 +182,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 repo = Path('/opt/bmt')
+build_meta = {}
+meta_path = Path('/tmp/bmt-image-build-meta.env')
+if meta_path.exists():
+    for line in meta_path.read_text(encoding='utf-8').splitlines():
+        if '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        build_meta[key.strip()] = value.strip()
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ''
 
 manifest = {
     'bake_timestamp_utc': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    'image_family': '${BMT_IMAGE_FAMILY}',
+    'base_image_family': '${BMT_BASE_IMAGE_FAMILY}',
+    'base_image_project': '${BMT_BASE_IMAGE_PROJECT}',
     'image_source': {
         'bucket': '${GCS_BUCKET}',
         'code_prefix': 'code/'
     },
-    'deps_fingerprint': hashlib.sha256(
-        (digest(repo / 'pyproject.toml') + digest(repo / 'uv.lock')).encode('utf-8')
-    ).hexdigest(),
+    'deps_fingerprint': digest(repo / 'pyproject.toml'),
     'pyproject_sha256': digest(repo / 'pyproject.toml'),
-    'uv_lock_sha256': digest(repo / 'uv.lock'),
-    'uv_binary_sha256': digest(repo / '_tools/uv/linux-x86_64/uv'),
+    'glibc_version': build_meta.get('GLIBC_VERSION', ''),
 }
 (repo / '.image_manifest.json').write_text(json.dumps(manifest, indent=2) + '\\n', encoding='utf-8')
 PY

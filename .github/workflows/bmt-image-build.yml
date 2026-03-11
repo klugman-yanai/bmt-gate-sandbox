@@ -7,6 +7,14 @@ on:
         description: "Image family (default: bmt-runtime)"
         required: false
         default: "bmt-runtime"
+      base_image_family:
+        description: "Base image family for builder VM"
+        required: false
+        default: "ubuntu-2204-lts"
+      base_image_project:
+        description: "Base image project for builder VM"
+        required: false
+        default: "ubuntu-os-cloud"
       machine_type:
         description: "Builder machine type"
         required: false
@@ -38,6 +46,28 @@ jobs:
         with:
           version: "1.11.0"
 
+      - name: Enforce image family policy
+        run: |
+          set -euo pipefail
+          expected_family="${{ vars.BMT_EXPECTED_IMAGE_FAMILY }}"
+          expected_base_family="${{ vars.BMT_EXPECTED_BASE_IMAGE_FAMILY }}"
+          expected_base_project="${{ vars.BMT_EXPECTED_BASE_IMAGE_PROJECT }}"
+          expected_family="${expected_family:-bmt-runtime}"
+          expected_base_family="${expected_base_family:-ubuntu-2204-lts}"
+          expected_base_project="${expected_base_project:-ubuntu-os-cloud}"
+          if [[ "${{ inputs.image_family }}" != "${expected_family}" ]]; then
+            echo "::error::image_family must be '${expected_family}', got '${{ inputs.image_family }}'"
+            exit 1
+          fi
+          if [[ "${{ inputs.base_image_family }}" != "${expected_base_family}" ]]; then
+            echo "::error::base_image_family must be '${expected_base_family}', got '${{ inputs.base_image_family }}'"
+            exit 1
+          fi
+          if [[ "${{ inputs.base_image_project }}" != "${expected_base_project}" ]]; then
+            echo "::error::base_image_project must be '${expected_base_project}', got '${{ inputs.base_image_project }}'"
+            exit 1
+          fi
+
       - name: Packer init
         run: packer init infra/packer/bmt-runtime.pkr.hcl
 
@@ -49,6 +79,8 @@ jobs:
           PKR_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
           PKR_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
           PKR_VAR_image_family: ${{ inputs.image_family }}
+          PKR_VAR_base_image_family: ${{ inputs.base_image_family }}
+          PKR_VAR_base_image_project: ${{ inputs.base_image_project }}
           PKR_VAR_machine_type: ${{ inputs.machine_type }}
         run: |
           set -euo pipefail

@@ -40,8 +40,6 @@ DEFAULT_CODE_EXCLUDES = (
     r"(^|/)sk/results(/|$)",
 )
 
-UV_ARTIFACT_REL = "_tools/uv/linux-x86_64/uv"
-UV_CHECKSUM_REL = "_tools/uv/linux-x86_64/uv.sha256"
 
 
 def _matches(patterns: tuple[str, ...], rel: str) -> bool:
@@ -81,39 +79,6 @@ def _download_manifest(uri: str) -> dict[str, object]:
     return payload
 
 
-def _download_text(uri: str) -> str:
-    proc = subprocess.run(
-        ["gcloud", "storage", "cat", uri],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"Failed to read object {uri}: {(proc.stderr or proc.stdout).strip()}")
-    return proc.stdout
-
-
-def _extract_sha(raw: str) -> str:
-    for line in raw.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        token = stripped.split()[0]
-        if token:
-            return token
-    return ""
-
-
-def _gcs_exists(uri: str) -> bool:
-    proc = subprocess.run(
-        ["gcloud", "storage", "ls", uri],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return proc.returncode == 0
-
-
 @click.command()
 @bucket_option
 @click.option("--src-dir", default=DEFAULT_CONFIG_ROOT, help="Source directory to verify")
@@ -151,44 +116,9 @@ def main(bucket: str, src_dir: str, include_runtime_artifacts: bool) -> int:
         )
         return 1
 
-    local_sha_file = src / UV_CHECKSUM_REL
-    if not local_sha_file.is_file():
-        click.echo(f"::error::Missing local pinned uv checksum file: {local_sha_file}", err=True)
-        return 1
-    local_uv_sha = _extract_sha(local_sha_file.read_text(encoding="utf-8"))
-    if not local_uv_sha:
-        click.echo(f"::error::Invalid local pinned uv checksum file: {local_sha_file}", err=True)
-        return 1
-
-    uv_uri = f"{code_root}/{UV_ARTIFACT_REL}"
-    uv_sha_uri = f"{code_root}/{UV_CHECKSUM_REL}"
-    if not _gcs_exists(uv_uri):
-        click.echo(f"::error::Missing pinned uv artifact in code namespace: {uv_uri}", err=True)
-        return 1
-    if not _gcs_exists(uv_sha_uri):
-        click.echo(f"::error::Missing pinned uv checksum in code namespace: {uv_sha_uri}", err=True)
-        return 1
-    remote_uv_sha = _extract_sha(_download_text(uv_sha_uri))
-    if remote_uv_sha != local_uv_sha:
-        click.echo(
-            f"::error::Pinned uv checksum mismatch between local source and bucket ({local_uv_sha} != {remote_uv_sha})",
-            err=True,
-        )
-        return 1
-
-    manifest_uv_sha = str(manifest.get("uv_artifact_sha256", "")).strip()
-    if manifest_uv_sha and manifest_uv_sha != local_uv_sha:
-        click.echo(
-            "::error::Manifest uv_artifact_sha256 does not match pinned checksum "
-            f"({manifest_uv_sha} != {local_uv_sha})",
-            err=True,
-        )
-        return 1
-
     click.echo(f"Verified code mirror sync against {manifest_uri}")
     click.echo(f"Digest: {local_digest}")
     click.echo(f"File count: {local_count}")
-    click.echo(f"Pinned UV SHA-256: {local_uv_sha}")
     return 0
 
 

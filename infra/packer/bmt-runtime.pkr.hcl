@@ -126,11 +126,19 @@ build {
       "sudo rm -rf ${var.bmt_repo_root}",
       "sudo mkdir -p ${var.bmt_repo_root}",
       "sudo gcloud storage rsync gs://${var.gcs_bucket}/code ${var.bmt_repo_root} --recursive",
-      "sudo chmod +x ${var.bmt_repo_root}/_tools/uv/linux-x86_64/uv || true",
     ]
   }
 
-  # 2. Install Google Cloud Ops Agent
+  # 2. Record glibc version for manifest.
+  provisioner "shell" {
+    inline = [
+      "set -euo pipefail",
+      "GLIBC_VERSION_RAW=$(ldd --version 2>/dev/null | head -n1 || true)",
+      "printf 'GLIBC_VERSION=%s\\n' \"$GLIBC_VERSION_RAW\" | sudo tee /tmp/bmt-image-build-meta.env >/dev/null",
+    ]
+  }
+
+  # 3. Install Google Cloud Ops Agent
   provisioner "shell" {
     inline = [
       "set -euo pipefail",
@@ -140,7 +148,7 @@ build {
     ]
   }
 
-  # 3. Install Python 3.12 and VM dependencies into a pre-baked venv.
+  # 4. Install Python 3.12 and VM dependencies into a pre-baked venv.
   #    Uses pip directly (no uv dependency at runtime; uv is only needed during image build if desired).
   provisioner "shell" {
     inline = [
@@ -156,12 +164,10 @@ build {
       "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet httpx>=0.27 'google-cloud-storage>=2.16' 'google-cloud-pubsub>=2.21' 'PyJWT>=2.0' 'cryptography>=41.0'",
       # Verify imports.
       "sudo ${var.bmt_repo_root}/.venv/bin/python -c \"import jwt, cryptography, httpx, google.cloud.storage, google.cloud.pubsub_v1; print('OK')\"",
-      # Write fingerprint so startup_example.sh skips dep install on first boot.
-      "sudo bash -c \"sha256sum ${var.bmt_repo_root}/pyproject.toml ${var.bmt_repo_root}/uv.lock 2>/dev/null | sha256sum | awk '{print \\$1}' > ${var.bmt_repo_root}/.venv/.bmt_dep_fingerprint || true\"",
     ]
   }
 
-  # 4. Write image manifest (used by SLSA provenance and vm_watcher startup verification)
+  # 5. Write image manifest (used by SLSA provenance and startup verification)
   provisioner "shell" {
     inline = [
       "set -euo pipefail",
@@ -170,23 +176,32 @@ build {
       "from datetime import datetime, timezone",
       "from pathlib import Path",
       "repo = Path('${var.bmt_repo_root}')",
+      "build_meta = {}",
+      "meta_path = Path('/tmp/bmt-image-build-meta.env')",
+      "if meta_path.exists():",
+      "    for line in meta_path.read_text(encoding='utf-8').splitlines():",
+      "        if '=' not in line:",
+      "            continue",
+      "        key, value = line.split('=', 1)",
+      "        build_meta[key.strip()] = value.strip()",
       "def digest(p):",
       "    return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else ''",
       "manifest = {",
       "    'bake_timestamp_utc': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),",
       "    'image_family': '${var.image_family}',",
+      "    'base_image_family': '${var.base_image_family}',",
+      "    'base_image_project': '${var.base_image_project}',",
       "    'image_source': {'bucket': '${var.gcs_bucket}', 'code_prefix': 'code/'},",
-      "    'deps_fingerprint': hashlib.sha256((digest(repo/'pyproject.toml')+digest(repo/'uv.lock')).encode()).hexdigest(),",
+      "    'deps_fingerprint': digest(repo/'pyproject.toml'),",
       "    'pyproject_sha256': digest(repo/'pyproject.toml'),",
-      "    'uv_lock_sha256': digest(repo/'uv.lock'),",
-      "    'uv_binary_sha256': digest(repo/'_tools/uv/linux-x86_64/uv'),",
+      "    'glibc_version': build_meta.get('GLIBC_VERSION', ''),",
       "}",
       "(repo/'.image_manifest.json').write_text(json.dumps(manifest, indent=2)+'\\n', encoding='utf-8')",
       "PY",
     ]
   }
 
-  # 5. Upload manifest to GCS so SLSA provenance generator can reference it
+  # 6. Upload manifest to GCS so SLSA provenance generator can reference it
   provisioner "shell" {
     inline = [
       "gcloud storage cp ${var.bmt_repo_root}/.image_manifest.json gs://${var.gcs_bucket}/provenance/image-manifests/${local.image_name}.json",

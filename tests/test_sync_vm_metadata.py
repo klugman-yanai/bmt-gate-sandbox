@@ -41,9 +41,6 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
             captured["startup_script_path"] = script_path
             captured["startup_script_content"] = script_path.read_text(encoding="utf-8")
 
-    def _fake_exists(_uri: str) -> bool:
-        return True
-
     describe_calls = {"count": 0}
 
     def _fake_describe(_project: str, _zone: str, _instance_name: str) -> dict[str, object]:
@@ -70,7 +67,6 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
     monkeypatch.setattr(sync_vm_metadata.shared, "vm_add_metadata", _fake_add_metadata)
     monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
 
@@ -104,49 +100,32 @@ def test_load_startup_wrapper_script_from_packaged_resource() -> None:
     assert "_read_meta" in script_content
 
 
-def test_sync_vm_metadata_fails_when_required_code_object_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sync_vm_metadata_does_not_require_bucket_code_objects(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
 
-    def _fake_exists(uri: str) -> bool:
-        return not uri.endswith("/bootstrap/startup_example.sh")
+    def _forbid_gcs_exists(_uri: str) -> bool:
+        raise AssertionError("sync-vm-metadata should not query code bucket objects")
 
-    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
+    def _fake_describe(_project: str, _zone: str, _instance_name: str) -> dict[str, object]:
+        return {
+            "metadata": {
+                "items": [
+                    {"key": "GCS_BUCKET", "value": "train-kws-202311-bmt-gate"},
+                    {"key": "BMT_REPO_ROOT", "value": "/opt/bmt"},
+                    {"key": "startup-script", "value": "#!/bin/bash\necho stale\n"},
+                    {"key": "startup-script-url", "value": ""},
+                ]
+            }
+        }
 
-    with pytest.raises(RuntimeError, match="Missing required code objects"):
-        sync_vm_metadata.run_sync_metadata()
+    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _forbid_gcs_exists)
+    monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
+    monkeypatch.setattr(sync_vm_metadata.shared, "vm_add_metadata", lambda *_args, **_kwargs: None)
 
-
-def test_sync_vm_metadata_fails_when_uv_artifact_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
-    monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
-    monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
-    monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
-
-    def _fake_exists(uri: str) -> bool:
-        return not uri.endswith("/_tools/uv/linux-x86_64/uv")
-
-    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
-
-    with pytest.raises(RuntimeError, match="Missing required code objects"):
-        sync_vm_metadata.run_sync_metadata()
-
-
-def test_sync_vm_metadata_fails_when_runtime_pyproject_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
-    monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
-    monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
-    monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
-
-    def _fake_exists(uri: str) -> bool:
-        return not uri.endswith("/pyproject.toml")
-
-    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
-
-    with pytest.raises(RuntimeError, match="Missing required code objects"):
-        sync_vm_metadata.run_sync_metadata()
+    sync_vm_metadata.run_sync_metadata()
 
 
 def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -154,9 +133,6 @@ def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.Mo
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
     monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
-
-    def _fake_exists(_uri: str) -> bool:
-        return True
 
     def _fake_describe(_project: str, _zone: str, _instance_name: str) -> dict[str, object]:
         return {
@@ -171,7 +147,6 @@ def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.Mo
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
     monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
 
     with pytest.raises(RuntimeError, match="Legacy BMT_BUCKET_PREFIX"):
