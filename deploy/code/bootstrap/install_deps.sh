@@ -1,78 +1,87 @@
 #!/usr/bin/env bash
-# Install VM dependencies for vm_watcher (requests + PyJWT + cryptography).
-# Uses uv sync from the VM runtime project in REPO_ROOT (pyproject.toml / uv.lock).
-# uv is resolved from:
-#   1) UV_BIN / BMT_UV_BIN
-#   2) uv on PATH
-# Run once per VM (or at image build). Venv and packages live under REPO_ROOT (use a persistent path like /opt/bmt so they survive VM stop/start).
+# Install VM dependencies for vm_watcher into REPO_ROOT/.venv.
+# Prefers uv (if available) for speed; falls back to pip for portability.
 # Usage: install_deps.sh REPO_ROOT
-# Example: install_deps.sh /opt/bmt
 
 set -euo pipefail
 
 REPO_ROOT="${1:-}"
 if [[ -z "$REPO_ROOT" || ! -d "$REPO_ROOT" ]]; then
   echo "Usage: $0 REPO_ROOT" >&2
-  echo "Example: $0 /opt/bmt" >&2
   exit 1
 fi
 
 PYPROJECT="${REPO_ROOT}/pyproject.toml"
 UVLOCK="${REPO_ROOT}/uv.lock"
-DEP_STAMP="${REPO_ROOT}/.venv/.bmt_dep_fingerprint"
+VENV="${REPO_ROOT}/.venv"
+DEP_STAMP="${VENV}/.bmt_dep_fingerprint"
 
-compute_dep_fingerprint() {
+_compute_dep_fingerprint() {
   local repo_root="$1"
-  local pyproject="${repo_root}/pyproject.toml"
-  local uvlock="${repo_root}/uv.lock"
-  if [[ -f "$pyproject" && -f "$uvlock" ]]; then
-    sha256sum "$pyproject" "$uvlock" | sha256sum | awk '{print $1}'
+  if [[ -f "${repo_root}/pyproject.toml" && -f "${repo_root}/uv.lock" ]]; then
+    sha256sum "${repo_root}/pyproject.toml" "${repo_root}/uv.lock" | sha256sum | awk '{print $1}'
     return 0
   fi
-  if [[ -f "$pyproject" ]]; then
-    sha256sum "$pyproject" | awk '{print $1}'
+  if [[ -f "${repo_root}/pyproject.toml" ]]; then
+    sha256sum "${repo_root}/pyproject.toml" | awk '{print $1}'
     return 0
   fi
   return 1
 }
 
-UV_BIN="${UV_BIN:-${BMT_UV_BIN:-}}"
-if [[ -z "$UV_BIN" ]]; then
-  UV_BIN="$(command -v uv 2>/dev/null || true)"
-fi
-
-if [[ -z "$UV_BIN" || ! -x "$UV_BIN" ]]; then
-  echo "uv not found. Set UV_BIN/BMT_UV_BIN or install uv on the VM image." >&2
-  exit 1
-fi
-
-cd "$REPO_ROOT"
-if [[ -f "$PYPROJECT" && -f "$UVLOCK" ]]; then
-  # Sync from lock file so install is reproducible; --frozen keeps lock unchanged on VM.
-  "$UV_BIN" sync --extra vm --frozen
-  echo "Synced VM deps (requests + vm extras) from uv.lock into ${REPO_ROOT}/.venv"
-elif [[ -f "$PYPROJECT" ]]; then
-  # Non-frozen fallback for debug environments where lock file is intentionally omitted.
-  "$UV_BIN" sync --extra vm
-  echo "Synced VM deps from pyproject.toml (non-frozen; uv.lock missing) into ${REPO_ROOT}/.venv"
+# Attempt uv-based install first (fast, uses lock file).
+UV_BIN="${UV_BIN:-${BMT_UV_BIN:-$(command -v uv 2>/dev/null || true)}}"
+if [[ -n "${UV_BIN}" && -x "${UV_BIN}" ]]; then
+  cd "$REPO_ROOT"
+  if [[ -f "$UVLOCK" ]]; then
+    echo "Installing deps via uv sync --extra vm --frozen"
+    "$UV_BIN" sync --extra vm --frozen
+  else
+    echo "Installing deps via uv sync --extra vm (no lock file)"
+    "$UV_BIN" sync --extra vm
+  fi
+  echo "uv install complete."
 else
-  echo "::error::Missing VM dependency project file: ${PYPROJECT}" >&2
-  exit 1
+  # Fallback: system python3 + pip.
+  # Extract package list from pyproject.toml dependencies and vm extras.
+  echo "uv not available; falling back to pip install."
+
+  PYTHON3="$(command -v python3 || true)"
+  if [[ -z "${PYTHON3}" || ! -x "${PYTHON3}" ]]; then
+    echo "::error::Neither uv nor python3 found; cannot install dependencies." >&2
+    exit 1
+  fi
+
+  # Create venv if missing.
+  if [[ ! -d "${VENV}" ]]; then
+    echo "Creating venv at ${VENV}"
+    "${PYTHON3}" -m venv "${VENV}"
+  fi
+
+  # Install packages from pyproject.toml (base deps + vm extras).
+  # These are pinned in pyproject.toml; for exact versions use pip with constraints from uv.lock.
+  "${VENV}/bin/pip" install --quiet --upgrade pip
+  "${VENV}/bin/pip" install --quiet \
+    "httpx>=0.27" \
+    "google-cloud-storage>=2.16" \
+    "google-cloud-pubsub>=2.21" \
+    "PyJWT>=2.0" \
+    "cryptography>=41.0"
+  echo "pip install complete."
 fi
 
-if dep_fingerprint="$(compute_dep_fingerprint "$REPO_ROOT")"; then
+# Write fingerprint stamp.
+if dep_fingerprint="$(_compute_dep_fingerprint "$REPO_ROOT")"; then
   mkdir -p "$(dirname "$DEP_STAMP")"
   printf '%s\n' "$dep_fingerprint" >"$DEP_STAMP"
-  echo "Dependency fingerprint updated at ${DEP_STAMP}: ${dep_fingerprint}"
-else
-  echo "Warning: could not compute dependency fingerprint for ${REPO_ROOT}" >&2
+  echo "Dependency fingerprint: ${dep_fingerprint}"
 fi
 
-# Non-fatal check: startup preflight still enforces valid App auth before processing runs.
-if [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
-  if "${REPO_ROOT}/.venv/bin/python" -c "import jwt; import cryptography; import requests; print('OK')" 2>/dev/null; then
-    echo "Verified requests/jwt/cryptography availability in ${REPO_ROOT}/.venv"
+# Verify import.
+if [[ -x "${VENV}/bin/python" ]]; then
+  if "${VENV}/bin/python" -c "import jwt; import cryptography; import httpx; import google.cloud.storage; print('OK')" 2>/dev/null; then
+    echo "Import check passed."
   else
-    echo "Warning: dependency import check failed; watcher auth/check runs may be degraded." >&2
+    echo "Warning: dependency import check failed; watcher may be degraded." >&2
   fi
 fi

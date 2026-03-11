@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """VM-side trigger watcher.
 
-Polls GCS for run trigger files (one per workflow run, contains all legs).
-Runs root_orchestrator.py for each leg, aggregates verdicts, and posts
-commit status to GitHub so the PR is gated without blocking the workflow runner.
-Designed to run as a systemd service — stdlib + gcloud CLI only, no pip deps.
+Polls GCS (or Pub/Sub) for run trigger files, runs root_orchestrator.py
+for each leg, aggregates verdicts, and posts commit status to GitHub so
+the PR is gated without blocking the workflow runner.
 """
 
 from __future__ import annotations
@@ -13,13 +12,11 @@ import argparse
 import contextlib
 import json
 import os
-import random
 import re
 import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import traceback
@@ -29,6 +26,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from google.api_core import exceptions as gcs_exceptions
+from google.cloud import storage as gcs_lib
 
 # Add remote/lib to path for github_auth module
 _SCRIPT_DIR = Path(__file__).parent
@@ -74,7 +74,7 @@ def _handle_signal(signum: int, _frame: Any) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Poll GCS for BMT trigger files")
+    parser = argparse.ArgumentParser(description="Poll GCS or Pub/Sub for BMT trigger files")
     _ = parser.add_argument("--bucket", required=True)
     _ = parser.add_argument("--poll-interval-sec", type=int, default=10)
     _ = parser.add_argument("--workspace-root", default=os.environ.get("BMT_WORKSPACE_ROOT", ""))
@@ -88,6 +88,16 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=_env_int("BMT_IDLE_TIMEOUT_SEC", 600, minimum=0),
         help="Exit if no trigger is found within this many seconds when --exit-after-run is set (0=disabled).",
+    )
+    _ = parser.add_argument(
+        "--subscription",
+        default=os.environ.get("BMT_PUBSUB_SUBSCRIPTION", ""),
+        help="Pub/Sub subscription ID (e.g. bmt-vm-myvm). When set, uses Pub/Sub instead of GCS polling.",
+    )
+    _ = parser.add_argument(
+        "--gcp-project",
+        default=os.environ.get("GCP_PROJECT", ""),
+        help="GCP project ID (required when --subscription is set).",
     )
     return parser.parse_args()
 
@@ -120,27 +130,38 @@ def _resolve_workspace_root(raw: str) -> Path:
     return preferred.resolve()
 
 
-def _gcs_run_with_retry(cmd: list[str], attempts: int = 3, base_delay: float = 2.0) -> subprocess.CompletedProcess[str]:
-    """Run a gcloud storage command with exponential-backoff retry and jitter."""
-    proc = subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="")
-    for attempt in range(1, attempts + 1):
-        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
-        if proc.returncode == 0 or attempt >= attempts:
-            return proc
-        time.sleep(base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5))  # noqa: S311
-    return proc
+_gcs_client: gcs_lib.Client | None = None
 
 
-def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:
-    """List objects under a GCS URI prefix. Returns list of full URIs."""
-    cmd = ["gcloud", "storage", "ls", uri]
-    if recursive:
-        cmd.append("--recursive")
-    proc = _gcs_run_with_retry(cmd)
-    if proc.returncode != 0:
-        print(f"  Warning: list failed for {uri} (exit {proc.returncode}): {proc.stderr.strip() or 'no stderr'}")
+def _get_gcs_client() -> gcs_lib.Client:
+    global _gcs_client
+    if _gcs_client is None:
+        _gcs_client = gcs_lib.Client()
+    return _gcs_client
+
+
+def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+    """Parse 'gs://bucket/path/to/blob' → ('bucket', 'path/to/blob')."""
+    if not uri.startswith("gs://"):
+        raise ValueError(f"Not a GCS URI: {uri}")
+    parts = uri[5:].split("/", 1)
+    return parts[0], (parts[1] if len(parts) > 1 else "")
+
+
+def _gcs_list(uri: str) -> list[str]:
+    """List all objects under a GCS URI prefix. Returns full gs:// URIs."""
+    bucket_name, prefix = _parse_gcs_uri(uri)
+    try:
+        blobs = _get_gcs_client().list_blobs(bucket_name, prefix=prefix)
+        return [f"gs://{bucket_name}/{b.name}" for b in blobs]
+    except Exception as exc:
+        print(f"  Warning: list failed for {uri}: {exc}")
         return []
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:  # noqa: ARG001 (recursive ignored; SDK always recurses)
+    """List objects under a GCS URI prefix. Returns list of full URIs."""
+    return _gcs_list(uri)
 
 
 def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -151,58 +172,70 @@ def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
       (None, "download_failed") on transient download failures.
       (None, "invalid_json") when object exists but payload is malformed.
     """
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_") as tmp_dir:
-        local_path = Path(tmp_dir) / "trigger.json"
-        proc = _gcs_run_with_retry(["gcloud", "storage", "cp", uri, str(local_path), "--quiet"])
-        if proc.returncode != 0:
-            print(f"  Failed to download {uri}: {proc.stderr.strip()}")
-            return None, "download_failed"
-        try:
-            payload = json.loads(local_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            print(f"  Failed to parse {uri}: {exc}")
-            return None, "invalid_json"
-        if not isinstance(payload, dict):
-            print(f"  Invalid JSON payload type for {uri}: expected object")
-            return None, "invalid_json"
-        return payload, None
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    try:
+        blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
+        text = blob.download_as_text(encoding="utf-8")
+    except gcs_exceptions.NotFound:
+        print(f"  Failed to read {uri}: 404 Not Found")
+        return None, "download_failed"
+    except Exception as exc:
+        print(f"  Failed to download {uri}: {exc}")
+        return None, "download_failed"
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(f"  Failed to parse {uri}: {exc}")
+        return None, "invalid_json"
+    if not isinstance(payload, dict):
+        print(f"  Invalid JSON payload type for {uri}: expected object")
+        return None, "invalid_json"
+    return payload, None
 
 
 def _gcloud_upload_json(uri: str, payload: dict[str, Any]) -> bool:
     """Upload a JSON object to GCS."""
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_ack_") as tmp_dir:
-        local_path = Path(tmp_dir) / "ack.json"
-        local_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        proc = _gcs_run_with_retry(["gcloud", "storage", "cp", str(local_path), uri, "--quiet"])
-        if proc.returncode != 0:
-            print(f"  Failed to upload {uri}: {proc.stderr.strip()}")
-            return False
-    return True
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    try:
+        blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
+        blob.upload_from_string(
+            json.dumps(payload, indent=2) + "\n",
+            content_type="application/json",
+        )
+        return True
+    except Exception as exc:
+        print(f"  Failed to upload {uri}: {exc}")
+        return False
 
 
 def _gcloud_rm(uri: str, recursive: bool = False) -> bool:
-    """Delete a GCS object or prefix (with recursive=True)."""
-    cmd = ["gcloud", "storage", "rm", uri, "--quiet"]
-    if recursive:
-        cmd.append("--recursive")
-    proc = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode == 0
+    """Delete a GCS object or all objects under a prefix."""
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    client = _get_gcs_client()
+    try:
+        if recursive:
+            blobs = list(client.list_blobs(bucket_name, prefix=blob_name))
+            if blobs:
+                with client.batch():
+                    for blob in blobs:
+                        blob.delete()
+        else:
+            client.bucket(bucket_name).blob(blob_name).delete()
+        return True
+    except gcs_exceptions.NotFound:
+        return True  # already gone
+    except Exception as exc:
+        print(f"  Warning: delete failed for {uri}: {exc}")
+        return False
 
 
 def _gcloud_exists(uri: str) -> bool:
     """Return True when a GCS object exists."""
-    proc = subprocess.run(
-        ["gcloud", "storage", "ls", uri],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode == 0
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    try:
+        return _get_gcs_client().bucket(bucket_name).blob(blob_name).exists()
+    except Exception:
+        return False
 
 
 def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -210,33 +243,14 @@ def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dic
 
     Returns (payload, error_reason_code).
     """
-    jobs_rel = f"{project}/config/bmt_jobs.json"
-    jobs_uri = _bucket_uri(code_bucket_root, jobs_rel)
-    if not _gcloud_exists(jobs_uri):
-        return None, "jobs_config_missing"
-
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_jobs_") as tmp_dir:
-        local_jobs = Path(tmp_dir) / "bmt_jobs.json"
-        proc = subprocess.run(
-            ["gcloud", "storage", "cp", jobs_uri, str(local_jobs), "--quiet"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            print(f"  Warning: Failed to download jobs config for {project}: {proc.stderr.strip()}")
-            return None, "jobs_config_missing"
-        try:
-            payload = json.loads(local_jobs.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None, "jobs_schema_invalid"
-
-    if not isinstance(payload, dict):
+    jobs_uri = _bucket_uri(code_bucket_root, f"{project}/config/bmt_jobs.json")
+    result, err = _gcloud_download_json(jobs_uri)
+    if result is None:
+        reason = "jobs_schema_invalid" if err == "invalid_json" else "jobs_config_missing"
+        return None, reason
+    if not isinstance(result.get("bmts"), dict):
         return None, "jobs_schema_invalid"
-    bmts = payload.get("bmts")
-    if not isinstance(bmts, dict):
-        return None, "jobs_schema_invalid"
-    return payload, None
+    return result, None
 
 
 _RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -424,10 +438,8 @@ def _download_orchestrator(code_bucket_root: str, workspace_root: Path) -> Path:
     orchestrator_uri = _bucket_uri(code_bucket_root, "root_orchestrator.py")
     local_path = workspace_root / "bin" / "root_orchestrator.py"
     local_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["gcloud", "storage", "cp", orchestrator_uri, str(local_path), "--quiet"],
-        check=True,
-    )
+    bucket_name, blob_name = _parse_gcs_uri(orchestrator_uri)
+    _get_gcs_client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))
     local_path.chmod(local_path.stat().st_mode | 0o111)
     return local_path
 
@@ -1077,17 +1089,9 @@ def _update_pointer_and_cleanup(
 
     current_uri = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/current.json")
     existing: dict[str, Any] = {}
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_ptr_") as tmp_dir:
-        local_current = Path(tmp_dir) / "current.json"
-        proc = subprocess.run(
-            ["gcloud", "storage", "cp", current_uri, str(local_current), "--quiet"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode == 0 and local_current.is_file():
-            with contextlib.suppress(json.JSONDecodeError, OSError):
-                existing = json.loads(local_current.read_text(encoding="utf-8"))
+    existing_raw, _ = _gcloud_download_json(current_uri)
+    if isinstance(existing_raw, dict):
+        existing = existing_raw
     previous_last_passing = existing.get("last_passing")
     if isinstance(previous_last_passing, str):
         previous_last_passing = previous_last_passing.strip() or None
@@ -1102,18 +1106,9 @@ def _update_pointer_and_cleanup(
         "last_passing": new_last_passing,
         "updated_at": updated_at,
     }
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_ptr_") as tmp_dir:
-        local_current = Path(tmp_dir) / "current.json"
-        local_current.write_text(json.dumps(new_pointer, indent=2) + "\n", encoding="utf-8")
-        proc = subprocess.run(
-            ["gcloud", "storage", "cp", str(local_current), current_uri, "--quiet"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            print(f"  Warning: failed to write pointer {current_uri}")
-            return
+    if not _gcloud_upload_json(current_uri, new_pointer):
+        print(f"  Warning: failed to write pointer {current_uri}")
+        return
     referenced: set[str] = set()
     if new_latest:
         referenced.add(new_latest)
@@ -1144,7 +1139,8 @@ def _process_run_trigger(  # noqa: PLR0911
     default_runtime_bucket_root: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
-) -> None:
+) -> bool:
+    """Returns True if trigger was consumed (exit-after-run may fire), False if kept for retry."""
     """Download run trigger, run each leg, aggregate, post commit status, release locks, delete trigger."""
     downloaded = _gcloud_download_json(run_trigger_uri)
     if (
@@ -1162,7 +1158,7 @@ def _process_run_trigger(  # noqa: PLR0911
             _gcloud_rm(run_trigger_uri)
         else:
             print(f"  Deferring run trigger after transient download/auth issue: {run_trigger_uri}")
-        return
+        return False
 
     legs_raw = run_payload.get("legs") or []
     if not isinstance(legs_raw, list):
@@ -1193,7 +1189,7 @@ def _process_run_trigger(  # noqa: PLR0911
     github_token = github_token_resolver(repository)
     if not github_token:
         print(f"  Error: GitHub App auth could not be resolved for {repository}; keeping trigger for retry")
-        return
+        return False
 
     if not legs_raw:
         print(f"  Run trigger has no legs: {run_trigger_uri}")
@@ -1962,6 +1958,91 @@ def _process_run_trigger(  # noqa: PLR0911
         print(f"  Run {workflow_run_id} complete")
 
 
+def _run_pubsub_loop(
+    *,
+    subscription_path: str,
+    code_bucket_root: str,
+    runtime_bucket_root: str,
+    workspace_root: Path,
+    github_token_resolver: Callable[[str], str | None],
+    exit_after_run: bool,
+    idle_timeout_sec: int,
+) -> int:
+    """Pull triggers from a Pub/Sub subscription instead of polling GCS.
+
+    The CI writes the trigger payload to GCS AND publishes the same JSON to
+    the Pub/Sub topic. The VM receives messages instantly (no polling lag),
+    uses the GCS trigger URI reconstructed from the payload, and acks only
+    after the trigger is fully consumed. Nacks cause Pub/Sub to redeliver.
+    """
+    from google.cloud import pubsub_v1  # noqa: PLC0415
+
+    subscriber = pubsub_v1.SubscriberClient()
+    idle_deadline = time.monotonic() + idle_timeout_sec if (exit_after_run and idle_timeout_sec > 0) else None
+    print(f"Pub/Sub mode: pulling from {subscription_path}")
+
+    while not _shutdown:
+        try:
+            response = subscriber.pull(
+                request={"subscription": subscription_path, "max_messages": 1},
+                timeout=30,
+            )
+        except Exception as exc:
+            print(f"  Warning: Pub/Sub pull error: {exc}")
+            time.sleep(5)
+            continue
+
+        if not response.received_messages:
+            if idle_deadline is not None and time.monotonic() >= idle_deadline:
+                print(f"Idle timeout ({idle_timeout_sec}s) reached with no trigger; exiting so VM can stop.")
+                return 0
+            continue
+
+        idle_deadline = None  # reset once a message arrives
+
+        for received_msg in response.received_messages:
+            if _shutdown:
+                break
+            ack_id = received_msg.ack_id
+            try:
+                payload = json.loads(received_msg.message.data.decode("utf-8"))
+            except (json.JSONDecodeError, ValueError) as exc:
+                print(f"  Warning: malformed Pub/Sub message (acking to discard): {exc}")
+                subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
+                continue
+
+            # Reconstruct the GCS trigger URI from the payload so we can reuse
+            # _process_run_trigger unchanged (it still deletes the GCS object on success).
+            bucket = str(payload.get("bucket", "")).strip() or runtime_bucket_root.split("gs://", 1)[-1].split("/")[0]
+            run_id = str(payload.get("workflow_run_id", "")).strip()
+            if not run_id:
+                print("  Warning: Pub/Sub message missing workflow_run_id; discarding.")
+                subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
+                continue
+
+            trigger_uri = f"gs://{bucket}/runtime/triggers/runs/{run_id}.json"
+            trigger_consumed = _process_run_trigger(
+                trigger_uri,
+                code_bucket_root,
+                runtime_bucket_root,
+                workspace_root,
+                github_token_resolver,
+            )
+            if trigger_consumed:
+                subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
+                if exit_after_run:
+                    print("Exit-after-run: done, exiting so VM can stop.")
+                    return 0
+            else:
+                # Nack: let Pub/Sub redeliver after the ack deadline expires.
+                subscriber.modify_ack_deadline(
+                    request={"subscription": subscription_path, "ack_ids": [ack_id], "ack_deadline_seconds": 0}
+                )
+
+    print("Watcher stopped.")
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     workspace_root = _resolve_workspace_root(args.workspace_root)
@@ -1992,20 +2073,8 @@ def main() -> int:
         return 2
     if not enabled_repositories:
         print("Warning: no enabled repositories in GitHub App config; incoming triggers will be rejected.")
-    unresolved_repositories: list[str] = []
-    for repository in enabled_repositories:
-        token = github_token_resolver(repository)
-        if not token:
-            unresolved_repositories.append(repository)
-    if unresolved_repositories:
-        joined = ", ".join(unresolved_repositories)
-        print(
-            "Error: GitHub App auth preflight failed for enabled repositories: "
-            f"{joined}. Ensure *_ID, *_INSTALLATION_ID, and *_PRIVATE_KEY are present and valid."
-        )
-        return 2
-    if enabled_repositories:
-        print(f"GitHub App auth preflight passed for {len(enabled_repositories)} enabled repository(ies).")
+    else:
+        print(f"Watcher configured for {len(enabled_repositories)} enabled repo(s): {', '.join(enabled_repositories)}.")
 
     # Startup sweep: enforce bounded retention even after prior failed runs.
     _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)
@@ -2014,6 +2083,25 @@ def main() -> int:
         keep_workflow_ids=set(),
     )
 
+    subscription = getattr(args, "subscription", "").strip()
+    gcp_project = getattr(args, "gcp_project", "").strip() or os.environ.get("GCP_PROJECT", "")
+
+    if subscription:
+        if not gcp_project:
+            print("Error: --gcp-project (or GCP_PROJECT env) is required when --subscription is set.")
+            return 1
+        subscription_path = f"projects/{gcp_project}/subscriptions/{subscription}"
+        return _run_pubsub_loop(
+            subscription_path=subscription_path,
+            code_bucket_root=code_bucket_root,
+            runtime_bucket_root=runtime_bucket_root,
+            workspace_root=workspace_root,
+            github_token_resolver=github_token_resolver,
+            exit_after_run=exit_after_run,
+            idle_timeout_sec=idle_timeout_sec,
+        )
+
+    # GCS polling fallback (used when --subscription is not set)
     idle_deadline = time.monotonic() + idle_timeout_sec if (exit_after_run and idle_timeout_sec > 0) else None
 
     while not _shutdown:
@@ -2025,14 +2113,14 @@ def main() -> int:
             for run_trigger_uri in run_trigger_uris:
                 if _shutdown:
                     break
-                _process_run_trigger(
+                trigger_consumed = _process_run_trigger(
                     run_trigger_uri,
                     code_bucket_root,
                     runtime_bucket_root,
                     workspace_root,
                     github_token_resolver,
                 )
-                if exit_after_run:
+                if exit_after_run and trigger_consumed:
                     print("Exit-after-run: done, exiting so VM can stop.")
                     return 0
         elif idle_deadline is not None and time.monotonic() >= idle_deadline:

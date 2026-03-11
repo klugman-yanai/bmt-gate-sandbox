@@ -92,42 +92,14 @@ def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -
 
 
 def run_select_available_vm() -> None:
-    """Select a VM from BMT_VM_POOL (or BMT_VM_NAME as single-VM fallback).
-
-    Available VMs are started when needed; they are not necessarily already running.
-    - Prefer the first TERMINATED VM: we will start it and assign this run's trigger to it.
-      Example: vm-0 is RUNNING or STOPPING (e.g. previous run or its cleanup); vm-1 is
-      TERMINATED → select vm-1, start it, and assign the same PR/run to vm-1.
-    - Only if no TERMINATED VM exists (e.g. single-VM pool and it is RUNNING after
-      cancel-in-progress), fall back to the first RUNNING VM and reuse it (longer
-      handshake timeout while it picks up our trigger).
-
-    VMs in STOPPING or other non-TERMINATED, non-RUNNING states are skipped so we
-    wake up another replica (e.g. vm-1) when one (vm-0) is in terminating cleanup.
-    Fails only if no VM in the pool is TERMINATED or RUNNING."""
+    """Select workflow-owned VM (BMT_VM_NAME) and decide reuse/start behavior."""
     cfg = get_config()
     cfg.require_gcp()
     project = cfg.gcp_project
     zone = cfg.gcp_zone
     github_output = require_env("GITHUB_OUTPUT")
 
-    pool_raw = os.environ.get("BMT_VM_POOL", "").strip()
-    if pool_raw:
-        pool = json.loads(pool_raw)
-        if not isinstance(pool, list) or not pool:
-            raise RuntimeError("BMT_VM_POOL must be a non-empty JSON array of VM name strings")
-        pool = [str(v).strip() for v in pool if str(v).strip()]
-        if len(pool) < 2:
-            gh_warning(
-                "BMT_VM_POOL should list at least two VM replicas; the second remains off until needed. "
-                f"Currently {len(pool)} VM(s); a third concurrent run will see 'No BMT VM is available'."
-            )
-    else:
-        pool = [cfg.bmt_vm_name]
-        gh_warning(
-            "BMT_VM_POOL is unset; using single VM (BMT_VM_NAME). "
-            "Set BMT_VM_POOL to a JSON array of at least two VM names for concurrent runs."
-        )
+    pool = [cfg.bmt_vm_name]
 
     print(f"VM pool ({len(pool)} instance(s)): {pool}")
     statuses: dict[str, str] = {}
@@ -142,7 +114,7 @@ def run_select_available_vm() -> None:
             write_github_output(github_output, "vm_reused_running", "false")
             return
 
-    # No TERMINATED VM (e.g. single VM and it is RUNNING, or all replicas busy/STOPPING):
+    # No TERMINATED VM (single VM is already RUNNING):
     # reuse first RUNNING VM so we don't fail; handoff uses longer handshake timeout.
     for vm_name in pool:
         if statuses.get(vm_name) == "RUNNING":
@@ -157,10 +129,8 @@ def run_select_available_vm() -> None:
 
     status_summary = ", ".join(f"{v}={s}" for v, s in statuses.items())
     msg = (
-        f"All {len(pool)} VM(s) in pool are busy — none TERMINATED or RUNNING "
-        f"({status_summary}). "
-        "Wait for an in-progress BMT workflow to finish, then re-trigger this workflow. "
-        "To support more concurrent runs, add additional VMs to BMT_VM_POOL."
+        f"No selectable VM state for configured BMT_VM_NAME ({status_summary}). "
+        "VM must be TERMINATED or RUNNING; wait for state stabilization and re-trigger."
     )
     gh_error(f"No BMT VM is available. {msg}")
     gh_warning(msg)
@@ -469,16 +439,17 @@ def run_sync_metadata() -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_wait_handshake() -> None:
+def run_wait_handshake(timeout_sec: int | None = None) -> None:
     """Wait for VM handshake ack written under triggers/acks/<workflow_run_id>.json."""
     cfg = get_config()
     cfg.require_gcp()
     bucket = cfg.gcs_bucket
     workflow_run_id = require_env("GITHUB_RUN_ID")
     github_output = require_env("GITHUB_OUTPUT")
-    timeout_sec = cfg.bmt_handshake_timeout_sec
+    if timeout_sec is None:
+        timeout_sec = cfg.bmt_handshake_timeout_sec
     if not (1 <= timeout_sec <= 3600):
-        raise RuntimeError(f"BMT_HANDSHAKE_TIMEOUT_SEC must be 1-3600s, got {timeout_sec}")
+        raise RuntimeError(f"Handshake timeout must be 1-3600s, got {timeout_sec}")
     poll_interval_sec = 5
     project = cfg.gcp_project
     zone = cfg.gcp_zone

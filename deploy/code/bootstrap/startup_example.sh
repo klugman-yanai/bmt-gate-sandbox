@@ -67,6 +67,15 @@ _stop_instance_best_effort() {
 _on_exit() {
   local rc=$?
   trap - EXIT
+  # Upload watcher log to GCS before stopping VM (best-effort; never blocks stop).
+  if [[ -f "${BMT_LOG_FILE:-}" && -n "${GCS_BUCKET:-}" ]]; then
+    local _log_vm_name
+    _log_vm_name=$(curl -sS -H "Metadata-Flavor: Google" \
+      "http://metadata.google.internal/computeMetadata/v1/instance/name" 2>/dev/null || echo "unknown")
+    gcloud storage cp "$BMT_LOG_FILE" \
+      "gs://${GCS_BUCKET}/runtime/logs/${_log_vm_name}-$(date +%Y%m%dT%H%M%S).log" \
+      --quiet 2>/dev/null || echo "Warning: watcher log upload to GCS failed." >&2
+  fi
   _stop_instance_best_effort "$rc"
   exit "$rc"
 }
@@ -88,6 +97,9 @@ fi
 if [[ -z "${GCP_PROJECT:-}" ]]; then
   GCP_PROJECT=$(_read_meta "GCP_PROJECT")
 fi
+if [[ -z "${BMT_PUBSUB_SUBSCRIPTION:-}" ]]; then
+  BMT_PUBSUB_SUBSCRIPTION=$(_read_meta "BMT_PUBSUB_SUBSCRIPTION")
+fi
 
 # --- Configure these (or already set via VM metadata / env above) ---
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
@@ -108,7 +120,6 @@ fi
 
 VENV="${BMT_REPO_ROOT}/.venv"
 WATCHER="${BMT_REPO_ROOT}/vm_watcher.py"
-ENSURE_UV="${BMT_REPO_ROOT}/bootstrap/ensure_uv.sh"
 DEP_STAMP="${VENV}/.bmt_dep_fingerprint"
 
 if [[ ! -f "${WATCHER}" ]]; then
@@ -116,17 +127,12 @@ if [[ ! -f "${WATCHER}" ]]; then
   exit 1
 fi
 
-# 1. Resolve uv binary (override allowed via BMT_UV_BIN; otherwise bootstraps
-#    pinned code artifact when uv is missing on the VM image).
-if [[ ! -f "${ENSURE_UV}" ]]; then
-  echo "::error::Missing UV bootstrap helper: ${ENSURE_UV}" >&2
-  exit 1
-fi
-# shellcheck source=/dev/null
-source "${ENSURE_UV}"
-if [[ -z "${UV_BIN:-}" || ! -x "${UV_BIN}" ]]; then
-  echo "::error::UV resolution failed; UV_BIN is not executable (${UV_BIN:-<unset>})" >&2
-  exit 1
+# 1. (Optional) Resolve uv binary for dep install fallback — not required if venv is pre-baked.
+ENSURE_UV="${BMT_REPO_ROOT}/bootstrap/ensure_uv.sh"
+UV_BIN=""
+if [[ -f "${ENSURE_UV}" ]]; then
+  # shellcheck source=/dev/null
+  source "${ENSURE_UV}" 2>/dev/null || true
 fi
 
 # 2. Install deps when required (fingerprint or import mismatch).
@@ -171,15 +177,7 @@ fi
 
 if [[ "$needs_deps_install" -eq 1 ]]; then
   echo "Dependency install required (${deps_reason})."
-  if [[ -f "${BMT_REPO_ROOT}/bootstrap/install_deps.sh" ]]; then
-    bash "${BMT_REPO_ROOT}/bootstrap/install_deps.sh" "$BMT_REPO_ROOT"
-  else
-    cd "$BMT_REPO_ROOT" && "${UV_BIN}" sync --extra vm --frozen
-    if [[ -n "$dep_fingerprint" ]]; then
-      mkdir -p "$(dirname "$DEP_STAMP")"
-      printf '%s\n' "$dep_fingerprint" >"$DEP_STAMP"
-    fi
-  fi
+  bash "${BMT_REPO_ROOT}/bootstrap/install_deps.sh" "$BMT_REPO_ROOT"
 else
   echo "Dependency fingerprint match (${dep_fingerprint}); skipping install."
 fi
@@ -300,16 +298,34 @@ _load_github_app_credentials() {
 _load_github_app_credentials "test environment" "GITHUB_APP_TEST"
 _load_github_app_credentials "prod environment" "GITHUB_APP_PROD"
 
-# 4. Run watcher once with uv-managed Python and always attempt self-stop afterwards.
-#    This prevents stale RUNNING VMs after failed runs/startup errors.
+# 4. Run watcher using the pre-baked venv python.
+#    Tee all output to a log file; _on_exit uploads it to GCS for post-mortem debugging.
+PYTHON_BIN="${VENV}/bin/python"
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+  echo "::error::No python at ${PYTHON_BIN}; dep install may have failed." >&2
+  exit 1
+fi
+
+BMT_LOG_FILE="/tmp/bmt-watcher-$(date +%Y%m%dT%H%M%S).log"
+echo "Watcher log: ${BMT_LOG_FILE} (will be uploaded to gs://${GCS_BUCKET}/runtime/logs/ on exit)"
+
 WATCHER_EXIT=0
-if (cd "$BMT_REPO_ROOT" && "${UV_BIN}" run python vm_watcher.py \
-  --bucket "$GCS_BUCKET" \
-  --workspace-root "$BMT_WORKSPACE_ROOT" \
-  --exit-after-run); then
-  WATCHER_EXIT=0
-else
-  WATCHER_EXIT=$?
+_watcher_extra_args=()
+if [[ -n "${BMT_PUBSUB_SUBSCRIPTION:-}" && -n "${GCP_PROJECT:-}" ]]; then
+  _watcher_extra_args+=(--subscription "projects/${GCP_PROJECT}/subscriptions/${BMT_PUBSUB_SUBSCRIPTION}")
+  _watcher_extra_args+=(--gcp-project "${GCP_PROJECT}")
+  echo "Pub/Sub subscription: projects/${GCP_PROJECT}/subscriptions/${BMT_PUBSUB_SUBSCRIPTION}"
+fi
+(
+  cd "$BMT_REPO_ROOT"
+  "${PYTHON_BIN}" vm_watcher.py \
+    --bucket "$GCS_BUCKET" \
+    --workspace-root "$BMT_WORKSPACE_ROOT" \
+    --exit-after-run \
+    "${_watcher_extra_args[@]}" 2>&1 | tee "$BMT_LOG_FILE"
+  exit "${PIPESTATUS[0]}"
+) || WATCHER_EXIT=$?
+if [[ "$WATCHER_EXIT" -ne 0 ]]; then
   echo "Watcher exited with non-zero status: ${WATCHER_EXIT}"
 fi
 

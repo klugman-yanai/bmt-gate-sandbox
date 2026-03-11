@@ -16,8 +16,8 @@ If reusable job-level logic is needed, use native `workflow_call` reusable workf
 
 `actions/setup-gcp-uv/action.yml` is a local composite action that centralizes repeated setup:
 
-1. `google-github-actions/auth@v2` (Workload Identity Federation)
-2. `google-github-actions/setup-gcloud@v2`
+1. `google-github-actions/auth@v3` (Workload Identity Federation)
+2. `google-github-actions/setup-gcloud@v3`
 3. Optional `astral-sh/setup-uv@v7`
 
 This keeps auth/toolchain versions in one place and removes duplicated setup blocks from workflows. Per-job `permissions` are still defined in each workflow job.

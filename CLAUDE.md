@@ -276,7 +276,7 @@ gh variable set BMT_STATUS_CONTEXT "BMT Gate (test)"
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
 
-**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all` or a JSON array e.g. `["sk"]`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`), `BMT_VM_POOL` (recommend at least two VM names as a JSON array so two concurrent runs can each get a VM; the second replica stays TERMINATED until needed; if unset, single VM `BMT_VM_NAME` is used and a third run will see "No BMT VM is available"). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
+**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all` or a JSON array e.g. `["sk"]`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
 
 For **local** use (e.g. `deploy/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 

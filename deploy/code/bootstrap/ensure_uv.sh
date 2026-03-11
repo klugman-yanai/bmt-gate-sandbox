@@ -66,10 +66,29 @@ main() {
     return 0
   fi
 
-  local bucket code_root install_dir
+  local bucket code_root install_dir bmt_repo_root
   bucket="${GCS_BUCKET:-}"
+  bmt_repo_root="${BMT_REPO_ROOT:-/opt/bmt}"
   code_root="gs://${bucket}/code"
-  install_dir="${BMT_REPO_ROOT:-/opt/bmt}/.tools/uv/linux-x86_64"
+  install_dir="${bmt_repo_root}/.tools/uv/linux-x86_64"
+
+  # Check if a pre-synced uv binary exists in the code namespace (_tools, synced by startup_wrapper.sh).
+  # This avoids a redundant GCS download when the binary is already on disk.
+  local synced_uv="${bmt_repo_root}/_tools/uv/linux-x86_64/uv"
+  local synced_sha="${bmt_repo_root}/_tools/uv/linux-x86_64/uv.sha256"
+  if [[ -x "${synced_uv}" && -f "${synced_sha}" ]]; then
+    local expected actual
+    expected="$(_extract_sha "${synced_sha}")"
+    actual="$(sha256sum "${synced_uv}" | awk '{print $1}')"
+    if [[ -n "${expected}" && "${actual}" == "${expected}" ]]; then
+      UV_BIN="${synced_uv}"
+      export UV_BIN
+      PATH="$(dirname "${synced_uv}"):${PATH}"
+      export PATH
+      echo "Using pre-synced uv from ${synced_uv}"
+      return 0
+    fi
+  fi
 
   if [[ -z "$bucket" ]]; then
     echo "::error::GCS_BUCKET is required to fetch pinned uv artifact." >&2
