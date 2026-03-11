@@ -46,6 +46,18 @@ jobs:
         with:
           version: "1.11.0"
 
+      - name: Sync code to GCS bucket
+        run: |
+          set -euo pipefail
+          echo "Syncing gcp/code/ -> gs://${{ vars.GCS_BUCKET }}/code/"
+          gcloud storage rsync gcp/code "gs://${{ vars.GCS_BUCKET }}/code" \
+            --recursive \
+            --delete-unmatched-destination-objects \
+            --exclude='(^|/)__pycache__(/|$)' \
+            --exclude='(^|/)\.venv(/|$)' \
+            --exclude='(^|/)\.uv(/|$)' \
+            --exclude='\.pyc$'
+
       - name: Enforce image family policy
         run: |
           set -euo pipefail
