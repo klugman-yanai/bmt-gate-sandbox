@@ -43,6 +43,7 @@ name = "bmt"
 version = "0.1.0"
 source = { editable = ".github/bmt" }
 dependencies = [
+    { name = "google-cloud-compute" },
     { name = "google-cloud-pubsub" },
     { name = "google-cloud-storage" },
     { name = "pygithub" },
@@ -57,6 +58,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "basedpyright", marker = "extra == 'dev'" },
+    { name = "google-cloud-compute" },
     { name = "google-cloud-pubsub" },
     { name = "google-cloud-storage" },
     { name = "pygithub" },
@@ -462,6 +464,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7d/59/7371175bfd949abfb1170aa076352131d7281bd9449c0f978604fc4431c3/google_auth-2.49.0.tar.gz", hash = "sha256:9cc2d9259d3700d7a257681f81052db6737495a1a46b610597f4b8bafe5286ae", size = 333444, upload-time = "2026-03-06T21:53:06.07Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/37/45/de64b823b639103de4b63dd193480dce99526bd36be6530c2dba85bf7817/google_auth-2.49.0-py3-none-any.whl", hash = "sha256:f893ef7307f19cf53700b7e2f61b5a6affe3aa0edf9943b13788920ab92d8d87", size = 240676, upload-time = "2026-03-06T21:52:38.304Z" },
+]
+
+[[package]]
+name = "google-cloud-compute"
+version = "1.45.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/51/44e4bdbf1bca9d214f12d84a89d84e4c8e49930e2a673c8d4bcfd8e40d4c/google_cloud_compute-1.45.0.tar.gz", hash = "sha256:85b7b5c63aad7929dadfa3c9b504b9572fc8c87646c86d2dac8e61af901bf23c", size = 4957621, upload-time = "2026-03-06T21:52:56.336Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/75/81670e10f96e5bac74304cb0519f99e31305cc8e4e0247f40ed073345c28/google_cloud_compute-1.45.0-py3-none-any.whl", hash = "sha256:94745226b170c2d1304e7402a72c24c0d3d953cab139aeee38329431976ff7c5", size = 3750325, upload-time = "2026-03-06T21:52:43.316Z" },
 ]
 
 [[package]]
