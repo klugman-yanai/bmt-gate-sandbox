@@ -12,7 +12,16 @@ from typing import Any
 
 from cli import shared
 from cli.gh_output import gh_error, gh_notice, gh_warning
-from cli.shared import get_config, require_env, write_github_output
+from cli.shared import (
+    get_config,
+    require_env,
+    write_github_output,
+)
+from cli.shared.defaults import (
+    DEFAULT_HANDSHAKE_TIMEOUT_SEC,
+    DEFAULT_VM_START_TIMEOUT_SEC,
+    DEFAULT_VM_STOP_WAIT_TIMEOUT_SEC,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -77,7 +86,7 @@ def _stop_and_wait(
     project: str,
     zone: str,
     instance_name: str,
-    timeout_sec: int = 180,
+    timeout_sec: int = DEFAULT_VM_STOP_WAIT_TIMEOUT_SEC,
     poll_sec: int = 5,
 ) -> None:
     """Stop a VM and wait until it reaches TERMINATED state."""
@@ -216,10 +225,11 @@ def run_start() -> None:
     """Start the BMT VM. GCP/BMT identity from config; timeouts and BMT_ALLOW_MANUAL_VM_START from env."""
     cfg = get_config()
     cfg.require_gcp()
-    timeout_sec = int(os.environ.get("BMT_VM_START_TIMEOUT_SEC", "180"))
+    timeout_sec = int(os.environ.get("BMT_VM_START_TIMEOUT_SEC", str(DEFAULT_VM_START_TIMEOUT_SEC)))
     poll_interval_sec = 5
     stabilization_sec = int(os.environ.get("BMT_VM_STABILIZATION_SEC", "45"))
     recovery_attempts_max = int(os.environ.get("BMT_VM_START_RECOVERY_ATTEMPTS", "2"))
+    recovery_start_delay_sec = int(os.environ.get("BMT_VM_RECOVERY_START_DELAY_SEC", "10"))
 
     in_actions = _is_truthy(os.environ.get("GITHUB_ACTIONS"))
     if not in_actions and not _is_truthy(os.environ.get("BMT_ALLOW_MANUAL_VM_START")):
@@ -283,14 +293,15 @@ def run_start() -> None:
     last_seen_start: str | None = None
     recovery_attempts = 0
     recovery_pending = False
-    stop_retry_done = False  # only one wait-for-TERMINATED + retry per run
+    stop_retry_done = False  # only one wait-for-TERMINATED + retry per run (initial); during recovery we allow repeat
     while time.monotonic() < deadline:
         describe = shared.vm_describe(project, zone, instance_name)
         last_seen_status = _instance_status(describe)
         last_seen_start = _last_start_timestamp(describe)
 
-        # If VM is STOPPING (e.g. another run or failure-fallback stopped it after we issued start), wait for TERMINATED then retry
-        if last_seen_status == "STOPPING" and not stop_retry_done:
+        # If VM is STOPPING, wait for TERMINATED then retry start. Allow when: first time (not stop_retry_done)
+        # or during recovery (recovery_attempts > 0) so we can retry after a fingerprint failure on recovery start.
+        if last_seen_status == "STOPPING" and (not stop_retry_done or recovery_attempts > 0):
             stop_deadline = time.monotonic() + min(120, max(0, int(deadline - time.monotonic())))
             gh_notice(
                 "VM is in STOPPING state (may have been stopped by another run or failure-fallback); "
@@ -301,7 +312,16 @@ def run_start() -> None:
                 s = _instance_status(describe)
                 if s == "TERMINATED":
                     print("VM reached TERMINATED; issuing retry start.")
-                    stop_retry_done = True
+                    if recovery_attempts == 0:
+                        stop_retry_done = True
+                    if recovery_attempts > 0 and recovery_start_delay_sec > 0:
+                        print(
+                            f"Waiting {recovery_start_delay_sec}s after TERMINATED before start "
+                            "(reduces fingerprint race during recovery)."
+                        )
+                        time.sleep(
+                            min(recovery_start_delay_sec, max(0, int(deadline - time.monotonic())))
+                        )
                     _request_start("retry after VM stopped")
                     break
                 remaining = stop_deadline - time.monotonic()
@@ -313,10 +333,18 @@ def run_start() -> None:
                 time.sleep(min(poll_interval_sec, remaining))
             continue
 
-        # If VM is already TERMINATED on first poll (e.g. stopped before we could start), issue start once
-        if last_seen_status == "TERMINATED" and not stop_retry_done:
+        # If VM is already TERMINATED (e.g. stopped before we could start, or after recovery start failed), issue start.
+        # Allow when first time or during recovery so we can retry after fingerprint failure.
+        if last_seen_status == "TERMINATED" and (not stop_retry_done or recovery_attempts > 0):
             gh_notice("VM is TERMINATED; issuing retry start.")
-            stop_retry_done = True
+            if recovery_attempts == 0:
+                stop_retry_done = True
+            if recovery_attempts > 0 and recovery_start_delay_sec > 0:
+                print(
+                    f"Waiting {recovery_start_delay_sec}s after TERMINATED before start "
+                    "(reduces fingerprint race during recovery)."
+                )
+                time.sleep(min(recovery_start_delay_sec, max(0, int(deadline - time.monotonic()))))
             _request_start("retry after VM stopped")
             continue
 
@@ -523,7 +551,7 @@ def run_wait_handshake(timeout_sec: int | None = None) -> None:
     )
     if timeout_sec < 300:
         print(
-            f"::notice::Handshake timeout={timeout_sec}s; for cold-start VMs consider BMT_HANDSHAKE_TIMEOUT_SEC=300 or 420"
+            f"::notice::Handshake timeout={timeout_sec}s; for cold-start VMs consider BMT_HANDSHAKE_TIMEOUT_SEC=300 or {DEFAULT_HANDSHAKE_TIMEOUT_SEC}"
         )
 
     trigger_exists_initially = shared.gcs_exists(trigger_uri)
