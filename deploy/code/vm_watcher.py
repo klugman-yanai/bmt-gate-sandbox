@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """VM-side trigger watcher.
 
-Polls GCS for run trigger files (one per workflow run, contains all legs).
-Runs root_orchestrator.py for each leg, aggregates verdicts, and posts
-commit status to GitHub so the PR is gated without blocking the workflow runner.
-Designed to run as a systemd service — stdlib + gcloud CLI only, no pip deps.
+Polls GCS (or Pub/Sub) for run trigger files, runs root_orchestrator.py
+for each leg, aggregates verdicts, and posts commit status to GitHub so
+the PR is gated without blocking the workflow runner.
 """
 
 from __future__ import annotations
@@ -13,13 +12,11 @@ import argparse
 import contextlib
 import json
 import os
-import random
 import re
 import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import traceback
@@ -29,6 +26,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from google.api_core import exceptions as gcs_exceptions
+from google.cloud import storage as gcs_lib
 
 # Add remote/lib to path for github_auth module
 _SCRIPT_DIR = Path(__file__).parent
@@ -120,27 +120,38 @@ def _resolve_workspace_root(raw: str) -> Path:
     return preferred.resolve()
 
 
-def _gcs_run_with_retry(cmd: list[str], attempts: int = 3, base_delay: float = 2.0) -> subprocess.CompletedProcess[str]:
-    """Run a gcloud storage command with exponential-backoff retry and jitter."""
-    proc = subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="")
-    for attempt in range(1, attempts + 1):
-        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
-        if proc.returncode == 0 or attempt >= attempts:
-            return proc
-        time.sleep(base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5))  # noqa: S311
-    return proc
+_gcs_client: gcs_lib.Client | None = None
 
 
-def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:
-    """List objects under a GCS URI prefix. Returns list of full URIs."""
-    cmd = ["gcloud", "storage", "ls", uri]
-    if recursive:
-        cmd.append("--recursive")
-    proc = _gcs_run_with_retry(cmd)
-    if proc.returncode != 0:
-        print(f"  Warning: list failed for {uri} (exit {proc.returncode}): {proc.stderr.strip() or 'no stderr'}")
+def _get_gcs_client() -> gcs_lib.Client:
+    global _gcs_client
+    if _gcs_client is None:
+        _gcs_client = gcs_lib.Client()
+    return _gcs_client
+
+
+def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+    """Parse 'gs://bucket/path/to/blob' → ('bucket', 'path/to/blob')."""
+    if not uri.startswith("gs://"):
+        raise ValueError(f"Not a GCS URI: {uri}")
+    parts = uri[5:].split("/", 1)
+    return parts[0], (parts[1] if len(parts) > 1 else "")
+
+
+def _gcs_list(uri: str) -> list[str]:
+    """List all objects under a GCS URI prefix. Returns full gs:// URIs."""
+    bucket_name, prefix = _parse_gcs_uri(uri)
+    try:
+        blobs = _get_gcs_client().list_blobs(bucket_name, prefix=prefix)
+        return [f"gs://{bucket_name}/{b.name}" for b in blobs]
+    except Exception as exc:
+        print(f"  Warning: list failed for {uri}: {exc}")
         return []
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:  # noqa: ARG001 (recursive ignored; SDK always recurses)
+    """List objects under a GCS URI prefix. Returns list of full URIs."""
+    return _gcs_list(uri)
 
 
 def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -151,58 +162,70 @@ def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
       (None, "download_failed") on transient download failures.
       (None, "invalid_json") when object exists but payload is malformed.
     """
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_") as tmp_dir:
-        local_path = Path(tmp_dir) / "trigger.json"
-        proc = _gcs_run_with_retry(["gcloud", "storage", "cp", uri, str(local_path), "--quiet"])
-        if proc.returncode != 0:
-            print(f"  Failed to download {uri}: {proc.stderr.strip()}")
-            return None, "download_failed"
-        try:
-            payload = json.loads(local_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            print(f"  Failed to parse {uri}: {exc}")
-            return None, "invalid_json"
-        if not isinstance(payload, dict):
-            print(f"  Invalid JSON payload type for {uri}: expected object")
-            return None, "invalid_json"
-        return payload, None
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    try:
+        blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
+        text = blob.download_as_text(encoding="utf-8")
+    except gcs_exceptions.NotFound:
+        print(f"  Failed to read {uri}: 404 Not Found")
+        return None, "download_failed"
+    except Exception as exc:
+        print(f"  Failed to download {uri}: {exc}")
+        return None, "download_failed"
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(f"  Failed to parse {uri}: {exc}")
+        return None, "invalid_json"
+    if not isinstance(payload, dict):
+        print(f"  Invalid JSON payload type for {uri}: expected object")
+        return None, "invalid_json"
+    return payload, None
 
 
 def _gcloud_upload_json(uri: str, payload: dict[str, Any]) -> bool:
     """Upload a JSON object to GCS."""
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_ack_") as tmp_dir:
-        local_path = Path(tmp_dir) / "ack.json"
-        local_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        proc = _gcs_run_with_retry(["gcloud", "storage", "cp", str(local_path), uri, "--quiet"])
-        if proc.returncode != 0:
-            print(f"  Failed to upload {uri}: {proc.stderr.strip()}")
-            return False
-    return True
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    try:
+        blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
+        blob.upload_from_string(
+            json.dumps(payload, indent=2) + "\n",
+            content_type="application/json",
+        )
+        return True
+    except Exception as exc:
+        print(f"  Failed to upload {uri}: {exc}")
+        return False
 
 
 def _gcloud_rm(uri: str, recursive: bool = False) -> bool:
-    """Delete a GCS object or prefix (with recursive=True)."""
-    cmd = ["gcloud", "storage", "rm", uri, "--quiet"]
-    if recursive:
-        cmd.append("--recursive")
-    proc = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode == 0
+    """Delete a GCS object or all objects under a prefix."""
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    client = _get_gcs_client()
+    try:
+        if recursive:
+            blobs = list(client.list_blobs(bucket_name, prefix=blob_name))
+            if blobs:
+                with client.batch():
+                    for blob in blobs:
+                        blob.delete()
+        else:
+            client.bucket(bucket_name).blob(blob_name).delete()
+        return True
+    except gcs_exceptions.NotFound:
+        return True  # already gone
+    except Exception as exc:
+        print(f"  Warning: delete failed for {uri}: {exc}")
+        return False
 
 
 def _gcloud_exists(uri: str) -> bool:
     """Return True when a GCS object exists."""
-    proc = subprocess.run(
-        ["gcloud", "storage", "ls", uri],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode == 0
+    bucket_name, blob_name = _parse_gcs_uri(uri)
+    try:
+        return _get_gcs_client().bucket(bucket_name).blob(blob_name).exists()
+    except Exception:
+        return False
 
 
 def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -210,33 +233,14 @@ def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dic
 
     Returns (payload, error_reason_code).
     """
-    jobs_rel = f"{project}/config/bmt_jobs.json"
-    jobs_uri = _bucket_uri(code_bucket_root, jobs_rel)
-    if not _gcloud_exists(jobs_uri):
-        return None, "jobs_config_missing"
-
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_jobs_") as tmp_dir:
-        local_jobs = Path(tmp_dir) / "bmt_jobs.json"
-        proc = subprocess.run(
-            ["gcloud", "storage", "cp", jobs_uri, str(local_jobs), "--quiet"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            print(f"  Warning: Failed to download jobs config for {project}: {proc.stderr.strip()}")
-            return None, "jobs_config_missing"
-        try:
-            payload = json.loads(local_jobs.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None, "jobs_schema_invalid"
-
-    if not isinstance(payload, dict):
+    jobs_uri = _bucket_uri(code_bucket_root, f"{project}/config/bmt_jobs.json")
+    result, err = _gcloud_download_json(jobs_uri)
+    if result is None:
+        reason = "jobs_schema_invalid" if err == "invalid_json" else "jobs_config_missing"
+        return None, reason
+    if not isinstance(result.get("bmts"), dict):
         return None, "jobs_schema_invalid"
-    bmts = payload.get("bmts")
-    if not isinstance(bmts, dict):
-        return None, "jobs_schema_invalid"
-    return payload, None
+    return result, None
 
 
 _RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -424,10 +428,8 @@ def _download_orchestrator(code_bucket_root: str, workspace_root: Path) -> Path:
     orchestrator_uri = _bucket_uri(code_bucket_root, "root_orchestrator.py")
     local_path = workspace_root / "bin" / "root_orchestrator.py"
     local_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["gcloud", "storage", "cp", orchestrator_uri, str(local_path), "--quiet"],
-        check=True,
-    )
+    bucket_name, blob_name = _parse_gcs_uri(orchestrator_uri)
+    _get_gcs_client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))
     local_path.chmod(local_path.stat().st_mode | 0o111)
     return local_path
 
@@ -1077,17 +1079,9 @@ def _update_pointer_and_cleanup(
 
     current_uri = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/current.json")
     existing: dict[str, Any] = {}
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_ptr_") as tmp_dir:
-        local_current = Path(tmp_dir) / "current.json"
-        proc = subprocess.run(
-            ["gcloud", "storage", "cp", current_uri, str(local_current), "--quiet"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode == 0 and local_current.is_file():
-            with contextlib.suppress(json.JSONDecodeError, OSError):
-                existing = json.loads(local_current.read_text(encoding="utf-8"))
+    existing_raw, _ = _gcloud_download_json(current_uri)
+    if isinstance(existing_raw, dict):
+        existing = existing_raw
     previous_last_passing = existing.get("last_passing")
     if isinstance(previous_last_passing, str):
         previous_last_passing = previous_last_passing.strip() or None
@@ -1102,18 +1096,9 @@ def _update_pointer_and_cleanup(
         "last_passing": new_last_passing,
         "updated_at": updated_at,
     }
-    with tempfile.TemporaryDirectory(prefix="vm_watcher_ptr_") as tmp_dir:
-        local_current = Path(tmp_dir) / "current.json"
-        local_current.write_text(json.dumps(new_pointer, indent=2) + "\n", encoding="utf-8")
-        proc = subprocess.run(
-            ["gcloud", "storage", "cp", str(local_current), current_uri, "--quiet"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            print(f"  Warning: failed to write pointer {current_uri}")
-            return
+    if not _gcloud_upload_json(current_uri, new_pointer):
+        print(f"  Warning: failed to write pointer {current_uri}")
+        return
     referenced: set[str] = set()
     if new_latest:
         referenced.add(new_latest)

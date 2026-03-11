@@ -7,7 +7,7 @@ which appear in the PR UI with live progress information.
 from datetime import UTC, datetime
 from typing import Any
 
-import requests
+import httpx
 
 _REASON_LABELS: dict[str, str] = {
     "score_below_last": "Score dropped below baseline",
@@ -52,7 +52,7 @@ def create_check_run(token: str, repo: str, sha: str, name: str, status: str, ou
         Check run ID for future updates
 
     Raises:
-        requests.HTTPError: If GitHub API request fails
+        httpx.HTTPStatusError: If GitHub API request fails
     """
     url = f"https://api.github.com/repos/{repo}/check-runs"
     headers = {
@@ -63,7 +63,7 @@ def create_check_run(token: str, repo: str, sha: str, name: str, status: str, ou
 
     payload = {"name": name, "head_sha": sha, "status": status, "output": output}
 
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    response = httpx.post(url, json=payload, headers=headers, timeout=30)
     response.raise_for_status()
     return response.json()["id"]
 
@@ -87,7 +87,7 @@ def update_check_run(
         output: New output dict with "title" and "summary", or None to keep current
 
     Raises:
-        requests.HTTPError: If GitHub API request fails
+        httpx.HTTPStatusError: If GitHub API request fails
     """
     url = f"https://api.github.com/repos/{repo}/check-runs/{check_run_id}"
     headers = {
@@ -104,7 +104,7 @@ def update_check_run(
     if output is not None:
         payload["output"] = output
 
-    response = requests.patch(url, json=payload, headers=headers, timeout=30)
+    response = httpx.patch(url, json=payload, headers=headers, timeout=30)
     response.raise_for_status()
 
 
