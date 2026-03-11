@@ -228,6 +228,16 @@ build {
     ]
   }
 
+  # 7. Reset cloud-init state before image capture.
+  #    Prevents cloned VMs from inheriting stale cloud-init status that can
+  #    delay or block startup-script execution sequencing.
+  provisioner "shell" {
+    inline = [
+      "set -euo pipefail",
+      "if command -v cloud-init >/dev/null 2>&1; then sudo cloud-init clean --logs --machine-id || sudo cloud-init clean --logs; fi",
+    ]
+  }
+
   post-processor "manifest" {
     output     = "infra/packer/manifest.json"
     strip_path = true
