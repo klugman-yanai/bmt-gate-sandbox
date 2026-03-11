@@ -62,13 +62,15 @@ resource "google_compute_instance" "bmt_vm" {
   }
 
   metadata = {
-    GCS_BUCKET           = var.gcs_bucket
-    BMT_REPO_ROOT        = var.bmt_repo_root
-    "startup-script"     = local.startup_script
-    "startup-script-url" = ""
-    bmt_image_family     = var.image_family
-    bmt_image_version    = local.resolved_image
-    bmt_managed_by       = "terraform"
+    GCS_BUCKET              = var.gcs_bucket
+    BMT_REPO_ROOT           = var.bmt_repo_root
+    GCP_PROJECT             = var.gcp_project
+    BMT_PUBSUB_SUBSCRIPTION = "bmt-vm-${var.bmt_vm_name}"
+    "startup-script"        = local.startup_script
+    "startup-script-url"    = ""
+    bmt_image_family        = var.image_family
+    bmt_image_version       = local.resolved_image
+    bmt_managed_by          = "terraform"
   }
 
   labels = {

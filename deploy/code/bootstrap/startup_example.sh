@@ -97,6 +97,9 @@ fi
 if [[ -z "${GCP_PROJECT:-}" ]]; then
   GCP_PROJECT=$(_read_meta "GCP_PROJECT")
 fi
+if [[ -z "${BMT_PUBSUB_SUBSCRIPTION:-}" ]]; then
+  BMT_PUBSUB_SUBSCRIPTION=$(_read_meta "BMT_PUBSUB_SUBSCRIPTION")
+fi
 
 # --- Configure these (or already set via VM metadata / env above) ---
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
@@ -316,12 +319,19 @@ BMT_LOG_FILE="/tmp/bmt-watcher-$(date +%Y%m%dT%H%M%S).log"
 echo "Watcher log: ${BMT_LOG_FILE} (will be uploaded to gs://${GCS_BUCKET}/runtime/logs/ on exit)"
 
 WATCHER_EXIT=0
+_watcher_extra_args=()
+if [[ -n "${BMT_PUBSUB_SUBSCRIPTION:-}" && -n "${GCP_PROJECT:-}" ]]; then
+  _watcher_extra_args+=(--subscription "projects/${GCP_PROJECT}/subscriptions/${BMT_PUBSUB_SUBSCRIPTION}")
+  _watcher_extra_args+=(--gcp-project "${GCP_PROJECT}")
+  echo "Pub/Sub subscription: projects/${GCP_PROJECT}/subscriptions/${BMT_PUBSUB_SUBSCRIPTION}"
+fi
 (
   cd "$BMT_REPO_ROOT"
   "${UV_BIN}" run python vm_watcher.py \
     --bucket "$GCS_BUCKET" \
     --workspace-root "$BMT_WORKSPACE_ROOT" \
-    --exit-after-run 2>&1 | tee "$BMT_LOG_FILE"
+    --exit-after-run \
+    "${_watcher_extra_args[@]}" 2>&1 | tee "$BMT_LOG_FILE"
   exit "${PIPESTATUS[0]}"
 ) || WATCHER_EXIT=$?
 if [[ "$WATCHER_EXIT" -ne 0 ]]; then
