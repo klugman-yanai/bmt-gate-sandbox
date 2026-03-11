@@ -1,6 +1,6 @@
 # Configuration
 
-This document describes **current** configuration: Terraform for infra-derived repo vars; a Python contract (tools/repo_vars_contract.py) for required/optional/secrets and behavioral defaults. Secrets are documented in [../infra/README.md](../infra/README.md). For a quick start see [../README.md](../README.md).
+This document describes **current** configuration: Terraform for infra-derived repo vars; a Python contract (tools/repo_vars_contract.py) for required/optional/secrets and behavioral defaults. **Timeout defaults** (e.g. handshake, VM start) are defined in **.github/bmt/cli/shared/defaults.py**; Terraform, Justfile, and .env.example keep the same values and document that file as the source of truth. Secrets are documented in [../infra/README.md](../infra/README.md). For a quick start see [../README.md](../README.md).
 
 ---
 
