@@ -31,15 +31,12 @@ def _run(
     )
 
 
-def test_matrix_command_runs(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
-    config_root = gcp_code_root
-    assert config_root.exists()
-
+def test_matrix_command_runs(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     result = _run(
         "matrix",
         repo_root=repo_root,
-        env={"BMT_CONFIG_ROOT": str(gcp_code_root), "GITHUB_OUTPUT": str(github_output)},
+        env={"GITHUB_OUTPUT": str(github_output)},
     )
     assert result.returncode == 0
     outputs = read_github_output(github_output)
@@ -51,12 +48,12 @@ def test_matrix_command_runs(repo_root: Path, gcp_code_root: Path, tmp_path: Pat
     assert "sk" in {e["project"] for e in matrix["include"]}
 
 
-def test_matrix_command_ignores_bmt_projects_filter(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
+def test_matrix_command_ignores_unrelated_env(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     result = _run(
         "matrix",
         repo_root=repo_root,
-        env={"BMT_CONFIG_ROOT": str(gcp_code_root), "BMT_PROJECTS": "sk", "GITHUB_OUTPUT": str(github_output)},
+        env={"UNRELATED_FILTER": "sk", "GITHUB_OUTPUT": str(github_output)},
     )
     assert result.returncode == 0
     outputs = read_github_output(github_output)
@@ -104,23 +101,23 @@ def test_filter_supported_matrix_fails_when_no_uploaded_supported_projects(repo_
     assert "no supported runner upload succeeded" in combined_output(result).lower()
 
 
-def test_matrix_command_fails_without_github_output(repo_root: Path, gcp_code_root: Path) -> None:
+def test_matrix_command_fails_without_github_output(repo_root: Path) -> None:
     result = _run(
         "matrix",
         repo_root=repo_root,
-        env={"BMT_CONFIG_ROOT": str(gcp_code_root), "GITHUB_OUTPUT": ""},
+        env={"GITHUB_OUTPUT": ""},
         check=False,
     )
     assert result.returncode != 0
     assert "GITHUB_OUTPUT" in combined_output(result)
 
 
-def test_matrix_command_fails_with_invalid_config_root(repo_root: Path, tmp_path: Path) -> None:
+def test_matrix_command_fails_with_invalid_presets_file(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     result = _run(
         "matrix",
         repo_root=repo_root,
-        env={"BMT_CONFIG_ROOT": "/nonexistent/path", "GITHUB_OUTPUT": str(github_output)},
+        env={"BMT_PRESETS_FILE": "/nonexistent/path", "GITHUB_OUTPUT": str(github_output)},
         check=False,
     )
     assert result.returncode != 0
@@ -148,12 +145,12 @@ def test_unknown_command_fails(repo_root: Path) -> None:
     assert result.returncode != 0
 
 
-def test_matrix_output_is_valid_json(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
+def test_matrix_output_is_valid_json(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     _run(
         "matrix",
         repo_root=repo_root,
-        env={"BMT_CONFIG_ROOT": str(gcp_code_root), "GITHUB_OUTPUT": str(github_output)},
+        env={"GITHUB_OUTPUT": str(github_output)},
     )
     outputs = read_github_output(github_output)
     parsed: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")

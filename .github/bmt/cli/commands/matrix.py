@@ -9,7 +9,7 @@ from typing import Any
 
 from cli import shared
 from cli.gh_output import gh_notice, gh_warning
-from cli.shared import DEFAULT_CONFIG_ROOT, require_env
+from cli.shared import require_env
 
 # ---------------------------------------------------------------------------
 # matrix (build matrix JSON from remote config)
@@ -17,14 +17,17 @@ from cli.shared import DEFAULT_CONFIG_ROOT, require_env
 
 
 def run_build() -> None:
-    """Build matrix JSON from remote config. Reads BMT_CONFIG_ROOT, BMT_OUTPUT_KEY, GITHUB_OUTPUT."""
-    config_root = os.environ.get("BMT_CONFIG_ROOT", DEFAULT_CONFIG_ROOT)
+    """Build matrix JSON from CMake release presets. Reads BMT_PRESETS_FILE, BMT_OUTPUT_KEY, GITHUB_OUTPUT."""
     github_output = require_env("GITHUB_OUTPUT")
     output_key = os.environ.get("BMT_OUTPUT_KEY", "matrix")
-
-    matrix = shared.build_matrix(Path(config_root))
+    presets_file = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
+    presets = _load_configure_presets(presets_file)
+    rows = _build_bmt_rows(presets).get("include", [])
+    matrix = {
+        "include": [{"project": str(row["project"]), "bmt_id": str(row["bmt_id"])} for row in rows]
+    }
     if not matrix["include"]:
-        gh_warning("No supported project+BMT rows found for requested project filter.")
+        gh_warning("No supported release runner rows found in CMake presets.")
     with Path(github_output).open("a", encoding="utf-8") as fh:
         _ = fh.write(f"{output_key}={json.dumps(matrix, separators=(',', ':'))}\n")
     print(f"Built matrix rows: {len(matrix['include'])}")
@@ -181,9 +184,7 @@ def _build_ci_rows(presets: list[dict[str, Any]]) -> list[dict[str, str]]:
     return rows
 
 
-def _build_bmt_rows(
-    presets: list[dict[str, Any]]
-) -> dict[str, list[dict[str, str]]]:
+def _build_bmt_rows(presets: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
     include: list[dict[str, str]] = []
     for preset in presets:
         name = str(preset.get("name", "")).strip()
@@ -203,6 +204,7 @@ def _build_bmt_rows(
                 "binary_dir": binary_dir,
             }
         )
+    include.sort(key=lambda row: (row["project"], row["bmt_id"]))
     return {"include": include}
 
 

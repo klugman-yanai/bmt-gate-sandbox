@@ -4,7 +4,7 @@ This is the **canonical guide** for testing production BMT CI locally using the 
 
 ## Prerequisites
 
-- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PROJECTS`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
+- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
 - **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
 - **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
 
