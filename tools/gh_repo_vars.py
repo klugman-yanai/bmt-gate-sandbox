@@ -397,6 +397,7 @@ def main(
     contract_path = contract if contract is not None else default_contract_path()
     config_path = Path(config).expanduser().resolve() if config else Path("/nonexistent/repo_vars.toml")
     if not Path(contract_path).resolve().is_file():
+    if not Path(contract_path).resolve().is_file():
         click.echo(f"::error::Missing env contract file: {contract_path}", err=True)
         return 2
 
