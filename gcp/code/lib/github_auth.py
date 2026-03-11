@@ -171,7 +171,7 @@ def _resolve_config_path(config_path: str | Path | None) -> Path:
     if preferred.is_file():
         return preferred
 
-    # VM fallbacks: /opt/bmt must match config/env_contract.json defaults.BMT_REPO_ROOT.
+    # VM fallbacks: /opt/bmt must match BMT_REPO_ROOT default (repo_vars_contract / Terraform).
     repo_root = os.environ.get("BMT_REPO_ROOT", "").strip() or "/opt/bmt"
     legacy = Path(repo_root) / "remote" / "config" / "github_repos.json"
     if legacy.is_file():

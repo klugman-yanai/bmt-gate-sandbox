@@ -4,7 +4,7 @@ Terraform is the **source of truth** for all non-secret configuration. Repo vari
 
 ## Flow
 
-1. **Define infra** in `terraform/*.tf` and variables (e.g. `terraform.tfvars` or env).
+1. **Define infra** in `terraform/*.tf` and variables (e.g. `terraform.tfvars` or env). Before first apply, copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars` and set the required values.
 2. **Apply:** `cd infra/terraform && terraform init && terraform apply`
 3. **Export repo vars:** From repo root run `just terraform-export-vars` (or `uv run python tools/terraform_repo_vars.py --apply`) to set GitHub repo variables from Terraform outputs.
 4. **Set secrets manually** (see below). They are never in Terraform or the export script.

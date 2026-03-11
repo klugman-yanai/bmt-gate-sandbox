@@ -8,43 +8,25 @@ from pathlib import Path
 
 import gh_repo_vars as repo_vars  # type: ignore[import-not-found]
 import pytest
+from shared_env_contract import default_contract_path
 
 
 def _cp(*, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=rc, stdout=stdout, stderr=stderr)
 
 
-def test_load_contract_parses_branch_rule_checks(tmp_path: Path) -> None:
-    contract = {
-        "contexts": {
-            "github_repo_vars": {
-                "required": ["GCS_BUCKET"],
-                "optional": ["BMT_STATUS_CONTEXT"],
-            }
-        },
-        "defaults": {"BMT_STATUS_CONTEXT": "BMT Gate"},
-        "consistency_checks": {
-            "repo_var_vs_branch_required_status_context": [
-                {
-                    "repo_var": "BMT_STATUS_CONTEXT",
-                    "branch": "dev",
-                    "context_substring": "bmt",
-                }
-            ]
-        },
-    }
-    contract_path = tmp_path / "env_contract.json"
-    contract_path.write_text(json.dumps(contract), encoding="utf-8")
-
+def test_load_contract_parses_branch_rule_checks() -> None:
+    """Load real contract (Python module + branch-status-context) and assert structure."""
+    contract_path = default_contract_path()
     ordered, required, defaults, checks = repo_vars._load_contract(contract_path)
 
-    assert ordered == ["GCS_BUCKET", "BMT_STATUS_CONTEXT"]
-    assert required == {"GCS_BUCKET"}
-    assert defaults["BMT_STATUS_CONTEXT"] == "BMT Gate"
-    assert len(checks) == 1
-    assert checks[0].repo_var == "BMT_STATUS_CONTEXT"
-    assert checks[0].branch == "dev"
-    assert checks[0].context_substring == "bmt"
+    assert "GCS_BUCKET" in required
+    assert "BMT_STATUS_CONTEXT" in ordered
+    assert defaults.get("BMT_STATUS_CONTEXT") == "BMT Gate"
+    assert len(checks) >= 1
+    bmt_check = next((c for c in checks if c.repo_var == "BMT_STATUS_CONTEXT" and c.branch == "dev"), None)
+    assert bmt_check is not None
+    assert bmt_check.context_substring == "bmt"
 
 
 def test_resolve_branch_rule_values_uses_single_context(monkeypatch: pytest.MonkeyPatch) -> None:

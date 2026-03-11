@@ -25,7 +25,7 @@ The **bmt-gate-sandbox** repo (klugman-yanai/bmt-gate-sandbox) should mirror **p
    - Ensure sandbox has the same structure for BMT (`.github/bmt` as used by the workflow)
 
 3. **Repo variables and secrets**  
-   Use the **sandbox** GCP/GitHub App configuration (WIF, VM name, bucket, BMT dispatch App, etc.) as defined in `config/env_contract.json` and repo settings. Only the **workflow shape and conditions** mirror production; credentials and resources stay sandbox-specific.
+   Use the **sandbox** GCP/GitHub App configuration (WIF, VM name, bucket, BMT dispatch App, etc.) as defined in **tools/repo_vars_contract.py** and repo settings. Only the **workflow shape and conditions** mirror production; credentials and resources stay sandbox-specific.
 
 ## Differences that are acceptable
 

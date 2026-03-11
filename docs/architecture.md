@@ -109,7 +109,7 @@ What must match production when this repo is used as the source for CI and the b
 | **GCS layout** | `code/` and `runtime/` roots; triggers, acks, status, snapshots, current.json under runtime. |
 | **VM bootstrap** | Startup script, uv artifact, install_deps contract; branch-protection status context (e.g. `BMT_STATUS_CONTEXT`). |
 
-**Dev-only (not deployed):** `tools/`, Justfile, `tests/`, `config/repo_vars.toml`, `.local/`. `.github/` is aligned with core-main (Python CLI only).
+**Dev-only (not deployed):** `tools/`, Justfile, `tests/`, optional local overrides, `.local/`. `.github/` is aligned with core-main (Python CLI only). Repo vars contract: `tools/repo_vars_contract.py`.
 
 ## End-to-end flow
 

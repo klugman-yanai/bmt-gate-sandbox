@@ -88,7 +88,7 @@ variable "startup_wrapper_script_path" {
   description = "Local path to the startup_wrapper.sh to inline as instance metadata"
 }
 
-# Optional BMT behavior (defaults match env_contract.json)
+# Optional BMT behavior (defaults also in tools/repo_vars_contract.py)
 variable "bmt_status_context" {
   type        = string
   default     = "BMT Gate"
