@@ -97,7 +97,7 @@ variable "bmt_status_context" {
 
 variable "bmt_handshake_timeout_sec" {
   type        = number
-  default     = 180
+  default     = 420  # keep in sync with .github/bmt/cli/shared/defaults.py DEFAULT_HANDSHAKE_TIMEOUT_SEC
   description = "Handshake timeout in seconds (BMT_HANDSHAKE_TIMEOUT_SEC)"
 }
 

@@ -3,12 +3,17 @@
 Source of truth for which vars exist, required vs optional, secrets, and default
 values for behavioral vars. Infra-derived values come from Terraform outputs;
 behavioral vars use the defaults here (or overrides from Terraform if you still
-output them).
+output them). Default numeric values match cli.shared.defaults when available.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+try:
+    from cli.shared.defaults import DEFAULT_HANDSHAKE_TIMEOUT_SEC
+except ImportError:
+    DEFAULT_HANDSHAKE_TIMEOUT_SEC = 420  # keep in sync with .github/bmt/cli/shared/defaults.py
 
 
 @dataclass(frozen=True)
@@ -74,7 +79,7 @@ REPO_VARS_CONTRACT = RepoVarsContract(
     defaults=(
         ("BMT_STATUS_CONTEXT", "BMT Gate"),
         ("BMT_RUNTIME_CONTEXT", "BMT Runtime"),
-        ("BMT_HANDSHAKE_TIMEOUT_SEC", "420"),
+        ("BMT_HANDSHAKE_TIMEOUT_SEC", str(DEFAULT_HANDSHAKE_TIMEOUT_SEC)),
         ("BMT_PROJECTS", "all"),
         ("BMT_TRIGGER_STALE_SEC", "900"),
         ("BMT_TRIGGER_METADATA_KEEP_RECENT", "2"),

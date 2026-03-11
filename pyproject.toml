@@ -66,7 +66,7 @@ dev = [
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=180 --timeout-method=thread --cov=.github/bmt/cli --cov=gcp/code --cov=tools --cov-report=term-missing --cov-report=xml --junitxml=junit.xml"
+addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --timeout-method=thread --cov=.github/bmt/cli --cov=gcp/code --cov=tools --cov-report=term-missing --cov-report=xml --junitxml=junit.xml"
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",

@@ -309,7 +309,7 @@ def test_start_vm_recovers_from_terminal_state_after_fingerprint_race(monkeypatc
     monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
-    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 100.0])
+    monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 100.0, 101.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
 
     start_vm.run_start()
