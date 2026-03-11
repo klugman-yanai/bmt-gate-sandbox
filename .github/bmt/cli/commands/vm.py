@@ -73,6 +73,21 @@ def _vm_status(project: str, zone: str, instance_name: str) -> str:
     return str(status).strip() if status is not None else "unknown"
 
 
+def _stop_and_wait(
+    project: str, zone: str, instance_name: str, timeout_sec: int = 180, poll_sec: int = 5,
+) -> None:
+    """Stop a VM and wait until it reaches TERMINATED state."""
+    shared.vm_stop(project, zone, instance_name)
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        status = _vm_status(project, zone, instance_name)
+        if status == "TERMINATED":
+            return
+        print(f"  Waiting for {instance_name} to stop (status={status})...")
+        time.sleep(poll_sec)
+    raise RuntimeError(f"VM {instance_name} did not reach TERMINATED within {timeout_sec}s")
+
+
 def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -> str:
     if not project or not zone or not instance_name:
         return "<serial-unavailable: missing GCP_PROJECT/GCP_ZONE/BMT_VM_NAME>"
@@ -114,17 +129,15 @@ def run_select_available_vm() -> None:
             write_github_output(github_output, "vm_reused_running", "false")
             return
 
-    # No TERMINATED VM (single VM is already RUNNING):
-    # reuse first RUNNING VM so we don't fail; handoff uses longer handshake timeout.
+    # No TERMINATED VM — stop the RUNNING VM first to ensure a clean startup
+    # (avoids stale watcher from cancelled runs, ensures metadata script re-runs).
     for vm_name in pool:
         if statuses.get(vm_name) == "RUNNING":
-            print(f"Selected VM: {vm_name} (RUNNING — reusing to avoid cold-start timeout)")
-            gh_warning(
-                f"No TERMINATED VM in pool; reusing RUNNING VM {vm_name}. "
-                "Handshake may take longer until the VM picks up this run's trigger."
-            )
+            print(f"VM {vm_name} is RUNNING; stopping to ensure clean startup...")
+            _stop_and_wait(project, zone, vm_name)
+            print(f"Selected VM: {vm_name} (was RUNNING, now TERMINATED — will start clean)")
             write_github_output(github_output, "selected_vm", vm_name)
-            write_github_output(github_output, "vm_reused_running", "true")
+            write_github_output(github_output, "vm_reused_running", "false")
             return
 
     status_summary = ", ".join(f"{v}={s}" for v, s in statuses.items())
