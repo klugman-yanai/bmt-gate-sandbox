@@ -22,10 +22,10 @@ Fail-fast guards protect against leftover non-empty legacy prefix configuration 
    - `.github/scripts/ci/commands/wait_verdicts.py`
    - `tools/bmt_monitor.py`
    - `tools/bucket_*` tools via `shared_bucket_env.bucket_prefix_option`
-   - `deploy/code/vm_watcher.py`
-   - `deploy/code/root_orchestrator.py`
-   - `deploy/code/sk/bmt_manager.py`
-   - `deploy/code/sk/sk_bmt_manager.py`
+   - `gcp/code/vm_watcher.py`
+   - `gcp/code/root_orchestrator.py`
+   - `gcp/code/sk/bmt_manager.py`
+   - `gcp/code/sk/sk_bmt_manager.py`
 
 2. **Trigger payload schema** — Remove `bucket_prefix_parent` and `bucket_prefix` fields. Keep `bucket`, `workflow_run_id`, `repository`, `sha`, `run_context`, `status_context`, `description_pending`, `legs`.
 
@@ -57,9 +57,9 @@ Fail-fast guards protect against leftover non-empty legacy prefix configuration 
 
 ### Phase 4: VM Runtime and Bootstrap
 
-- `deploy/code/vm_watcher.py`: remove `--bucket-prefix` arg; stop reading `bucket_prefix_parent`/`bucket_prefix` from trigger payload; use fixed namespaces.
-- `deploy/code/root_orchestrator.py`, `deploy/code/sk/bmt_manager.py`: remove prefix args and compatibility fallbacks.
-- `deploy/code/sk/sk_bmt_manager.py`: remove legacy prefix usage.
+- `gcp/code/vm_watcher.py`: remove `--bucket-prefix` arg; stop reading `bucket_prefix_parent`/`bucket_prefix` from trigger payload; use fixed namespaces.
+- `gcp/code/root_orchestrator.py`, `gcp/code/sk/bmt_manager.py`: remove prefix args and compatibility fallbacks.
+- `gcp/code/sk/sk_bmt_manager.py`: remove legacy prefix usage.
 - Bootstrap scripts:
   - `startup_wrapper.sh`: stop reading/exporting `BMT_BUCKET_PREFIX`; derive fixed roots.
   - `startup_example.sh`: remove `BMT_BUCKET_PREFIX` metadata/env flow and watcher arg.
@@ -96,7 +96,7 @@ Update active docs only (do not modify `docs/plans/archive/**`):
 - `docs/architecture.md`
 - `docs/implementation.md`
 - `docs/github-actions-and-cli-tools.md`
-- `deploy/code/bootstrap/README.md`
+- `gcp/code/bootstrap/README.md`
 - `docs/plans/migration-to-production.md`
 - `CLAUDE.md`
 - `README.md`
@@ -138,7 +138,7 @@ rg '\-\-bucket-prefix' --glob '!docs/plans/archive/**' --glob '!docs/plans/PLAN.
 
 Do these in order so the workflow and VM run the same code and bucket state you expect:
 
-1. **Sync bucket first** — Upload local `deploy/code` and `deploy/runtime` to GCS so the bucket matches your working tree. Then commit/push so the pre-commit hook (advisory sync check) can verify successfully:
+1. **Sync bucket first** — Upload local `gcp/code` and `gcp/runtime` to GCS so the bucket matches your working tree. Then commit/push so the pre-commit hook (advisory sync check) can verify successfully:
    ```bash
    just sync-deploy && just sync-runtime-seed && just verify-sync
    ```

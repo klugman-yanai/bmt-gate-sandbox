@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify local deploy/runtime matches runtime seed manifest in bucket."""
+"""Verify local gcp/runtime matches runtime seed manifest in bucket."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ def main(bucket: str, src_dir: str, allow_generated_artifacts: bool) -> int:
         return 1
 
     if local_digest != remote_digest or local_count != remote_count:
-        click.echo(f"::error::deploy/runtime is not in sync with {manifest_uri}", err=True)
+        click.echo(f"::error::gcp/runtime is not in sync with {manifest_uri}", err=True)
         click.echo(
             f"Local digest={local_digest} count={local_count}; manifest digest={remote_digest} count={remote_count}",
             err=True,

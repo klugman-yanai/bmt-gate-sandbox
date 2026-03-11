@@ -25,10 +25,10 @@
 |------------|---------|--------|
 | **`.github/`** | Keep | Workflows and actions; standard. |
 | **`config/`** | Keep | Repo-level env contract, repo vars, BMT bootstrap env files. |
-| **`deploy/`** | Keep | Canonical mirror for bucket `code/` and `runtime/`; required. |
+| **`gcp/`** | Keep | Canonical mirror for bucket `code/` and `runtime/`; required. |
 | **`docs/`** | Keep | Architecture, configuration, plans. |
 | **`packages/`** | Keep | Contains `bmt-cli`; used by workflows. Policy updated to allow. |
-| **`scripts/`** | Keep | Only `scripts/hooks/pre-commit-sync-remote.sh`; required by policy. Could move to `.github/scripts/hooks` later. |
+| **`scripts/`** | Keep | Only `scripts/hooks/pre-commit-sync-gcp.sh`; required by policy. Could move to `.github/scripts/hooks` later. |
 | **`tools/`** | Keep | Bucket sync, BMT run, gh_* helpers; core devtools. |
 | **`tests/`** | Keep | Pytest suite. |
 | **`original_build-and-test.yml`** | Moved | Was reference copy; now under `docs/archive/`. |
@@ -67,7 +67,7 @@ Both are valid: shell for one-off bootstrap from env files, Python for programma
 ## 4. Layout policy updates (done)
 
 - **`ALLOWED_TRACKED_TOP_LEVEL`:** Removed `original_build-and-test.yml`; added `packages`.
-- **`REQUIRED_PATHS`:** Unchanged (workflows, deploy/code, deploy/runtime, scripts/hooks).
+- **`REQUIRED_PATHS`:** Unchanged (workflows, gcp/code, gcp/runtime, scripts/hooks).
 
 ---
 
@@ -79,4 +79,4 @@ Per CLAUDE.md / .gitignore: `data/`, `sk_runtime/`, `local_batch/`, `gcp-key.jso
 
 ## 6. Merge conflict leftovers
 
-After merging `redesign/modern-convention` into `dev`, some files still have conflict markers (e.g. CLAUDE.md, Justfile). Those should be resolved in a separate pass (keep dev layout: `deploy/`, `tools/`, and either `.github/bmt` or `packages/bmt-cli` consistently).
+After merging `redesign/modern-convention` into `dev`, some files still have conflict markers (e.g. CLAUDE.md, Justfile). Those should be resolved in a separate pass (keep dev layout: `gcp/`, `tools/`, and either `.github/bmt` or `packages/bmt-cli` consistently).

@@ -12,6 +12,11 @@ from cli.commands import trigger as run_trigger
 def _set_required_env(monkeypatch: pytest.MonkeyPatch, output_file: Path, matrix: str, run_context: str) -> None:
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
     monkeypatch.setenv("GCS_BUCKET", "bucket-a")
+    monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
+    monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("GCP_ZONE", "zone")
+    monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_RUN_ID", "10001")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
     monkeypatch.setenv("GITHUB_SHA", "a" * 40)
@@ -33,7 +38,7 @@ def test_trigger_rejects_when_other_pending_trigger_exists(
 
     runtime_root = "gs://bucket-a/runtime"
     monkeypatch.setattr(
-        run_trigger.gcloud,
+        run_trigger.shared,
         "run_capture",
         lambda _cmd: (
             0,
@@ -46,7 +51,7 @@ def test_trigger_rejects_when_other_pending_trigger_exists(
         ),
     )
     uploaded: list[str] = []
-    monkeypatch.setattr(run_trigger.gcloud, "upload_json", lambda uri, _payload: uploaded.append(uri))
+    monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, _payload: uploaded.append(uri))
 
     with pytest.raises(RuntimeError, match="pending run trigger"):
         run_trigger.run_trigger()
@@ -62,9 +67,9 @@ def test_trigger_allows_when_only_current_run_trigger_exists(
     _set_required_env(monkeypatch, output_file, matrix, "dev")
 
     current_trigger = "gs://bucket-a/runtime/triggers/runs/10001.json"
-    monkeypatch.setattr(run_trigger.gcloud, "run_capture", lambda _cmd: (0, f"{current_trigger}\n"))
+    monkeypatch.setattr(run_trigger.shared, "run_capture", lambda _cmd: (0, f"{current_trigger}\n"))
     uploaded: list[tuple[str, dict[str, object]]] = []
-    monkeypatch.setattr(run_trigger.gcloud, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
+    monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
 
     run_trigger.run_trigger()
     assert len(uploaded) == 1
@@ -104,9 +109,9 @@ def test_trigger_collapses_multiple_rows_to_unique_project_requests(
     _set_required_env(monkeypatch, output_file, matrix, "dev")
 
     current_trigger = "gs://bucket-a/runtime/triggers/runs/10001.json"
-    monkeypatch.setattr(run_trigger.gcloud, "run_capture", lambda _cmd: (0, f"{current_trigger}\n"))
+    monkeypatch.setattr(run_trigger.shared, "run_capture", lambda _cmd: (0, f"{current_trigger}\n"))
     uploaded: list[tuple[str, dict[str, object]]] = []
-    monkeypatch.setattr(run_trigger.gcloud, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
+    monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
 
     run_trigger.run_trigger()
     payload = uploaded[0][1]
@@ -129,7 +134,7 @@ def test_trigger_rejects_queueing_for_pr_context(
 
     runtime_root = "gs://bucket-a/runtime"
     monkeypatch.setattr(
-        run_trigger.gcloud,
+        run_trigger.shared,
         "run_capture",
         lambda _cmd: (
             0,
@@ -142,7 +147,7 @@ def test_trigger_rejects_queueing_for_pr_context(
         ),
     )
     uploaded: list[tuple[str, dict[str, object]]] = []
-    monkeypatch.setattr(run_trigger.gcloud, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
+    monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
     with pytest.raises(RuntimeError, match="pending run trigger"):
         run_trigger.run_trigger()
     assert uploaded == []

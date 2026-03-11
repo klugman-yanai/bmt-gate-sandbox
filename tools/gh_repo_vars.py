@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Check/apply declarative GitHub repository variables."""
+"""Check/apply declarative GitHub repository variables.
+
+Terraform is the source of truth. Expected values come from terraform output;
+optional config file can override. Secrets are not set by this tool.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +17,7 @@ from pathlib import Path
 
 import click
 from click_exit import run_click_command
-from repo_paths import DEFAULT_ENV_CONTRACT_PATH, DEFAULT_REPO_VARS_PATH
+from shared_env_contract import default_contract_path, load_env_contract
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -55,7 +59,6 @@ def _load_config(path: Path) -> dict[str, str]:
     elif suffix == ".json":
         payload = json.loads(raw)
     else:
-        # Try TOML first for human-edited configs, then JSON for compatibility.
         try:
             payload = tomllib.loads(raw)
         except tomllib.TOMLDecodeError:
@@ -77,6 +80,15 @@ def _load_config(path: Path) -> dict[str, str]:
                 raise RuntimeError(f"duplicate variable '{name}' across sections")
             out[name] = str(v)
     return out
+
+
+def _get_expected_from_terraform() -> dict[str, str]:
+    """Return Terraform-sourced desired repo vars (empty if Terraform not run)."""
+    try:
+        from terraform_repo_vars import get_expected_repo_vars_from_terraform
+        return get_expected_repo_vars_from_terraform()
+    except Exception:
+        return {}
 
 
 def _string_list(raw: object) -> list[str]:
@@ -217,7 +229,7 @@ def _resolve_branch_rule_repo_var_values(
 def _load_contract(
     path: Path,
 ) -> tuple[list[str], set[str], dict[str, str], list[RepoVarBranchStatusContextCheck]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = load_env_contract(str(path))
     if not isinstance(payload, dict):
         raise RuntimeError("env contract must be a JSON object")
 
@@ -356,8 +368,18 @@ def _render(value: str) -> str:
 
 
 @click.command()
-@click.option("--config", default=DEFAULT_REPO_VARS_PATH, show_default=True, help="Declarative repo vars file")
-@click.option("--contract", default=DEFAULT_ENV_CONTRACT_PATH, show_default=True, help="Env contract file")
+@click.option(
+    "--config",
+    default="",
+    show_default=True,
+    help="Optional override file for repo vars (TOML/JSON); Terraform is default source.",
+)
+@click.option(
+    "--contract",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Env contract (default: infra/terraform/repo-vars-mapping.json)",
+)
 @click.option("--apply", is_flag=True, help="Apply missing/drifted variables to GitHub")
 @click.option("--prune-extra", is_flag=True, help="Delete repo vars not declared in config (only with --apply)")
 @click.option(
@@ -367,22 +389,23 @@ def _render(value: str) -> str:
 )
 def main(
     config: str,
-    contract: str,
+    contract: Path | None,
     apply: bool,
     prune_extra: bool,
     force: bool,
 ) -> int:
-    config_path = Path(config).expanduser().resolve()
-    contract_path = Path(contract).expanduser().resolve()
+    contract_path = contract if contract is not None else default_contract_path()
+    config_path = Path(config).expanduser().resolve() if config else Path("/nonexistent/repo_vars.toml")
     if not contract_path.is_file():
         click.echo(f"::error::Missing env contract file: {contract_path}", err=True)
         return 2
 
     try:
+        declared = _get_expected_from_terraform()
         if config_path.is_file():
-            declared = _load_config(config_path)
-        else:
-            declared = {}
+            overrides = _load_config(config_path)
+            for k, v in overrides.items():
+                declared[k] = v
         canonical_order, required_set, contract_defaults, branch_rule_checks = _load_contract(contract_path)
     except Exception as exc:
         click.echo(f"::error::Invalid config/contract: {exc}", err=True)
@@ -466,7 +489,7 @@ def main(
     if config_path.is_file():
         click.echo(f"Config: {config_path}")
     else:
-        click.echo(f"Config: (missing, using current+defaults only) [{config_path}]")
+        click.echo("Config: (Terraform + optional overrides; no override file)")
     click.echo(f"Contract: {contract_path}")
     click.echo("")
     if branch_rule_checks:
@@ -531,7 +554,7 @@ def main(
     if missing_required:
         click.echo("")
         click.echo("::error::Missing required repo vars with no current value or contract default.", err=True)
-        click.echo("::error::Set these in config/repo_vars.toml (or create them in GitHub vars).", err=True)
+        click.echo("::error::Run: just terraform-export-vars (or set in GitHub vars / infra).", err=True)
         for name in sorted(missing_required):
             click.echo(f"::error::- {name}", err=True)
         return 1

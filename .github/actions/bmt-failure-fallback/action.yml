@@ -3,26 +3,26 @@ description: "On BMT failure: resolve context, write summary, cleanup, post stat
 
 inputs:
   prepare_result:
-    description: Result of the prepare job (success, failure, skipped)
+    description: Result of the setup job (success, failure, skipped)
     required: true
   prepare_outputs:
-    description: JSON blob of prepare job outputs (toJson(needs.prepare.outputs))
+    description: JSON blob of setup job outputs (toJson(needs.setup.outputs))
     required: false
     default: '{}'
   classify_result:
-    description: Result of classify-handoff job
+    description: Result of classify step in handoff job
     required: false
     default: "success"
   classify_outputs:
-    description: JSON blob of classify-handoff job outputs (toJson(needs.classify-handoff.outputs))
+    description: JSON blob of classify step outputs (from handoff job)
     required: false
     default: '{}'
   handoff_result:
-    description: Result of handoff-run job
+    description: Result of handoff-run step in handoff job
     required: false
     default: "success"
   handoff_outputs:
-    description: JSON blob of handoff-run job outputs (toJson(needs.handoff-run.outputs))
+    description: JSON blob of handoff job outputs (toJson(needs.handoff.outputs))
     required: false
     default: '{}'
   dispatch_head_sha:

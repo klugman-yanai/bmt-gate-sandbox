@@ -19,9 +19,9 @@ This document describes how the system runs today, with the current split storag
 
 Ownership:
 
-- `deploy/code` is source of truth for deployable code/config/bootstrap only.
-- `deploy/code` is manually synced to `<code-root>` (`just sync-deploy && just verify-sync`).
-- `deploy/runtime` is source of truth for runtime seed artifacts and is manually synced to `<runtime-root>` (`just sync-runtime-seed`).
+- `gcp/code` is source of truth for deployable code/config/bootstrap only.
+- `gcp/code` is manually synced to `<code-root>` (`just sync-deploy && just verify-sync`).
+- `gcp/runtime` is source of truth for runtime seed artifacts and is manually synced to `<runtime-root>` (`just sync-runtime-seed`).
 - Runtime artifacts must live under `<runtime-root>` only.
 
 ## Data flow
@@ -44,10 +44,10 @@ Ownership:
 | `.github/scripts/ci/commands/run_trigger.py` | Writes runtime trigger payload. |
 | `.github/scripts/ci/commands/start_vm.py` | Starts VM and verifies RUNNING + `lastStartTimestamp` advancement. |
 | `.github/scripts/ci/commands/wait_handshake.py` | Waits for ack; emits reasoned diagnostics and serial output on failure. |
-| `deploy/code/vm_watcher.py` | Trigger polling, orchestrator execution, pointer promotion, GitHub reporting. |
-| `deploy/code/root_orchestrator.py` | Per-leg orchestrator; code/runtime aware fetch/upload. |
-| `deploy/code/sk/bmt_manager.py` | Runner execution + snapshot outputs + verdict generation. |
-| `deploy/code/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress API. |
+| `gcp/code/vm_watcher.py` | Trigger polling, orchestrator execution, pointer promotion, GitHub reporting. |
+| `gcp/code/root_orchestrator.py` | Per-leg orchestrator; code/runtime aware fetch/upload. |
+| `gcp/code/sk/bmt_manager.py` | Runner execution + snapshot outputs + verdict generation. |
+| `gcp/code/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress API. |
 
 ## Canonical runtime object layout
 

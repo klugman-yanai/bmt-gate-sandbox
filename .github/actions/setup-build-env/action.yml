@@ -59,7 +59,7 @@ runs:
 
     - name: Cache CMake 3.29.3
       id: cmake-cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+      uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
       with:
         path: /opt/cmake-3.29
         key: cmake-3.29.3-linux-x86_64

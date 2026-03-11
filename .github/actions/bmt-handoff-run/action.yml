@@ -92,6 +92,7 @@ runs:
       shell: bash
       env:
         RUN_CONTEXT: ${{ inputs.run_context }}
+        PR_NUMBER: ${{ inputs.pr_number }}
       run: uv run --project .github/bmt bmt preflight-trigger-queue
 
     - name: Write run trigger to GCS
@@ -119,6 +120,7 @@ runs:
 
     - name: Start BMT VM
       id: start-vm
+      if: steps.select-vm.outputs.vm_reused_running != 'true'
       shell: bash
       run: uv run --project .github/bmt bmt start-vm
 
@@ -129,14 +131,8 @@ runs:
         WORKFLOW_RUN_ID: ${{ github.run_id }}
         RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: |
-        # When reusing a RUNNING VM (e.g. after cancel-in-progress), the VM may still be processing
-        # the previous trigger; use a longer handshake timeout so we don't fail before it picks up ours.
-        if [[ "${{ steps.select-vm.outputs.vm_reused_running }}" == "true" ]]; then
-          export BMT_HANDSHAKE_TIMEOUT_SEC="${BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING:-600}"
-          echo "Using extended handshake timeout (reused RUNNING VM): ${BMT_HANDSHAKE_TIMEOUT_SEC}s"
-        fi
-        uv run --project .github/bmt bmt wait-handshake
+        VM_REUSED_RUNNING: ${{ steps.select-vm.outputs.vm_reused_running }}
+      run: uv run --project .github/bmt bmt wait-handshake
 
     - name: Handshake timeout diagnostics
       if: ${{ always() && steps.handshake.outcome == 'failure' }}

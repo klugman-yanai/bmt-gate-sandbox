@@ -38,7 +38,7 @@ Based on the project’s **purpose** — reliably test production CI locally usi
 
 - Add a **short, linear guide** (e.g. a section in `docs/development.md` or a dedicated `docs/testing-production-ci-locally.md`) that:
   1. Lists prerequisites (repo vars, `gcloud` auth, optional Python/uv).
-  2. Says: sync mirror (`just sync-remote`, `just verify-sync`).
+  2. Says: sync mirror (`just sync-gcp`, `just verify-sync`).
   3. Walks through the exact sequence the workflow runs (with concrete commands or Just recipe names).
   4. Describes how to verify (monitor, gcs-trigger, Check Run, GCS pointers).
 - Link to this guide from README “Local usage” and from CLAUDE.md so it’s the canonical “test prod CI locally” reference.
@@ -68,7 +68,7 @@ Based on the project’s **purpose** — reliably test production CI locally usi
 
 **Improvement:**
 
-- In the “How to test production CI locally” flow (see §2), state explicitly: **before** running workflow steps, run `just sync-remote` and `just verify-sync` so the bucket matches `remote/`.
+- In the “How to test production CI locally” flow (see §2), state explicitly: **before** running workflow steps, run `just sync-gcp` and `just verify-sync` so the bucket matches `remote/`.
 - Optionally, the first-class entry point (§1) can run sync (or verify-sync) by default, with a flag to skip when the user knows the mirror is already in sync.
 
 **Outcome:** Fewer “why did the VM run old code?” incidents; mirror discipline is part of the main story.

@@ -169,6 +169,15 @@ def run_preflight_trigger_queue() -> None:
     elif run_context == "pr" and preempt_on_pr:
         current_pr = os.environ.get("PR_NUMBER", "").strip()
         current_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        if not current_pr:
+            raise RuntimeError(
+                "RUN_CONTEXT=pr requires PR_NUMBER for same-PR stale-trigger cleanup. "
+                "Preflight aborted to avoid preserving stale triggers from the same PR."
+            )
+        if not current_repo:
+            raise RuntimeError(
+                "RUN_CONTEXT=pr requires GITHUB_REPOSITORY for same-PR stale-trigger cleanup."
+            )
         same_pr_blocking = []
         preserved_blocking = []
         for uri in blocking:

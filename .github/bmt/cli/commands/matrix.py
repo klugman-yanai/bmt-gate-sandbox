@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 from pathlib import Path
@@ -10,7 +9,7 @@ from typing import Any
 
 from cli import shared
 from cli.gh_output import gh_notice, gh_warning
-from cli.shared import DEFAULT_CONFIG_ROOT, get_config, require_env
+from cli.shared import require_env
 
 # ---------------------------------------------------------------------------
 # matrix (build matrix JSON from remote config)
@@ -18,16 +17,17 @@ from cli.shared import DEFAULT_CONFIG_ROOT, get_config, require_env
 
 
 def run_build() -> None:
-    """Build matrix JSON from remote config. Reads BMT_CONFIG_ROOT, BMT_OUTPUT_KEY, GITHUB_OUTPUT; BMT_PROJECTS from config."""
-    cfg = get_config()
-    config_root = os.environ.get("BMT_CONFIG_ROOT", DEFAULT_CONFIG_ROOT)
-    project_filter = cfg.bmt_projects
+    """Build matrix JSON from CMake release presets. Reads BMT_PRESETS_FILE, BMT_OUTPUT_KEY, GITHUB_OUTPUT."""
     github_output = require_env("GITHUB_OUTPUT")
     output_key = os.environ.get("BMT_OUTPUT_KEY", "matrix")
-
-    matrix = shared.build_matrix(Path(config_root), project_filter)
+    presets_file = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
+    presets = _load_configure_presets(presets_file)
+    rows = _build_bmt_rows(presets).get("include", [])
+    matrix = {
+        "include": [{"project": str(row["project"]), "bmt_id": str(row["bmt_id"])} for row in rows]
+    }
     if not matrix["include"]:
-        gh_warning("No supported project+BMT rows found for requested project filter.")
+        gh_warning("No supported release runner rows found in CMake presets.")
     with Path(github_output).open("a", encoding="utf-8") as fh:
         _ = fh.write(f"{output_key}={json.dumps(matrix, separators=(',', ':'))}\n")
     print(f"Built matrix rows: {len(matrix['include'])}")
@@ -145,37 +145,6 @@ def run_filter() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _allow_all(raw: str) -> bool:
-    normalized = " ".join((raw or "").strip().lower().split())
-    if not normalized:
-        return True
-    if normalized.startswith("["):
-        try:
-            parsed = json.loads(raw.strip())
-            return isinstance(parsed, list) and len(parsed) == 0
-        except json.JSONDecodeError:
-            return False
-    return normalized in {
-        "all",
-        "*",
-        "all release runners",
-        "all-release-runners",
-        "all_release_runners",
-    }
-
-
-def _allowed_projects(raw: str) -> set[str]:
-    if _allow_all(raw):
-        return set()
-    s = (raw or "").strip()
-    if s.startswith("["):
-        with contextlib.suppress(json.JSONDecodeError):
-            parsed = json.loads(s)
-            if isinstance(parsed, list):
-                return {str(x).strip().lower() for x in parsed if str(x).strip()}
-    return {item.strip().lower() for item in (raw or "").split(",") if item.strip()}
-
-
 def _load_configure_presets(presets_file: Path) -> list[dict[str, Any]]:
     if not presets_file.is_file():
         raise RuntimeError(f"Missing presets file: {presets_file}")
@@ -197,7 +166,7 @@ def _load_configure_presets(presets_file: Path) -> list[dict[str, Any]]:
     return out
 
 
-def _build_ci_rows(presets: list[dict[str, Any]], allowed: set[str]) -> list[dict[str, str]]:
+def _build_ci_rows(presets: list[dict[str, Any]]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
     for preset in presets:
@@ -208,8 +177,6 @@ def _build_ci_rows(presets: list[dict[str, Any]], allowed: set[str]) -> list[dic
         if "xtensa" in name_lower or "hexagon" in name_lower:
             continue
         project = name[: -len("_gcc_Release")].lower()
-        if allowed and project not in allowed:
-            continue
         if name in seen:
             continue
         seen.add(name)
@@ -217,9 +184,7 @@ def _build_ci_rows(presets: list[dict[str, Any]], allowed: set[str]) -> list[dic
     return rows
 
 
-def _build_bmt_rows(
-    presets: list[dict[str, Any]], allowed: set[str]
-) -> dict[str, list[dict[str, str]]]:
+def _build_bmt_rows(presets: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
     include: list[dict[str, str]] = []
     for preset in presets:
         name = str(preset.get("name", "")).strip()
@@ -229,8 +194,6 @@ def _build_bmt_rows(
         if "xtensa" in name_lower or "hexagon" in name_lower:
             continue
         project = name[: -len("_gcc_Release")].lower()
-        if allowed and project not in allowed:
-            continue
         binary_dir = str(preset.get("binaryDir", "")).replace("${sourceDir}/", "", 1)
         include.append(
             {
@@ -241,29 +204,27 @@ def _build_bmt_rows(
                 "binary_dir": binary_dir,
             }
         )
+    include.sort(key=lambda row: (row["project"], row["bmt_id"]))
     return {"include": include}
 
 
 def run_release_runners() -> None:
-    """Parse CMake release runners. Reads BMT_OUTPUT_FORMAT (ci|bmt), BMT_OUTPUT_KEY, BMT_PRESETS_FILE; BMT_PROJECTS from config."""
-    cfg = get_config()
+    """Parse CMake release runners. Reads BMT_OUTPUT_FORMAT (ci|bmt), BMT_OUTPUT_KEY, BMT_PRESETS_FILE."""
     output_format = require_env("BMT_OUTPUT_FORMAT")
     if output_format not in {"ci", "bmt"}:
         raise RuntimeError(f"BMT_OUTPUT_FORMAT must be 'ci' or 'bmt', got {output_format!r}")
 
     presets_file = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
-    project_filter = cfg.bmt_projects
     github_output = os.environ.get("GITHUB_OUTPUT")
 
     presets = _load_configure_presets(presets_file)
-    allowed = _allowed_projects(project_filter)
 
     default_key = "presets"
     payload: dict[str, list[dict[str, str]]] | list[dict[str, str]]
     if output_format == "ci":
-        payload = _build_ci_rows(presets, allowed)
+        payload = _build_ci_rows(presets)
     else:
-        payload = _build_bmt_rows(presets, allowed)
+        payload = _build_bmt_rows(presets)
         default_key = "runner_matrix"
 
     payload_json = json.dumps(payload, separators=(",", ":"))
@@ -275,14 +236,11 @@ def run_release_runners() -> None:
     else:
         print(payload_json)
 
-    allowed_raw = project_filter or "all"
     if output_format == "ci":
         row_count = len(payload) if isinstance(payload, list) else 0
-        print(
-            f"::notice::Building one job per project (BMT_PROJECTS={allowed_raw}): {payload_json}"
-        )
+        print(f"::notice::Building one job per release project: {payload_json}")
         print(f"Parsed CI release rows: {row_count}")
     else:
         include = payload.get("include", []) if isinstance(payload, dict) else []
-        gh_notice(f"Runner matrix (BMT_PROJECTS={allowed_raw}): {payload_json}")
+        gh_notice(f"Runner matrix (all release projects): {payload_json}")
         print(f"Parsed BMT release rows: {len(include)}")

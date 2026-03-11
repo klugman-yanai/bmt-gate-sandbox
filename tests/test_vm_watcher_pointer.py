@@ -4,15 +4,8 @@ from __future__ import annotations
 
 import importlib
 import json
-import sys
-from pathlib import Path
 
-# Ensure deploy/code is on path so we can import vm_watcher
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "deploy" / "code") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "deploy" / "code"))
-
-import vm_watcher as watcher  # type: ignore[import-not-found]  # noqa: E402
+import vm_watcher as watcher  # type: ignore[import-not-found]
 
 
 def test_results_prefix_from_ci_verdict_uri_basic():

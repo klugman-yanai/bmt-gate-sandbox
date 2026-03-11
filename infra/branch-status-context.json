@@ -1,0 +1,10 @@
+{
+  "description": "Validates repo var BMT_STATUS_CONTEXT matches branch protection required status context.",
+  "repo_var_vs_branch_required_status_context": [
+    {
+      "repo_var": "BMT_STATUS_CONTEXT",
+      "branch": "dev",
+      "context_substring": "bmt"
+    }
+  ]
+}

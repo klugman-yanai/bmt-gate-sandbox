@@ -55,19 +55,19 @@ def run_stage_release_runner() -> None:
     if runner_bin.is_file():
         print(f"Using existing runner from {runners_dir} (build/ layout)")
         return
-    sk_runner = Path("remote/runtime/sk/runners/sk_gcc_release/kardome_runner")
-    sk_lib = Path("remote/runtime/sk/runners/lib/libKardome.so")
+    sk_runner = Path("gcp/runtime/sk/runners/sk_gcc_release/kardome_runner")
+    sk_lib = Path("gcp/runtime/sk/runners/lib/libKardome.so")
     if sk_runner.is_file() and project == "sk":
         shutil.copy2(sk_runner, runner_bin)
         if sk_lib.is_file():
             shutil.copy2(sk_lib, kardome_dir / "libKardome.so")
         runner_bin.chmod(0o755)
-        print("Using real runner from remote/runtime/sk/runners/ (production-like artifact)")
+        print("Using real runner from gcp/runtime/sk/runners/ (production-like artifact)")
         return
     runner_bin.touch()
     (kardome_dir / "libKardome.so").touch()
     runner_bin.chmod(0o755)
-    gh_output.gh_warning(f"No real runner for {project}; creating placeholder for path-only test")
+    gh_output.gh_notice(f"No real runner for {project}; creating placeholder for path-only test")
 
 
 def run_compute_preset_info() -> None:

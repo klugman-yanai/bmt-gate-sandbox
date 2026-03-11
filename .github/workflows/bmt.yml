@@ -56,10 +56,10 @@ on:
     outputs:
       bmt_gate_passed:
         description: "Handoff succeeded (write-summary ran)."
-        value: ${{ jobs.bmt-outcome.outputs.bmt_gate_passed }}
+        value: ${{ jobs.gate.outputs.bmt_gate_passed }}
       bmt_fallback_run:
         description: "Failure-fallback ran."
-        value: ${{ jobs.bmt-outcome.outputs.bmt_fallback_run }}
+        value: ${{ jobs.gate.outputs.bmt_fallback_run }}
 
 concurrency:
   group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
@@ -72,8 +72,6 @@ env:
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
-  BMT_VM_POOL: ${{ vars.BMT_VM_POOL }}  # recommend at least 2 VMs; second stays off until needed; 3rd run gets "No BMT VM is available"
-  BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
   BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
   # Cloud Run (future): uncomment when used
@@ -87,11 +85,10 @@ permissions:
   actions: read
 
 jobs:
-  # Success: prepare → upload-runners → handoff (classify + run + summary).
-  # Failure: prepare or handoff fails → Gate runs fallback (post status, cleanup) then sets outputs.
-  # Gate (bmt-outcome) always runs after handoff and sets workflow outputs.
-  prepare:
-    name: Prepare
+  # Success: setup → upload-runners → handoff (classify + run + summary).
+  # Failure: setup or handoff fails → gate runs fallback (post status, cleanup) then sets outputs.
+  setup:
+    name: Setup
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -109,7 +106,7 @@ jobs:
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
@@ -164,7 +161,7 @@ jobs:
         run: echo "::notice::BMT result will appear in the PR Checks tab and Comments, not in this workflow summary."
   upload-runners:
     name: Upload • ${{ matrix.project }}
-    needs: prepare
+    needs: setup
     runs-on: ubuntu-22.04
     continue-on-error: true
     permissions:
@@ -174,10 +171,10 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix_need_upload) }}
+      matrix: ${{ fromJson(needs.setup.outputs.matrix_need_upload) }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
@@ -186,16 +183,16 @@ jobs:
       - uses: ./.github/actions/bmt-job-setup
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          run-id: ${{ needs.prepare.outputs.run_id }}
+          run-id: ${{ needs.setup.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download runner artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           # Produced by caller build-and-test.yml build-release job (one artifact runner-<preset> per preset).
           name: runner-${{ matrix.preset }}
           path: artifact
-          run-id: ${{ needs.prepare.outputs.run_id }}
+          run-id: ${{ needs.setup.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
         id: download
@@ -220,7 +217,7 @@ jobs:
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
-          SOURCE_REF: ${{ needs.prepare.outputs.head_sha }}
+          SOURCE_REF: ${{ needs.setup.outputs.head_sha }}
         run: uv run --project .github/bmt bmt upload-runner-to-gcs
         continue-on-error: true
 
@@ -236,7 +233,7 @@ jobs:
 
   handoff:
     name: Handoff
-    needs: [prepare, upload-runners]
+    needs: [setup, upload-runners]
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -260,7 +257,7 @@ jobs:
       handoff_reason: ${{ steps.run.outputs.handoff_reason || '' }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
@@ -269,27 +266,27 @@ jobs:
       - uses: ./.github/actions/bmt-job-setup
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          run-id: ${{ needs.prepare.outputs.run_id }}
+          run-id: ${{ needs.setup.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - id: classify
         uses: ./.github/actions/bmt-classify-handoff
         with:
-          head_sha: ${{ needs.prepare.outputs.head_sha }}
-          runner_matrix: ${{ needs.prepare.outputs.runner_matrix }}
+          head_sha: ${{ needs.setup.outputs.head_sha }}
+          runner_matrix: ${{ needs.setup.outputs.runner_matrix }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
 
       - id: run
         uses: ./.github/actions/bmt-handoff-run
         with:
-          head_sha: ${{ needs.prepare.outputs.head_sha }}
-          head_branch: ${{ needs.prepare.outputs.head_branch }}
-          head_event: ${{ needs.prepare.outputs.head_event }}
-          pr_number: ${{ needs.prepare.outputs.pr_number }}
-          run_context: ${{ needs.prepare.outputs.run_context }}
+          head_sha: ${{ needs.setup.outputs.head_sha }}
+          head_branch: ${{ needs.setup.outputs.head_branch }}
+          head_event: ${{ needs.setup.outputs.head_event }}
+          pr_number: ${{ needs.setup.outputs.pr_number }}
+          run_context: ${{ needs.setup.outputs.run_context }}
           filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
-          runner_matrix: ${{ needs.prepare.outputs.runner_matrix }}
+          runner_matrix: ${{ needs.setup.outputs.runner_matrix }}
           accepted_projects: ${{ steps.classify.outputs.accepted_projects }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
@@ -299,9 +296,9 @@ jobs:
       # No separate write-summary step needed; bmt-handoff-run already writes
       # the handoff summary internally (bmt-write-summary with if: always()).
 
-  bmt-outcome:
+  gate:
     name: Gate
-    needs: [prepare, handoff]
+    needs: [setup, handoff]
     if: always()
     runs-on: ubuntu-22.04
     permissions:
@@ -317,9 +314,9 @@ jobs:
     steps:
       - name: Checkout repo (for local actions)
         if: >-
-          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
@@ -327,8 +324,8 @@ jobs:
 
       - uses: ./.github/actions/bmt-job-setup
         if: >-
-          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
+          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
@@ -336,8 +333,8 @@ jobs:
 
       - name: Build diagnostic context from merged handoff outputs
         if: >-
-          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
+          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
         id: ctx
         shell: bash
         env:
@@ -360,12 +357,12 @@ jobs:
 
       - name: Failure fallback
         if: >-
-          always() && needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure')
+          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
         uses: ./.github/actions/bmt-failure-fallback
         with:
-          prepare_result: ${{ needs.prepare.result }}
-          prepare_outputs: ${{ toJson(needs.prepare.outputs) }}
+          prepare_result: ${{ needs.setup.result }}
+          prepare_outputs: ${{ toJson(needs.setup.outputs) }}
           classify_result: ${{ needs.handoff.outputs.classify_result }}
           classify_outputs: ${{ steps.ctx.outputs.classify_outputs }}
           handoff_result: ${{ needs.handoff.outputs.handoff_result == 'skipped' && 'success' || needs.handoff.outputs.handoff_result }}
@@ -380,4 +377,4 @@ jobs:
       - id: outcome
         run: |
           echo "bmt_gate_passed=${{ needs.handoff.result == 'success' }}" >> "$GITHUB_OUTPUT"
-          echo "bmt_fallback_run=${{ needs.prepare.result != 'cancelled' && needs.handoff.result != 'cancelled' && (needs.prepare.result == 'failure' || needs.handoff.result == 'failure') }}" >> "$GITHUB_OUTPUT"
+          echo "bmt_fallback_run=${{ needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled' && (needs.setup.result == 'failure' || needs.handoff.result == 'failure') }}" >> "$GITHUB_OUTPUT"

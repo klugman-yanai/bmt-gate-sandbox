@@ -18,16 +18,16 @@ Audit of root-level and folder structure bloat, over-verbosity, and complexity i
 ## 3. Tools (done)
 
 - **Reference audit:** All `tools/*.py` scripts are either used by Justfile, referenced in CLAUDE.md, or are libraries (shared_*, click_exit, repo_paths). No unreferenced scripts removed.
-- **Documented:** In [CLAUDE.md](../../CLAUDE.md): (1) **Layout validators** — `just validate-layout` checks `deploy/` mirror contract; `just validate-repo-layout` checks repo root policy; run both when changing layout. (2) **Config vs repo vars** — `config/bmt/` for shell bootstrap from env files; `tools/gh_repo_vars.py` and `just repo-vars-check` / `just repo-vars-apply` for programmatic check/apply.
+- **Documented:** In [CLAUDE.md](../../CLAUDE.md): (1) **Layout validators** — `just validate-layout` checks `gcp/` mirror contract; `just validate-repo-layout` checks repo root policy; run both when changing layout. (2) **Config vs repo vars** — `config/bmt/` for shell bootstrap from env files; `tools/gh_repo_vars.py` and `just repo-vars-check` / `just repo-vars-apply` for programmatic check/apply.
 - **Just recipe added:** `just diff-core-main` now invokes [tools/diff_github_core_main.py](../../tools/diff_github_core_main.py) (was documented in docs but missing from Justfile).
 
 ## 4. Deploy bootstrap (done)
 
-- **Scripts tagged:** [deploy/code/bootstrap/README.md](../../deploy/code/bootstrap/README.md) updated with a **Role** column: **required** (startup_wrapper, startup_example, ensure_uv, install_deps), **ops-only** (setup_vm_startup, rollback_vm_startup_to_inline, export_vm_spec, build_bmt_image, create_bmt_green_vm, cutover_bmt_vm, rollback_bmt_vm, audit_vm_and_bucket, ssh_install), **example** (bmt-watcher.service.example).
+- **Scripts tagged:** [gcp/code/bootstrap/README.md](../../gcp/code/bootstrap/README.md) updated with a **Role** column: **required** (startup_wrapper, startup_example, ensure_uv, install_deps), **ops-only** (setup_vm_startup, rollback_vm_startup_to_inline, export_vm_spec, build_bmt_image, create_bmt_green_vm, cutover_bmt_vm, rollback_bmt_vm, audit_vm_and_bucket, ssh_install), **example** (bmt-watcher.service.example).
 
 ## 5. Optional follow-ups (not done)
 
-- **scripts/:** Single hook `scripts/hooks/pre-commit-sync-remote.sh`. Optional: move to `.github/scripts/hooks/` and update pre-commit config.
+- **scripts/:** Single hook `scripts/hooks/pre-commit-sync-gcp.sh`. Optional: move to `.github/scripts/hooks/` and update pre-commit config.
 - **.canary and src:** Both are tracked and in allowed set so policy passes. Consider removing from repo or keeping as-is; no change in this audit.
 - **Tools grouping:** Optional later: group `tools/` by prefix (e.g. `tools/bucket/`, `tools/gh/`) to reduce flat list.
 - **Unify validate-layout:** Optional: single `just validate-layout` that runs both deploy_layout_policy and repo_layout_policy (currently two recipes).

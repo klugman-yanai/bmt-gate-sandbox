@@ -1,13 +1,4 @@
 
-[build-system]
-requires = ["uv_build>=0.10.7,<0.11.0"]
-build-backend = "uv_build"
-
-[tool.uv.build-backend]
-# Workspace root: minimal stub package so uv_build has one module; real CLI is in workspace member packages/bmt-cli.
-module-name = "bmt_cloud_dev"
-module-root = "."
-
 [project]
 name = "bmt-cloud-dev"
 version = "0.1.0"
@@ -18,13 +9,18 @@ dependencies = [
     "rich>=13.0",
     "requests>=2.31.0",
     "whenever>=0.9.5",
+    "prek>=0.3.3",
 ]
 
 [tool.uv.sources]
 bmt = { workspace = true }
 
+[tool.uv]
+# Workspace root only; do not attempt to build/install a root package.
+package = false
+
 [tool.uv.workspace]
-members = ["packages/bmt-cli"]
+members = [".github/bmt"]
 
 [project.optional-dependencies]
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
@@ -33,7 +29,7 @@ vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# bmt is a workspace member (.github/bmt); root no longer builds it via setuptools find.
+# bmt is a workspace member (.github/bmt); root is intentionally non-packaged.
 
 [tool.basedpyright]
 include = ["."]
@@ -41,7 +37,7 @@ exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime"
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
-extraPaths = ["packages/bmt-cli"]
+extraPaths = [".github/bmt"]
 # Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
 reportExplicitAny = false
 reportAny = false
@@ -52,7 +48,28 @@ reportUnknownArgumentType = false
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
+    "httpx>=0.28.1",
     "prek>=0.3.3",
     "pyjwt>=2.11.0",
     "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "pytest-github-actions-annotate-failures>=0.4.0",
+    "pytest-mock>=3.15.1",
+    "pytest-randomly>=4.0.1",
+    "pytest-rerunfailures>=16.1",
+    "pytest-socket>=0.7.0",
+    "pytest-subprocess>=1.5.3",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=180 --timeout-method=thread --cov=.github/bmt/cli --cov=gcp/code --cov=tools --cov-report=term-missing --cov-report=xml --junitxml=junit.xml"
+markers = [
+    "unit: pure logic tests without subprocess/network/filesystem coupling",
+    "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
+    "integration: subprocess/filesystem orchestration tests with local fakes",
+    "live_smoke: cloud-backed smoke tests (scheduled/manual only; not for default PR fast gate)",
 ]

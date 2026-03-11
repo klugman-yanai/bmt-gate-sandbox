@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
+import github_auth  # type: ignore[import-not-found]
 import pytest
-
-repo_root = Path(__file__).parent.parent
-sys.path.insert(0, str(repo_root / "deploy" / "code" / "lib"))
-import github_auth  # type: ignore[import-not-found]  # noqa: E402
 
 
 @pytest.fixture
