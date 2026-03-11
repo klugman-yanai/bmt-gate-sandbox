@@ -59,3 +59,6 @@ bmt_root_results.json
 
 # Optional: reduce noise from Cursor's own plans/state (uncomment if desired)
 # .cursor/plans/
+
+# Explicit: large dataset zips (exclude from index)
+**/sk_false_rejects.zip

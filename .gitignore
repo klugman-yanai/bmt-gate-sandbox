@@ -1,3 +1,7 @@
+*.zip
+# Explicit: large dataset zips (do not commit)
+**/sk_false_rejects.zip
+
 # Build/output junk
 build/
 data/
@@ -26,10 +30,10 @@ repo/staging/
 bmt_root_results.json
 
 # VM/BMT runtime artifacts (bucket sync + handshake staging)
-deploy/runtime/triggers/
-deploy/runtime/**/inputs/**/*.wav
-deploy/runtime/**/outputs/
-deploy/runtime/**/results/
+gcp/bmt/runtime/triggers/
+gcp/bmt/runtime/**/inputs/**/*.wav
+gcp/bmt/runtime/**/outputs/
+gcp/bmt/runtime/**/results/
 
 # Tooling/editor
 compile_commands.json
