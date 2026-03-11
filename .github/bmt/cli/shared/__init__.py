@@ -198,6 +198,24 @@ def vm_start(project: str, zone: str, instance_name: str) -> None:
         raise GcloudError(f"Failed to start VM {instance_name}: {err}")
 
 
+def vm_stop(project: str, zone: str, instance_name: str) -> None:
+    """Stop a running Compute Engine instance."""
+    cmd = [
+        "gcloud",
+        "compute",
+        "instances",
+        "stop",
+        instance_name,
+        "--zone",
+        zone,
+        "--project",
+        project,
+    ]
+    rc, err = run_capture(cmd)
+    if rc != 0:
+        raise GcloudError(f"Failed to stop VM {instance_name}: {err}")
+
+
 def vm_describe(project: str, zone: str, instance_name: str) -> dict[str, Any]:
     """Describe a Compute Engine instance as JSON."""
     cmd = [
