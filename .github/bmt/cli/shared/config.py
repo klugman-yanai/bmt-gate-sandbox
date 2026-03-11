@@ -23,7 +23,6 @@ class BmtConfig:
     gcp_project: str
     gcp_zone: str
     bmt_vm_name: str
-    bmt_projects: str = "all"
     bmt_status_context: str = "BMT Gate"
     bmt_runtime_context: str = "BMT Runtime"
     bmt_runtime_backend: str = ""
@@ -92,7 +91,6 @@ def load_bmt_config(
         gcp_project=_get("GCP_PROJECT"),
         gcp_zone=_get("GCP_ZONE"),
         bmt_vm_name=_get("BMT_VM_NAME"),
-        bmt_projects=_get("BMT_PROJECTS", "all"),
         bmt_status_context=_get("BMT_STATUS_CONTEXT", "BMT Gate"),
         bmt_runtime_context=_get("BMT_RUNTIME_CONTEXT", "BMT Runtime"),
         bmt_runtime_backend=_get("BMT_RUNTIME_BACKEND"),

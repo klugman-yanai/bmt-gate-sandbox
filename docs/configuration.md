@@ -50,7 +50,6 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BMT_PROJECTS` | `"all"` | Filter for BMT projects. Use `"all"` or a JSON array of project keys (e.g. `["sk"]`). |
 | `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. Effective value is sourced from branch rules via consistency checks. |
 | `BMT_RUNTIME_CONTEXT` | `"BMT Runtime"` | Non-gating runtime check-run context for live progress and terminal runtime outcome. |
 | `BMT_RUNTIME_BACKEND` | `"vm"` | Runtime dispatcher backend (`vm` or `cloud_run_job`). |

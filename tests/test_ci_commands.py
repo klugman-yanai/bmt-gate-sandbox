@@ -34,7 +34,6 @@ def _run(
 def test_matrix_command_runs(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
     config_root = gcp_code_root
     assert config_root.exists()
-    assert (config_root / "bmt_projects.json").exists()
 
     github_output = tmp_path / "github_output.txt"
     result = _run(
@@ -52,7 +51,7 @@ def test_matrix_command_runs(repo_root: Path, gcp_code_root: Path, tmp_path: Pat
     assert "sk" in {e["project"] for e in matrix["include"]}
 
 
-def test_matrix_command_with_filter(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
+def test_matrix_command_ignores_bmt_projects_filter(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     result = _run(
         "matrix",
@@ -62,58 +61,7 @@ def test_matrix_command_with_filter(repo_root: Path, gcp_code_root: Path, tmp_pa
     assert result.returncode == 0
     outputs = read_github_output(github_output)
     matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
-    assert {e["project"] for e in matrix["include"]} == {"sk"}
-
-
-def test_matrix_command_with_all_filter(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
-    github_output = tmp_path / "github_output.txt"
-    result = _run(
-        "matrix",
-        repo_root=repo_root,
-        env={
-            "BMT_CONFIG_ROOT": str(gcp_code_root),
-            "BMT_PROJECTS": "all",
-            "GITHUB_OUTPUT": str(github_output),
-        },
-    )
-    assert result.returncode == 0
-    outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
     assert "sk" in {e["project"] for e in matrix["include"]}
-
-
-def test_matrix_command_with_json_array_filter(repo_root: Path, gcp_code_root: Path, tmp_path: Path) -> None:
-    """BMT_PROJECTS accepts a JSON array e.g. [\"sk\"] or [\"SK\"] (normalized to lowercase)."""
-    github_output = tmp_path / "github_output.txt"
-    result = _run(
-        "matrix",
-        repo_root=repo_root,
-        env={"BMT_CONFIG_ROOT": str(gcp_code_root), "BMT_PROJECTS": '["sk"]', "GITHUB_OUTPUT": str(github_output)},
-    )
-    assert result.returncode == 0
-    outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
-    assert {e["project"] for e in matrix["include"]} == {"sk"}
-
-
-def test_matrix_command_with_unsupported_filter_is_non_fatal(
-    repo_root: Path, gcp_code_root: Path, tmp_path: Path
-) -> None:
-    github_output = tmp_path / "github_output.txt"
-    result = _run(
-        "matrix",
-        repo_root=repo_root,
-        env={
-            "BMT_CONFIG_ROOT": str(gcp_code_root),
-            "BMT_PROJECTS": "does-not-exist",
-            "GITHUB_OUTPUT": str(github_output),
-        },
-    )
-    assert result.returncode == 0
-    assert "No supported project+BMT rows found" in combined_output(result)
-    outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
-    assert matrix["include"] == []
 
 
 def test_filter_supported_matrix_success(repo_root: Path, tmp_path: Path) -> None:

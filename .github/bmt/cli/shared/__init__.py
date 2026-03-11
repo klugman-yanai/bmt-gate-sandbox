@@ -308,30 +308,6 @@ def read_json_object(path: Path) -> dict[str, Any]:
     return data
 
 
-def _parse_filter(raw: str) -> set[str]:
-    s = (raw or "").strip()
-    if not s:
-        return set()
-    # JSON array e.g. ["sk"] or ["SK"] (normalized to lowercase to match project keys)
-    if s.startswith("["):
-        try:
-            parsed = json.loads(s)
-        except json.JSONDecodeError:
-            parsed = None
-        if isinstance(parsed, list):
-            return {str(x).strip().lower() for x in parsed if str(x).strip()}
-    normalized = " ".join(s.lower().split())
-    if normalized in {
-        "all",
-        "*",
-        "all release runners",
-        "all-release-runners",
-        "all_release_runners",
-    }:
-        return set()
-    return {item.strip().lower() for item in raw.replace(",", " ").split() if item.strip()}
-
-
 def _projects_cfg(config_root: Path) -> dict[str, Any]:
     payload = read_json_object(config_root / "bmt_projects.json")
     projects = payload.get("projects", {})
@@ -359,16 +335,13 @@ def _jobs_cfg(config_root: Path, project_cfg: dict[str, Any]) -> dict[str, Any]:
     return bmts
 
 
-def build_matrix(config_root: Path, project_filter_raw: str) -> dict[str, list[dict[str, str]]]:
+def build_matrix(config_root: Path) -> dict[str, list[dict[str, str]]]:
     """Build CI job matrix (project, bmt_id) from bmt_projects.json and jobs configs."""
-    project_filter = _parse_filter(project_filter_raw)
     include: list[dict[str, str]] = []
     for project, project_cfg in _projects_cfg(config_root).items():
         if not isinstance(project_cfg, dict):
             continue
         if not bool(project_cfg.get("enabled", True)):
-            continue
-        if project_filter and project not in project_filter:
             continue
         bmts = _jobs_cfg(config_root, project_cfg)
         for bmt_id, bmt_cfg in bmts.items():

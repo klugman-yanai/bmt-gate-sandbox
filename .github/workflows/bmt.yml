@@ -72,7 +72,6 @@ env:
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
-  BMT_PROJECTS: ${{ vars.BMT_PROJECTS }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
   BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
   # Cloud Run (future): uncomment when used
