@@ -3,9 +3,12 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    # Only ci/check-bmt-gate (integration branch): PR branches trigger via pull_request, so one run per push.
     branches:
+      - dev
       - ci/check-bmt-gate
+      - test/check-bmt-gate-*
+      - test/workflow-optimizations
+      - test/*
   pull_request:
     branches:
       - dev
