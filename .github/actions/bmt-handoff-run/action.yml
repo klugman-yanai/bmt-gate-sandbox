@@ -64,9 +64,15 @@ outputs:
   vm_started:
     description: Whether the BMT VM was started
     value: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
+  vm_start_failure_class:
+    description: Classified VM start failure class when start-vm fails
+    value: ${{ steps.start-vm.outputs.vm_start_failure_class || '' }}
+  vm_start_failure_message:
+    description: VM start failure message when start-vm fails
+    value: ${{ steps.start-vm.outputs.vm_start_failure_message || '' }}
   handoff_reason:
-    description: Handoff result reason (ok, no_runtime_supported_legs, handshake_timeout)
-    value: ${{ steps.handoff-reason.outputs.handoff_reason || (steps.handshake.outcome == 'success' && 'ok' || 'handshake_timeout') }}
+    description: Handoff result reason (ok, no_runtime_supported_legs, vm_start_failed, handshake_timeout)
+    value: ${{ steps.handoff-reason.outputs.handoff_reason || (steps.start-vm.outcome != 'success' && 'vm_start_failed' || steps.handshake.outcome == 'success' && 'ok' || 'handshake_timeout') }}
 
 runs:
   using: composite
@@ -122,10 +128,12 @@ runs:
       id: start-vm
       if: steps.select-vm.outputs.vm_reused_running != 'true'
       shell: bash
+      continue-on-error: true
       run: uv run --project .github/bmt bmt start-vm
 
     - name: Wait for VM handshake ack
       id: handshake
+      if: steps.start-vm.outcome == 'success'
       shell: bash
       env:
         WORKFLOW_RUN_ID: ${{ github.run_id }}
@@ -135,7 +143,7 @@ runs:
       run: uv run --project .github/bmt bmt wait-handshake
 
     - name: Handshake timeout diagnostics
-      if: ${{ always() && steps.handshake.outcome == 'failure' }}
+      if: ${{ always() && steps.start-vm.outcome == 'success' && steps.handshake.outcome == 'failure' }}
       shell: bash
       run: uv run --project .github/bmt bmt handshake-timeout-diagnostics
 
@@ -161,12 +169,27 @@ runs:
       shell: bash
       run: |
         reason="ok"
-        if [[ "${{ steps.handshake.outcome }}" != "success" ]]; then
+        if [[ "${{ steps.start-vm.outcome }}" != "success" ]]; then
+          reason="vm_start_failed"
+        elif [[ "${{ steps.handshake.outcome }}" != "success" ]]; then
           reason="handshake_timeout"
         elif [[ "${{ steps.accept-guard.outcome }}" == "failure" ]]; then
           reason="no_runtime_supported_legs"
         fi
         echo "handoff_reason=${reason}" >>"$GITHUB_OUTPUT"
+
+    - name: Fail when VM start failed
+      if: always() && steps.start-vm.outcome != 'success'
+      shell: bash
+      env:
+        VM_START_FAILURE_CLASS: ${{ steps.start-vm.outputs.vm_start_failure_class }}
+        VM_START_FAILURE_MESSAGE: ${{ steps.start-vm.outputs.vm_start_failure_message }}
+      run: |
+        set -euo pipefail
+        klass="${VM_START_FAILURE_CLASS:-unknown_start_failure}"
+        msg="${VM_START_FAILURE_MESSAGE:-VM start command failed before handshake.}"
+        echo "::error::vm_start_failed class=${klass} message=${msg}"
+        exit 1
 
     - name: Write handoff summary
       if: always()
@@ -186,5 +209,5 @@ runs:
         gcp_project: ${{ inputs.gcp_project }}
         gcp_zone: ${{ inputs.gcp_zone }}
         gcs_bucket: ${{ inputs.gcs_bucket }}
-        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
-        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"
+        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'vm_start_failed' && 'Handoff failed: VM did not stabilize to RUNNING before handshake.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
+        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'vm_start_failed' && format('VM start failed ({0}): {1}', steps.start-vm.outputs.vm_start_failure_class, steps.start-vm.outputs.vm_start_failure_message) || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"

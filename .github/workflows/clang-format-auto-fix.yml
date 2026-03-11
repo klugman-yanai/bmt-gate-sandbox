@@ -1,0 +1,109 @@
+name: Auto Format C/C++
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - dev
+      - main
+      - master
+    paths:
+      - "**/*.c"
+      - "**/*.cc"
+      - "**/*.cpp"
+      - "**/*.cxx"
+      - "**/*.h"
+      - "**/*.hh"
+      - "**/*.hpp"
+      - "**/*.hxx"
+      - "**/*.ipp"
+      - ".clang-format"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clang-format-auto-fix-mock-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  mock-auto-format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+
+      - name: Collect changed C/C++ files
+        id: changed-files
+        run: |
+          set -euo pipefail
+
+          before_sha="${{ github.event.before }}"
+          current_sha="${{ github.sha }}"
+          default_branch="${{ github.event.repository.default_branch }}"
+          tmp_file="$(mktemp)"
+
+          if [[ -n "${before_sha}" && "${before_sha}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --name-only --diff-filter=ACMR -z "${before_sha}" "${current_sha}" >"${tmp_file}"
+          else
+            merge_base="$(git merge-base "origin/${default_branch}" "${current_sha}" || true)"
+            if [[ -n "${merge_base}" ]]; then
+              git diff --name-only --diff-filter=ACMR -z "${merge_base}" "${current_sha}" >"${tmp_file}"
+            else
+              git diff-tree --no-commit-id --name-only --diff-filter=ACMR -r -z "${current_sha}" >"${tmp_file}"
+            fi
+          fi
+
+          files_to_format=()
+          while IFS= read -r -d '' file; do
+            [[ "${file}" == third-party/* ]] && continue
+            [[ ! -f "${file}" ]] && continue
+            case "${file}" in
+              *.c|*.cc|*.cpp|*.cxx|*.h|*.hh|*.hpp|*.hxx|*.ipp)
+                files_to_format+=("${file}")
+                ;;
+            esac
+          done <"${tmp_file}"
+          rm -f "${tmp_file}"
+
+          if [[ "${#files_to_format[@]}" -eq 0 ]]; then
+            echo "has_changes=false" >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          {
+            echo "has_changes=true"
+            echo "files<<EOF"
+            printf '%s\n' "${files_to_format[@]}"
+            echo "EOF"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Mock format result
+        if: steps.changed-files.outputs.has_changes == 'true'
+        run: |
+          {
+            echo "## Auto Format C/C++ (Mock)"
+            echo ""
+            echo "Sandbox mock only: no formatting commit/push is performed."
+            echo ""
+            echo "Changed C/C++ files detected:"
+            echo ""
+            while IFS= read -r f; do
+              [[ -z "$f" ]] && continue
+              echo "- \`$f\`"
+            done <<'EOF'
+          ${{ steps.changed-files.outputs.files }}
+          EOF
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mock no-op when no file changes
+        if: steps.changed-files.outputs.has_changes != 'true'
+        run: |
+          echo "No matching C/C++ changes detected; mock workflow completed." >> "$GITHUB_STEP_SUMMARY"

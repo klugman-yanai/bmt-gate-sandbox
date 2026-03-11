@@ -6,8 +6,9 @@ How this repo is organized and what the layout represents.
 
 ## Current layout (modern convention)
 
-- **`.github/workflows/`** — Workflow YAML (bmt.yml, build-and-test.yml, dummy-build-and-test.yml). **`.github/actions/`** — Composite actions only; no Python under `.github/`.
-- **`packages/bmt-cli/`** — BMT CLI (Python) used by workflows; run with `uv run --project packages/bmt-cli bmt <cmd>`.
+- **`.github/workflows/`** — Workflow YAML (bmt.yml, build-and-test.yml, dummy-build-and-test.yml).
+- **`.github/actions/`** — Composite actions consumed by workflows.
+- **`.github/bmt/`** — BMT CLI (Python) used by workflows; run with `uv run --project .github/bmt bmt <cmd>`.
 - **`deploy/code/`** — VM code and config; synced to bucket `code/` root.
 - **`deploy/runtime/`** — Runtime seed (runner placeholders, etc.); synced to bucket `runtime/` root.
 - **`config/`** — Repo-level env contract, repo vars; BMT bootstrap under `config/bmt/`.

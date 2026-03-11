@@ -62,6 +62,58 @@ def _as_int(value: Any, default: int) -> int:
         return default
 
 
+_TRANSITION_STATES = {
+    "PROVISIONING",
+    "STAGING",
+    "STOPPING",
+    "SUSPENDING",
+    "SUSPENDED",
+    "REPAIRING",
+}
+
+
+class VmStartError(RuntimeError):
+    """Classified VM start failure used for workflow summaries and diagnostics."""
+
+    def __init__(self, failure_class: str, message: str) -> None:
+        super().__init__(message)
+        self.failure_class = failure_class
+
+
+def _classify_start_command_error(exc: shared.GcloudError) -> str:
+    text = str(exc).lower()
+    if any(
+        token in text
+        for token in (
+            "already running",
+            "already started",
+            "is starting",
+            "being started",
+        )
+    ):
+        return "idempotent"
+    if any(
+        token in text
+        for token in (
+            "operation in progress",
+            "currently stopping",
+            "is stopping",
+            "not ready",
+            "resource not ready",
+            "resource fingerprint changed",
+            "please try again",
+        )
+    ):
+        return "operation_conflict"
+    return "hard_failure"
+
+
+def _write_vm_start_failure_outputs(failure_class: str, message: str) -> None:
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    write_github_output(github_output, "vm_start_failure_class", failure_class)
+    write_github_output(github_output, "vm_start_failure_message", message)
+
+
 def _vm_status(project: str, zone: str, instance_name: str) -> str:
     if not project or not zone or not instance_name:
         return "unknown"
@@ -150,6 +202,9 @@ def run_start() -> None:
     poll_interval_sec = 5
     stabilization_sec = int(os.environ.get("BMT_VM_STABILIZATION_SEC", "45"))
     recovery_attempts_max = int(os.environ.get("BMT_VM_START_RECOVERY_ATTEMPTS", "2"))
+    transition_wait_sec = int(os.environ.get("BMT_VM_TRANSITION_WAIT_SEC", "120"))
+    operation_wait_sec = int(os.environ.get("BMT_VM_START_OPERATION_WAIT_SEC", "90"))
+    transition_retry_max = int(os.environ.get("BMT_VM_START_TRANSITION_RETRIES", "3"))
 
     in_actions = _is_truthy(os.environ.get("GITHUB_ACTIONS"))
     if not in_actions and not _is_truthy(os.environ.get("BMT_ALLOW_MANUAL_VM_START")):
@@ -161,7 +216,6 @@ def run_start() -> None:
     project = cfg.gcp_project
     zone = cfg.gcp_zone
     instance_name = cfg.bmt_vm_name
-    before: dict[str, Any] | None = None
     before_status = ""
     before_last_start: str | None = None
     try:
@@ -171,137 +225,196 @@ def run_start() -> None:
     except shared.GcloudError as exc:
         gh_warning(f"Could not describe VM before start: {exc}")
 
-    def _is_idempotent_start_error(exc: shared.GcloudError) -> bool:
-        text = str(exc).lower()
-        tokens = (
-            "already running",
-            "already started",
-            "is starting",
-            "being started",
-            "operation in progress",
-            "currently stopping",
-            "is stopping",
-            "not ready",
-            "resource not ready",
-            "resource fingerprint changed",
-            "please try again",
+    def _wait_for_stable_state(reason: str, wait_timeout_sec: int) -> dict[str, Any]:
+        deadline = time.monotonic() + max(1, wait_timeout_sec)
+        last_status = ""
+        while time.monotonic() < deadline:
+            describe = shared.vm_describe(project, zone, instance_name)
+            status = _instance_status(describe)
+            if status in {"RUNNING", "TERMINATED"}:
+                return describe
+            last_status = status or "<unknown>"
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(poll_interval_sec, remaining))
+        raise VmStartError(
+            "timeout_waiting_stable_state",
+            f"VM did not reach a stable state while {reason}; last status={last_status}",
         )
-        return any(token in text for token in tokens)
 
-    def _request_start(reason: str) -> None:
+    def _request_start(reason: str) -> str:
         try:
             shared.vm_start(project, zone, instance_name)
         except shared.GcloudError as exc:
-            if _is_idempotent_start_error(exc):
+            error_class = _classify_start_command_error(exc)
+            if error_class == "idempotent":
                 gh_warning(str(exc))
                 print(
                     f"VM start treated as idempotent while {reason}; continuing readiness checks."
                 )
-                return
-            gh_error(str(exc))
-            raise
-        print(f"Start command submitted for VM {instance_name} (zone={zone}) [{reason}]")
-
-    _request_start("initial start")
-    print(
-        f"Waiting for RUNNING state (timeout={timeout_sec}s, poll={poll_interval_sec}s); "
-        f"previous status={before_status or '<unknown>'} previous lastStart={before_last_start or '<none>'}"
-    )
-
-    deadline = time.monotonic() + timeout_sec
-    last_seen_status = ""
-    last_seen_start: str | None = None
-    recovery_attempts = 0
-    recovery_pending = False
-    stop_retry_done = False  # only one wait-for-TERMINATED + retry per run
-    while time.monotonic() < deadline:
-        describe = shared.vm_describe(project, zone, instance_name)
-        last_seen_status = _instance_status(describe)
-        last_seen_start = _last_start_timestamp(describe)
-
-        # If VM is STOPPING (e.g. previous run self-stopped), wait for TERMINATED then start again
-        if last_seen_status == "STOPPING" and not stop_retry_done:
-            stop_deadline = time.monotonic() + min(120, max(0, int(deadline - time.monotonic())))
-            gh_warning(
-                "VM is STOPPING (e.g. from previous run); waiting for TERMINATED then retrying start."
-            )
-            while time.monotonic() < stop_deadline:
-                describe = shared.vm_describe(project, zone, instance_name)
-                s = _instance_status(describe)
-                if s == "TERMINATED":
-                    print("VM reached TERMINATED; issuing retry start.")
-                    stop_retry_done = True
-                    _request_start("retry after VM stopped")
-                    break
-                remaining = stop_deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError(
-                        "VM remained in STOPPING state; could not retry start within 120s. "
-                        "Try re-running the job once the VM has fully stopped."
-                    )
-                time.sleep(min(poll_interval_sec, remaining))
-            continue
-
-        # If VM is already TERMINATED on first poll (e.g. stopped before we could start), issue start once
-        if last_seen_status == "TERMINATED" and not stop_retry_done:
-            gh_warning("VM is TERMINATED; issuing retry start.")
-            stop_retry_done = True
-            _request_start("retry after VM stopped")
-            continue
-
-        running = last_seen_status == "RUNNING"
-        start_advanced = before_last_start is None or (
-            last_seen_start is not None and last_seen_start != before_last_start
-        )
-        already_running = before_status == "RUNNING" and running
-        running_after_recovery = recovery_pending and running
-        if running and (start_advanced or already_running or running_after_recovery):
-            recovery_pending = False
-            print(
-                f"VM ready: status={last_seen_status} lastStartTimestamp={last_seen_start or '<none>'} "
-                f"(previous={before_last_start or '<none>'})"
-            )
-            if stabilization_sec <= 0:
-                return
-            print(f"Stabilizing RUNNING state for {stabilization_sec}s (poll={poll_interval_sec}s)")
-            stable_deadline = time.monotonic() + stabilization_sec
-            unstable_status = ""
-            while time.monotonic() < stable_deadline:
-                stable_describe = shared.vm_describe(project, zone, instance_name)
-                stable_status = _instance_status(stable_describe)
-                if stable_status != "RUNNING":
-                    unstable_status = stable_status or "<unknown>"
-                    break
-                remaining = stable_deadline - time.monotonic()
-                if remaining > 0:
-                    time.sleep(min(max(1, poll_interval_sec), remaining))
-            if unstable_status:
-                recovery_attempts += 1
-                if recovery_attempts > recovery_attempts_max:
-                    raise RuntimeError(
-                        "VM became unstable during stabilization window and recovery attempts were exhausted; "
-                        f"status={unstable_status}; max_recovery_attempts={recovery_attempts_max}"
-                    )
+                return "idempotent"
+            if error_class == "operation_conflict":
                 gh_warning(
-                    f"VM became unstable during stabilization window; status={unstable_status}; "
-                    f"attempting recovery start {recovery_attempts}/{recovery_attempts_max}"
+                    f"Start operation conflict while {reason}; waiting for stable VM state. Details: {exc}"
                 )
-                before_status = unstable_status
-                before_last_start = last_seen_start
-                recovery_pending = True
-                _request_start(f"recovery attempt {recovery_attempts}")
-                continue
-            print("VM stabilization passed.")
-            return
-        time.sleep(max(1, poll_interval_sec))
+                return "operation_conflict"
+            raise VmStartError("hard_start_failure", str(exc)) from exc
+        print(f"Start command submitted for VM {instance_name} (zone={zone}) [{reason}]")
+        return "submitted"
 
-    message = (
-        "VM did not reach ready state after start command; "
-        f"last status={last_seen_status or '<unknown>'} "
-        f"lastStartTimestamp={last_seen_start or '<none>'} "
-        f"previousLastStart={before_last_start or '<none>'}"
-    )
-    raise RuntimeError(message)
+    def _run() -> None:
+        nonlocal before_status, before_last_start
+        pre_start = shared.vm_describe(project, zone, instance_name)
+        pre_status = _instance_status(pre_start)
+        if pre_status in _TRANSITION_STATES:
+            gh_warning(
+                f"VM is in transition state ({pre_status}) before start; waiting for a stable state."
+            )
+            pre_start = _wait_for_stable_state("waiting for pre-start transition to settle", transition_wait_sec)
+            pre_status = _instance_status(pre_start)
+        before_status = pre_status or before_status
+        before_last_start = _last_start_timestamp(pre_start) or before_last_start
+
+        transition_retries = 0
+        if pre_status != "RUNNING":
+            start_result = _request_start("initial start")
+            if start_result == "operation_conflict":
+                transition_retries += 1
+                if transition_retries > transition_retry_max:
+                    raise VmStartError(
+                        "operation_conflict",
+                        "VM start operation conflicted repeatedly before initial startup.",
+                    )
+                settled = _wait_for_stable_state(
+                    "waiting after initial start operation conflict",
+                    operation_wait_sec,
+                )
+                before_status = _instance_status(settled)
+                before_last_start = _last_start_timestamp(settled) or before_last_start
+        else:
+            print("VM already RUNNING before start command; validating readiness and stabilization.")
+
+        print(
+            f"Waiting for RUNNING state (timeout={timeout_sec}s, poll={poll_interval_sec}s); "
+            f"previous status={before_status or '<unknown>'} "
+            f"previous lastStart={before_last_start or '<none>'}"
+        )
+
+        deadline = time.monotonic() + timeout_sec
+        last_seen_status = before_status
+        last_seen_start = before_last_start
+        recovery_attempts = 0
+        while time.monotonic() < deadline:
+            describe = shared.vm_describe(project, zone, instance_name)
+            last_seen_status = _instance_status(describe)
+            last_seen_start = _last_start_timestamp(describe)
+
+            if last_seen_status in _TRANSITION_STATES:
+                time.sleep(max(1, poll_interval_sec))
+                continue
+
+            if last_seen_status == "TERMINATED":
+                start_result = _request_start("retry after VM reached TERMINATED")
+                if start_result == "operation_conflict":
+                    transition_retries += 1
+                    if transition_retries > transition_retry_max:
+                        raise VmStartError(
+                            "operation_conflict",
+                            f"VM start kept conflicting while TERMINATED; retries={transition_retries}",
+                        )
+                    settled = _wait_for_stable_state(
+                        "waiting after TERMINATED start conflict",
+                        operation_wait_sec,
+                    )
+                    before_status = _instance_status(settled)
+                    before_last_start = _last_start_timestamp(settled) or before_last_start
+                continue
+
+            running = last_seen_status == "RUNNING"
+            start_advanced = before_last_start is None or (
+                last_seen_start is not None and last_seen_start != before_last_start
+            )
+            already_running = before_status == "RUNNING" and running
+            if running and (start_advanced or already_running):
+                print(
+                    f"VM ready: status={last_seen_status} lastStartTimestamp={last_seen_start or '<none>'} "
+                    f"(previous={before_last_start or '<none>'})"
+                )
+                if stabilization_sec <= 0:
+                    return
+                print(
+                    f"Stabilizing RUNNING state for {stabilization_sec}s (poll={poll_interval_sec}s)"
+                )
+                stable_deadline = time.monotonic() + stabilization_sec
+                unstable_status = ""
+                while time.monotonic() < stable_deadline:
+                    stable_describe = shared.vm_describe(project, zone, instance_name)
+                    stable_status = _instance_status(stable_describe)
+                    if stable_status != "RUNNING":
+                        unstable_status = stable_status or "<unknown>"
+                        break
+                    remaining = stable_deadline - time.monotonic()
+                    if remaining > 0:
+                        time.sleep(min(max(1, poll_interval_sec), remaining))
+                if unstable_status:
+                    recovery_attempts += 1
+                    if recovery_attempts > recovery_attempts_max:
+                        raise VmStartError(
+                            "vm_flapping",
+                            "VM became unstable during stabilization window and recovery attempts were exhausted; "
+                            f"status={unstable_status}; max_recovery_attempts={recovery_attempts_max}",
+                        )
+                    gh_warning(
+                        f"VM became unstable during stabilization window; status={unstable_status}; "
+                        f"waiting for stable state before recovery start {recovery_attempts}/{recovery_attempts_max}"
+                    )
+                    settled = _wait_for_stable_state(
+                        "waiting for unstable VM to settle before recovery",
+                        transition_wait_sec,
+                    )
+                    settled_status = _instance_status(settled)
+                    before_status = settled_status
+                    before_last_start = _last_start_timestamp(settled) or last_seen_start
+                    if settled_status == "RUNNING":
+                        print("VM settled back to RUNNING; continuing readiness checks.")
+                        continue
+                    start_result = _request_start(f"recovery attempt {recovery_attempts}")
+                    if start_result == "operation_conflict":
+                        transition_retries += 1
+                        if transition_retries > transition_retry_max:
+                            raise VmStartError(
+                                "operation_conflict",
+                                "VM recovery start operation conflicted repeatedly.",
+                            )
+                        settled = _wait_for_stable_state(
+                            "waiting after recovery start conflict",
+                            operation_wait_sec,
+                        )
+                        before_status = _instance_status(settled)
+                        before_last_start = _last_start_timestamp(settled) or before_last_start
+                    continue
+                print("VM stabilization passed.")
+                return
+            time.sleep(max(1, poll_interval_sec))
+
+        raise VmStartError(
+            "timeout_waiting_stable_state",
+            "VM did not reach ready state after start command; "
+            f"last status={last_seen_status or '<unknown>'} "
+            f"lastStartTimestamp={last_seen_start or '<none>'} "
+            f"previousLastStart={before_last_start or '<none>'}",
+        )
+
+    try:
+        _run()
+    except VmStartError as exc:
+        _write_vm_start_failure_outputs(exc.failure_class, str(exc))
+        raise RuntimeError(str(exc)) from exc
+    except Exception as exc:
+        _write_vm_start_failure_outputs("unknown_start_failure", str(exc))
+        raise
+    else:
+        _write_vm_start_failure_outputs("", "")
 
 
 # ---------------------------------------------------------------------------

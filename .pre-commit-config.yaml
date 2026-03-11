@@ -10,3 +10,10 @@ repos:
         language: script
         files: ^deploy/
         pass_filenames: false
+      - id: block-direct-push-ci-check-bmt-gate
+        name: block direct push to ci/check-bmt-gate
+        entry: scripts/hooks/pre-push-block-ci-check-bmt-gate.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

@@ -104,7 +104,7 @@ What must match production when this repo is used as the source for CI and the b
 |----------|-------------|
 | **Workflow files** | `.github/workflows/bmt.yml`, `.github/workflows/build-and-test.yml` (when present), `.github/workflows/dummy-build-and-test.yml` (bmt-gcloud test workflow). |
 | **Composite actions** | All `.github/actions/` that run the CLI or setup: bmt-prepare, bmt-classify-handoff, bmt-handoff-run, bmt-write-summary, bmt-failure-fallback, bmt-job-setup; checkout-and-restore, restore-snapshot, setup-build-env, setup-gcp-uv. |
-| **packages/bmt-cli** | BMT CLI used by workflows (`uv run --project packages/bmt-cli bmt <cmd>`). Python-only; no `.github/bmt/scripts/`. |
+| **.github/bmt** | BMT CLI used by workflows (`uv run --project .github/bmt bmt <cmd>`). Python-only. |
 | **deploy/code/** | Layout synced to `gs://<bucket>/code`: bootstrap, root_orchestrator.py, vm_watcher.py, lib/, sk/, config, bmt_projects.json. |
 | **GCS layout** | `code/` and `runtime/` roots; triggers, acks, status, snapshots, current.json under runtime. |
 | **VM bootstrap** | Startup script, uv artifact, install_deps contract; branch-protection status context (e.g. `BMT_STATUS_CONTEXT`). |

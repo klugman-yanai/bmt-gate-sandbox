@@ -120,6 +120,7 @@ Full index: [docs/README.md](docs/README.md).
 - Ad-hoc diagnostics: use `.local/diagnostics/` only; do not commit.
 - `uv run bmt ...` commands are for manual/local use only; `bmt.yml` drives normal CI execution.
 - Manual VM start: `just start-vm` (debug/maintenance/testing only); routine starts come from `bmt.yml`.
+- Branch policy: treat `ci/check-bmt-gate` like `dev` (PR-only). The pre-commit config includes a `pre-push` hook that blocks pushes from `ci/check-bmt-gate` unless explicitly bypassed with `ALLOW_DIRECT_CI_PUSH=1`.
 
 ## Test vs production
 
