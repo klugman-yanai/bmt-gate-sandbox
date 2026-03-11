@@ -15,6 +15,7 @@ description = "BMT CI driver: matrix discovery, trigger, VM lifecycle, and runne
 dependencies = [
     "google-cloud-storage",
     "google-cloud-pubsub",
+    "google-cloud-compute",
     "PyGithub",
 ]
 

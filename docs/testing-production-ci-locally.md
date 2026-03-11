@@ -4,7 +4,7 @@ This is the **canonical guide** for testing production BMT CI locally using the 
 
 ## Prerequisites
 
-- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
+- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, and the Terraform-exported vars (`just terraform-export-vars-apply`), including `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_PROJECTS`. Optional for local override: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
 - **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
 - **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
 
@@ -45,11 +45,11 @@ Use this when you need to run steps individually or debug a specific step.
    ```bash
    export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-matrix.out"
    mkdir -p .local
-   BMT_CONFIG_ROOT=remote/code uv run bmt matrix
+   BMT_CONFIG_ROOT=gcp/code uv run --project .github/bmt bmt matrix
    ```
    The matrix JSON is in the output file under the key `matrix` (or `BMT_OUTPUT_KEY`).
 
-3. **Trigger** — write the run trigger to GCS. Pick a workflow run id (e.g. `local-$(date +%s)`) and use it for both trigger and wait-handshake:
+3. **Trigger** — write the run trigger to GCS (and to Pub/Sub if `BMT_PUBSUB_TOPIC` is set). Pick a workflow run id (e.g. `local-$(date +%s)`) and use it for both trigger and wait-handshake:
    ```bash
    RUN_ID="local-$(date +%s)"
    echo "$RUN_ID" > .local/prod-ci-run-id.txt
@@ -58,8 +58,11 @@ Use this when you need to run steps individually or debug a specific step.
    export FILTERED_MATRIX_JSON="$(grep '^matrix=' .local/prod-ci-matrix.out | cut -d= -f2-)"
    export RUN_CONTEXT=dev
    export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
-   uv run bmt write-run-trigger
+   # Optional: enable Pub/Sub so the VM gets the trigger without GCS polling
+   export BMT_PUBSUB_TOPIC="${BMT_PUBSUB_TOPIC:-$(gh variable get BMT_PUBSUB_TOPIC 2>/dev/null || true)}"
+   uv run --project .github/bmt bmt write-run-trigger
    ```
+   If `BMT_PUBSUB_TOPIC` is set you should see `Published trigger to Pub/Sub topic '...'`; the VM (with `BMT_PUBSUB_SUBSCRIPTION` set) will then receive the trigger via Pub/Sub instead of polling GCS.
 
 4. **Sync VM metadata** (so the VM sees the bucket and repo root):
    ```bash

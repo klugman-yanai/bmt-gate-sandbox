@@ -107,6 +107,34 @@ check-vm-gcs run_id:
     PROJECT="$(gh variable get GCP_PROJECT)"
     gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" --project="$PROJECT" 2>/dev/null | tail -c 2048 || echo "(failed - check VM name/zone/project)"
 
+# Full production CI sequence locally (sync → matrix → trigger → sync-vm-metadata → start-vm → wait-handshake).
+# Requires: GCS_BUCKET, GCP_PROJECT, GCP_ZONE, BMT_VM_NAME (and gcloud auth). Optional: BMT_PUBSUB_TOPIC for Pub/Sub.
+# Run from repo root. Saves run id to .local/prod-ci-run-id.txt for just gcs-trigger / just wait-handshake.
+prod-ci-local:
+    #!/usr/bin/env -S bash -eu
+    export GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET}"
+    export GCP_PROJECT="${GCP_PROJECT:-$(gh variable get GCP_PROJECT 2>/dev/null)}"
+    export GCP_ZONE="${GCP_ZONE:-$(gh variable get GCP_ZONE 2>/dev/null)}"
+    export BMT_VM_NAME="${BMT_VM_NAME:-$(gh variable get BMT_VM_NAME 2>/dev/null)}"
+    export BMT_PUBSUB_TOPIC="${BMT_PUBSUB_TOPIC:-$(gh variable get BMT_PUBSUB_TOPIC 2>/dev/null || true)}"
+    mkdir -p .local
+    just sync-gcp
+    just verify-sync
+    export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-matrix.out"
+    BMT_CONFIG_ROOT=gcp/code uv run --project .github/bmt bmt matrix
+    RUN_ID="local-$(date +%s)"
+    echo "$RUN_ID" > .local/prod-ci-run-id.txt
+    export GITHUB_RUN_ID="$RUN_ID"
+    export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-trigger.out"
+    export FILTERED_MATRIX_JSON="$(grep '^matrix=' .local/prod-ci-matrix.out | cut -d= -f2-)"
+    export RUN_CONTEXT=dev
+    export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
+    uv run --project .github/bmt bmt write-run-trigger
+    just sync-vm-metadata
+    BMT_ALLOW_MANUAL_VM_START=1 just start-vm
+    just wait-handshake "$RUN_ID"
+    echo "Run id: $RUN_ID — use: just gcs-trigger $RUN_ID  or  just monitor --run-id $RUN_ID"
+
 # Config / environment tooling (Terraform is source of truth; repo-vars from terraform output)
 terraform-export-vars:
     uv run python tools/terraform_repo_vars.py

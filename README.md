@@ -11,7 +11,7 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 ## Features
 
 - **Trigger-and-stop handoff** — CI writes one run trigger, starts the VM, waits for handshake ack, then exits. The VM runs BMT legs and posts final outcome.
-- **Commit status and Check Run** — VM posts pending then success/failure commit status and creates/updates a Check Run for progress and results. Branch protection gates on the status context (`BMT_STATUS_CONTEXT`, default: BMT Gate).
+- **Commit status and Check Run** — VM posts pending then success/failure commit status and creates/updates a Check Run for progress and results. Branch protection gates on the status context (`BMT_STATUS_CONTEXT`, from Terraform).
 - **Pointer-based results** — `current.json` points to latest and last-passing run; per-run artifacts live under `snapshots/<run_id>/`. Baseline for gate comparison comes from last-passing snapshot.
 - **PR closure and supersede** — Closed or superseded PR runs are skipped or cancelled without promoting pointers. See [docs/communication-flow.md](docs/communication-flow.md) and [docs/architecture.md](docs/architecture.md).
 
@@ -62,7 +62,7 @@ See [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md#
 |---------------------------|------------------------|
 | `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCP_SA_EMAIL`, `BMT_PUBSUB_SUBSCRIPTION` | `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` |
 
-Optional vars (e.g. `BMT_PROJECTS`, `BMT_STATUS_CONTEXT`) have Terraform defaults; export them with `just terraform-export-vars`.
+Required vars (e.g. `GCS_BUCKET`, `BMT_VM_NAME`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_PROJECTS`) are set from Terraform via `just terraform-export-vars-apply`; see [docs/configuration.md](docs/configuration.md).
 
 Useful commands: `just terraform-export-vars`, `just terraform-export-vars-apply`, `just repo-vars-check`, `just repo-vars-apply`, `just show-env`, `just validate-vm-vars`, `just sync-vm-metadata`, `just start-vm`, `just wait-handshake <workflow_run_id>`.
 
@@ -124,4 +124,4 @@ Full index: [docs/README.md](docs/README.md).
 
 ## Test vs production
 
-When moving to production: update GitHub App credentials and repo mapping (`gcp/code/config/github_repos.json`), and status context name (`BMT_STATUS_CONTEXT`) for branch protection. See [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md).
+When moving to production: update GitHub App credentials and repo mapping (`gcp/code/config/github_repos.json`), and ensure Terraform (and thus `BMT_STATUS_CONTEXT`) matches branch protection. See [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md).

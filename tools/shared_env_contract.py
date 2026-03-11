@@ -1,8 +1,8 @@
 """Shared helpers for loading the repository env contract.
 
-Terraform is the source of truth. The contract is built from
-infra/terraform/repo-vars-mapping.json and infra/branch-status-context.json.
-Legacy config/env_contract.json paths are still supported for tests.
+Contract and behavioral defaults live in repo_vars_contract (Python). When path
+is None or the contract module path, the contract is built from that module plus
+infra/branch-status-context.json. When path is a file (e.g. tests), load that JSON.
 """
 
 from __future__ import annotations
@@ -16,53 +16,34 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _contract_module_path() -> Path:
+    return _repo_root() / "tools" / "repo_vars_contract.py"
+
+
 def default_contract_path() -> Path:
-    """Path to the Terraform repo-vars mapping (source of truth for var list)."""
-    return _repo_root() / "infra" / "terraform" / "repo-vars-mapping.json"
+    """Path to the contract module (contract is built from Python, not a file)."""
+    return _contract_module_path()
 
 
 def _branch_status_context_path() -> Path:
     return _repo_root() / "infra" / "branch-status-context.json"
 
 
-def _is_terraform_mapping_path(path: Path) -> bool:
-    try:
-        path = path.resolve()
-        mapping = default_contract_path().resolve()
-        return path == mapping or "repo-vars-mapping.json" in path.parts
-    except Exception:
-        return False
+def _build_contract_from_python() -> dict[str, Any]:
+    """Build contract from repo_vars_contract + branch-status-context.json."""
+    import sys
+    _tools = _repo_root() / "tools"
+    if str(_tools) not in sys.path:
+        sys.path.insert(0, str(_tools))
+    from repo_vars_contract import REPO_VARS_CONTRACT
 
+    required = list(REPO_VARS_CONTRACT.required)
+    optional = list(REPO_VARS_CONTRACT.optional)
+    secrets = list(REPO_VARS_CONTRACT.secrets_not_in_terraform)
+    optional = [s for s in optional if s not in required]
+    optional.extend(s for s in secrets if s not in optional)
 
-def _build_contract_from_terraform_mapping() -> dict[str, Any]:
-    """Build a contract dict from Terraform mapping + branch-status-context (same shape as legacy)."""
-    mapping_path = default_contract_path()
-    if not mapping_path.is_file():
-        raise FileNotFoundError(f"Terraform mapping not found: {mapping_path}")
-    with mapping_path.open(encoding="utf-8") as f:
-        mapping = json.load(f)
-    if not isinstance(mapping, dict):
-        raise ValueError("repo-vars-mapping.json must be a JSON object")
-
-    required = list(mapping.get("required_from_terraform") or [])
-    optional = list(mapping.get("optional_from_terraform") or [])
-    secrets = list(mapping.get("secrets_not_in_terraform") or [])
-    if not isinstance(required, list):
-        required = []
-    if not isinstance(optional, list):
-        optional = []
-    if not isinstance(secrets, list):
-        secrets = []
-    required = [str(v) for v in required if isinstance(v, str)]
-    optional = [str(v) for v in optional if isinstance(v, str)]
-    optional.extend(str(s) for s in secrets if isinstance(s, str) and s not in optional)
-
-    defaults_raw = mapping.get("defaults") or {}
-    defaults: dict[str, str] = {}
-    if isinstance(defaults_raw, dict):
-        for k, v in defaults_raw.items():
-            if isinstance(k, str) and k:
-                defaults[k] = str(v)
+    defaults = REPO_VARS_CONTRACT.default_dict()
 
     consistency_checks: dict[str, Any] = {"repo_vs_vm_metadata": ["GCS_BUCKET"]}
     branch_path = _branch_status_context_path()
@@ -76,7 +57,7 @@ def _build_contract_from_terraform_mapping() -> dict[str, Any]:
 
     return {
         "version": 1,
-        "description": "Contract built from Terraform repo-vars-mapping and branch-status-context.",
+        "description": "Contract built from repo_vars_contract and branch-status-context.",
         "contexts": {
             "github_repo_vars": {"required": required, "optional": optional},
             "vm_metadata": {"required": ["GCS_BUCKET"], "optional": ["BMT_REPO_ROOT"]},
@@ -90,15 +71,14 @@ def _build_contract_from_terraform_mapping() -> dict[str, Any]:
 
 
 def load_env_contract(path: str | None = None) -> dict[str, Any]:
-    """Load env contract. If path is Terraform mapping or None, build from Terraform + branch-status."""
+    """Load env contract. If path is None or the contract module path, build from Python. Else load JSON file (tests)."""
     if path is None:
-        contract_path = default_contract_path()
-    else:
-        contract_path = Path(path).expanduser().resolve()
+        return _build_contract_from_python()
+    contract_path = Path(path).expanduser().resolve()
+    if contract_path == _contract_module_path().resolve():
+        return _build_contract_from_python()
     if not contract_path.is_file():
         raise FileNotFoundError(f"Contract not found: {contract_path}")
-    if path is None or _is_terraform_mapping_path(contract_path):
-        return _build_contract_from_terraform_mapping()
     with contract_path.open(encoding="utf-8") as f:
         payload = json.load(f)
     if not isinstance(payload, dict):

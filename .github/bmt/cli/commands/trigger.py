@@ -22,15 +22,29 @@ def _default_context_from_contract(var_name: str, fallback: str) -> str:
     """Read an env-contract default value when present."""
     for base in (Path.cwd(), Path(__file__).resolve().parents[3]):
         contract_path = base / DEFAULT_ENV_CONTRACT_PATH
-        if contract_path.is_file():
-            with contextlib.suppress(OSError, json.JSONDecodeError, TypeError):
-                with contract_path.open() as f:
-                    contract = json.load(f)
-                defaults = contract.get("defaults") or {}
+        if not contract_path.is_file():
+            continue
+        if contract_path.suffix == ".py":
+            # Python contract module: get defaults without parsing as JSON.
+            with contextlib.suppress(Exception):
+                import sys
+                tools_dir = contract_path.resolve().parent
+                if str(tools_dir) not in sys.path:
+                    sys.path.insert(0, str(tools_dir))
+                from repo_vars_contract import REPO_VARS_CONTRACT  # noqa: PLC0415
+                defaults = REPO_VARS_CONTRACT.default_dict()
                 ctx = defaults.get(var_name)
                 if ctx and str(ctx).strip():
                     return str(ctx).strip()
             break
+        with contextlib.suppress(OSError, json.JSONDecodeError, TypeError):
+            with contract_path.open() as f:
+                contract = json.load(f)
+            defaults = contract.get("defaults") or {}
+            ctx = defaults.get(var_name)
+            if ctx and str(ctx).strip():
+                return str(ctx).strip()
+        break
     return fallback
 
 

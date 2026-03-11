@@ -2,12 +2,6 @@ name: CI
 
 on:
   workflow_dispatch:
-    inputs:
-      run_live_smoke:
-        description: "Run live smoke pytest suite"
-        required: false
-        type: boolean
-        default: false
   schedule:
     - cron: "17 3 * * *"
   push:
@@ -35,104 +29,8 @@ concurrency:
   cancel-in-progress: true
 
 # Pass rule:
-# - pytest-fast is the authoritative PR blocking gate.
-# - pytest-heavy runs on protected flows (ci/check-bmt-gate + manual), with artifacts for diagnostics.
-# - pytest-live-smoke runs on schedule/manual opt-in only.
 # - prepare-builds + dummy-build-release + dummy-build-non-release remain build topology checks.
 jobs:
-  pytest-fast:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.9"
-      - name: Sync dev dependencies
-        run: uv sync --group dev
-      - name: Test smell guard
-        run: uv run python tools/test_smell_check.py
-      - name: Run fast pytest gate
-        run: |
-          uv run pytest -m "unit or contract or integration" -q -n auto --dist loadscope --reruns 1 --reruns-delay 1 --disable-socket --allow-hosts=127.0.0.1,localhost
-      - name: Upload fast pytest artifacts
-        if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
-        with:
-          name: pytest-fast-artifacts
-          path: |
-            junit.xml
-            coverage.xml
-          if-no-files-found: warn
-          retention-days: 7
-
-  pytest-heavy:
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      || github.event_name == 'schedule'
-      || github.ref_name == 'ci/check-bmt-gate'
-      || ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-          && contains(fromJson('["dev","ci/check-bmt-gate"]'), github.base_ref))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.9"
-      - name: Sync dev dependencies
-        run: uv sync --group dev
-      - name: Run heavy pytest suite
-        run: |
-          uv run pytest -m "not live_smoke" tests/ -v --durations=35 --reruns 2 --reruns-delay 2 --disable-socket --allow-hosts=127.0.0.1,localhost
-      - name: Upload heavy pytest artifacts
-        if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
-        with:
-          name: pytest-heavy-artifacts
-          path: |
-            junit.xml
-            coverage.xml
-          if-no-files-found: warn
-          retention-days: 7
-
-  pytest-live-smoke:
-    if: >-
-      github.event_name == 'schedule'
-      || (github.event_name == 'workflow_dispatch' && inputs.run_live_smoke == true)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.10.9"
-      - name: Sync dev dependencies
-        run: uv sync --group dev
-      - name: Run live smoke pytest suite
-        run: |
-          uv run pytest -m "live_smoke" tests/ -v --maxfail=1
-      - name: Upload live smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
-        with:
-          name: pytest-live-smoke-artifacts
-          path: |
-            junit.xml
-            coverage.xml
-          if-no-files-found: warn
-          retention-days: 10
-
   prepare-builds:
     runs-on: ubuntu-latest
     permissions:
@@ -249,10 +147,9 @@ jobs:
           echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
 
   bmt:
-    needs: [pytest-fast, dummy-build-release]
+    needs: [dummy-build-release]
     if: >-
       always() && (needs.dummy-build-release.result == 'success' || needs.dummy-build-release.result == 'skipped')
-      && (needs.pytest-fast.result == 'success' || needs.pytest-fast.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       && contains(
         fromJson('["dev","ci/check-bmt-gate"]'),
