@@ -23,8 +23,8 @@ from cli.shared.config import (
 
 # ── Path defaults ──────────────────────────────────────────────────────────────
 
-DEFAULT_CONFIG_ROOT = "remote/code"
-DEFAULT_ENV_CONTRACT_PATH = "config/env_contract.json"
+DEFAULT_CONFIG_ROOT = "gcp/code"
+DEFAULT_ENV_CONTRACT_PATH = "infra/terraform/repo-vars-mapping.json"
 
 # ── Errors ─────────────────────────────────────────────────────────────────────
 
@@ -75,6 +75,21 @@ def run_handshake_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
 def run_status_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
     safe_run_id = sanitize_run_id(workflow_run_id)
     return bucket_uri(runtime_bucket_root, f"triggers/status/{safe_run_id}.json")
+
+
+# ── Decision exit codes (for gate/verdict CLI output) ──────────────────────────
+
+DECISION_ACCEPTED = "accepted"
+DECISION_ACCEPTED_WITH_WARNINGS = "accepted_with_warnings"
+DECISION_REJECTED = "rejected"
+DECISION_TIMEOUT = "timeout"
+
+
+def decision_exit(decision: str) -> int:
+    """Return exit code for a gate decision: 0 for accepted, non-zero for rejected/timeout."""
+    if decision in (DECISION_ACCEPTED, DECISION_ACCEPTED_WITH_WARNINGS):
+        return 0
+    return 1
 
 
 # ── Env helpers ────────────────────────────────────────────────────────────────

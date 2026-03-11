@@ -15,7 +15,7 @@ Confirm env: run `just show-env` to print the variable names used by CI, VM, and
 **Before** running any workflow steps, sync the local mirror to the bucket so the VM runs the same code and layout you have locally:
 
 ```bash
-just sync-remote
+just sync-gcp
 just verify-sync
 ```
 
@@ -37,7 +37,7 @@ Use this when you need to run steps individually or debug a specific step.
 
 1. **Sync mirror** (if not already done):
    ```bash
-   just sync-remote
+   just sync-gcp
    just verify-sync
    ```
 

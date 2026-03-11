@@ -91,10 +91,10 @@ Fixed roots (no parent prefix):
 
 Separation rules:
 
-1. `deploy/code` sync writes only to `code_root`.
+1. `gcp/code` sync writes only to `code_root`.
 2. Triggers, status, runners, datasets, outputs, results write only to `runtime_root`.
 3. Watcher and monitor must resolve identical runtime URIs.
-4. `deploy/` remains a 1:1 local bucket mirror with only `code/` and `runtime/` at top level.
+4. `gcp/` remains a 1:1 local bucket mirror with only `code/` and `runtime/` at top level.
 
 ## Production surface
 
@@ -104,8 +104,8 @@ What must match production when this repo is used as the source for CI and the b
 |----------|-------------|
 | **Workflow files** | `.github/workflows/bmt.yml`, `.github/workflows/build-and-test.yml` (when present), `.github/workflows/dummy-build-and-test.yml` (bmt-gcloud test workflow). |
 | **Composite actions** | All `.github/actions/` that run the CLI or setup: bmt-prepare, bmt-classify-handoff, bmt-handoff-run, bmt-write-summary, bmt-failure-fallback, bmt-job-setup; checkout-and-restore, restore-snapshot, setup-build-env, setup-gcp-uv. |
-| **packages/bmt-cli** | BMT CLI used by workflows (`uv run --project packages/bmt-cli bmt <cmd>`). Python-only; no `.github/bmt/scripts/`. |
-| **deploy/code/** | Layout synced to `gs://<bucket>/code`: bootstrap, root_orchestrator.py, vm_watcher.py, lib/, sk/, config, bmt_projects.json. |
+| **.github/bmt** | BMT CLI used by workflows (`uv run --project .github/bmt bmt <cmd>`). |
+| **gcp/code/** | Layout synced to `gs://<bucket>/code`: bootstrap, root_orchestrator.py, vm_watcher.py, lib/, sk/, config, bmt_projects.json. |
 | **GCS layout** | `code/` and `runtime/` roots; triggers, acks, status, snapshots, current.json under runtime. |
 | **VM bootstrap** | Startup script, uv artifact, install_deps contract; branch-protection status context (e.g. `BMT_STATUS_CONTEXT`). |
 
@@ -140,17 +140,17 @@ What must match production when this repo is used as the source for CI and the b
 
 | File | Role |
 |---|---|
-| `deploy/code/vm_watcher.py` | Trigger polling, leg orchestration, status/check publishing, pointer promotion. |
-| `deploy/code/root_orchestrator.py` | Fetch code-root assets and run per-leg manager. |
-| `deploy/code/sk/bmt_manager.py` | Run runner and upload canonical snapshot artifacts. |
-| `deploy/code/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress operations. |
+| `gcp/code/vm_watcher.py` | Trigger polling, leg orchestration, status/check publishing, pointer promotion. |
+| `gcp/code/root_orchestrator.py` | Fetch code-root assets and run per-leg manager. |
+| `gcp/code/sk/bmt_manager.py` | Run runner and upload canonical snapshot artifacts. |
+| `gcp/code/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress operations. |
 
 ### Tools
 
 | File | Role |
 |---|---|
 | `tools/bucket_sync_remote.py` | Manual code-root sync + manifest write. |
-| `tools/bucket_verify_remote_sync.py` | Verify local `deploy/code` digest vs uploaded code manifest. |
+| `tools/bucket_verify_remote_sync.py` | Verify local `gcp/code` digest vs uploaded code manifest. |
 | `tools/bucket_upload_runner.py` | Runtime runner upload helper. |
 | `tools/bucket_upload_wavs.py` | Runtime dataset upload helper. |
 | `tools/bucket_validate_contract.py` | Validate split contract (code + runtime canonical objects). |
@@ -178,7 +178,7 @@ Required fields:
 - Dependency install contract is code-root `pyproject.toml` + `uv.lock` (`bootstrap/install_deps.sh` uses `uv sync --extra vm --frozen`)
 - `startup-script-url` mode remains optional for manual setup/cutover
 
-Rollback path: `deploy/code/bootstrap/rollback_vm_startup_to_inline.sh`
+Rollback path: `gcp/code/bootstrap/rollback_vm_startup_to_inline.sh`
 
 ## Workspace contract
 

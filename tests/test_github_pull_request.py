@@ -1,16 +1,10 @@
-"""Tests for deploy/code/lib/github_pull_request.py."""
+"""Tests for gcp/code/lib/github_pull_request.py."""
 
 from __future__ import annotations
 
-import sys
 import urllib.error
-from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "deploy" / "code" / "lib") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "deploy" / "code" / "lib"))
-
-import github_pull_request  # type: ignore[import-not-found]  # noqa: E402
+import github_pull_request  # type: ignore[import-not-found]
 
 
 class _Resp:

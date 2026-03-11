@@ -87,3 +87,40 @@ variable "startup_wrapper_script_path" {
   type        = string
   description = "Local path to the startup_wrapper.sh to inline as instance metadata"
 }
+
+# Optional BMT behavior (defaults match env_contract.json)
+variable "bmt_status_context" {
+  type        = string
+  default     = "BMT Gate"
+  description = "GitHub status check context name (BMT_STATUS_CONTEXT)"
+}
+
+variable "bmt_handshake_timeout_sec" {
+  type        = number
+  default     = 180
+  description = "Handshake timeout in seconds (BMT_HANDSHAKE_TIMEOUT_SEC)"
+}
+
+variable "bmt_projects" {
+  type        = string
+  default     = "all"
+  description = "Comma-separated or 'all' (BMT_PROJECTS)"
+}
+
+variable "bmt_runtime_context" {
+  type        = string
+  default     = "BMT Runtime"
+  description = "Runtime context label (BMT_RUNTIME_CONTEXT)"
+}
+
+variable "bmt_trigger_stale_sec" {
+  type        = number
+  default     = 900
+  description = "Trigger stale threshold seconds (BMT_TRIGGER_STALE_SEC)"
+}
+
+variable "bmt_trigger_metadata_keep_recent" {
+  type        = number
+  default     = 2
+  description = "How many trigger metadata entries to keep (BMT_TRIGGER_METADATA_KEEP_RECENT)"
+}

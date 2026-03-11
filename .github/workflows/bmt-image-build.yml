@@ -51,8 +51,13 @@ jobs:
           PKR_VAR_image_family: ${{ inputs.image_family }}
           PKR_VAR_machine_type: ${{ inputs.machine_type }}
         run: |
+          set -euo pipefail
           packer build -color=false infra/packer/bmt-runtime.pkr.hcl
           image_name="$(jq -r '.builds[0].artifact_id' infra/packer/manifest.json | cut -d: -f2)"
+          if [[ -z "${image_name}" || "${image_name}" == "null" ]]; then
+            echo "::error::Failed to resolve image_name from infra/packer/manifest.json" >&2
+            exit 1
+          fi
           echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
 
       - name: Set up uv
@@ -98,11 +103,13 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## BMT Image Build" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Image | \`${{ steps.packer.outputs.image_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Family | \`${{ inputs.image_family }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Provenance (L1) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Signature (L2) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Git SHA | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## BMT Image Build"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Image | \`${{ steps.packer.outputs.image_name }}\` |"
+            echo "| Family | \`${{ inputs.image_family }}\` |"
+            echo "| Provenance (L1) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\` |"
+            echo "| Signature (L2) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\` |"
+            echo "| Git SHA | \`${{ github.sha }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

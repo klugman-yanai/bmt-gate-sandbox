@@ -7,7 +7,7 @@
   - checkout-and-restore composite used in all BMT jobs
   - Removal of handoff-skip (classify fails when no legs)
   - write-summary as success path, failure-fallback only on failure
-  - workflow_call.outputs + bmt-outcome job
+  - workflow_call.outputs + gate job
   - bmt-gate-summary job in build-and-test
   - Job names = job id only
   - Comment/description tidy, Cloud Run env commented out
@@ -38,7 +38,7 @@ The stash does **not** add the following; they exist only in your local workflow
 
 - checkout-and-restore usage in bmt.yml
 - Removal of handoff-skip job and “no legs” path
-- write-summary / failure-fallback structure and bmt-outcome
+- write-summary / failure-fallback structure and gate
 - workflow_call.outputs and bmt-gate-summary
 - Job id–only names and comment/description improvements
 

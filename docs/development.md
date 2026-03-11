@@ -46,9 +46,9 @@ Runs the **local** batch runner (different code path from the VM manager). Usefu
 ```bash
 uv run python tools/bmt_run_local.py \
   --bmt-id false_reject_namuh \
-  --jobs-config deploy/code/sk/config/bmt_jobs.json \
-  --runner deploy/runtime/sk/runners/kardome_runner \
-  --runtime-root deploy/runtime \
+  --jobs-config gcp/code/sk/config/bmt_jobs.json \
+  --runner gcp/runtime/sk/runners/kardome_runner \
+  --runtime-root gcp/runtime \
   --dataset-root data/sk/inputs/false_rejects \
   --workers 4
 ```
@@ -60,11 +60,11 @@ Requires `gcloud` auth and a bucket with config/runner/dataset synced.
 **1. One-off manager run** — Run the VM-side manager locally; it reads `current.json` (or bootstraps), writes under `snapshots/<run_id>/`, and emits a summary:
 
 ```bash
-uv run python deploy/code/sk/bmt_manager.py \
+uv run python gcp/code/sk/bmt_manager.py \
   --bucket "<bucket>" \
   --project-id sk \
   --bmt-id false_reject_namuh \
-  --jobs-config deploy/code/sk/config/bmt_jobs.json \
+  --jobs-config gcp/code/sk/config/bmt_jobs.json \
   --workspace-root ./local_batch \
   --run-context dev \
   --run-id test-run-$(date +%s) \
@@ -80,7 +80,7 @@ Then inspect GCS: `gs://<bucket>/runtime/<results_prefix>/snapshots/<run_id>/` s
 ```bash
 uv run python .github/scripts/ci_driver.py wait \
   --manifest '<json with legs: project, bmt_id, run_id, triggered_at>' \
-  --config-root deploy/code \
+  --config-root gcp/code \
   --bucket "<bucket>" \
   --timeout-sec 60
 ```
@@ -104,7 +104,7 @@ just lint
 ```
 
 - **ruff:** Line length 120, Python 3.12 target.
-- **basedpyright:** Type checking across `.github/scripts`, `deploy/`, `tools/`.
+- **basedpyright:** Type checking across `.github/scripts`, `gcp/`, `tools/`.
 
 ---
 
@@ -117,12 +117,12 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just test` | Unit tests (pytest). |
 | `just lint` | ruff check + format check + basedpyright. |
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --auto`). |
-| `just sync-remote` | Sync `deploy/code` to `<code-root>` (requires `GCS_BUCKET`). Skip when already in sync; use `--force` to re-sync. |
-| `just sync-runtime-seed` | Sync `deploy/runtime` to `<runtime-root>`. Skip when already in sync; use `--force` to re-sync. |
-| `just verify-sync` | Verify `deploy/code` and `deploy/runtime` match bucket manifests. |
-| `just deploy` | **Single deploy entrypoint:** runs `just sync-remote` then `just verify-sync`. Run before `just prod-ci-local` to push the deploy surface to the bucket. |
+| `just sync-gcp` | Sync `gcp/code` to `<code-root>` (requires `GCS_BUCKET`). Skip when already in sync; use `--force` to re-sync. |
+| `just sync-runtime-seed` | Sync `gcp/runtime` to `<runtime-root>`. Skip when already in sync; use `--force` to re-sync. |
+| `just verify-sync` | Verify `gcp/code` and `gcp/runtime` match bucket manifests. |
+| `just deploy` | **Single deploy entrypoint:** runs `just sync-gcp` then `just verify-sync`. Run before `just prod-ci-local` to push the deploy surface to the bucket. |
 | `just clean-bloat [--scope code\|runtime\|both] [--execute]` | List/remove Python/uv bloat in GCS (dry-run by default). **Dangerous** with `--execute`. |
-| `just validate-layout` | Validate canonical `deploy/` mirror policy. |
+| `just validate-layout` | Validate canonical `gcp/` mirror policy. |
 | `just validate-repo-layout` | Validate repo top-level layout policy (root clutter + tracked path policy). |
 | `just upload-runner` | Upload runner to bucket. Skip when size unchanged; use `--force` to re-upload. |
 | `just upload-wavs <source_dir>` | Upload wav dataset to bucket (explicit source path, e.g. `data/sk/inputs/false_rejects`). Skip when dest in sync; use `--force` to re-upload. |
@@ -146,19 +146,19 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 
 There is **no formal build step** for the BMT pipeline. Deployment is:
 
-1. **Manual sync `deploy/code` to `<code-root>`** so VM boot and orchestrator fetches match local source:
+1. **Manual sync `gcp/code` to `<code-root>`** so VM boot and orchestrator fetches match local source:
 
    ```bash
    GCS_BUCKET="<bucket>" just deploy
-   # or stepwise: just sync-remote && just verify-sync
+   # or stepwise: just sync-gcp && just verify-sync
    ```
 
    Notes:
-   - `deploy/code/_tools/uv/linux-x86_64/uv.sha256` is the pinned UV checksum.
+   - `gcp/code/_tools/uv/linux-x86_64/uv.sha256` is the pinned UV checksum.
    - `bucket_sync_deploy.py` uploads the local `uv` binary to `<code-root>/_tools/uv/linux-x86_64/uv` and validates it against that checksum.
    - Override local UV path during sync with `BMT_UV_TOOL_PATH=/path/to/uv`.
 
-2. **Manual sync `deploy/runtime` seed to `<runtime-root>`** when seed artifacts change:
+2. **Manual sync `gcp/runtime` seed to `<runtime-root>`** when seed artifacts change:
 
    ```bash
    GCS_BUCKET="<bucket>" uv run python tools/bucket_sync_runtime_seed.py
@@ -175,7 +175,7 @@ GCS_BUCKET="<bucket>" uv run python tools/bucket_upload_wavs.py --source-dir dat
 
 Dataset policy:
 - `data/` is the local authoritative source for large WAV corpora.
-- `deploy/runtime/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
+- `gcp/runtime/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
 
 4. **Validate bucket contract:**
 
@@ -184,7 +184,7 @@ Dataset policy:
    # or: just validate-bucket
    ```
 
-CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `deploy/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../deploy/code/bootstrap/README.md](../deploy/code/bootstrap/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
+CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `gcp/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../gcp/code/bootstrap/README.md](../gcp/code/bootstrap/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
 
 ### Cleaning GCS and VM of Python/uv bloat
 
@@ -202,7 +202,7 @@ To remove existing `__pycache__`, `.pyc`, `.venv`, and similar bloat from the bu
 
 Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/<run_id>.json`.
 
-**Before testing a live PR:** Sync the bucket first (`just sync-remote && just verify-sync`), then commit and push your branch. The pre-commit hook blocks commits that touch `deploy/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`), so the VM runs the same code and config as your branch.
+**Before testing a live PR:** Sync the bucket first (`just sync-gcp && just verify-sync`), then commit and push your branch. The pre-commit hook blocks commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`), so the VM runs the same code and config as your branch.
 
 1. **Validate local layout and code sync**
 

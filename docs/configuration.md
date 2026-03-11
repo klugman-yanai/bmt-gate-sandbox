@@ -1,19 +1,32 @@
 # Configuration
 
-This document describes **current** configuration: env contract, repo vars, VM metadata and runtime env, secrets, and bucket layout. The canonical source for variable definitions and consistency checks is [../config/env_contract.json](../config/env_contract.json). For a quick start and workflow overview see [../README.md](../README.md).
+This document describes **current** configuration: Terraform as source of truth for non-secret repo vars, VM metadata, runtime env, secrets, and bucket layout. The canonical source for variable definitions is **infra/terraform** (variables + outputs) and [infra/terraform/repo-vars-mapping.json](../infra/terraform/repo-vars-mapping.json). Secrets are documented in [../infra/README.md](../infra/README.md). For a quick start see [../README.md](../README.md).
 
 ---
 
-## Environment contract
+## Terraform as source of truth
 
-**config/env_contract.json** defines:
+**infra/terraform** defines all non-secret configuration. Export GitHub repo variables from Terraform outputs:
 
-- **contexts** — Where and how variables are used: `github_repo_vars`, `vm_metadata`, `vm_runtime_env`, `local_dev_env`.
-- **required / optional** — Per context, which variables are required vs optional.
-- **defaults** — Default values for optional vars (e.g. `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`).
-- **consistency_checks** — e.g. `repo_vs_vm_metadata` for `GCS_BUCKET` so repo config and VM metadata stay in sync, and `repo_var_vs_branch_required_status_context` so `BMT_STATUS_CONTEXT` is sourced from effective branch rules.
+```bash
+just terraform-export-vars          # Print key=value
+just terraform-export-vars-apply    # Apply to GitHub (gh variable set)
+```
 
-Tooling (e.g. `tools/gh_repo_vars.py`, `tools/gh_validate_vm_vars.py`) uses this contract to check and apply repo vars and to validate VM metadata.
+Mapping from Terraform output keys to GitHub var names: [infra/terraform/repo-vars-mapping.json](../infra/terraform/repo-vars-mapping.json). Required and optional vars are listed there; **secrets** (`GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY`) are set manually and never in Terraform.
+
+---
+
+## Environment contract (Terraform-backed)
+
+The "contract" is built from **infra/terraform/repo-vars-mapping.json** and **infra/branch-status-context.json**:
+
+- **required_from_terraform** / **optional_from_terraform** — Which GitHub vars are populated from Terraform outputs.
+- **secrets_not_in_terraform** — Vars you must set manually (WIF, GitHub App).
+- **defaults** — Optional defaults (e.g. `BMT_STATUS_CONTEXT`, `BMT_RUNTIME_CONTEXT`).
+- **repo_var_vs_branch_required_status_context** (in branch-status-context.json) — Ensures `BMT_STATUS_CONTEXT` matches branch protection.
+
+Tooling (`tools/gh_repo_vars.py`, `tools/gh_validate_vm_vars.py`, `tools/gh_show_env.py`) uses this contract to check and apply repo vars and to validate VM metadata.
 
 ---
 
@@ -26,11 +39,12 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | Variable | Purpose |
 |----------|---------|
 | `GCS_BUCKET` | GCS bucket name. |
-| `GCP_WIF_PROVIDER` | Workload Identity Federation provider for CI. |
-| `GCP_SA_EMAIL` | Service account email for WIF auth. |
+| `GCP_WIF_PROVIDER` | Workload Identity Federation provider for CI. (Secret; set manually.) |
+| `GCP_SA_EMAIL` | Service account email for WIF auth. (From Terraform output `service_account`.) |
 | `GCP_PROJECT` | GCP project ID for VM operations. |
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`). |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM can stop itself after one run). |
+| `BMT_PUBSUB_SUBSCRIPTION` | Pub/Sub subscription for VM trigger delivery (from Terraform output). |
 
 ### Optional (common)
 
@@ -49,18 +63,20 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `BMT_TRIGGER_METADATA_KEEP_RECENT` | `"2"` | Number of recent trigger metadata files (`acks/status`) retained after cleanup. |
 | `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
 
-Omitted vars inherit from current GitHub repo context first, then from contract defaults (see `config/env_contract.json` and `tools/gh_repo_vars.py`). Optional overrides can be declared in **config/repo_vars.toml** for local/tooling use.
+Omitted vars inherit from current GitHub repo context first, then from Terraform outputs (when you run `just terraform-export-vars`) or contract defaults. Optional overrides can be passed via `just repo-vars-apply --config <path>` with a TOML/JSON file.
 
-For `BMT_STATUS_CONTEXT`, `tools/gh_repo_vars.py` resolves the desired value from the effective branch rules (`/rules/branches/<branch>`) using `consistency_checks.repo_var_vs_branch_required_status_context`. This prevents TOML/UI drift between branch protection and repo variables.
+For `BMT_STATUS_CONTEXT`, `tools/gh_repo_vars.py` resolves the desired value from the effective branch rules using **infra/branch-status-context.json**. This keeps branch protection and repo variables aligned.
 
 ### Useful commands
 
 ```bash
-just repo-vars-check    # Check repo vars against contract
-just repo-vars-apply    # Apply vars to GitHub (with optional args)
-just show-env           # Print env var names used by CI, VM, tools
-just validate-vm-vars   # Ensure repo vars match VM metadata
-just sync-vm-metadata   # Sync startup-critical VM metadata from repo contract
+just terraform-export-vars     # Print Terraform-sourced vars
+just terraform-export-vars-apply  # Apply them to GitHub
+just repo-vars-check           # Check repo vars against Terraform/contract
+just repo-vars-apply           # Apply vars to GitHub (from Terraform + optional override file)
+just show-env                  # Print env var names used by CI, VM, tools
+just validate-vm-vars          # Ensure repo vars match VM metadata
+just sync-vm-metadata         # Sync startup-critical VM metadata from repo
 ```
 
 ---
@@ -72,18 +88,18 @@ The workflow syncs **VM metadata** from repo config so the VM uses the same buck
 - **GCS_BUCKET** (required)
 - **BMT_REPO_ROOT** (optional; default `/opt/bmt`)
 - **startup-script** (set from packaged `cli.resources/startup_wrapper.sh` by `sync-vm-metadata`)
-- **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `deploy/code/bootstrap/setup_vm_startup.sh`)
+- **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `gcp/code/bootstrap/setup_vm_startup.sh`)
 
 `sync-vm-metadata` also validates that required bootstrap code objects exist in `<code-root>` before starting the VM.
 This includes pinned UV tool artifacts under `<code-root>/_tools/uv/linux-x86_64/`.
 
-Defined under `vm_metadata` in [../config/env_contract.json](../config/env_contract.json). Consistency check `repo_vs_vm_metadata` ensures `GCS_BUCKET` matches between repo vars and VM metadata.
+Defined under `vm_metadata` in the Terraform-backed contract. Consistency check `repo_vs_vm_metadata` ensures `GCS_BUCKET` matches between repo vars and VM metadata.
 
 ---
 
 ## VM runtime environment
 
-On the VM, these are the runtime credentials expected by `vm_watcher.py`. For every enabled repository in `deploy/code/config/github_repos.json`, the matching App credential triple must be resolvable at startup:
+On the VM, these are the runtime credentials expected by `vm_watcher.py`. For every enabled repository in `gcp/code/config/github_repos.json`, the matching App credential triple must be resolvable at startup:
 
 | Variable | Purpose |
 |----------|---------|
@@ -93,7 +109,7 @@ On the VM, these are the runtime credentials expected by `vm_watcher.py`. For ev
 | `GH_APP_PROD_ID`, `GH_APP_PROD_INSTALLATION_ID`, `GH_APP_PROD_PRIVATE_KEY` | Alias fallback names accepted by VM/runtime tooling (canonical `GITHUB_APP_*` takes precedence). |
 | `BMT_UV_BIN` | Optional debug override for uv binary path on VM (bootstrap default is self-heal from pinned code artifact). |
 
-Repository mapping is in **deploy/code/config/github_repos.json**. See [../deploy/code/lib/github_auth.py](../deploy/code/lib/github_auth.py) for resolution logic.
+Repository mapping is in **gcp/code/config/github_repos.json**. See [../gcp/code/lib/github_auth.py](../gcp/code/lib/github_auth.py) for resolution logic.
 
 ---
 
@@ -116,22 +132,22 @@ Use:
 - `<code-root> = gs://<bucket>/code`
 - `<runtime-root> = gs://<bucket>/runtime`
 
-`deploy/code` is the manual-sync source of truth for `<code-root>` only.
-`deploy/runtime` is the manual-sync source for runtime seed artifacts under `<runtime-root>`.
-Local large WAV corpora remain under `data/` (not inside `deploy/runtime`).
-Local mirror policy details: [../deploy/README.md](../deploy/README.md).
+`gcp/code` is the manual-sync source of truth for `<code-root>` only.
+`gcp/runtime` is the manual-sync source for runtime seed artifacts under `<runtime-root>`.
+Local large WAV corpora remain under `data/` (not inside `gcp/runtime`).
+Local mirror policy details: [../gcp/README.md](../gcp/README.md).
 
-- **`<code-root>/...`** — deployable watcher/orchestrator/manager/bootstrap/config mirrored from `deploy/code`.
+- **`<code-root>/...`** — deployable watcher/orchestrator/manager/bootstrap/config mirrored from `gcp/code`.
 - **`<code-root>/pyproject.toml`** — VM runtime dependency contract for watcher execution.
 - **`<code-root>/uv.lock`** — pinned lock used by `bootstrap/install_deps.sh` (`uv sync --extra vm --frozen`).
-- **`<code-root>/_tools/uv/linux-x86_64/uv`** — pinned uv binary uploaded by `just sync-remote`.
+- **`<code-root>/_tools/uv/linux-x86_64/uv`** — pinned uv binary uploaded by `just sync-gcp`.
 - **`<code-root>/_tools/uv/linux-x86_64/uv.sha256`** — pinned uv checksum tracked in repo and verified at boot.
 - **`<runtime-root>/triggers/runs/<workflow_run_id>.json`** — Run trigger (CI writes; VM deletes after process).
 - **`<runtime-root>/triggers/acks/<workflow_run_id>.json`** — VM handshake ack.
 - **`<runtime-root>/triggers/status/<workflow_run_id>.json`** — VM progress heartbeat.
 - **`<runtime-root>/_meta/runtime_seed_manifest.json`** — runtime seed sync manifest (written by `tools/bucket_sync_runtime_seed.py`).
 - **`<runtime-root>/<project>/runners/<preset>/...`** — Runner bundles (uploaded by workflow/tools).
-- **`<runtime-root>/<project>/inputs/...`** — Runtime input objects in bucket; local source is explicit upload from `data/...` (keep `deploy/runtime/**/inputs` as placeholders only).
+- **`<runtime-root>/<project>/inputs/...`** — Runtime input objects in bucket; local source is explicit upload from `data/...` (keep `gcp/runtime/**/inputs` as placeholders only).
 - **`<runtime-root>/<results_prefix>/current.json`** — Pointer (`latest`, `last_passing` run_id); updated by watcher.
 - **`<runtime-root>/<results_prefix>/snapshots/<run_id>/`** — Per-run artifacts (`latest.json`, `ci_verdict.json`, logs).
 

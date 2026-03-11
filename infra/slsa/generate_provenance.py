@@ -36,9 +36,8 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # SLSA v1.0 provenance envelope
@@ -49,7 +48,7 @@ STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 
 
 def _now_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _sha256_file(path: Path) -> str:

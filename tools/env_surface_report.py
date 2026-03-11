@@ -28,7 +28,7 @@ def _workflow_repo_vars() -> list[str]:
 def _count_alias_hits(alias: str) -> int:
     rg_paths = [
         _repo_root() / "Justfile",
-        _repo_root() / "deploy" / "code" / "bootstrap",
+        _repo_root() / "gcp" / "code" / "bootstrap",
         _repo_root() / "tools",
     ]
     pattern = re.compile(rf"\b{re.escape(alias)}\b")

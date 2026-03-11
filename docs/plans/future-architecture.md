@@ -8,7 +8,7 @@ This document describes **planned** changes, not current behavior. The current i
 |------|---------|---------|
 | GCP | `gcloud` CLI subprocess | Google Cloud SDK (`google.cloud.storage`, `google.cloud.compute`, `google.cloud.secretmanager`) |
 | Data models | CI: dataclasses; VM/config: dict/JSON | Pydantic models for configs, verdicts, triggers (e.g. `BMTJobConfig`, `CIVerdict`, `RunTrigger`) |
-| VM shared libs | `deploy/code/lib/`: `github_auth.py`, `github_checks.py`, `status_file.py` | Add `deploy/code/lib/bmt_lib/` (gcs, cache, gate, models) and `deploy/code/lib/github_api.py` (PyGithub, tabulate) |
+| VM shared libs | `gcp/code/lib/`: `github_auth.py`, `github_checks.py`, `status_file.py` | Add `gcp/code/lib/bmt_lib/` (gcs, cache, gate, models) and `gcp/code/lib/github_api.py` (PyGithub, tabulate) |
 | GitHub | Commit status + Check Run (implemented); PR comment not implemented | PR comments with markdown table; optional PyGithub everywhere |
 
 ---
@@ -32,7 +32,7 @@ This document describes **planned** changes, not current behavior. The current i
 
 ## Planned: Pydantic models
 
-Config and runtime data would move from `dict[str, Any]` to Pydantic models in `deploy/code/lib/bmt_lib/models.py` (and CI could use matching models):
+Config and runtime data would move from `dict[str, Any]` to Pydantic models in `gcp/code/lib/bmt_lib/models.py` (and CI could use matching models):
 
 - **Config:** `RunnerConfig`, `PathsConfig`, `RuntimeConfig`, `GateConfig`, `ParsingConfig`, `BMTJobConfig`, `ProjectConfig`.
 - **Runtime:** `FileResult`, `GateResult`, `CIVerdict`, `RunTrigger`, `TriggerLeg`.
@@ -43,7 +43,7 @@ Benefits: validation on load, typed access, JSON schema generation. Current code
 
 ## Planned: Check run and PR comment (full)
 
-- **Check run:** Already implemented via `deploy/code/lib/github_checks.py` and watcher. Planned: optional migration to `github_api.py` + PyGithub.
+- **Check run:** Already implemented via `gcp/code/lib/github_checks.py` and watcher. Planned: optional migration to `github_api.py` + PyGithub.
 - **PR comment:** Not implemented. Planned: post a markdown table to the PR (e.g. `<!-- bmt-results -->` marker) using `tabulate` for GitHub-flavored tables, after watcher updates `current.json`.
 
 ---
@@ -57,7 +57,7 @@ Benefits: validation on load, typed access, JSON schema generation. Current code
 
 ## Planned: Deployment and VM layout
 
-- **Repo ↔ VM path:** Add mapping for `deploy/code/lib/bmt_lib/` → `/opt/bmt/lib/bmt_lib/` and `deploy/code/lib/github_api.py` → `/opt/bmt/lib/github_api.py`.
+- **Repo ↔ VM path:** Add mapping for `gcp/code/lib/bmt_lib/` → `/opt/bmt/lib/bmt_lib/` and `gcp/code/lib/github_api.py` → `/opt/bmt/lib/github_api.py`.
 - **Sync script:** e.g. `tools/sync_to_vm.sh` using `gcloud compute scp --recurse` and remote script to arrange files under `/opt/bmt/` (bin, lib, managers, config, templates, data, cache, runtime).
 - **systemd:** `PYTHONPATH=/opt/bmt/lib`; env for bucket, prefix, GitHub token/App secrets.
 - **Dependencies (VM):** e.g. `google-cloud-storage`, `google-cloud-secret-manager`, `PyGithub`, `PyJWT`, `pydantic`, `tabulate`.

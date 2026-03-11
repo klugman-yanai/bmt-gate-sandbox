@@ -7,11 +7,10 @@ This doc defines **what to compare** between Kardome-org/core-main and bmt-gclou
 | Path under `.github/` | core-main | bmt-gcloud | Notes |
 |-----------------------|-----------|------------|--------|
 | **Workflows** | | | |
-| `workflows/build-and-test.yml` | ✅ Main CI (real build) | ❌ | Prod only. bmt-gcloud has `dummy-build-and-test.yml` instead (same triggers/concurrency/BMT condition; dummy build steps). |
-| `workflows/dummy-build-and-test.yml` | ❌ | ✅ | Dev/sandbox CI. When syncing to sandbox, copy as `build-and-test.yml`. |
+| `workflows/build-and-test.yml` | ✅ Main CI (real build) | ✅ Sandbox CI (dummy builds) | Same triggers/concurrency/BMT condition; bmt-gcloud uses minimal dummy build steps. |
 | `workflows/bmt.yml` | ✅ | ✅ | **Must stay in sync.** Reusable BMT handoff. Diff these. |
 | **Actions (BMT)** | | | |
-| `actions/bmt-prepare/action.yml` | ✅ | ✅ | **Must stay in sync.** May differ by project path (`.github/bmt` vs `packages/bmt-cli`); align intent. |
+| `actions/bmt-prepare/action.yml` | ✅ | ✅ | **Must stay in sync.** Use same project path `.github/bmt`. |
 | `actions/bmt-classify-handoff/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | `actions/bmt-handoff-run/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | `actions/bmt-write-summary/action.yml` | ✅ | ✅ | **Must stay in sync.** |
@@ -24,7 +23,7 @@ This doc defines **what to compare** between Kardome-org/core-main and bmt-gclou
 | `actions/setup-build-env/action.yml` | ✅ | ❌ | Prod only (CMake/configure). |
 | `actions/checkout-robust/action.yml` | ❌ | ✅ | bmt-gcloud only (e.g. handoff checkout fallback). |
 | **BMT CLI / config** | | | |
-| `bmt/` (Python CLI, scripts, config) | ✅ | ✅ | **Must stay in sync** for behavior. core-main uses `.github/bmt` only; bmt-gcloud may also have `packages/bmt-cli` (dual paths). Align which commands/scripts are called from actions. |
+| `bmt/` (Python CLI, config) | ✅ | ✅ | **Must stay in sync** for behavior. Both use `.github/bmt` only. |
 | **Other** | | | |
 | `actionlint.yaml` | ❌ | ✅ | bmt-gcloud only. |
 | `README.md` | ❌ | ✅ | bmt-gcloud only. |
@@ -45,7 +44,7 @@ This doc defines **what to compare** between Kardome-org/core-main and bmt-gclou
 
 **Intentional differences (still compare when changing behavior):**
 
-- Main CI: core-main has `workflows/build-and-test.yml` (real build), bmt-gcloud has `workflows/dummy-build-and-test.yml` (dummy). Triggers, concurrency, and `bmt-handoff` `if` should match; job names and build steps differ.
+- Main CI: core-main has `workflows/build-and-test.yml` (real build), bmt-gcloud has `workflows/build-and-test.yml` (dummy). Triggers, concurrency, and **bmt** job `if` should match; job names and build steps differ.
 
 ## How to run the diff
 
@@ -89,10 +88,10 @@ Or use the Just recipe (see below).
    - **Different content:** Decide direction:
      - **bmt-gcloud is source** → Open a PR to core-main with bmt-gcloud’s version (and note “aligns with bmt-gcloud”).
      - **core-main is source** → Update bmt-gcloud to match, then re-sync sandbox.
-3. **Resolve merge conflicts** in bmt-gcloud (e.g. `.github/actions/bmt-prepare/action.yml` had `uv run --project .github/bmt` vs `packages/bmt-cli`). Pick one convention and make both repos use it, or document why they differ (e.g. prod uses `.github/bmt`, bmt-gcloud uses `packages/bmt-cli` for local dev).
+3. **Resolve merge conflicts** in bmt-gcloud (e.g. `.github/actions/bmt-prepare/action.yml`). Use `uv run --project .github/bmt` consistently in both repos.
 
 ## Intentional differences to keep documented
 
 - **Main CI file name:** Production = `build-and-test.yml`; bmt-gcloud = `dummy-build-and-test.yml`. Sandbox gets a copy as `build-and-test.yml`.
-- **Project path in actions:** core-main uses `uv run --project .github/bmt` and `bash .github/bmt/scripts/...`; bmt-gcloud may use `packages/bmt-cli` in some steps. Unify if possible; otherwise document.
+- **Project path in actions:** Both use `uv run --project .github/bmt`; keep aligned.
 - **Build-job actions:** core-main has checkout-and-restore, restore-snapshot, setup-build-env, bmt-job-setup for the real build pipeline. bmt-gcloud does not need these for the dummy workflow; no need to copy them unless you add a “real build” path to bmt-gcloud.

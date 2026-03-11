@@ -365,7 +365,7 @@ def run_sync_metadata() -> None:
         joined = "\n".join(f"  - {uri}" for uri in missing_objects)
         raise RuntimeError(
             "Missing required code objects in bucket namespace. "
-            "Sync code mirror first (just sync-remote && just verify-sync):\n"
+            "Sync code mirror first (just sync-gcp && just verify-sync):\n"
             f"{joined}"
         )
 

@@ -2,15 +2,7 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-_ROOT = Path(__file__).resolve().parent.parent
-_LIB = _ROOT / "deploy" / "code" / "lib"
-if str(_LIB) not in sys.path:
-    sys.path.insert(0, str(_LIB))
-
-import github_checks  # type: ignore[import-not-found]  # noqa: E402
+import github_checks  # type: ignore[import-not-found]
 
 
 def test_render_results_table_shows_last_passing_score_when_available() -> None:
@@ -30,7 +22,9 @@ def test_render_results_table_shows_last_passing_score_when_available() -> None:
 
     table = github_checks.render_results_table(leg_summaries, aggregate)
 
-    assert "| sk | false_reject_namuh | ✅ PASS | 56.8 | 56.8 | score_gte_last | 6m 25s |" in table
+    assert "| sk | false_reject_namuh | ✅ PASS | 56.8 | 56.8 |" in table
+    assert "6m 25s" in table
+    assert "Score at or above baseline" in table
 
 
 def test_render_results_table_uses_top_level_last_score_fallback() -> None:
@@ -50,4 +44,6 @@ def test_render_results_table_uses_top_level_last_score_fallback() -> None:
 
     table = github_checks.render_results_table(leg_summaries, aggregate)
 
-    assert "| sk | false_reject_namuh | ✅ PASS | 42.0 | 41.2 | score_gte_last | 59s |" in table
+    assert "| sk | false_reject_namuh | ✅ PASS | 42.0 | 41.2 |" in table
+    assert "59s" in table
+    assert "Score at or above baseline" in table

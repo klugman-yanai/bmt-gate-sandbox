@@ -2,15 +2,7 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Ensure remote/code is on path so we can import vm_watcher
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "remote" / "code") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "remote" / "code"))
-
-import vm_watcher as watcher  # type: ignore[import-not-found]  # noqa: E402
+import vm_watcher as watcher  # type: ignore[import-not-found]
 
 
 def test_resolve_requested_legs_expands_project_wide_requests(monkeypatch):
@@ -72,4 +64,3 @@ def test_resolve_requested_legs_keeps_explicit_bmt_mode(monkeypatch):
     assert resolved[0]["bmt_id"] == "false_reject_namuh"
     assert resolved[0]["decision"] == "accepted"
     assert resolved[0]["reason"] is None
-

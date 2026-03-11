@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 """Local SK batch runner (config-first).
 
-Reads BMT behavior from deploy/code/sk/config/bmt_jobs.json and runs
+Reads BMT behavior from gcp/code/sk/config/bmt_jobs.json and runs
 kardome_runner once per wav by creating a transient JSON from the configured
 template. CLI flags act as explicit overrides.
 """
@@ -68,7 +68,7 @@ class ResolvedConfig:
 
 @dataclass
 class RunOptions:
-    jobs_config: str = "deploy/code/sk/config/bmt_jobs.json"
+    jobs_config: str = "gcp/code/sk/config/bmt_jobs.json"
     bmt_id: str = "false_reject_namuh"
     project_id: str = "sk"
     run_context: str = "manual"
@@ -509,7 +509,7 @@ def write_results(
 
 
 @click.command()
-@click.option("--jobs-config", default="deploy/code/sk/config/bmt_jobs.json", help="BMT jobs config JSON path")
+@click.option("--jobs-config", default="gcp/code/sk/config/bmt_jobs.json", help="BMT jobs config JSON path")
 @click.option("--bmt-id", default="false_reject_namuh", help="BMT id under bmts.<bmt_id> in jobs config")
 @click.option("--project-id", default="sk", help="Project id for result metadata")
 @click.option("--run-context", type=click.Choice(["manual", "dev", "pr"]), default="manual", help="Run context")

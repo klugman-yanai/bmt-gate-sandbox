@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "deploy" / "code") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "deploy" / "code"))
-
-import vm_watcher as watcher  # type: ignore[import-not-found]  # noqa: E402
+import vm_watcher as watcher  # type: ignore[import-not-found]
 
 
 class _StatusStore:
@@ -404,7 +398,8 @@ def test_superseded_mid_run_cancels_between_legs_and_upserts_commit_comment(
     assert len(pr_comment_calls) == 1
     _, marker, body = pr_comment_calls[0]
     assert "bmt-vm-comment-sha:abc123" in marker
-    assert "BMT result: Superseded" in body
+    assert "BMT superseded" in body
+    assert "Superseded by" in body
     assert "/commit/abc123" in body
     assert "/commit/def789" in body
 

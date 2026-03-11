@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from cli import shared, gcs, github_api
+from cli import gcs, github_api, shared
 from cli.gh_output import gh_endgroup, gh_group, gh_notice, gh_warning
 from cli.shared import _workflow_run_id, _workflow_runtime_root, get_config
 

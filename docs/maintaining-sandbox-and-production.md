@@ -55,7 +55,7 @@ That way you never maintain two different “truths” by hand: you only maintai
    Copy the updated workflow(s) and actions into klugman-yanai/bmt-gate-sandbox (e.g. `dummy-build-and-test.yml` → sandbox `build-and-test.yml`). Commit and push. You have full permissions, so no approval step. Use this to validate behavior before proposing to production.
 
 3. **Propose to production**  
-   Open a PR to Kardome-org/core-main that brings in the **same** workflow/action changes (same triggers, concurrency, bmt-handoff condition, job structure). Describe that the PR aligns production with the sandbox/bmt-gcloud source so both stay in sync. If you keep a branch in core-main that tracks bmt-gcloud (e.g. by re-applying patches or copying files), the PR is “sync from bmt-gcloud” rather than ad-hoc edits.
+   Open a PR to Kardome-org/core-main that brings in the **same** workflow/action changes (same triggers, concurrency, bmt job condition, job structure). Describe that the PR aligns production with the sandbox/bmt-gcloud source so both stay in sync. If you keep a branch in core-main that tracks bmt-gcloud (e.g. by re-applying patches or copying files), the PR is “sync from bmt-gcloud” rather than ad-hoc edits.
 
 4. **Track production**  
    Periodically pull core-main and diff workflow files against bmt-gcloud. If production has diverged (e.g. someone else changed `build-and-test.yml` or `bmt.yml`), you can either:
@@ -68,7 +68,7 @@ That way you never maintain two different “truths” by hand: you only maintai
   Always change workflow logic and structure in bmt-gcloud first. Sandbox and production are consumers, not sources of truth.
 
 - **Same checklist for both**  
-  When you change triggers, concurrency, or bmt-handoff condition, use the same list for both repos:  
+  When you change triggers, concurrency, or the bmt job condition, use the same list for both repos:  
   “Update sandbox: copy X → build-and-test.yml, push. Update production: open PR with same X.”
 
 - **Document the sync**  

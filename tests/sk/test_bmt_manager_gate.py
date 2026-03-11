@@ -1,4 +1,4 @@
-"""Tests for gate comparison normalization in deploy/code/sk/bmt_manager.py."""
+"""Tests for gate comparison normalization in gcp/code/sk/bmt_manager.py."""
 
 from __future__ import annotations
 

@@ -97,7 +97,7 @@ def run_trigger() -> None:
     Reads FILTERED_MATRIX_JSON, RUN_CONTEXT, PR_NUMBER, GITHUB_OUTPUT from env; GCS_BUCKET and status context from config.
 
     Test-case (no real PR): set GITHUB_REPOSITORY to an enabled repo in
-    remote/code/config/github_repos.json (e.g. klugman-yanai/bmt-gate-sandbox) and
+    gcp/code/config/github_repos.json (e.g. klugman-yanai/bmt-gate-sandbox) and
     RUN_CONTEXT=dev so the VM skips PR state checks and can post status to the test repo.
     """
     cfg = get_config()
