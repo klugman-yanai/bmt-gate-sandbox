@@ -13,7 +13,22 @@ set -euo pipefail
 
 _extract_sha() {
   local sha_file="$1"
-  awk 'NF { print $1; exit }' "$sha_file"
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      if (match($0, /^[[:space:]]*([0-9a-fA-F]{64})[[:space:]]+(\*?uv)?[[:space:]]*$/, m)) {
+        print tolower(m[1]);
+        exit 0;
+      }
+      exit 2;
+    }
+    END {
+      if (NR == 0) {
+        exit 1;
+      }
+    }
+  ' "$sha_file"
 }
 
 _download_and_install_uv() {
@@ -29,7 +44,7 @@ _download_and_install_uv() {
   gcloud storage cp "${sha_uri}" "${tmp_dir}/uv.sha256" --quiet
 
   local expected actual
-  expected="$(_extract_sha "${tmp_dir}/uv.sha256")"
+  expected="$(_extract_sha "${tmp_dir}/uv.sha256" || true)"
   if [[ -z "$expected" ]]; then
     echo "::error::Invalid uv checksum file at ${sha_uri}" >&2
     return 1
