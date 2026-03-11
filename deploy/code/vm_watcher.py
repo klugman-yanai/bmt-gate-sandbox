@@ -74,7 +74,7 @@ def _handle_signal(signum: int, _frame: Any) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Poll GCS for BMT trigger files")
+    parser = argparse.ArgumentParser(description="Poll GCS or Pub/Sub for BMT trigger files")
     _ = parser.add_argument("--bucket", required=True)
     _ = parser.add_argument("--poll-interval-sec", type=int, default=10)
     _ = parser.add_argument("--workspace-root", default=os.environ.get("BMT_WORKSPACE_ROOT", ""))
@@ -88,6 +88,16 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=_env_int("BMT_IDLE_TIMEOUT_SEC", 600, minimum=0),
         help="Exit if no trigger is found within this many seconds when --exit-after-run is set (0=disabled).",
+    )
+    _ = parser.add_argument(
+        "--subscription",
+        default=os.environ.get("BMT_PUBSUB_SUBSCRIPTION", ""),
+        help="Pub/Sub subscription ID (e.g. bmt-vm-myvm). When set, uses Pub/Sub instead of GCS polling.",
+    )
+    _ = parser.add_argument(
+        "--gcp-project",
+        default=os.environ.get("GCP_PROJECT", ""),
+        help="GCP project ID (required when --subscription is set).",
     )
     return parser.parse_args()
 
@@ -1948,6 +1958,91 @@ def _process_run_trigger(  # noqa: PLR0911
         print(f"  Run {workflow_run_id} complete")
 
 
+def _run_pubsub_loop(
+    *,
+    subscription_path: str,
+    code_bucket_root: str,
+    runtime_bucket_root: str,
+    workspace_root: Path,
+    github_token_resolver: Callable[[str], str | None],
+    exit_after_run: bool,
+    idle_timeout_sec: int,
+) -> int:
+    """Pull triggers from a Pub/Sub subscription instead of polling GCS.
+
+    The CI writes the trigger payload to GCS AND publishes the same JSON to
+    the Pub/Sub topic. The VM receives messages instantly (no polling lag),
+    uses the GCS trigger URI reconstructed from the payload, and acks only
+    after the trigger is fully consumed. Nacks cause Pub/Sub to redeliver.
+    """
+    from google.cloud import pubsub_v1  # noqa: PLC0415
+
+    subscriber = pubsub_v1.SubscriberClient()
+    idle_deadline = time.monotonic() + idle_timeout_sec if (exit_after_run and idle_timeout_sec > 0) else None
+    print(f"Pub/Sub mode: pulling from {subscription_path}")
+
+    while not _shutdown:
+        try:
+            response = subscriber.pull(
+                request={"subscription": subscription_path, "max_messages": 1},
+                timeout=30,
+            )
+        except Exception as exc:
+            print(f"  Warning: Pub/Sub pull error: {exc}")
+            time.sleep(5)
+            continue
+
+        if not response.received_messages:
+            if idle_deadline is not None and time.monotonic() >= idle_deadline:
+                print(f"Idle timeout ({idle_timeout_sec}s) reached with no trigger; exiting so VM can stop.")
+                return 0
+            continue
+
+        idle_deadline = None  # reset once a message arrives
+
+        for received_msg in response.received_messages:
+            if _shutdown:
+                break
+            ack_id = received_msg.ack_id
+            try:
+                payload = json.loads(received_msg.message.data.decode("utf-8"))
+            except (json.JSONDecodeError, ValueError) as exc:
+                print(f"  Warning: malformed Pub/Sub message (acking to discard): {exc}")
+                subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
+                continue
+
+            # Reconstruct the GCS trigger URI from the payload so we can reuse
+            # _process_run_trigger unchanged (it still deletes the GCS object on success).
+            bucket = str(payload.get("bucket", "")).strip() or runtime_bucket_root.split("gs://", 1)[-1].split("/")[0]
+            run_id = str(payload.get("workflow_run_id", "")).strip()
+            if not run_id:
+                print("  Warning: Pub/Sub message missing workflow_run_id; discarding.")
+                subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
+                continue
+
+            trigger_uri = f"gs://{bucket}/runtime/triggers/runs/{run_id}.json"
+            trigger_consumed = _process_run_trigger(
+                trigger_uri,
+                code_bucket_root,
+                runtime_bucket_root,
+                workspace_root,
+                github_token_resolver,
+            )
+            if trigger_consumed:
+                subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
+                if exit_after_run:
+                    print("Exit-after-run: done, exiting so VM can stop.")
+                    return 0
+            else:
+                # Nack: let Pub/Sub redeliver after the ack deadline expires.
+                subscriber.modify_ack_deadline(
+                    request={"subscription": subscription_path, "ack_ids": [ack_id], "ack_deadline_seconds": 0}
+                )
+
+    print("Watcher stopped.")
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     workspace_root = _resolve_workspace_root(args.workspace_root)
@@ -1988,6 +2083,25 @@ def main() -> int:
         keep_workflow_ids=set(),
     )
 
+    subscription = getattr(args, "subscription", "").strip()
+    gcp_project = getattr(args, "gcp_project", "").strip() or os.environ.get("GCP_PROJECT", "")
+
+    if subscription:
+        if not gcp_project:
+            print("Error: --gcp-project (or GCP_PROJECT env) is required when --subscription is set.")
+            return 1
+        subscription_path = f"projects/{gcp_project}/subscriptions/{subscription}"
+        return _run_pubsub_loop(
+            subscription_path=subscription_path,
+            code_bucket_root=code_bucket_root,
+            runtime_bucket_root=runtime_bucket_root,
+            workspace_root=workspace_root,
+            github_token_resolver=github_token_resolver,
+            exit_after_run=exit_after_run,
+            idle_timeout_sec=idle_timeout_sec,
+        )
+
+    # GCS polling fallback (used when --subscription is not set)
     idle_deadline = time.monotonic() + idle_timeout_sec if (exit_after_run and idle_timeout_sec > 0) else None
 
     while not _shutdown:
