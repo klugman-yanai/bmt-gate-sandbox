@@ -121,3 +121,54 @@ def trigger_workflow_dispatch(
         raise GitHubApiError(
             f"Failed to trigger workflow {workflow_id} on {repository}@{ref}: {exc}"
         ) from exc
+
+
+def find_newer_in_progress_pr_run(
+    repository: str,
+    *,
+    workflow_name: str,
+    head_branch: str,
+    current_run_id: int,
+    pr_number: int | None = None,
+) -> int | None:
+    """Return newer in-progress run id for same PR/branch/workflow, else None."""
+    gh = _get_github()
+    repo = gh.get_repo(repository)
+    try:
+        runs = repo.get_workflow_runs(event="pull_request", branch=head_branch)
+    except Exception as exc:
+        raise GitHubApiError(
+            f"Failed to list pull_request runs for {repository} branch {head_branch}: {exc}"
+        ) from exc
+
+    active = {"queued", "in_progress", "waiting", "requested", "pending"}
+    newest: int | None = None
+    for run in runs:
+        try:
+            run_name = (run.name or "").strip()
+            run_status = (run.status or "").strip().lower()
+            run_id = int(run.id)
+        except Exception:
+            continue
+
+        if run_name != workflow_name:
+            continue
+        if run_id <= current_run_id:
+            continue
+        if run_status not in active:
+            continue
+
+        if pr_number is not None:
+            prs = getattr(run, "pull_requests", None) or []
+            pr_numbers = set()
+            for pr in prs:
+                num = getattr(pr, "number", None)
+                if isinstance(num, int):
+                    pr_numbers.add(num)
+            if pr_numbers and pr_number not in pr_numbers:
+                continue
+
+        if newest is None or run_id > newest:
+            newest = run_id
+
+    return newest

@@ -176,6 +176,54 @@ def run_summarize_matrix_handshake() -> None:
 # ---- Trigger / handshake ----
 
 
+def run_check_superseded_pr_handoff() -> None:
+    """For PR runs, mark this handoff superseded when a newer in-progress CI run exists."""
+    path = _github_output()
+    run_context = (os.environ.get("RUN_CONTEXT") or "").strip().lower()
+    if run_context != "pr":
+        with path.open("a", encoding="utf-8") as f:
+            f.write("superseded=false\n")
+        return
+
+    repository = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    run_id_raw = (os.environ.get("GITHUB_RUN_ID") or "").strip()
+    head_branch = (
+        os.environ.get("HEAD_BRANCH")
+        or os.environ.get("GITHUB_HEAD_REF")
+        or os.environ.get("GITHUB_REF_NAME")
+        or ""
+    ).strip()
+    pr_raw = (os.environ.get("PR_NUMBER") or "").strip()
+    pr_number = int(pr_raw) if pr_raw.isdigit() else None
+
+    if not repository or not run_id_raw.isdigit() or not head_branch:
+        with path.open("a", encoding="utf-8") as f:
+            f.write("superseded=false\n")
+        gh_warning(
+            "Superseded-run check skipped (missing repository/run_id/head_branch)."
+        )
+        return
+
+    newer = github_api.find_newer_in_progress_pr_run(
+        repository,
+        workflow_name="CI",
+        head_branch=head_branch,
+        current_run_id=int(run_id_raw),
+        pr_number=pr_number,
+    )
+    if newer is None:
+        with path.open("a", encoding="utf-8") as f:
+            f.write("superseded=false\n")
+        return
+
+    with path.open("a", encoding="utf-8") as f:
+        f.write("superseded=true\n")
+        f.write(f"superseded_by_run_id={newer}\n")
+    gh_notice(
+        f"Superseded PR handoff: newer CI run detected ({newer}); skipping this handoff."
+    )
+
+
 # preflight-trigger-queue and write-run-trigger wrappers removed; registered directly in driver.py.
 
 

@@ -37,6 +37,7 @@ COMMANDS = {
     "upload-runner-to-gcs": workflow.run_upload_runner_to_gcs,
     "resolve-uploaded-projects": workflow.run_resolve_uploaded_projects,
     "summarize-matrix-handshake": workflow.run_summarize_matrix_handshake,
+    "check-superseded-pr-handoff": workflow.run_check_superseded_pr_handoff,
     "preflight-trigger-queue": workflow_trigger.run_preflight_trigger_queue,
     "write-run-trigger": trigger.run_trigger,
     "force-clean-vm-restart": workflow.run_force_clean_vm_restart,

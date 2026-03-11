@@ -93,8 +93,18 @@ runs:
         selected_vm="$(grep '^selected_vm=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
         echo "BMT_VM_NAME=${selected_vm}" >> "$GITHUB_ENV"
 
+    - name: Check superseded PR handoff
+      id: supersede-check
+      shell: bash
+      env:
+        RUN_CONTEXT: ${{ inputs.run_context }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        HEAD_BRANCH: ${{ inputs.head_branch }}
+      run: uv run --project .github/bmt bmt check-superseded-pr-handoff
+
     - name: Preflight runtime trigger queue (stale cleanup)
       id: preflight
+      if: steps.supersede-check.outputs.superseded != 'true'
       shell: bash
       env:
         RUN_CONTEXT: ${{ inputs.run_context }}
@@ -103,6 +113,7 @@ runs:
 
     - name: Write run trigger to GCS
       id: trigger
+      if: steps.supersede-check.outputs.superseded != 'true'
       shell: bash
       env:
         FILTERED_MATRIX_JSON: ${{ inputs.filtered_matrix }}
@@ -114,11 +125,12 @@ runs:
       run: uv run --project .github/bmt bmt write-run-trigger
 
     - name: Sync VM metadata from workflow config
+      if: steps.supersede-check.outputs.superseded != 'true'
       shell: bash
       run: uv run --project .github/bmt bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
-      if: steps.preflight.outputs.restart_vm == 'true'
+      if: steps.supersede-check.outputs.superseded != 'true' && steps.preflight.outputs.restart_vm == 'true'
       shell: bash
       env:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
@@ -126,14 +138,14 @@ runs:
 
     - name: Start BMT VM
       id: start-vm
-      if: steps.select-vm.outputs.vm_reused_running != 'true'
+      if: steps.supersede-check.outputs.superseded != 'true' && steps.select-vm.outputs.vm_reused_running != 'true'
       shell: bash
       continue-on-error: true
       run: uv run --project .github/bmt bmt start-vm
 
     - name: Wait for VM handshake ack
       id: handshake
-      if: steps.start-vm.outcome == 'success'
+      if: steps.supersede-check.outputs.superseded != 'true' && steps.start-vm.outcome == 'success'
       shell: bash
       env:
         WORKFLOW_RUN_ID: ${{ github.run_id }}
@@ -143,13 +155,13 @@ runs:
       run: uv run --project .github/bmt bmt wait-handshake
 
     - name: Handshake timeout diagnostics
-      if: ${{ always() && steps.start-vm.outcome == 'success' && steps.handshake.outcome == 'failure' }}
+      if: ${{ always() && steps.supersede-check.outputs.superseded != 'true' && steps.start-vm.outcome == 'success' && steps.handshake.outcome == 'failure' }}
       shell: bash
       run: uv run --project .github/bmt bmt handshake-timeout-diagnostics
 
     - name: Fail when VM accepts zero runtime-supported legs
       id: accept-guard
-      if: steps.handshake.outcome == 'success'
+      if: steps.supersede-check.outputs.superseded != 'true' && steps.handshake.outcome == 'success'
       shell: bash
       env:
         HANDSHAKE_ACCEPTED_LEG_COUNT: ${{ steps.handshake.outputs.handshake_accepted_leg_count }}
@@ -169,7 +181,9 @@ runs:
       shell: bash
       run: |
         reason="ok"
-        if [[ "${{ steps.start-vm.outcome }}" != "success" ]]; then
+        if [[ "${{ steps.supersede-check.outputs.superseded }}" == "true" ]]; then
+          reason="superseded_by_newer_pr_run"
+        elif [[ "${{ steps.start-vm.outcome }}" != "success" ]]; then
           reason="vm_start_failed"
         elif [[ "${{ steps.handshake.outcome }}" != "success" ]]; then
           reason="handshake_timeout"
@@ -179,7 +193,7 @@ runs:
         echo "handoff_reason=${reason}" >>"$GITHUB_OUTPUT"
 
     - name: Fail when VM start failed
-      if: always() && steps.start-vm.outcome != 'success'
+      if: always() && steps.handoff-reason.outputs.handoff_reason == 'vm_start_failed'
       shell: bash
       env:
         VM_START_FAILURE_CLASS: ${{ steps.start-vm.outputs.vm_start_failure_class }}
@@ -195,7 +209,7 @@ runs:
       if: always()
       uses: ./.github/actions/bmt-write-summary
       with:
-        mode: ${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'run_success' || 'failure' }}
+        mode: ${{ (steps.handoff-reason.outputs.handoff_reason == 'ok' || steps.handoff-reason.outputs.handoff_reason == 'superseded_by_newer_pr_run') && 'run_success' || 'failure' }}
         repository: ${{ github.repository }}
         head_sha: ${{ inputs.head_sha }}
         head_branch: ${{ inputs.head_branch }}
@@ -209,5 +223,5 @@ runs:
         gcp_project: ${{ inputs.gcp_project }}
         gcp_zone: ${{ inputs.gcp_zone }}
         gcs_bucket: ${{ inputs.gcs_bucket }}
-        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'vm_start_failed' && 'Handoff failed: VM did not stabilize to RUNNING before handshake.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
-        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'vm_start_failed' && format('VM start failed ({0}): {1}', steps.start-vm.outputs.vm_start_failure_class, steps.start-vm.outputs.vm_start_failure_message) || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"
+        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'superseded_by_newer_pr_run' && 'Handoff skipped: superseded by a newer PR run.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'vm_start_failed' && 'Handoff failed: VM did not stabilize to RUNNING before handshake.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
+        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'superseded_by_newer_pr_run' && format('Superseded by newer CI run {0}.', steps.supersede-check.outputs.superseded_by_run_id) || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'vm_start_failed' && format('VM start failed ({0}): {1}', steps.start-vm.outputs.vm_start_failure_class, steps.start-vm.outputs.vm_start_failure_message) || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"
