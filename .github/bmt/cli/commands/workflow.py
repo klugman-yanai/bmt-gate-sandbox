@@ -70,6 +70,11 @@ def run_filter_upload_matrix() -> None:
     if not isinstance(include, list):
         raise TypeError("RUNNER_MATRIX.include must be a JSON array")
 
+    preseeded = os.environ.get("BMT_RUNNERS_PRESEEDED_IN_GCS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     available_artifacts_raw = os.environ.get("AVAILABLE_ARTIFACTS", "[]")
     try:
         available_artifacts = json.loads(available_artifacts_raw)
@@ -91,22 +96,34 @@ def run_filter_upload_matrix() -> None:
         preset = str(entry.get("preset", "")).strip()
         if not project or not preset:
             continue
+        meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
+        payload, _ = gcs.download_json(meta_uri)
+        if payload is not None:
+            if preseeded:
+                # Sandbox: runners already in GCS; treat as sufficient and write marker.
+                if project not in projects_written:
+                    marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
+                    with contextlib.suppress(gcs.GcsError):
+                        gcs.write_object(marker_uri, "{}")
+                    projects_written.add(project)
+                print(
+                    f"::notice::Preseeded GCS runner for {project}/{preset}: verified in GCS (will show as Skipped)."
+                )
+                continue
+            if str(payload.get("source_ref", "")).strip() == head_sha:
+                print(
+                    f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]} (will show as Skipped)."
+                )
+                if project not in projects_written:
+                    marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
+                    with contextlib.suppress(gcs.GcsError):
+                        gcs.write_object(marker_uri, "{}")
+                    projects_written.add(project)
+                continue
         if artifact_set and f"runner-{preset}" not in artifact_set:
             print(
                 f"::notice::Skip upload for {project}/{preset}: artifact not in available list (will show as Skipped)."
             )
-            continue
-        meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
-        payload, err = gcs.download_json(meta_uri)
-        if payload and str(payload.get("source_ref", "")).strip() == head_sha:
-            print(
-                f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]} (will show as Skipped)."
-            )
-            if project not in projects_written:
-                marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
-                with contextlib.suppress(gcs.GcsError):
-                    gcs.write_object(marker_uri, "{}")
-                projects_written.add(project)
             continue
         need_include.append(entry)
     out = {"include": need_include}
@@ -247,7 +264,7 @@ def run_force_clean_vm_restart() -> None:
 def run_wait_handshake() -> None:
     from cli.commands import vm
 
-    base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "180"))
+    base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "420"))
     restart_vm = os.environ.get("RESTART_VM", "false").lower() in ("true", "1", "yes")
     vm_reused_running = os.environ.get("VM_REUSED_RUNNING", "false").lower() in ("true", "1", "yes")
     stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")

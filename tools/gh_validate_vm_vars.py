@@ -63,7 +63,7 @@ def _render(value: str) -> str:
 @click.option("--vm-name", default=None, help="VM name (default: env BMT_VM_NAME)")
 @click.option("--zone", default=None, help="GCP zone (default: env GCP_ZONE)")
 @click.option("--project", default=None, help="GCP project (default: env GCP_PROJECT)")
-@click.option("--contract", default=None, help="Path to env contract (default: Terraform repo-vars-mapping)")
+@click.option("--contract", default=None, help="Path to env contract file (default: build from Terraform outputs)")
 def main(vm_name: str | None, zone: str | None, project: str | None, contract: str | None) -> None:
     """Validate repo vars vs VM metadata based on contract consistency checks."""
     if not _cmd_exists("gh"):

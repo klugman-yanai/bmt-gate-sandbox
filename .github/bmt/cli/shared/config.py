@@ -29,7 +29,7 @@ class BmtConfig:
     bmt_cloud_run_job: str = ""
     bmt_cloud_run_region: str = ""
     bmt_pubsub_topic: str = ""
-    bmt_handshake_timeout_sec: int = 180
+    bmt_handshake_timeout_sec: int = 420
     bmt_preempt_on_pr_stale_queue: str = "1"
     bmt_trigger_stale_sec: int = 900
     bmt_trigger_metadata_keep_recent: int = 2
@@ -97,7 +97,7 @@ def load_bmt_config(
         bmt_cloud_run_job=_get("BMT_CLOUD_RUN_JOB"),
         bmt_cloud_run_region=_get("BMT_CLOUD_RUN_REGION"),
         bmt_pubsub_topic=_get("BMT_PUBSUB_TOPIC"),
-        bmt_handshake_timeout_sec=_coerce_int(_get("BMT_HANDSHAKE_TIMEOUT_SEC") or "180", 180),
+        bmt_handshake_timeout_sec=_coerce_int(_get("BMT_HANDSHAKE_TIMEOUT_SEC") or "420", 420),
         bmt_preempt_on_pr_stale_queue=_get("BMT_PREEMPT_ON_PR_STALE_QUEUE", "1"),
         bmt_trigger_stale_sec=_coerce_int(_get("BMT_TRIGGER_STALE_SEC") or "900", 900),
         bmt_trigger_metadata_keep_recent=_coerce_int(

@@ -257,7 +257,9 @@ def test_build_image_scripts_have_manifest_fields() -> None:
     build_script = _bootstrap_path("build_bmt_image.sh").read_text(encoding="utf-8")
     assert "GLIBC_VERSION" in build_script
     assert "'glibc_version'" in build_script
+    assert "cloud-init clean --logs --machine-id" in build_script
 
     packer_template = _packer_template_path().read_text(encoding="utf-8")
     assert "GLIBC_VERSION" in packer_template
     assert "'glibc_version'" in packer_template
+    assert "cloud-init clean --logs --machine-id" in packer_template

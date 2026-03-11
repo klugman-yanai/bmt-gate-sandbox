@@ -378,7 +378,7 @@ def _render(value: str) -> str:
     "--contract",
     default=None,
     type=click.Path(path_type=Path),
-    help="Env contract (default: infra/terraform/repo-vars-mapping.json)",
+    help="Env contract path (default: Terraform outputs from infra/terraform)",
 )
 @click.option("--apply", is_flag=True, help="Apply missing/drifted variables to GitHub")
 @click.option("--prune-extra", is_flag=True, help="Delete repo vars not declared in config (only with --apply)")
@@ -396,7 +396,7 @@ def main(
 ) -> int:
     contract_path = contract if contract is not None else default_contract_path()
     config_path = Path(config).expanduser().resolve() if config else Path("/nonexistent/repo_vars.toml")
-    if not contract_path.is_file():
+    if not Path(contract_path).resolve().is_file():
         click.echo(f"::error::Missing env contract file: {contract_path}", err=True)
         return 2
 
