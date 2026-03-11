@@ -19,6 +19,15 @@ on:
         description: "Builder machine type"
         required: false
         default: "e2-standard-4"
+  push:
+    # Rebuild VM image when Packer or bootstrap changes so the image stays up to date.
+    branches:
+      - main
+      - ci/check-bmt-gate
+      - dev
+    paths:
+      - 'infra/packer/**'
+      - 'gcp/code/bootstrap/**'
 
 permissions:
   contents: read
@@ -67,16 +76,19 @@ jobs:
           expected_family="${expected_family:-bmt-runtime}"
           expected_base_family="${expected_base_family:-ubuntu-2204-lts}"
           expected_base_project="${expected_base_project:-ubuntu-os-cloud}"
-          if [[ "${{ inputs.image_family }}" != "${expected_family}" ]]; then
-            echo "::error::image_family must be '${expected_family}', got '${{ inputs.image_family }}'"
+          image_family="${{ inputs.image_family || 'bmt-runtime' }}"
+          base_image_family="${{ inputs.base_image_family || 'ubuntu-2204-lts' }}"
+          base_image_project="${{ inputs.base_image_project || 'ubuntu-os-cloud' }}"
+          if [[ "${image_family}" != "${expected_family}" ]]; then
+            echo "::error::image_family must be '${expected_family}', got '${image_family}'"
             exit 1
           fi
-          if [[ "${{ inputs.base_image_family }}" != "${expected_base_family}" ]]; then
-            echo "::error::base_image_family must be '${expected_base_family}', got '${{ inputs.base_image_family }}'"
+          if [[ "${base_image_family}" != "${expected_base_family}" ]]; then
+            echo "::error::base_image_family must be '${expected_base_family}', got '${base_image_family}'"
             exit 1
           fi
-          if [[ "${{ inputs.base_image_project }}" != "${expected_base_project}" ]]; then
-            echo "::error::base_image_project must be '${expected_base_project}', got '${{ inputs.base_image_project }}'"
+          if [[ "${base_image_project}" != "${expected_base_project}" ]]; then
+            echo "::error::base_image_project must be '${expected_base_project}', got '${base_image_project}'"
             exit 1
           fi
 
@@ -90,10 +102,10 @@ jobs:
           PKR_VAR_gcp_zone: ${{ vars.GCP_ZONE }}
           PKR_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
           PKR_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
-          PKR_VAR_image_family: ${{ inputs.image_family }}
-          PKR_VAR_base_image_family: ${{ inputs.base_image_family }}
-          PKR_VAR_base_image_project: ${{ inputs.base_image_project }}
-          PKR_VAR_machine_type: ${{ inputs.machine_type }}
+          PKR_VAR_image_family: ${{ inputs.image_family || 'bmt-runtime' }}
+          PKR_VAR_base_image_family: ${{ inputs.base_image_family || 'ubuntu-2204-lts' }}
+          PKR_VAR_base_image_project: ${{ inputs.base_image_project || 'ubuntu-os-cloud' }}
+          PKR_VAR_machine_type: ${{ inputs.machine_type || 'e2-standard-4' }}
         run: |
           set -euo pipefail
           packer build -color=false infra/packer/bmt-runtime.pkr.hcl
@@ -114,7 +126,7 @@ jobs:
         run: |
           uv run --no-project python3 infra/slsa/generate_provenance.py image \
             --image-name "${{ steps.packer.outputs.image_name }}" \
-            --image-family "${{ inputs.image_family }}" \
+            --image-family "${{ inputs.image_family || 'bmt-runtime' }}" \
             --gcs-bucket "${{ vars.GCS_BUCKET }}" \
             --gcp-project "${{ vars.GCP_PROJECT }}" \
             --builder-id "https://github.com/${{ github.repository }}/.github/workflows/bmt-image-build.yml" \
@@ -152,7 +164,7 @@ jobs:
             echo "| Field | Value |"
             echo "|-------|-------|"
             echo "| Image | \`${{ steps.packer.outputs.image_name }}\` |"
-            echo "| Family | \`${{ inputs.image_family }}\` |"
+            echo "| Family | \`${{ inputs.image_family || 'bmt-runtime' }}\` |"
             echo "| Provenance (L1) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\` |"
             echo "| Signature (L2) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\` |"
             echo "| Git SHA | \`${{ github.sha }}\` |"

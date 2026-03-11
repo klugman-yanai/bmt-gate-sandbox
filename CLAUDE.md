@@ -264,9 +264,9 @@ gh variable set GCP_WIF_PROVIDER "<wif-provider>"
 gh variable set GCP_SA_EMAIL "<sa-email>"
 gh variable set GCP_ZONE "<zone>"
 gh variable set BMT_VM_NAME "<vm-name>"
-# Optional (test repo / overrides):
-gh variable set BMT_STATUS_CONTEXT "BMT Gate (test)"
 ```
+
+**Required (from Terraform):** `BMT_PROJECTS`, `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Terraform (variables in `infra/terraform/variables.tf`) and export to GitHub with `just terraform-export-vars-apply`. Do not set them manually as optional overrides.
 
 | Variable | Purpose |
 | -------- | ------- |
@@ -276,8 +276,11 @@ gh variable set BMT_STATUS_CONTEXT "BMT Gate (test)"
 | `GCP_PROJECT` | GCP project ID for VM operations |
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
+| `BMT_STATUS_CONTEXT` | Commit status name (from Terraform; must match branch protection) |
+| `BMT_HANDSHAKE_TIMEOUT_SEC` | Handshake timeout seconds (from Terraform) |
+| `BMT_PROJECTS` | Projects filter, e.g. `all` or `["sk"]` (from Terraform) |
 
-**Optional** (leave unset for defaults): `BMT_PROJECTS` (`all` or a JSON array e.g. `["sk"]`), `BMT_HANDSHAKE_TIMEOUT_SEC` (`180`). **Status (repo-specific):** `BMT_STATUS_CONTEXT` (default `BMT Gate`; must match branch protection).
+**Optional** (leave unset for defaults): **Sandbox/testing:** `BMT_RUNNERS_PRESEEDED_IN_GCS` — when set to `true`, the workflow does not download runner artifacts; it verifies runners already exist in GCS and skips the upload-runners job (avoids "artifact not found" in bmt-gate-sandbox).
 
 For **local** use (e.g. `gcp/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 

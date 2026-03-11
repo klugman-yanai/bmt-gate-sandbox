@@ -1,29 +1,28 @@
 # Configuration
 
-This document describes **current** configuration: Terraform as source of truth for non-secret repo vars, VM metadata, runtime env, secrets, and bucket layout. The canonical source for variable definitions is **infra/terraform** (variables + outputs) and [infra/terraform/repo-vars-mapping.json](../infra/terraform/repo-vars-mapping.json). Secrets are documented in [../infra/README.md](../infra/README.md). For a quick start see [../README.md](../README.md).
+This document describes **current** configuration: Terraform for infra-derived repo vars; a Python contract (tools/repo_vars_contract.py) for required/optional/secrets and behavioral defaults. Secrets are documented in [../infra/README.md](../infra/README.md). For a quick start see [../README.md](../README.md).
 
 ---
 
 ## Terraform as source of truth
 
-**infra/terraform** defines all non-secret configuration. Export GitHub repo variables from Terraform outputs:
+**infra/terraform** defines GCP resources and outputs infra-derived values (bucket, project, zone, VM name, Pub/Sub, etc.). **tools/repo_vars_contract.py** defines the repo vars contract (required, optional, secrets) and default values for behavioral vars (e.g. BMT_STATUS_CONTEXT, BMT_HANDSHAKE_TIMEOUT_SEC). Export combines both: Terraform for infra vars, contract defaults for the rest.
 
 ```bash
 just terraform-export-vars          # Print key=value
 just terraform-export-vars-apply    # Apply to GitHub (gh variable set)
 ```
 
-Mapping from Terraform output keys to GitHub var names: [infra/terraform/repo-vars-mapping.json](../infra/terraform/repo-vars-mapping.json). Required and optional vars are listed there; **secrets** (`GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY`) are set manually and never in Terraform.
+Infra-derived vars come from Terraform outputs ([outputs.tf](../infra/terraform/outputs.tf)); the mapping to GitHub var names and the full list are in **tools/repo_vars_contract.py**. **Secrets** (`GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY`) are set manually and never in Terraform.
 
 ---
 
-## Environment contract (Terraform-backed)
+## Environment contract (Python + branch-status)
 
-The "contract" is built from **infra/terraform/repo-vars-mapping.json** and **infra/branch-status-context.json**:
+The "contract" is built from **tools/repo_vars_contract.py** (Python) and **infra/branch-status-context.json**:
 
-- **required_from_terraform** / **optional_from_terraform** — Which GitHub vars are populated from Terraform outputs.
-- **secrets_not_in_terraform** — Vars you must set manually (WIF, GitHub App).
-- **defaults** — Optional defaults (e.g. `BMT_STATUS_CONTEXT`, `BMT_RUNTIME_CONTEXT`).
+- **required** / **optional** / **secrets_not_in_terraform** — Defined in `REPO_VARS_CONTRACT` in repo_vars_contract.py.
+- **defaults** — Behavioral var defaults (e.g. BMT_STATUS_CONTEXT, BMT_HANDSHAKE_TIMEOUT_SEC) in the same module.
 - **repo_var_vs_branch_required_status_context** (in branch-status-context.json) — Ensures `BMT_STATUS_CONTEXT` matches branch protection.
 
 Tooling (`tools/gh_repo_vars.py`, `tools/gh_validate_vm_vars.py`, `tools/gh_show_env.py`) uses this contract to check and apply repo vars and to validate VM metadata.
@@ -45,17 +44,20 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`). |
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM can stop itself after one run). |
 | `BMT_PUBSUB_SUBSCRIPTION` | Pub/Sub subscription for VM trigger delivery (from Terraform output). |
+| `BMT_STATUS_CONTEXT` | Commit status name (from Terraform; must match branch protection). |
+| `BMT_HANDSHAKE_TIMEOUT_SEC` | Handshake timeout seconds (from Terraform). |
+| `BMT_PROJECTS` | BMT projects filter, e.g. `all` or `["sk"]` (from Terraform). |
+
+These are set from Terraform via `just terraform-export-vars-apply`; do not set them manually as optional overrides.
 
 ### Optional (common)
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BMT_STATUS_CONTEXT` | `"BMT Gate"` | Commit status name; must match branch protection. Effective value is sourced from branch rules via consistency checks. |
 | `BMT_RUNTIME_CONTEXT` | `"BMT Runtime"` | Non-gating runtime check-run context for live progress and terminal runtime outcome. |
 | `BMT_RUNTIME_BACKEND` | `"vm"` | Runtime dispatcher backend (`vm` or `cloud_run_job`). |
 | `BMT_CLOUD_RUN_JOB` | — | Cloud Run Job name when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
 | `BMT_CLOUD_RUN_REGION` | — | Cloud Run region when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
-| `BMT_HANDSHAKE_TIMEOUT_SEC` | `"420"` | Timeout for runtime handshake wait. Default is sized for cold-boot startup-script delays on fresh images. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING` | `"600"` | When select-available-vm reuses a RUNNING VM (no TERMINATED available, e.g. after cancel-in-progress), this timeout is used for handshake so the workflow does not fail while the VM finishes the previous trigger. Only used when a RUNNING VM was selected. |
 | `BMT_PREEMPT_ON_PR_STALE_QUEUE` | `"1"` | If stale queue files exist for PR runs, preflight cleanup may force clean runtime restart to avoid stalled handoffs. |
 | `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
@@ -64,7 +66,7 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 
 Omitted vars inherit from current GitHub repo context first, then from Terraform outputs (when you run `just terraform-export-vars`) or contract defaults. Optional overrides can be passed via `just repo-vars-apply --config <path>` with a TOML/JSON file.
 
-For `BMT_STATUS_CONTEXT`, `tools/gh_repo_vars.py` resolves the desired value from the effective branch rules using **infra/branch-status-context.json**. This keeps branch protection and repo variables aligned.
+For `BMT_STATUS_CONTEXT`, `tools/gh_repo_vars.py` resolves the desired value from the effective branch rules using **infra/branch-status-context.json**. This keeps branch protection and repo variables aligned. Values for `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`, and `BMT_PROJECTS` come from Terraform (static config); export with `just terraform-export-vars-apply`.
 
 ### Useful commands
 
@@ -156,7 +158,7 @@ Pointer semantics and retention: [architecture.md](architecture.md#results-contr
 
 ## Branch protection
 
-Require the **commit status** named by `BMT_STATUS_CONTEXT` (default: **BMT Gate**) to pass before merge.
+Require the **commit status** named by `BMT_STATUS_CONTEXT` (value from Terraform) to pass before merge.
 `BMT_RUNTIME_CONTEXT` is non-gating runtime visibility (progress + terminal runtime outcome) and must not be used as a protected merge gate.
 
 GitHub branch rules are the source of truth for that context. Keep branch rules and repo vars aligned via:

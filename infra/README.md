@@ -21,9 +21,9 @@ Set these in **GitHub repository or organization** (Settings → Secrets and var
 
 VM-side GitHub App credentials (e.g. `*_ID`, `*_INSTALLATION_ID`, `*_PRIVATE_KEY` per repo in `gcp/code/config/github_repos.json`) are also not in Terraform; configure them on the VM or via your secrets store.
 
-## Mapping
+## Repo vars and contract
 
-`infra/terraform/repo-vars-mapping.json` maps Terraform output keys to GitHub variable names. Required and optional vars from Terraform are listed there; `secrets_not_in_terraform` lists vars you must set manually.
+**Contract and behavioral defaults:** [tools/repo_vars_contract.py](../tools/repo_vars_contract.py) defines required/optional/secrets and default values for non-infra vars. **Infra-derived vars:** Terraform outputs (see outputs.tf) supply GCS_BUCKET, GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, BMT_REPO_ROOT, GCP_SA_EMAIL, BMT_PUBSUB_SUBSCRIPTION, BMT_PUBSUB_TOPIC. The export script (`just terraform-export-vars-apply`) reads those from Terraform and uses contract defaults for the rest. Secrets are set manually (see table above).
 
 ## Branch status context
 
