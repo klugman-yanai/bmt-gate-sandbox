@@ -33,19 +33,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Authenticate to GCP
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SA_EMAIL }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db  # v3.0.1
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: "~> 1.7"
 
@@ -54,7 +54,7 @@ jobs:
           GCP_PROJECT: ${{ vars.GCP_PROJECT }}
         run: |
           set -euo pipefail
-          expected_family="bmt-runtime"
+          expected_family="${BMT_EXPECTED_IMAGE_FAMILY:-bmt-runtime}"
           if [[ "${{ inputs.image_family }}" != "${expected_family}" ]]; then
             echo "::error::image_family must be '${expected_family}', got '${{ inputs.image_family }}'"
             exit 1
@@ -88,7 +88,7 @@ jobs:
           TF_VAR_image_family: ${{ inputs.image_family }}
           TF_VAR_image_name: ${{ inputs.image_name }}
           TF_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
-          TF_VAR_startup_wrapper_script_path: ../../.github/bmt/cli/resources/startup_wrapper.sh
+          TF_VAR_startup_wrapper_script_path: ../../.github/bmt/cli/resources/startup_entrypoint.sh
         run: terraform plan -out=tfplan
 
       - name: Terraform apply

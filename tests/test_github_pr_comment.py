@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import github_pr_comment  # type: ignore[import-not-found]
+from gcp.code.github import github_pr_comment  # type: ignore[import-not-found]
 
 
 class _Resp:

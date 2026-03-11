@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 import pytest
-import root_orchestrator as orchestrator
+
+import gcp.code.root_orchestrator as orchestrator
 
 
 def _make_run(parent: Path, name: str, mtime: int) -> Path:

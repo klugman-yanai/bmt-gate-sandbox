@@ -9,6 +9,7 @@ from cli.commands import workflow
 def test_resolve_uploaded_projects_uses_uploaded_markers(
     monkeypatch, tmp_path: Path
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     out = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_RUN_ID", "12345")
     monkeypatch.setenv("GCS_BUCKET", "bucket-a")
@@ -34,6 +35,7 @@ def test_resolve_uploaded_projects_uses_uploaded_markers(
 def test_resolve_uploaded_projects_accepts_preseeded_bucket_runner(
     monkeypatch, tmp_path: Path
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     out = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_RUN_ID", "22940217333")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")

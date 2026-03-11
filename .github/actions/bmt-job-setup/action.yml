@@ -28,10 +28,15 @@ runs:
       with:
         version: "0.10.9"
 
+    - name: Export default uv project
+      shell: bash
+      run: |
+        echo "UV_PROJECT=.github/bmt" >>"$GITHUB_ENV"
+
     - name: Sync BMT
       shell: bash
-      run: uv sync --project .github/bmt
+      run: uv sync
 
     - name: Load BMT config
       shell: bash
-      run: uv run --project .github/bmt bmt load-env
+      run: uv run bmt load-env

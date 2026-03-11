@@ -16,8 +16,8 @@ def _bootstrap_path(rel: str) -> Path:
     return _repo_root() / "gcp" / "code" / "bootstrap" / rel
 
 
-def _metadata_wrapper_path() -> Path:
-    return _repo_root() / ".github" / "bmt" / "cli" / "resources" / "startup_wrapper.sh"
+def _metadata_entrypoint_path() -> Path:
+    return _repo_root() / ".github" / "bmt" / "cli" / "resources" / "startup_entrypoint.sh"
 
 
 def _packer_template_path() -> Path:
@@ -31,31 +31,43 @@ def _write_executable(path: Path, content: str) -> None:
 
 def test_bootstrap_scripts_parse_with_bash_n() -> None:
     scripts = (
-        _bootstrap_path("startup_example.sh"),
+        _bootstrap_path("run_watcher.sh"),
         _bootstrap_path("install_deps.sh"),
-        _bootstrap_path("startup_wrapper.sh"),
-        _metadata_wrapper_path(),
+        _bootstrap_path("startup_entrypoint.sh"),
+        _bootstrap_path("set_startup_script_url.sh"),
+        _bootstrap_path("rollback_startup_to_inline.sh"),
+        _bootstrap_path("shared.sh"),
+        _metadata_entrypoint_path(),
+        _repo_root() / "scripts" / "hooks" / "pre-commit-sync-gcp.sh",
+        _repo_root() / "scripts" / "hooks" / "pre-commit-image-build-warning.sh",
     )
     for script in scripts:
-        subprocess.run(["bash", "-n", str(script)], check=True)
+        if script.exists():
+            subprocess.run(["bash", "-n", str(script)], check=True)
 
 
 def test_install_deps_pip(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "pyproject.toml").write_text("[project]\nname='bootstrap-test'\nversion='0.0.1'\n", encoding="utf-8")
+    (repo_root / "pyproject.toml").write_text(
+        '[build-system]\nrequires = ["setuptools>=61"]\nbuild-backend = "setuptools.build_meta"\n\n'
+        "[project]\nname='bootstrap-test'\nversion='0.0.1'\n\n"
+        '[project.optional-dependencies]\nvm = ["httpx>=0.27"]\n\n'
+        '[tool.setuptools.packages.find]\nwhere = ["."]\ninclude = ["lib*"]\n',
+        encoding="utf-8",
+    )
+    (repo_root / "lib").mkdir(parents=True, exist_ok=True)
+    (repo_root / "lib" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "lib" / "bmt_config.py").write_text("", encoding="utf-8")
+    bootstrap_dir = repo_root / "bootstrap"
+    bootstrap_dir.mkdir(parents=True, exist_ok=True)
 
     pip_calls = tmp_path / "pip.calls"
     venv_bin = repo_root / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
     _write_executable(
         venv_bin / "pip",
-        (
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            f"echo \"$*\" >> '{pip_calls}'\n"
-            "exit 0\n"
-        ),
+        (f"#!/usr/bin/env bash\nset -euo pipefail\necho \"$*\" >> '{pip_calls}'\nexit 0\n"),
     )
     _write_executable(venv_bin / "python", "#!/usr/bin/env bash\nexit 0\n")
 
@@ -68,7 +80,7 @@ def test_install_deps_pip(tmp_path: Path) -> None:
     assert pip_calls.exists(), "Expected pip installer to run"
     calls = pip_calls.read_text(encoding="utf-8")
     assert "--upgrade pip" in calls
-    assert "google-cloud-storage>=2.16" in calls
+    assert "-e" in calls and "[vm]" in calls
     assert (repo_root / ".venv" / ".bmt_dep_fingerprint").is_file()
 
 
@@ -84,12 +96,67 @@ def test_install_deps_fails_without_pyproject(tmp_path: Path) -> None:
     assert proc.returncode != 0
 
 
-def test_startup_example_handles_home_unset(tmp_path: Path) -> None:
+def test_install_deps_fails_without_vm_deps(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    (repo_root / "pyproject.toml").write_text("[project]\nname='bootstrap-test'\nversion='0.0.1'\n", encoding="utf-8")
+    # No bootstrap/vm_deps.txt
+
+    proc = subprocess.run(
+        ["bash", str(_bootstrap_path("install_deps.sh")), str(repo_root)],
+        check=False,
+        cwd=_repo_root(),
+    )
+    assert proc.returncode != 0
+
+
+def test_install_deps_fails_when_import_check_fails(tmp_path: Path) -> None:
+    """install_deps.sh must exit non-zero when the post-install import check fails (fail-fast)."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    (repo_root / "pyproject.toml").write_text("[project]\nname='bootstrap-test'\nversion='0.0.1'\n", encoding="utf-8")
+    bootstrap_dir = repo_root / "bootstrap"
+    bootstrap_dir.mkdir(parents=True, exist_ok=True)
+    (bootstrap_dir / "vm_deps.txt").write_text("httpx>=0.27\n", encoding="utf-8")
+
+    venv_bin = repo_root / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    _write_executable(venv_bin / "pip", "#!/usr/bin/env bash\nexit 0\n")
+    # Python that passes -c with the import check would run "import jwt; ..." — we make it fail.
+    _write_executable(
+        venv_bin / "python",
+        '#!/usr/bin/env bash\nset -euo pipefail\n[[ "${1:-}" == "-c" ]] && exit 1\nexit 0\n',
+    )
+
+    proc = subprocess.run(
+        ["bash", str(_bootstrap_path("install_deps.sh")), str(repo_root)],
+        check=False,
+        cwd=_repo_root(),
+    )
+    assert proc.returncode != 0
+
+
+def test_packer_and_install_deps_use_same_vm_deps_source() -> None:
+    """Packer template and install_deps.sh both use gcp/code/bootstrap/vm_deps.txt."""
+    packer_content = _packer_template_path().read_text(encoding="utf-8")
+    assert "vm_deps.txt" in packer_content, "Packer should install from bootstrap/vm_deps.txt"
+    deps_file = _bootstrap_path("vm_deps.txt")
+    assert deps_file.exists(), "Single source of truth vm_deps.txt must exist"
+    lines = [
+        s.strip()
+        for s in deps_file.read_text(encoding="utf-8").splitlines()
+        if s.strip() and not s.strip().startswith("#")
+    ]
+    assert len(lines) >= 1, "vm_deps.txt should list at least one package"
+
+
+def test_run_watcher_handles_home_unset(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     bootstrap_dir = repo_root / "bootstrap"
     bootstrap_dir.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy2(_bootstrap_path("startup_example.sh"), bootstrap_dir / "startup_example.sh")
+    shutil.copy2(_bootstrap_path("run_watcher.sh"), bootstrap_dir / "run_watcher.sh")
+    shutil.copy2(_bootstrap_path("shared.sh"), bootstrap_dir / "shared.sh")
     (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
     venv_python = repo_root / ".venv" / "bin" / "python"
@@ -103,19 +170,20 @@ def test_startup_example_handles_home_unset(tmp_path: Path) -> None:
     env["BMT_SELF_STOP"] = "0"
 
     subprocess.run(
-        ["bash", str(bootstrap_dir / "startup_example.sh")],
+        ["bash", str(bootstrap_dir / "run_watcher.sh")],
         check=True,
         cwd=repo_root,
         env=env,
     )
 
 
-def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(tmp_path: Path) -> None:
+def test_run_watcher_self_stop_falls_back_to_compute_api_when_gcloud_fails(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     bootstrap_dir = repo_root / "bootstrap"
     bootstrap_dir.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy2(_bootstrap_path("startup_example.sh"), bootstrap_dir / "startup_example.sh")
+    shutil.copy2(_bootstrap_path("run_watcher.sh"), bootstrap_dir / "run_watcher.sh")
+    shutil.copy2(_bootstrap_path("shared.sh"), bootstrap_dir / "shared.sh")
     (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
     venv_python = repo_root / ".venv" / "bin" / "python"
@@ -129,8 +197,7 @@ def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(t
     fake_gcloud = fake_bin / "gcloud"
     _write_executable(
         fake_gcloud,
-        "#!/usr/bin/env bash\n"
-        "exit 1\n",
+        "#!/usr/bin/env bash\nexit 1\n",
     )
 
     fake_curl = fake_bin / "curl"
@@ -139,14 +206,14 @@ def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(t
         (
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "url=\"${@: -1}\"\n"
-            "case \"$url\" in\n"
+            'url="${@: -1}"\n'
+            'case "$url" in\n'
             "  *'/instance/name') echo 'vm-test' ;;\n"
             "  *'/instance/zone') echo 'projects/1/zones/europe-west4-a' ;;\n"
             "  *'/project/project-id') echo 'proj-test' ;;\n"
             "  *'/service-accounts/default/token') echo '{\"access_token\":\"token-test\"}' ;;\n"
             "  *'compute.googleapis.com/compute/v1/projects/proj-test/zones/europe-west4-a/instances/vm-test/stop')\n"
-            "    printf '%s\\n' \"$url\" >> \"${STOP_LOG:?}\"\n"
+            '    printf \'%s\\n\' "$url" >> "${STOP_LOG:?}"\n'
             "    echo '200'\n"
             "    ;;\n"
             "  *)\n"
@@ -164,7 +231,7 @@ def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(t
     env["BMT_SELF_STOP"] = "1"
 
     proc = subprocess.run(
-        ["bash", str(bootstrap_dir / "startup_example.sh")],
+        ["bash", str(bootstrap_dir / "run_watcher.sh")],
         check=False,
         cwd=repo_root,
         env=env,
@@ -176,11 +243,12 @@ def test_startup_example_self_stop_falls_back_to_compute_api_when_gcloud_fails(t
     )
 
 
-def test_startup_example_fails_fast_when_prebaked_python_missing(tmp_path: Path) -> None:
+def test_run_watcher_fails_fast_when_prebaked_python_missing(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     bootstrap_dir = repo_root / "bootstrap"
     bootstrap_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_bootstrap_path("startup_example.sh"), bootstrap_dir / "startup_example.sh")
+    shutil.copy2(_bootstrap_path("run_watcher.sh"), bootstrap_dir / "run_watcher.sh")
+    shutil.copy2(_bootstrap_path("shared.sh"), bootstrap_dir / "shared.sh")
     (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
     env = os.environ.copy()
@@ -189,7 +257,7 @@ def test_startup_example_fails_fast_when_prebaked_python_missing(tmp_path: Path)
     env["BMT_SELF_STOP"] = "0"
 
     proc = subprocess.run(
-        ["bash", str(bootstrap_dir / "startup_example.sh")],
+        ["bash", str(bootstrap_dir / "run_watcher.sh")],
         check=False,
         cwd=repo_root,
         env=env,
@@ -197,25 +265,19 @@ def test_startup_example_fails_fast_when_prebaked_python_missing(tmp_path: Path)
     assert proc.returncode != 0
 
 
-def test_startup_example_fails_fast_when_prebaked_imports_missing(tmp_path: Path) -> None:
+def test_run_watcher_fails_fast_when_prebaked_imports_missing(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     bootstrap_dir = repo_root / "bootstrap"
     bootstrap_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_bootstrap_path("startup_example.sh"), bootstrap_dir / "startup_example.sh")
+    shutil.copy2(_bootstrap_path("run_watcher.sh"), bootstrap_dir / "run_watcher.sh")
+    shutil.copy2(_bootstrap_path("shared.sh"), bootstrap_dir / "shared.sh")
     (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
     venv_python = repo_root / ".venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True, exist_ok=True)
     _write_executable(
         venv_python,
-        (
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            'if [[ "${1:-}" == "-" ]]; then\n'
-            "  exit 1\n"
-            "fi\n"
-            "exit 0\n"
-        ),
+        ('#!/usr/bin/env bash\nset -euo pipefail\nif [[ "${1:-}" == "-" ]]; then\n  exit 1\nfi\nexit 0\n'),
     )
 
     env = os.environ.copy()
@@ -224,7 +286,7 @@ def test_startup_example_fails_fast_when_prebaked_imports_missing(tmp_path: Path
     env["BMT_SELF_STOP"] = "0"
 
     proc = subprocess.run(
-        ["bash", str(bootstrap_dir / "startup_example.sh")],
+        ["bash", str(bootstrap_dir / "run_watcher.sh")],
         check=False,
         cwd=repo_root,
         env=env,
@@ -232,25 +294,25 @@ def test_startup_example_fails_fast_when_prebaked_imports_missing(tmp_path: Path
     assert proc.returncode != 0
 
 
-def test_startup_wrapper_keeps_runtime_venv() -> None:
-    wrapper_sources = (_bootstrap_path("startup_wrapper.sh"), _metadata_wrapper_path())
-    for path in wrapper_sources:
+def test_startup_entrypoint_keeps_runtime_venv() -> None:
+    entrypoint_sources = (_bootstrap_path("startup_entrypoint.sh"), _metadata_entrypoint_path())
+    for path in entrypoint_sources:
         content = path.read_text(encoding="utf-8")
         assert "-name '.venv'" not in content, f"{path} should not delete persistent .venv"
 
 
-def test_startup_example_no_runtime_install_path() -> None:
-    content = _bootstrap_path("startup_example.sh").read_text(encoding="utf-8")
+def test_run_watcher_no_runtime_install_path() -> None:
+    content = _bootstrap_path("run_watcher.sh").read_text(encoding="utf-8")
     assert "install_deps.sh" not in content
     assert "ensure_uv.sh" not in content
 
 
-def test_startup_wrapper_uses_baked_runtime_only() -> None:
-    wrapper_sources = (_bootstrap_path("startup_wrapper.sh"), _metadata_wrapper_path())
-    for path in wrapper_sources:
+def test_startup_entrypoint_uses_baked_runtime_only() -> None:
+    entrypoint_sources = (_bootstrap_path("startup_entrypoint.sh"), _metadata_entrypoint_path())
+    for path in entrypoint_sources:
         content = path.read_text(encoding="utf-8")
         assert "gcloud storage rsync" not in content
-        assert "startup_example.sh" in content
+        assert "run_watcher.sh" in content
 
 
 def test_build_image_scripts_have_manifest_fields() -> None:

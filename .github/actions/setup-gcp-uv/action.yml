@@ -36,12 +36,13 @@ runs:
         version: "0.10.9"
         python-version: ${{ inputs.python_version }}
 
-    - name: Sync BMT uv environment
-      if: ${{ inputs.install_uv == 'true' }}
-      shell: bash
-      run: uv sync --project .github/bmt
-
     - name: Export default uv project
       if: ${{ inputs.install_uv == 'true' }}
       shell: bash
-      run: echo "UV_PROJECT=.github/bmt" >>"$GITHUB_ENV"
+      run: |
+        echo "UV_PROJECT=.github/bmt" >>"$GITHUB_ENV"
+
+    - name: Sync BMT uv environment
+      if: ${{ inputs.install_uv == 'true' }}
+      shell: bash
+      run: uv sync

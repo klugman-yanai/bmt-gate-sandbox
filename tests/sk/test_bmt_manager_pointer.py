@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-# Import after conftest has added gcp/code/sk to path.
-import bmt_manager as mgr
-import pytest
+import gcp.code.bmt_manager_base as base
+import gcp.code.sk.bmt_manager as mgr
 
 
-def _current_json_uri(bucket_root: str, results_prefix: str) -> str:
-    return f"{bucket_root}/{results_prefix.rstrip('/')}/current.json"
+def _make_mock_blob(exists: bool, text: str | None = None) -> MagicMock:
+    blob = MagicMock()
+    blob.exists.return_value = exists
+    if text is not None:
+        blob.download_as_text.return_value = text
+    return blob
+
+
+def _make_mock_client(blob: MagicMock) -> MagicMock:
+    client = MagicMock()
+    client.bucket.return_value.blob.return_value = blob
+    return client
 
 
 def test_resolve_last_passing_returns_none_when_current_json_missing():
@@ -20,7 +28,8 @@ def test_resolve_last_passing_returns_none_when_current_json_missing():
     bucket_root = "gs://my-bucket"
     results_prefix = "sk/results/false_rejects"
 
-    with patch.object(mgr, "gcs_exists", return_value=False):
+    blob = _make_mock_blob(exists=False)
+    with patch.object(base, "_get_gcs_client", return_value=_make_mock_client(blob)):
         out = mgr._resolve_last_passing_run_id(bucket_root, results_prefix)
     assert out is None
 
@@ -31,17 +40,8 @@ def test_resolve_last_passing_returns_none_when_last_passing_null():
     results_prefix = "sk/results/false_rejects"
     pointer_data = {"latest": "run-123", "last_passing": None, "updated_at": "2026-02-22T10:00:00Z"}
 
-    def fake_exists(uri: str) -> bool:
-        return uri == _current_json_uri(bucket_root, results_prefix)
-
-    def fake_cp(src: str, dst: Path | str) -> None:
-        Path(dst).parent.mkdir(parents=True, exist_ok=True)
-        Path(dst).write_text(json.dumps(pointer_data), encoding="utf-8")
-
-    with (
-        patch.object(mgr, "gcs_exists", side_effect=fake_exists),
-        patch.object(mgr, "gcloud_cp", side_effect=fake_cp),
-    ):
+    blob = _make_mock_blob(exists=True, text=json.dumps(pointer_data))
+    with patch.object(base, "_get_gcs_client", return_value=_make_mock_client(blob)):
         out = mgr._resolve_last_passing_run_id(bucket_root, results_prefix)
     assert out is None
 
@@ -57,17 +57,8 @@ def test_resolve_last_passing_returns_run_id_when_present():
         "updated_at": "2026-02-22T10:00:00Z",
     }
 
-    def fake_exists(uri: str) -> bool:
-        return uri == _current_json_uri(bucket_root, results_prefix)
-
-    def fake_cp(src: str, dst: Path | str) -> None:
-        Path(dst).parent.mkdir(parents=True, exist_ok=True)
-        Path(dst).write_text(json.dumps(pointer_data), encoding="utf-8")
-
-    with (
-        patch.object(mgr, "gcs_exists", side_effect=fake_exists),
-        patch.object(mgr, "gcloud_cp", side_effect=fake_cp),
-    ):
+    blob = _make_mock_blob(exists=True, text=json.dumps(pointer_data))
+    with patch.object(base, "_get_gcs_client", return_value=_make_mock_client(blob)):
         out = mgr._resolve_last_passing_run_id(bucket_root, results_prefix)
     assert out == run_id
 

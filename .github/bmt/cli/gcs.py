@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any
 
+from google.api_core import exceptions as api_exceptions
 from google.cloud import storage
 
 # gs://bucket-name/path/to/object
@@ -96,10 +97,9 @@ def delete_object(uri: str) -> None:
         blob.delete()
     except ValueError as exc:
         raise GcsError(str(exc)) from exc
+    except api_exceptions.NotFound:
+        return  # already deleted; treat as success
     except Exception as exc:
-        # google.cloud.exceptions.NotFound -> treat as success
-        if "404" in str(exc) or "Not Found" in str(exc):
-            return
         raise GcsError(f"Failed to delete {uri}: {exc}") from exc
 
 
@@ -111,8 +111,6 @@ def object_exists(uri: str) -> bool:
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(path)
         return blob.exists()
-    except (ValueError, GcsError):
-        return False
     except Exception:
         return False
 

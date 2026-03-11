@@ -6,11 +6,20 @@ import contextlib
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cli import gcs, github_api, shared
 from cli.gh_output import gh_endgroup, gh_group, gh_notice, gh_warning
-from cli.shared import _workflow_run_id, _workflow_runtime_root, get_config
-from cli.shared.defaults import DEFAULT_HANDSHAKE_TIMEOUT_SEC
+from cli.shared import (
+    get_config,
+    get_context,
+    workflow_run_id,
+    workflow_runtime_root,
+    write_github_output,
+)
+
+if TYPE_CHECKING:
+    from gcp.code.config.bmt_config import BmtContext
 
 
 def _github_output() -> Path:
@@ -28,28 +37,80 @@ def _append_step_summary(text: str) -> None:
         f.write(text)
 
 
+def _ctx_str(w: object | None, attr: str, env_var: str, default: str = "") -> str:
+    """Return attribute from workflow context w, or env var, stripped. Falls back to default."""
+    if w is not None:
+        return (getattr(w, attr, None) or default).strip()
+    return (os.environ.get(env_var) or default).strip()
+
+
+def _resolve_repository_and_sha(ctx: BmtContext | None) -> tuple[str, str]:
+    """Return (repository, head_sha) from context or environment."""
+    w = ctx.workflow if ctx is not None else None
+    if w is not None:
+        repository = (w.repository or w.github_repository or "").strip()
+        head_sha = (w.head_sha or "").strip()
+    else:
+        repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
+        head_sha = os.environ.get("HEAD_SHA", "")
+    return repository, head_sha
+
+
 # ---- Context (bmt-prepare) ----
 # emit-bmt-context, validate-required-vars, guard-no-legacy-prefix are now inlined as shell in bmt-prepare/action.yml.
 
 
+def run_write_context() -> None:
+    """Write .bmt/context.json from current env so subsequent bmt commands read from file instead of env."""
+    from gcp.code.config.bmt_config import context_from_env, get_context_path, write_context_to_file
+
+    ctx = context_from_env(runtime=os.environ)
+    path = get_context_path(runtime=os.environ)
+    write_context_to_file(path, ctx)
+    gh_notice(f"Wrote context to {path}")
+
+
 def run_resolve_failure_context() -> None:
     path = _github_output()
-    mode = "no_context" if os.environ.get("PREPARE_RESULT") == "failure" else "context"
-    head_sha = (
-        os.environ.get("PREPARE_HEAD_SHA")
-        or os.environ.get("DISPATCH_HEAD_SHA")
-        or os.environ.get("GITHUB_SHA", "")
-    )
-    pr_number = os.environ.get("PREPARE_PR_NUMBER") or os.environ.get("DISPATCH_PR_NUMBER") or ""
-    vm_handshake_result = (
-        "failure"
-        if (
-            os.environ.get("ORCH_HAS_LEGS") == "true"
-            and os.environ.get("ORCH_HANDSHAKE_OK") != "true"
+    ctx = get_context()
+    if ctx and ctx.workflow:
+        w = ctx.workflow
+        mode = "no_context" if (w.prepare_result or "").strip() == "failure" else "context"
+        head_sha = (
+            (w.prepare_head_sha or "").strip()
+            or (w.dispatch_head_sha or "").strip()
+            or (w.head_sha or "").strip()
+            or os.environ.get("GITHUB_SHA", "")
         )
-        else "success"
-    )
-    trigger_written = "true" if os.environ.get("ORCH_TRIGGER_WRITTEN") == "true" else "false"
+        pr_number = (w.prepare_pr_number or w.dispatch_pr_number or "").strip()
+        vm_handshake_result = (
+            "failure"
+            if (
+                (w.orch_has_legs or "").strip() == "true"
+                and (w.orch_handshake_ok or "").strip() != "true"
+            )
+            else "success"
+        )
+        trigger_written = "true" if (w.orch_trigger_written or "").strip() == "true" else "false"
+    else:
+        mode = "no_context" if os.environ.get("PREPARE_RESULT") == "failure" else "context"
+        head_sha = (
+            os.environ.get("PREPARE_HEAD_SHA")
+            or os.environ.get("DISPATCH_HEAD_SHA")
+            or os.environ.get("GITHUB_SHA", "")
+        )
+        pr_number = (
+            os.environ.get("PREPARE_PR_NUMBER") or os.environ.get("DISPATCH_PR_NUMBER") or ""
+        )
+        vm_handshake_result = (
+            "failure"
+            if (
+                os.environ.get("ORCH_HAS_LEGS") == "true"
+                and os.environ.get("ORCH_HANDSHAKE_OK") != "true"
+            )
+            else "success"
+        )
+        trigger_written = "true" if os.environ.get("ORCH_TRIGGER_WRITTEN") == "true" else "false"
     with path.open("a", encoding="utf-8") as f:
         f.write(f"mode={mode}\n")
         f.write(f"head_sha={head_sha}\n")
@@ -62,21 +123,22 @@ def run_resolve_failure_context() -> None:
 
 
 def run_filter_upload_matrix() -> None:
-    runner_matrix_raw = os.environ.get("RUNNER_MATRIX")
-    head_sha = os.environ.get("HEAD_SHA")
+    ctx = get_context()
+    w = ctx.workflow if ctx is not None else None
+    runner_matrix_raw = _ctx_str(w, "runner_matrix", "RUNNER_MATRIX")
+    head_sha = _ctx_str(w, "head_sha", "HEAD_SHA")
+    preseeded = _ctx_str(
+        w, "bmt_runners_preseeded_in_gcs", "BMT_RUNNERS_PRESEEDED_IN_GCS"
+    ).lower() in ("1", "true", "yes")
+    available_artifacts_raw = _ctx_str(w, "available_artifacts", "AVAILABLE_ARTIFACTS", "[]")
+    github_run_id = _ctx_str(w, "github_run_id", "GITHUB_RUN_ID") or workflow_run_id()
+
     if not runner_matrix_raw or not head_sha:
         raise RuntimeError("RUNNER_MATRIX and HEAD_SHA are required")
     matrix = json.loads(runner_matrix_raw)
     include = matrix.get("include", [])
     if not isinstance(include, list):
         raise TypeError("RUNNER_MATRIX.include must be a JSON array")
-
-    preseeded = os.environ.get("BMT_RUNNERS_PRESEEDED_IN_GCS", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    available_artifacts_raw = os.environ.get("AVAILABLE_ARTIFACTS", "[]")
     try:
         available_artifacts = json.loads(available_artifacts_raw)
     except json.JSONDecodeError:
@@ -85,8 +147,8 @@ def run_filter_upload_matrix() -> None:
         available_artifacts = []
     artifact_set = {str(a).strip() for a in available_artifacts if str(a).strip()}
 
-    root = _workflow_runtime_root()
-    run_id = os.environ.get("GITHUB_RUN_ID") or _workflow_run_id()
+    root = workflow_runtime_root()
+    run_id = github_run_id
     need_include: list[dict[str, str]] = []
     projects_written: set[str] = set()
 
@@ -104,8 +166,10 @@ def run_filter_upload_matrix() -> None:
                 # Sandbox: runners already in GCS; treat as sufficient and write marker.
                 if project not in projects_written:
                     marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
-                    with contextlib.suppress(gcs.GcsError):
+                    try:
                         gcs.write_object(marker_uri, "{}")
+                    except gcs.GcsError as _marker_err:
+                        gh_warning(f"Could not write uploaded marker {marker_uri}: {_marker_err}")
                     projects_written.add(project)
                 print(
                     f"::notice::Preseeded GCS runner for {project}/{preset}: verified in GCS (will show as Skipped)."
@@ -117,8 +181,10 @@ def run_filter_upload_matrix() -> None:
                 )
                 if project not in projects_written:
                     marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
-                    with contextlib.suppress(gcs.GcsError):
+                    try:
                         gcs.write_object(marker_uri, "{}")
+                    except gcs.GcsError as _marker_err:
+                        gh_warning(f"Could not write uploaded marker {marker_uri}: {_marker_err}")
                     projects_written.add(project)
                 continue
         if artifact_set and f"runner-{preset}" not in artifact_set:
@@ -159,8 +225,8 @@ def run_upload_runner_to_gcs() -> None:
 
 
 def run_resolve_uploaded_projects() -> None:
-    run_id = _workflow_run_id()
-    root = _workflow_runtime_root()
+    run_id = workflow_run_id()
+    root = workflow_runtime_root()
     prefix = f"{root}/_workflow/uploaded/{run_id}/"
     uris = gcs.list_prefix(prefix)
     uploaded_projects = {
@@ -170,9 +236,11 @@ def run_resolve_uploaded_projects() -> None:
     # In sandbox/test flows, runner upload jobs can be intentionally skipped when
     # the runner is already present in the bucket. Accept projects that already
     # have runner metadata for the requested preset(s).
-    runner_matrix_raw = os.environ.get("RUNNER_MATRIX", "").strip()
+    ctx = get_context()
+    w = ctx.workflow if ctx is not None else None
+    runner_matrix_raw = _ctx_str(w, "runner_matrix", "RUNNER_MATRIX")
     if runner_matrix_raw:
-        with contextlib.suppress(json.JSONDecodeError):
+        try:
             runner_matrix = json.loads(runner_matrix_raw)
             include = runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
             if isinstance(include, list):
@@ -187,29 +255,27 @@ def run_resolve_uploaded_projects() -> None:
                     payload, _ = gcs.download_json(meta_uri)
                     if isinstance(payload, dict):
                         uploaded_projects.add(project)
+        except json.JSONDecodeError as exc:
+            gh_warning(f"Invalid RUNNER_MATRIX JSON; skipping GCS runner pre-scan: {exc}")
 
     names = sorted(uploaded_projects)
     accepted = json.dumps(names)
     Path("accepted.txt").write_text(accepted)
-    path = os.environ.get("GITHUB_OUTPUT")
-    if path:
-        with Path(path).open("a", encoding="utf-8") as f:
-            f.write(f"accepted_projects={accepted}\n")
+    write_github_output(os.environ.get("GITHUB_OUTPUT"), "accepted_projects", accepted)
     gh_notice(f"Runners uploaded for projects: {accepted}")
 
 
 def run_summarize_matrix_handshake() -> None:
-    runner_matrix_raw = os.environ.get("RUNNER_MATRIX", "{}")
-    accepted_raw = os.environ.get("ACCEPTED", "[]")
-    filtered_raw = os.environ.get("FILTERED_MATRIX", "{}")
+    ctx = get_context()
+    w = ctx.workflow if ctx is not None else None
+    runner_matrix_raw = _ctx_str(w, "runner_matrix", "RUNNER_MATRIX", "{}")
+    accepted_raw = _ctx_str(w, "accepted", "ACCEPTED", "[]")
+    filtered_raw = _ctx_str(w, "filtered_matrix", "FILTERED_MATRIX", "{}")
     if not runner_matrix_raw or not filtered_raw:
         raise RuntimeError("RUNNER_MATRIX and FILTERED_MATRIX are required")
-    runner_matrix = json.loads(runner_matrix_raw)
+    json.loads(runner_matrix_raw)  # validate RUNNER_MATRIX is valid JSON
     accepted = json.loads(accepted_raw)
     filtered_matrix = json.loads(filtered_raw)
-    requested = sorted(
-        {str(e.get("project", "")).strip() for e in runner_matrix.get("include", []) if e}
-    )
     bmt_jobs = sorted(
         {str(e.get("project", "")).strip() for e in filtered_matrix.get("include", []) if e}
     )
@@ -227,7 +293,11 @@ def run_force_clean_vm_restart() -> None:
 
     cfg = get_config()
     cfg.require_gcp()
-    stale_count = int(os.environ.get("STALE_CLEANUP_COUNT", "0"))
+    ctx = get_context()
+    if ctx and ctx.workflow and ctx.workflow.stale_cleanup_count is not None:
+        stale_count = ctx.workflow.stale_cleanup_count
+    else:
+        stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")
     print(f"Stale trigger cleanup removed {stale_count} file(s); forcing clean VM restart.")
     try:
         payload = shared.vm_describe(cfg.gcp_project, cfg.gcp_zone, cfg.bmt_vm_name)
@@ -236,19 +306,10 @@ def run_force_clean_vm_restart() -> None:
         status_before = "UNKNOWN"
     print(f"VM status before restart action: {status_before}")
     if status_before != "TERMINATED":
-        shared.run_capture(
-            [
-                "gcloud",
-                "compute",
-                "instances",
-                "stop",
-                cfg.bmt_vm_name,
-                "--zone",
-                cfg.gcp_zone,
-                "--project",
-                cfg.gcp_project,
-            ]
-        )
+        try:
+            shared.vm_stop(cfg.gcp_project, cfg.gcp_zone, cfg.bmt_vm_name)
+        except shared.GcloudError as exc:
+            gh_warning(f"VM stop command failed: {exc}; will continue polling for TERMINATED.")
     for _ in range(24):
         try:
             payload = shared.vm_describe(cfg.gcp_project, cfg.gcp_zone, cfg.bmt_vm_name)
@@ -265,15 +326,20 @@ def run_force_clean_vm_restart() -> None:
 def run_wait_handshake() -> None:
     from cli.commands import vm
 
-    base_timeout = int(
-        os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", str(DEFAULT_HANDSHAKE_TIMEOUT_SEC))
+    cfg = get_config()
+    base_timeout = cfg.bmt_handshake_timeout_sec
+    ctx = get_context()
+    w = ctx.workflow if ctx is not None else None
+    restart_vm = _ctx_str(w, "restart_vm", "RESTART_VM", "false").lower() in ("true", "1", "yes")
+    vm_reused_running = _ctx_str(w, "vm_reused_running", "VM_REUSED_RUNNING", "false").lower() in (
+        "true",
+        "1",
+        "yes",
     )
-    restart_vm = os.environ.get("RESTART_VM", "false").lower() in ("true", "1", "yes")
-    vm_reused_running = os.environ.get("VM_REUSED_RUNNING", "false").lower() in ("true", "1", "yes")
-    stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")
+    stale_count = _ctx_str(w, "stale_cleanup_count", "STALE_CLEANUP_COUNT", "0")
 
     if vm_reused_running:
-        timeout = 600
+        timeout = cfg.bmt_handshake_timeout_sec_reuse_running
         gh_notice(f"Handshake branch=reuse-running timeout={timeout}s")
     elif restart_vm:
         timeout = base_timeout + 60
@@ -288,8 +354,8 @@ def run_wait_handshake() -> None:
 
 
 def run_handshake_timeout_diagnostics() -> None:
-    run_id = _workflow_run_id()
-    root = _workflow_runtime_root()
+    run_id = workflow_run_id()
+    root = workflow_runtime_root()
     trigger_uri = f"{root}/triggers/runs/{run_id}.json"
     ack_uri = f"{root}/triggers/acks/{run_id}.json"
     cfg = get_config()
@@ -327,13 +393,16 @@ def run_handshake_timeout_diagnostics() -> None:
 
 def run_post_pending_status() -> None:
     """Post a pending commit status to show BMT progress in PR checks.
-    Reads REPOSITORY/GITHUB_REPOSITORY, HEAD_SHA, GITHUB_TOKEN, BMT_STATUS_CONTEXT,
-    BMT_PROGRESS_DESCRIPTION, and optional TARGET_URL from env."""
-    repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
-    head_sha = os.environ.get("HEAD_SHA", "")
-    context = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
-    description = os.environ.get("BMT_PROGRESS_DESCRIPTION", "BMT in progress…")
-    target_url = os.environ.get("TARGET_URL") or None
+    Uses config for context/description; repository/head_sha/target_url from context or workflow inputs."""
+    cfg = get_config()
+    ctx = get_context()
+    repository, head_sha = _resolve_repository_and_sha(ctx)
+    w = ctx.workflow if (ctx and ctx.workflow) else None
+    target_url = (
+        (w.target_url or "").strip() if w else os.environ.get("TARGET_URL") or None
+    ) or None
+    context = cfg.bmt_status_context
+    description = cfg.bmt_progress_description
     if not repository or not head_sha:
         gh_warning("Skipping pending status post (missing repository or head_sha).")
         return
@@ -350,13 +419,11 @@ def run_post_pending_status() -> None:
 
 
 def run_post_handoff_timeout_status() -> None:
-    repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
-    head_sha = os.environ.get("HEAD_SHA", "")
-    context = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
-    description = os.environ.get(
-        "BMT_FAILURE_STATUS_DESCRIPTION",
-        "BMT cancelled: VM handshake timeout before pickup.",
-    )
+    cfg = get_config()
+    ctx = get_context()
+    repository, head_sha = _resolve_repository_and_sha(ctx)
+    context = cfg.bmt_status_context
+    description = cfg.bmt_failure_status_description
     if not repository or not head_sha:
         gh_warning("Skipping fallback status post (missing repository/head_sha/token).")
         return
@@ -373,8 +440,8 @@ def run_post_handoff_timeout_status() -> None:
 
 
 def run_cleanup_failed_trigger_artifacts() -> None:
-    run_id = _workflow_run_id()
-    root = _workflow_runtime_root()
+    run_id = workflow_run_id()
+    root = workflow_runtime_root()
 
     for name in ("runs", "acks", "status"):
         uri = f"{root}/triggers/{name}/{run_id}.json"
@@ -393,20 +460,38 @@ def run_cleanup_failed_trigger_artifacts() -> None:
 
 
 def run_write_handoff_summary() -> None:
-    mode = os.environ.get("MODE", "")
-    repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
-    head_sha = os.environ.get("HEAD_SHA", "")
-    head_branch = os.environ.get("HEAD_BRANCH", "")
-    pr_number = os.environ.get("PR_NUMBER", "")
-    filtered_matrix_raw = os.environ.get("FILTERED_MATRIX", '{"include":[]}')
-    trigger_written = os.environ.get("TRIGGER_WRITTEN", "false")
-    vm_started = os.environ.get("VM_STARTED", "false")
-    handshake_ok = os.environ.get("HANDSHAKE_OK", "false")
-    handshake_elapsed_sec = os.environ.get("HANDSHAKE_ELAPSED_SEC", "").strip()
-    handoff_state_line = os.environ.get("HANDOFF_STATE_LINE", "")
-    failure_reason = os.environ.get("FAILURE_REASON", "")
-    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    ctx = get_context()
+    if ctx and ctx.workflow:
+        w = ctx.workflow
+        mode = w.mode or ""
+        repository = (w.repository or w.github_repository or "").strip()
+        head_sha = (w.head_sha or "").strip()
+        head_branch = (w.head_branch or "").strip()
+        pr_number = (w.pr_number or "").strip()
+        filtered_matrix_raw = w.filtered_matrix or '{"include":[]}'
+        trigger_written = (w.trigger_written or "false").strip()
+        vm_started = (w.vm_started or "false").strip()
+        handshake_ok = (w.handshake_ok or "false").strip()
+        handshake_elapsed_sec = (w.handshake_elapsed_sec or "").strip()
+        handoff_state_line = (w.handoff_state_line or "").strip()
+        failure_reason = (w.failure_reason or "").strip()
+        server = (w.github_server_url or "https://github.com").strip()
+        run_id = (w.github_run_id or "").strip()
+    else:
+        mode = os.environ.get("MODE", "")
+        repository = os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")
+        head_sha = os.environ.get("HEAD_SHA", "")
+        head_branch = os.environ.get("HEAD_BRANCH", "")
+        pr_number = os.environ.get("PR_NUMBER", "")
+        filtered_matrix_raw = os.environ.get("FILTERED_MATRIX", '{"include":[]}')
+        trigger_written = os.environ.get("TRIGGER_WRITTEN", "false")
+        vm_started = os.environ.get("VM_STARTED", "false")
+        handshake_ok = os.environ.get("HANDSHAKE_OK", "false")
+        handshake_elapsed_sec = os.environ.get("HANDSHAKE_ELAPSED_SEC", "").strip()
+        handoff_state_line = os.environ.get("HANDOFF_STATE_LINE", "")
+        failure_reason = os.environ.get("FAILURE_REASON", "")
+        server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+        run_id = os.environ.get("GITHUB_RUN_ID", "")
     repo_slug = os.environ.get("GITHUB_REPOSITORY", repository)
     run_url = f"{server}/{repo_slug}/actions/runs/{run_id}" if run_id else ""
     repo_url = f"{server}/{repository}"

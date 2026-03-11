@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import github_checks  # type: ignore[import-not-found]
+from gcp.code.github import github_checks  # type: ignore[import-not-found]
 
 
 def test_render_results_table_shows_last_passing_score_when_available() -> None:

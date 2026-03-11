@@ -10,6 +10,14 @@ from importlib import resources as importlib_resources
 from pathlib import Path
 from typing import Any
 
+from gcp.code.config.bmt_config import (
+    VM_RECOVERY_START_DELAY_SEC,
+    VM_STABILIZATION_SEC,
+    VM_START_RECOVERY_ATTEMPTS,
+    VM_START_TIMEOUT_SEC,
+    VM_STOP_WAIT_TIMEOUT_SEC,
+)
+
 from cli import shared
 from cli.gh_output import gh_error, gh_notice, gh_warning
 from cli.shared import (
@@ -17,11 +25,9 @@ from cli.shared import (
     require_env,
     write_github_output,
 )
-from cli.shared.defaults import (
-    DEFAULT_HANDSHAKE_TIMEOUT_SEC,
-    DEFAULT_VM_START_TIMEOUT_SEC,
-    DEFAULT_VM_STOP_WAIT_TIMEOUT_SEC,
-)
+
+# Maximum seconds to wait for a STOPPING VM to reach TERMINATED before retrying start.
+_VM_STOPPING_WAIT_SEC = 120
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -86,7 +92,7 @@ def _stop_and_wait(
     project: str,
     zone: str,
     instance_name: str,
-    timeout_sec: int = DEFAULT_VM_STOP_WAIT_TIMEOUT_SEC,
+    timeout_sec: int = VM_STOP_WAIT_TIMEOUT_SEC,
     poll_sec: int = 5,
 ) -> None:
     """Stop a VM and wait until it reaches TERMINATED state."""
@@ -194,16 +200,14 @@ def run_select_available_vm() -> None:
         write_github_output(github_output, "vm_reused_running", "false")
         return
 
-    # No TERMINATED — use a RUNNING VM: stop it for clean startup, then we will start it again
+    # No TERMINATED — reuse a RUNNING VM: do not stop; write trigger and use longer handshake timeout
     running = [v for v in pool if statuses.get(v) == "RUNNING"]
     if running:
         idx = run_id_int % len(running)
         selected = running[idx]
-        print(f"VM {selected} is RUNNING; stopping to ensure clean startup...")
-        _stop_and_wait(project, zone, selected)
-        print(f"Selected VM: {selected} (was RUNNING, now TERMINATED — will start clean)")
+        print(f"Selected VM: {selected} (RUNNING — reusing; no stop/start)")
         write_github_output(github_output, "selected_vm", selected)
-        write_github_output(github_output, "vm_reused_running", "false")
+        write_github_output(github_output, "vm_reused_running", "true")
         return
 
     status_summary = ", ".join(f"{v}={s}" for v, s in statuses.items())
@@ -222,14 +226,14 @@ def run_select_available_vm() -> None:
 
 
 def run_start() -> None:
-    """Start the BMT VM. GCP/BMT identity from config; timeouts and BMT_ALLOW_MANUAL_VM_START from env."""
+    """Start the BMT VM. GCP/BMT identity from config; timeouts from constants; BMT_ALLOW_MANUAL_VM_START from env."""
     cfg = get_config()
     cfg.require_gcp()
-    timeout_sec = int(os.environ.get("BMT_VM_START_TIMEOUT_SEC", str(DEFAULT_VM_START_TIMEOUT_SEC)))
+    timeout_sec = VM_START_TIMEOUT_SEC
     poll_interval_sec = 5
-    stabilization_sec = int(os.environ.get("BMT_VM_STABILIZATION_SEC", "45"))
-    recovery_attempts_max = int(os.environ.get("BMT_VM_START_RECOVERY_ATTEMPTS", "2"))
-    recovery_start_delay_sec = int(os.environ.get("BMT_VM_RECOVERY_START_DELAY_SEC", "10"))
+    stabilization_sec = VM_STABILIZATION_SEC
+    recovery_attempts_max = VM_START_RECOVERY_ATTEMPTS
+    recovery_start_delay_sec = VM_RECOVERY_START_DELAY_SEC
 
     in_actions = _is_truthy(os.environ.get("GITHUB_ACTIONS"))
     if not in_actions and not _is_truthy(os.environ.get("BMT_ALLOW_MANUAL_VM_START")):
@@ -282,6 +286,36 @@ def run_start() -> None:
             raise
         print(f"Start command submitted for VM {instance_name} (zone={zone}) [{reason}]")
 
+    def _start_after_stop(reason: str) -> None:
+        """Mark initial retry as done, apply recovery delay if in recovery, then issue start."""
+        nonlocal stop_retry_done
+        if recovery_attempts == 0:
+            stop_retry_done = True
+        if recovery_attempts > 0 and recovery_start_delay_sec > 0:
+            bounded_delay = min(recovery_start_delay_sec, max(0, int(deadline - time.monotonic())))
+            print(
+                f"Waiting {bounded_delay}s after TERMINATED before start "
+                "(reduces fingerprint race during recovery)."
+            )
+            time.sleep(bounded_delay)
+        _request_start(reason)
+
+    def _stabilize() -> str:
+        """Poll RUNNING state for stabilization_sec. Return unstable status string, or '' if stable."""
+        stable_deadline = time.monotonic() + stabilization_sec
+        while time.monotonic() < stable_deadline:
+            try:
+                stable_describe = shared.vm_describe(project, zone, instance_name)
+                stable_status = _instance_status(stable_describe)
+                if stable_status != "RUNNING":
+                    return stable_status or "<unknown>"
+            except shared.GcloudError as exc:
+                gh_warning(f"Transient error during stabilization check: {exc}; skipping cycle.")
+            remaining = stable_deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(max(1, poll_interval_sec), remaining))
+        return ""
+
     _request_start("initial start")
     print(
         f"Waiting for RUNNING state (timeout={timeout_sec}s, poll={poll_interval_sec}s); "
@@ -295,14 +329,21 @@ def run_start() -> None:
     recovery_pending = False
     stop_retry_done = False  # only one wait-for-TERMINATED + retry per run (initial); during recovery we allow repeat
     while time.monotonic() < deadline:
-        describe = shared.vm_describe(project, zone, instance_name)
-        last_seen_status = _instance_status(describe)
-        last_seen_start = _last_start_timestamp(describe)
+        try:
+            describe = shared.vm_describe(project, zone, instance_name)
+            last_seen_status = _instance_status(describe)
+            last_seen_start = _last_start_timestamp(describe)
+        except shared.GcloudError as exc:
+            gh_warning(f"Transient error describing VM {instance_name}: {exc}; retrying.")
+            time.sleep(poll_interval_sec)
+            continue
 
         # If VM is STOPPING, wait for TERMINATED then retry start. Allow when: first time (not stop_retry_done)
         # or during recovery (recovery_attempts > 0) so we can retry after a fingerprint failure on recovery start.
         if last_seen_status == "STOPPING" and (not stop_retry_done or recovery_attempts > 0):
-            stop_deadline = time.monotonic() + min(120, max(0, int(deadline - time.monotonic())))
+            stop_deadline = time.monotonic() + min(
+                _VM_STOPPING_WAIT_SEC, max(0, int(deadline - time.monotonic()))
+            )
             gh_notice(
                 "VM is in STOPPING state (may have been stopped by another run or failure-fallback); "
                 "waiting for TERMINATED then retrying start."
@@ -312,22 +353,12 @@ def run_start() -> None:
                 s = _instance_status(describe)
                 if s == "TERMINATED":
                     print("VM reached TERMINATED; issuing retry start.")
-                    if recovery_attempts == 0:
-                        stop_retry_done = True
-                    if recovery_attempts > 0 and recovery_start_delay_sec > 0:
-                        print(
-                            f"Waiting {recovery_start_delay_sec}s after TERMINATED before start "
-                            "(reduces fingerprint race during recovery)."
-                        )
-                        time.sleep(
-                            min(recovery_start_delay_sec, max(0, int(deadline - time.monotonic())))
-                        )
-                    _request_start("retry after VM stopped")
+                    _start_after_stop("retry after VM stopped")
                     break
                 remaining = stop_deadline - time.monotonic()
                 if remaining <= 0:
                     raise RuntimeError(
-                        "VM remained in STOPPING state; could not retry start within 120s. "
+                        f"VM remained in STOPPING state; could not retry start within {_VM_STOPPING_WAIT_SEC}s. "
                         "Try re-running the job once the VM has fully stopped."
                     )
                 time.sleep(min(poll_interval_sec, remaining))
@@ -337,15 +368,7 @@ def run_start() -> None:
         # Allow when first time or during recovery so we can retry after fingerprint failure.
         if last_seen_status == "TERMINATED" and (not stop_retry_done or recovery_attempts > 0):
             gh_notice("VM is TERMINATED; issuing retry start.")
-            if recovery_attempts == 0:
-                stop_retry_done = True
-            if recovery_attempts > 0 and recovery_start_delay_sec > 0:
-                print(
-                    f"Waiting {recovery_start_delay_sec}s after TERMINATED before start "
-                    "(reduces fingerprint race during recovery)."
-                )
-                time.sleep(min(recovery_start_delay_sec, max(0, int(deadline - time.monotonic()))))
-            _request_start("retry after VM stopped")
+            _start_after_stop("retry after VM stopped")
             continue
 
         running = last_seen_status == "RUNNING"
@@ -363,17 +386,7 @@ def run_start() -> None:
             if stabilization_sec <= 0:
                 return
             print(f"Stabilizing RUNNING state for {stabilization_sec}s (poll={poll_interval_sec}s)")
-            stable_deadline = time.monotonic() + stabilization_sec
-            unstable_status = ""
-            while time.monotonic() < stable_deadline:
-                stable_describe = shared.vm_describe(project, zone, instance_name)
-                stable_status = _instance_status(stable_describe)
-                if stable_status != "RUNNING":
-                    unstable_status = stable_status or "<unknown>"
-                    break
-                remaining = stable_deadline - time.monotonic()
-                if remaining > 0:
-                    time.sleep(min(max(1, poll_interval_sec), remaining))
+            unstable_status = _stabilize()
             if unstable_status:
                 recovery_attempts += 1
                 if recovery_attempts > recovery_attempts_max:
@@ -411,7 +424,7 @@ def run_start() -> None:
 def _build_desired_metadata(
     bucket: str,
     repo_root: str,
-    startup_wrapper_script: str,
+    startup_entrypoint_script: str,
 ) -> tuple[dict[str, str], str]:
     """Return (metadata_dict, startup_script_content)."""
     metadata = {
@@ -419,35 +432,35 @@ def _build_desired_metadata(
         "BMT_REPO_ROOT": repo_root,
         "startup-script-url": "",
     }
-    return metadata, startup_wrapper_script
+    return metadata, startup_entrypoint_script
 
 
-def _load_startup_wrapper_script() -> str:
-    """Load packaged startup wrapper text shipped with the cli package."""
+def _load_startup_entrypoint_script() -> str:
+    """Load packaged startup entrypoint text shipped with the cli package."""
     try:
-        wrapper = importlib_resources.files("cli.resources").joinpath("startup_wrapper.sh")
-        script_content = wrapper.read_text(encoding="utf-8")
+        entrypoint = importlib_resources.files("cli.resources").joinpath("startup_entrypoint.sh")
+        script_content = entrypoint.read_text(encoding="utf-8")
     except (FileNotFoundError, ModuleNotFoundError, OSError) as exc:
         raise RuntimeError(
-            "Missing packaged startup wrapper resource: cli.resources/startup_wrapper.sh"
+            "Missing packaged startup entrypoint resource: cli.resources/startup_entrypoint.sh"
         ) from exc
     if not script_content.strip():
         raise RuntimeError(
-            "Packaged startup wrapper resource is empty: cli.resources/startup_wrapper.sh"
+            "Packaged startup entrypoint resource is empty: cli.resources/startup_entrypoint.sh"
         )
     return script_content
 
 
 def run_sync_metadata() -> None:
-    """Sync startup-critical VM metadata and inline startup wrapper from package resources."""
+    """Sync startup-critical VM metadata and inline startup entrypoint from package resources."""
     cfg = get_config()
     cfg.require_gcp()
     project = cfg.gcp_project
     zone = cfg.gcp_zone
     instance_name = cfg.bmt_vm_name
     bucket = cfg.gcs_bucket
-    repo_root = (os.environ.get("BMT_REPO_ROOT") or "/opt/bmt").strip() or "/opt/bmt"
-    startup_wrapper_script = _load_startup_wrapper_script()
+    repo_root = cfg.effective_repo_root
+    startup_entrypoint_script = _load_startup_entrypoint_script()
 
     # Fail-fast: reject non-empty legacy BMT_BUCKET_PREFIX in VM metadata
     try:
@@ -464,7 +477,7 @@ def run_sync_metadata() -> None:
             )
 
     desired_metadata, desired_script = _build_desired_metadata(
-        bucket, repo_root, startup_wrapper_script
+        bucket, repo_root, startup_entrypoint_script
     )
 
     force = _is_truthy(os.environ.get("BMT_FORCE_SYNC"))
@@ -485,15 +498,15 @@ def run_sync_metadata() -> None:
         "startup-script-url": "",
     }
     try:
-        with tempfile.TemporaryDirectory(prefix="bmt_startup_wrapper_") as tmp_dir:
-            wrapper_path = Path(tmp_dir) / "startup_wrapper.sh"
-            wrapper_path.write_text(desired_script, encoding="utf-8")
+        with tempfile.TemporaryDirectory(prefix="bmt_startup_entrypoint_") as tmp_dir:
+            entrypoint_path = Path(tmp_dir) / "startup_entrypoint.sh"
+            entrypoint_path.write_text(desired_script, encoding="utf-8")
             shared.vm_add_metadata(
                 project,
                 zone,
                 instance_name,
                 metadata,
-                metadata_files={"startup-script": wrapper_path},
+                metadata_files={"startup-script": entrypoint_path},
             )
         described = shared.vm_describe(project, zone, instance_name)
     except shared.GcloudError as exc:
@@ -511,7 +524,9 @@ def run_sync_metadata() -> None:
         raise RuntimeError("VM metadata verification failed: startup-script-url is not cleared.")
 
     print(f"Synced VM metadata for {instance_name}: GCS_BUCKET={bucket} BMT_REPO_ROOT={repo_root}")
-    print("Updated inline startup-script from packaged resource cli.resources/startup_wrapper.sh")
+    print(
+        "Updated inline startup-script from packaged resource cli.resources/startup_entrypoint.sh"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -551,7 +566,7 @@ def run_wait_handshake(timeout_sec: int | None = None) -> None:
     )
     if timeout_sec < 300:
         print(
-            f"::notice::Handshake timeout={timeout_sec}s; for cold-start VMs consider BMT_HANDSHAKE_TIMEOUT_SEC=300 or {DEFAULT_HANDSHAKE_TIMEOUT_SEC}"
+            f"::notice::Handshake timeout={timeout_sec}s; for cold-start VMs consider BMT_HANDSHAKE_TIMEOUT_SEC=300 or {cfg.bmt_handshake_timeout_sec}"
         )
 
     trigger_exists_initially = shared.gcs_exists(trigger_uri)

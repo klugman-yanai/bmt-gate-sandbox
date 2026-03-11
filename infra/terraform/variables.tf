@@ -85,7 +85,7 @@ variable "bmt_repo_root" {
 
 variable "startup_wrapper_script_path" {
   type        = string
-  description = "Local path to the startup_wrapper.sh to inline as instance metadata"
+  description = "Local path to the startup_entrypoint.sh to inline as instance metadata"
 }
 
 # Optional BMT behavior (defaults also in tools/repo_vars_contract.py)
@@ -101,26 +101,26 @@ variable "bmt_handshake_timeout_sec" {
   description = "Handshake timeout in seconds (BMT_HANDSHAKE_TIMEOUT_SEC)"
 }
 
-variable "bmt_projects" {
-  type        = string
-  default     = "all"
-  description = "Comma-separated or 'all' (BMT_PROJECTS)"
-}
-
-variable "bmt_runtime_context" {
-  type        = string
-  default     = "BMT Runtime"
-  description = "Runtime context label (BMT_RUNTIME_CONTEXT)"
-}
-
 variable "bmt_trigger_stale_sec" {
   type        = number
   default     = 900
   description = "Trigger stale threshold seconds (BMT_TRIGGER_STALE_SEC)"
 }
 
+variable "bmt_projects" {
+  type        = string
+  default     = ""
+  description = "Path or identifier for BMT projects config (e.g. bmt_projects.json); exported for repo vars when set"
+}
+
+variable "bmt_runtime_context" {
+  type        = string
+  default     = "BMT Runtime"
+  description = "Runtime context label (BMT_RUNTIME_CONTEXT); keep in sync with gcp/code/lib/bmt_config.py DEFAULT_RUNTIME_CONTEXT"
+}
+
 variable "bmt_trigger_metadata_keep_recent" {
   type        = number
   default     = 2
-  description = "How many trigger metadata entries to keep (BMT_TRIGGER_METADATA_KEEP_RECENT)"
+  description = "Number of recent trigger metadata entries to keep (BMT_TRIGGER_METADATA_KEEP_RECENT); keep in sync with gcp/code/lib/bmt_config.py TRIGGER_METADATA_KEEP_RECENT"
 }

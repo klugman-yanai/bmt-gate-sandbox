@@ -1,0 +1,36 @@
+# Example systemd unit for the BMT watcher.
+# Copy to /etc/systemd/system/bmt-watcher.service and edit the Environment
+# and ExecStart to match your paths and bucket. Then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bmt-watcher
+#
+# This unit runs a wrapper script that fetches secrets and starts the watcher.
+# Alternatively, run run_watcher.sh as ExecStart (with Environment for
+# GCS_BUCKET etc.).
+
+[Unit]
+Description=BMT VM watcher (GitHub App, commit status + Check Run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_VM_USER
+WorkingDirectory=/opt/bmt
+
+# Set bucket from your deployment (e.g. from gcloud metadata or env file; do not hardcode in repo)
+Environment=BMT_REPO_ROOT=/opt/bmt
+Environment=GCS_BUCKET=
+Environment=BMT_WORKSPACE_ROOT=/home/YOUR_VM_USER/bmt_workspace
+
+# Run the startup script (fetches secrets, exec watcher)
+ExecStart=/opt/bmt/bootstrap/run_watcher.sh
+Restart=on-failure
+RestartSec=30
+
+# Security: no new privileges, private /tmp
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

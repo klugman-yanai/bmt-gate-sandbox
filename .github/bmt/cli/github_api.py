@@ -35,9 +35,9 @@ def post_commit_status(
 ) -> None:
     """Post a commit status. state: pending, success, failure, error."""
     gh = _get_github()
-    repo = gh.get_repo(repository)
     desc = (description or "")[:140]
     try:
+        repo = gh.get_repo(repository)
         kwargs: dict[str, str] = {
             "state": state,
             "context": context,
@@ -53,8 +53,8 @@ def post_commit_status(
 def get_commit_statuses(repository: str, sha: str) -> list[dict[str, str]]:
     """Return list of status dicts (context, state, description, target_url, ...) for the commit."""
     gh = _get_github()
-    repo = gh.get_repo(repository)
     try:
+        repo = gh.get_repo(repository)
         status = repo.get_commit(sha).get_combined_status()
         out: list[dict[str, str]] = []
         for s in status.statuses:
@@ -94,8 +94,8 @@ def should_post_failure_status(repository: str, sha: str, context: str) -> bool:
 def post_pr_comment(repository: str, pr_number: int, body: str) -> None:
     """Post a comment on a pull request."""
     gh = _get_github()
-    repo = gh.get_repo(repository)
     try:
+        repo = gh.get_repo(repository)
         issue = repo.get_issue(pr_number)
         issue.create_comment(body)
     except Exception as exc:
@@ -113,8 +113,8 @@ def trigger_workflow_dispatch(
 ) -> None:
     """Trigger a workflow_dispatch run. workflow_id can be workflow filename (e.g. bmt.yml) or numeric id."""
     gh = _get_github()
-    repo = gh.get_repo(repository)
     try:
+        repo = gh.get_repo(repository)
         workflow = repo.get_workflow(workflow_id)
         workflow.create_dispatch(ref, inputs or {})
     except Exception as exc:

@@ -5,18 +5,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from whenever import Instant
+
+from cli import gcs
+from cli.shared import get_config, require_env, runtime_bucket_root_uri
 
 # SLSA v1.0 constants
 _SLSA_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 _SLSA_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
 _SLSA_BUILD_TYPE = "https://kardome.com/bmt/runner-upload/v1"
-
-from cli import shared
-from cli.shared import get_config, require_env, runtime_bucket_root_uri
 
 
 def _sha256_file(path: Path) -> str:
@@ -29,14 +29,8 @@ def _sha256_file(path: Path) -> str:
 
 def _load_remote_runner_meta(meta_uri: str) -> dict[str, Any] | None:
     """Best-effort load of remote runner metadata; returns None when missing/invalid."""
-    rc, out = shared.run_capture(["gcloud", "storage", "cat", meta_uri])
-    if rc != 0:
-        return None
-    try:
-        payload = json.loads(out)
-    except json.JSONDecodeError:
-        return None
-    return payload if isinstance(payload, dict) else None
+    payload, _ = gcs.download_json(meta_uri)
+    return payload  # None when missing, non-dict, or parse error
 
 
 def _remote_files_by_name(meta: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -67,7 +61,7 @@ def _write_runner_provenance(
     preset: str,
 ) -> None:
     """Write a SLSA v1.0 provenance document to GCS alongside the runner artifacts."""
-    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = Instant.now().format_iso(unit="second")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     git_sha = os.environ.get("GITHUB_SHA", "")
@@ -100,7 +94,9 @@ def _write_runner_provenance(
                         "uri": f"https://github.com/{repository}",
                         "digest": {"gitCommit": git_sha},
                     }
-                ] if git_sha else [],
+                ]
+                if git_sha
+                else [],
             },
             "runDetails": {
                 "builder": {"id": builder_id},
@@ -118,15 +114,11 @@ def _write_runner_provenance(
     }
 
     provenance_dest = f"{root}/{dest_prefix}/runner.slsa.json"
-    with tempfile.TemporaryDirectory(prefix="slsa_runner_") as tmp_dir:
-        prov_path = Path(tmp_dir) / "runner.slsa.json"
-        prov_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
-        rc, err = shared.run_capture_retry(
-            ["gcloud", "storage", "cp", str(prov_path), provenance_dest, "--quiet"]
-        )
-        if rc != 0:
-            print(f"::warning::Failed to upload runner provenance: {err}")
-            return
+    try:
+        gcs.write_object(provenance_dest, json.dumps(provenance, indent=2) + "\n")
+    except gcs.GcsError as exc:
+        print(f"::warning::Failed to upload runner provenance: {exc}")
+        return
     print(f"Uploaded runner provenance (SLSA v1.0) -> {provenance_dest}")
 
 
@@ -199,11 +191,10 @@ def run() -> None:
             skipped.append(name)
             continue
 
-        rc, err = shared.run_capture_retry(
-            ["gcloud", "storage", "cp", str(row["path"]), str(row["dest"]), "--quiet"]
-        )
-        if rc != 0:
-            raise RuntimeError(f"Failed to upload {name}: {err}")
+        try:
+            gcs.write_object(str(row["dest"]), Path(str(row["path"])).read_bytes())
+        except gcs.GcsError as exc:
+            raise RuntimeError(f"Failed to upload {name}: {exc}") from exc
         uploaded.append({"name": name, "size": local_size, "sha256": local_sha})
         print(f"Uploaded {name} -> {row['dest']}")
 
@@ -223,7 +214,7 @@ def run() -> None:
         return
 
     meta = {
-        "uploaded_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "uploaded_at": Instant.now().format_iso(unit="second"),
         "source_ref": source_ref,
         "project": project,
         "preset": preset,
@@ -238,14 +229,10 @@ def run() -> None:
         "uploaded_files": uploaded,
         "skipped_unchanged_files": skipped,
     }
-    with tempfile.TemporaryDirectory(prefix="runner_meta_") as tmp_dir:
-        meta_path = Path(tmp_dir) / "runner_meta.json"
-        meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        rc, err = shared.run_capture_retry(
-            ["gcloud", "storage", "cp", str(meta_path), meta_dest, "--quiet"]
-        )
-        if rc != 0:
-            raise RuntimeError(f"Failed to upload runner_meta.json: {err}")
+    try:
+        gcs.upload_json(meta_dest, meta)
+    except gcs.GcsError as exc:
+        raise RuntimeError(f"Failed to upload runner_meta.json: {exc}") from exc
     print(f"Uploaded runner_meta.json -> {meta_dest}")
 
     _write_runner_provenance(

@@ -10,6 +10,12 @@ repos:
         language: script
         files: ^gcp/
         pass_filenames: false
+      - id: image-build-warning
+        name: image-build path warning
+        entry: scripts/hooks/pre-commit-image-build-warning.sh
+        language: script
+        files: ^(infra/packer/|gcp/code/bootstrap/)
+        pass_filenames: false
       - id: pytest-fast
         name: pytest fast gate
         entry: bash -lc 'uv run pytest -q -m "unit or contract"'

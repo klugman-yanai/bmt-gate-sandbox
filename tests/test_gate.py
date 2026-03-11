@@ -1,10 +1,9 @@
 """Tests for gate/status helpers in tools/bmt_run_local.py."""
 
 import importlib
-import sys
 
-# bmt_run_local lives in tools/; conftest.py adds tools to sys.path.
-batch = importlib.import_module("bmt_run_local")
+# bmt_run_local lives in tools package (root install).
+batch = importlib.import_module("tools.bmt.bmt_run_local")
 compute_gate = batch.compute_gate
 resolve_status = batch.resolve_status
 effective_gate_comparison = batch.effective_gate_comparison

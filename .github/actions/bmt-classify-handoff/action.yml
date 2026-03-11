@@ -43,7 +43,7 @@ runs:
       env:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
       shell: bash
-      run: uv run --project .github/bmt bmt resolve-uploaded-projects
+      run: uv run bmt write-context && uv run bmt resolve-uploaded-projects
 
     - id: filter
       shell: bash
@@ -51,7 +51,7 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         FULL_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED_PROJECTS: ${{ steps.list.outputs.accepted_projects }}
-      run: uv run --project .github/bmt bmt filter-supported-matrix
+      run: uv run bmt filter-supported-matrix
 
     - name: Show matrix classification details
       shell: bash
@@ -59,7 +59,7 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED: ${{ steps.list.outputs.accepted_projects }}
         FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
-      run: uv run --project .github/bmt bmt summarize-matrix-handshake
+      run: uv run bmt write-context && uv run bmt summarize-matrix-handshake
 
     - id: route
       shell: bash

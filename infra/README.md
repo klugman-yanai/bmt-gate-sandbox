@@ -14,7 +14,7 @@ Terraform is the **source of truth** for all non-secret configuration. Repo vari
 Set these in **GitHub repository or organization** (Settings → Secrets and variables → Actions):
 
 | Variable / Secret       | Where to set | Purpose |
-|-------------------------|--------------|---------|
+| --- | --- | --- |
 | `GCP_WIF_PROVIDER`      | Variables    | Workload Identity Federation provider for CI |
 | `BMT_DISPATCH_APP_ID`   | Secrets      | GitHub App ID for workflow_dispatch token |
 | `BMT_DISPATCH_APP_PRIVATE_KEY` | Secrets | GitHub App private key (PEM) |

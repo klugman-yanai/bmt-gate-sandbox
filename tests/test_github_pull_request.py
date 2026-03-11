@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import urllib.error
 
-import github_pull_request  # type: ignore[import-not-found]
+from gcp.code.github import github_pull_request  # type: ignore[import-not-found]
 
 
 class _Resp:

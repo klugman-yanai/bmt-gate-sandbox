@@ -44,7 +44,7 @@ jobs:
       non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -87,7 +87,7 @@ jobs:
           mv /tmp/repo-snapshot.tar.gz repo-snapshot.tar.gz
 
       - name: Upload repo-snapshot
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: repo-snapshot
           path: repo-snapshot.tar.gz
@@ -110,7 +110,7 @@ jobs:
 
     steps:
       - name: Download repo-snapshot
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: repo-snapshot
 
@@ -138,7 +138,7 @@ jobs:
 
     steps:
       - name: Download repo-snapshot
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: repo-snapshot
 
@@ -151,21 +151,13 @@ jobs:
 
   bmt:
     needs: [dummy-build-release]
+    # Run BMT if dummy builds finished (or skipped) and we are on a supported branch.
+    # Exclude forks (secrets/WIF won't be available).
     if: >-
-      always() && (needs.dummy-build-release.result == 'success' || needs.dummy-build-release.result == 'skipped')
-      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      && contains(
-        fromJson('["dev","ci/check-bmt-gate"]'),
-        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-          && github.base_ref
-          || github.ref_name
-      )
-    permissions:
-      actions: read
-      contents: read
-      statuses: write
-      issues: write
-      id-token: write
+      always() &&
+      (needs.dummy-build-release.result == 'success' || needs.dummy-build-release.result == 'skipped') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJson('["dev", "ci/check-bmt-gate"]'), (github.base_ref || github.ref_name))
     uses: ./.github/workflows/bmt.yml
     with:
       ci_run_id: ${{ github.run_id }}

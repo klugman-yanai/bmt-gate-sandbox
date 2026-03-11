@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import vm_watcher as watcher  # type: ignore[import-not-found]
+
+import gcp.code.vm_watcher as watcher  # type: ignore[import-not-found]
 
 
 class _StatusStore:

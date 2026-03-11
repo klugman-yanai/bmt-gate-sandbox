@@ -87,15 +87,15 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
     assert "startup-script" in metadata_files
     script_path = captured["startup_script_path"]
     assert isinstance(script_path, Path)
-    assert script_path.name == "startup_wrapper.sh"
+    assert script_path.name == "startup_entrypoint.sh"
     script_content = captured["startup_script_content"]
     assert isinstance(script_content, str)
     assert script_content.startswith("#!/usr/bin/env bash")
     assert "BMT_REPO_ROOT" in script_content
 
 
-def test_load_startup_wrapper_script_from_packaged_resource() -> None:
-    script_content = sync_vm_metadata._load_startup_wrapper_script()
+def test_load_startup_entrypoint_script_from_packaged_resource() -> None:
+    script_content = sync_vm_metadata._load_startup_entrypoint_script()
     assert script_content.startswith("#!/usr/bin/env bash")
     assert "_read_meta" in script_content
 

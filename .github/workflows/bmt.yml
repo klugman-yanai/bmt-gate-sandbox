@@ -74,22 +74,67 @@ env:
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_VM_POOL: ${{ vars.BMT_VM_POOL }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
-  BMT_HANDSHAKE_TIMEOUT_SEC: ${{ vars.BMT_HANDSHAKE_TIMEOUT_SEC }}
   BMT_PUBSUB_TOPIC: ${{ vars.BMT_PUBSUB_TOPIC }}
+  UV_PROJECT: ".github/bmt"
 
 permissions:
   contents: read
   actions: read
 
 jobs:
+  # Ensure VM image was built when image-affecting paths (infra/packer, gcp/code/bootstrap) changed.
+  check-image-up-to-date:
+    name: Check image up to date
+    runs-on: ubuntu-22.04
+    outputs:
+      image_check_passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Check image build required and present
+        id: check
+        env:
+          HEAD_SHA: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          HEAD_BRANCH: ${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        run: |
+          set -euo pipefail
+          # Paths that affect the baked VM image; must match bmt-image-build.yml paths.
+          AFFECTED_PATHS=("infra/packer" "gcp/code/bootstrap")
+          git fetch origin "${DEFAULT_BRANCH}" --depth=1 2>/dev/null || true
+          changed="$(git diff --name-only "origin/${DEFAULT_BRANCH}...${HEAD_SHA}" -- "${AFFECTED_PATHS[@]}" 2>/dev/null || true)"
+          if [[ -z "${changed//[[:space:]]/}" ]]; then
+            echo "No image-affecting paths changed; skip image build check."
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Image-affecting paths changed; verifying BMT Image Build ran for this ref."
+          runs_json="$(gh run list \
+            --workflow "bmt-image-build.yml" \
+            --branch "${HEAD_BRANCH}" \
+            --limit 30 \
+            --json conclusion,headSha,status \
+            --jq '[.[] | select(.status=="completed" and .conclusion=="success") | .headSha]' 2>/dev/null || echo '[]')"
+          if echo "$runs_json" | jq -e --arg sha "${HEAD_SHA}" 'index($sha) != null' >/dev/null 2>&1; then
+            echo "BMT Image Build succeeded for commit ${HEAD_SHA}."
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::Image-affecting paths changed (infra/packer or gcp/code/bootstrap), but no successful BMT Image Build run found for this ref (branch=${HEAD_BRANCH}, sha=${HEAD_SHA}). Run the BMT Image Build workflow for this branch/commit and re-run BMT."
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
   # Success: setup (includes VM start) → upload-runners → handshake (classify + trigger + wait ack + summary).
   # Failure: setup or handshake fails → handoff runs fallback (post status, cleanup) then sets outputs.
   setup:
     name: Setup
+    needs: check-image-up-to-date
     runs-on: ubuntu-22.04
     permissions:
-      contents: read
-      actions: read
       id-token: write
     outputs:
       run_id: ${{ steps.prepare.outputs.run_id }}
@@ -157,13 +202,13 @@ jobs:
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           AVAILABLE_ARTIFACTS: ${{ inputs.available_artifacts || '[]' }}
-        run: uv run --project .github/bmt bmt filter-upload-matrix
+        run: uv run bmt write-context && uv run bmt filter-upload-matrix
 
       - name: Select available VM from pool
         id: select-vm
         shell: bash
         run: |
-          uv run --project .github/bmt bmt select-available-vm
+          uv run bmt select-available-vm
           selected_vm="$(grep '^selected_vm=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
           echo "BMT_VM_NAME=${selected_vm}" >> "$GITHUB_ENV"
 
@@ -173,24 +218,24 @@ jobs:
         env:
           RUN_CONTEXT: ${{ steps.run-context.outputs.run_context }}
           PR_NUMBER: ${{ steps.prepare.outputs.pr_number }}
-        run: uv run --project .github/bmt bmt preflight-trigger-queue
+        run: uv run bmt preflight-trigger-queue
 
       - name: Sync VM metadata from workflow config
         shell: bash
-        run: uv run --project .github/bmt bmt sync-vm-metadata
+        run: uv run bmt sync-vm-metadata
 
       - name: Force clean VM restart after stale-trigger cleanup
         if: steps.preflight.outputs.restart_vm == 'true'
         shell: bash
         env:
           STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        run: uv run --project .github/bmt bmt force-clean-vm-restart
+        run: uv run bmt write-context && uv run bmt force-clean-vm-restart
 
       - name: Start BMT VM
         id: start-vm
         if: steps.select-vm.outputs.vm_reused_running != 'true'
         shell: bash
-        run: uv run --project .github/bmt bmt start-vm
+        run: uv run start
 
       - name: Workflow summary notice
         run: echo "::notice::BMT result will appear in the PR Checks tab and Comments, not in this workflow summary."
@@ -200,8 +245,6 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     permissions:
-      contents: read
-      actions: read
       id-token: write
     strategy:
       fail-fast: false
@@ -253,7 +296,7 @@ jobs:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
           SOURCE_REF: ${{ needs.setup.outputs.head_sha }}
-        run: uv run --project .github/bmt bmt upload-runner-to-gcs
+        run: uv run bmt upload-runner-to-gcs
         continue-on-error: true
 
       - name: Warn if GCS upload failed
@@ -271,8 +314,6 @@ jobs:
     needs: [setup, upload-runners]
     runs-on: ubuntu-22.04
     permissions:
-      contents: read
-      actions: read
       id-token: write
     outputs:
       # Step-level results for failure-fallback diagnostics
@@ -343,8 +384,6 @@ jobs:
     if: always()
     runs-on: ubuntu-22.04
     permissions:
-      contents: read
-      actions: read
       id-token: write
       statuses: write
     env:

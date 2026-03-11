@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import vm_watcher as watcher  # type: ignore[import-not-found]
+import gcp.code.vm_watcher as watcher  # type: ignore[import-not-found]
 
 
 def test_resolve_requested_legs_expands_project_wide_requests(monkeypatch):

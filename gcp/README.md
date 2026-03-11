@@ -15,7 +15,7 @@ Any extra top-level directory (for example `gcp/vmfs`, `gcp/bucket`, `gcp/bootst
 - Put watcher/orchestrator/bootstrap/lib/config/manager code in `gcp/code`.
 - Keep bootstrap edits under `gcp/code/bootstrap` only.
 - Keep pinned UV checksum in `gcp/code/_tools/uv/linux-x86_64/uv.sha256` (binary is uploaded to bucket by `just sync-gcp`).
-- Keep VM runtime dependency contract in `gcp/code/pyproject.toml` and `gcp/code/uv.lock`.
+- Keep VM runtime dependency contract in `gcp/code/pyproject.toml` and optional `gcp/code/uv.lock`. VM bootstrap uses repo-root `pyproject.toml` for fingerprinting; see [../docs/configuration.md](../docs/configuration.md#pyproject-files).
 - Put runner binaries and input directory placeholders in `gcp/runtime`.
 - Do not put `triggers/`, `results/`, or `outputs/` under `gcp/runtime` (generated at runtime, not source).
 - Do not put local WAV datasets under `gcp/runtime/**/inputs`; keep local corpora under `data/` and upload explicitly.

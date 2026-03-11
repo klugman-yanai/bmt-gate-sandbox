@@ -42,6 +42,7 @@ Thumbs.db
 data/
 sk_runtime/
 .bmt_runtime/
+*.zip
 
 # Secrets and credentials
 secrets/

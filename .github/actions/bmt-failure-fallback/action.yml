@@ -87,7 +87,7 @@ runs:
         ORCH_TRIGGER_WRITTEN: ${{ steps.x.outputs.trigger_written }}
         DISPATCH_HEAD_SHA: ${{ inputs.dispatch_head_sha }}
         DISPATCH_PR_NUMBER: ${{ inputs.dispatch_pr_number }}
-      run: uv run --project .github/bmt bmt resolve-failure-context
+      run: uv run bmt write-context && uv run bmt resolve-failure-context
 
     - name: Classify failure reason
       id: reason
@@ -145,12 +145,12 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
         BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
         BMT_FAILURE_STATUS_DESCRIPTION: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: VM accepted zero supported test runs.' || 'BMT cancelled: VM handshake timeout before pickup.' }}"
-      run: uv run --project .github/bmt bmt post-handoff-timeout-status
+      run: uv run bmt write-context && uv run bmt post-handoff-timeout-status
 
     - name: Cleanup failed trigger artifacts
       if: steps.failctx.outputs.trigger_written == 'true'
       shell: bash
-      run: uv run --project .github/bmt bmt cleanup-failed-trigger-artifacts
+      run: uv run bmt cleanup-failed-trigger-artifacts
 
     - name: Stop VM after workflow failure
       if: steps.failctx.outputs.trigger_written == 'true'

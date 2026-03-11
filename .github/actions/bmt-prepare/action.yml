@@ -49,9 +49,14 @@ runs:
         version: "0.10.9"
         python-version: "3.12"
 
+    - name: Export default uv project
+      shell: bash
+      run: |
+        echo "UV_PROJECT=.github/bmt" >>"$GITHUB_ENV"
+
     - name: Sync BMT uv environment
       shell: bash
-      run: uv sync --project .github/bmt
+      run: uv sync
 
     - id: ctx
       shell: bash
@@ -86,4 +91,4 @@ runs:
       env:
         BMT_OUTPUT_FORMAT: bmt
         BMT_OUTPUT_KEY: runner_matrix
-      run: uv run --project .github/bmt bmt parse-release-runners
+      run: uv run bmt parse-release-runners

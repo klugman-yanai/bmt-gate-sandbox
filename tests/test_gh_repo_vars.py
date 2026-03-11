@@ -6,9 +6,10 @@ import json
 import subprocess
 from pathlib import Path
 
-import gh_repo_vars as repo_vars  # type: ignore[import-not-found]
 import pytest
-from shared_env_contract import default_contract_path
+
+from tools.repo import gh_repo_vars as repo_vars  # type: ignore[import-not-found]
+from tools.shared.env_contract import default_contract_path
 
 
 def _cp(*, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:

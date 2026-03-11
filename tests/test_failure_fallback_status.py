@@ -1,10 +1,73 @@
-"""Tests for fallback terminal status emission (Python bmt post-handoff-timeout-status).
-
-The post-handoff-timeout-status behavior is implemented in cli.commands.workflow
-(run_post_handoff_timeout_status) and is exercised by the bmt-failure-fallback action.
-When the full CLI includes the workflow module, add unit tests here that mock
-github_api.should_post_failure_status and post_commit_status to assert posting
-vs skipping when context is already terminal.
-"""
+"""Unit tests for fallback terminal status emission (Python bmt post-handoff-timeout-status)."""
 
 from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+from cli.commands import workflow
+
+
+@pytest.fixture
+def mock_github_api(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    mock = MagicMock()
+    monkeypatch.setattr(workflow, "github_api", mock)
+    return mock
+
+
+@pytest.fixture
+def mock_config(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    mock = MagicMock()
+    mock.bmt_status_context = "BMT Gate"
+    mock.bmt_failure_status_description = "BMT failed to complete handshake."
+    monkeypatch.setattr(workflow, "get_config", lambda: mock)
+    return mock
+
+
+def test_post_handoff_timeout_status_posts_when_not_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_github_api: MagicMock,
+    mock_config: MagicMock,
+) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("HEAD_SHA", "abc123")
+    mock_github_api.should_post_failure_status.return_value = True
+
+    workflow.run_post_handoff_timeout_status()
+
+    mock_github_api.should_post_failure_status.assert_called_once_with(
+        "owner/repo", "abc123", "BMT Gate"
+    )
+    mock_github_api.post_commit_status.assert_called_once_with(
+        "owner/repo", "abc123", "error", "BMT Gate", "BMT failed to complete handshake."
+    )
+
+
+def test_post_handoff_timeout_status_skips_when_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_github_api: MagicMock,
+    mock_config: MagicMock,
+) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("HEAD_SHA", "abc123")
+    mock_github_api.should_post_failure_status.return_value = False
+
+    workflow.run_post_handoff_timeout_status()
+
+    mock_github_api.should_post_failure_status.assert_called_once()
+    mock_github_api.post_commit_status.assert_not_called()
+
+
+def test_post_handoff_timeout_status_missing_env_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_github_api: MagicMock,
+    mock_config: MagicMock,
+) -> None:
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("HEAD_SHA", raising=False)
+    monkeypatch.delenv("REPOSITORY", raising=False)
+
+    workflow.run_post_handoff_timeout_status()
+
+    mock_github_api.should_post_failure_status.assert_not_called()
+    mock_github_api.post_commit_status.assert_not_called()

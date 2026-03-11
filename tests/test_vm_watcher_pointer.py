@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 
-import vm_watcher as watcher  # type: ignore[import-not-found]
+import gcp.code.vm_watcher as watcher  # type: ignore[import-not-found]
 
 
 def test_results_prefix_from_ci_verdict_uri_basic():
@@ -130,11 +130,11 @@ def test_cleanup_workflow_artifacts_targets_prefixed_and_base_status(monkeypatch
 
 
 def test_keep_recent_workflow_files_from_env(monkeypatch):
-    monkeypatch.setenv("BMT_TRIGGER_METADATA_KEEP_RECENT", "5")
+    # keep_recent is now a constant (TRIGGER_METADATA_KEEP_RECENT) in bmt_config; env no longer overrides.
+    from gcp.code.config import bmt_config
+
     reloaded = importlib.reload(watcher)
-    assert reloaded._KEEP_RECENT_WORKFLOW_FILES == 5
-    monkeypatch.delenv("BMT_TRIGGER_METADATA_KEEP_RECENT", raising=False)
-    importlib.reload(watcher)
+    assert reloaded._KEEP_RECENT_WORKFLOW_FILES == bmt_config.TRIGGER_METADATA_KEEP_RECENT
 
 
 def test_cleanup_legacy_result_history_deletes_archive_and_logs(monkeypatch):

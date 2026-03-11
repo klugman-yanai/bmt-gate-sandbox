@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from cli import shared
 from cli.gh_output import gh_notice, gh_warning
 from cli.shared import require_env
 
@@ -29,7 +28,7 @@ def run_build() -> None:
     if not matrix["include"]:
         gh_warning("No supported release runner rows found in CMake presets.")
     with Path(github_output).open("a", encoding="utf-8") as fh:
-        _ = fh.write(f"{output_key}={json.dumps(matrix, separators=(',', ':'))}\n")
+        fh.write(f"{output_key}={json.dumps(matrix, separators=(',', ':'))}\n")
     print(f"Built matrix rows: {len(matrix['include'])}")
 
 
@@ -136,8 +135,8 @@ def run_filter() -> None:
 
     filtered_json = json.dumps(filtered, separators=(",", ":"))
     with Path(github_output).open("a", encoding="utf-8") as fh:
-        _ = fh.write(f"{output_key}={filtered_json}\n")
-        _ = fh.write(f"{has_legs_key}={has_legs}\n")
+        fh.write(f"{output_key}={filtered_json}\n")
+        fh.write(f"{has_legs_key}={has_legs}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +175,6 @@ def _build_ci_rows(presets: list[dict[str, Any]]) -> list[dict[str, str]]:
         name_lower = name.lower()
         if "xtensa" in name_lower or "hexagon" in name_lower:
             continue
-        project = name[: -len("_gcc_Release")].lower()
         if name in seen:
             continue
         seen.add(name)
@@ -232,7 +230,7 @@ def run_release_runners() -> None:
     if github_output:
         key = (os.environ.get("BMT_OUTPUT_KEY", "") or "").strip() or default_key
         with Path(github_output).open("a", encoding="utf-8") as fh:
-            _ = fh.write(f"{key}={payload_json}\n")
+            fh.write(f"{key}={payload_json}\n")
     else:
         print(payload_json)
 

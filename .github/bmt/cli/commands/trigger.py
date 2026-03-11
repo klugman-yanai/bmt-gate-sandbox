@@ -5,63 +5,62 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-from datetime import UTC, datetime
+import re
 from pathlib import Path
+
+# Import runtime context constant (behavioral; not config)
+from gcp.code.config.bmt_config import DEFAULT_RUNTIME_CONTEXT
+from tools.repo.vars_contract import REPO_VARS_CONTRACT
+from whenever import Instant
 
 from cli import shared
 from cli.gh_output import gh_error
 from cli.shared import DEFAULT_ENV_CONTRACT_PATH, get_config, require_env, write_github_output
 
 DEFAULT_STATUS_CONTEXT = "BMT Gate"
-DEFAULT_RUNTIME_CONTEXT = "BMT Runtime"
+_PUBSUB_PUBLISH_TIMEOUT_SEC = 30
 DEFAULT_DESCRIPTION_PENDING = "BMT runtime in progress; status will update when complete."
 PROJECT_WIDE_BMT_ID = "__all__"
 
 
 def _default_context_from_contract(var_name: str, fallback: str) -> str:
     """Read an env-contract default value when present."""
+    # Python contract (tools.repo.vars_contract) is always available when bmt-gcloud is installed.
+    with contextlib.suppress(Exception):
+        # best-effort: REPO_VARS_CONTRACT may not expose default_dict in all environments
+        defaults = REPO_VARS_CONTRACT.default_dict()
+        ctx = defaults.get(var_name)
+        if ctx and str(ctx).strip():
+            return str(ctx).strip()
     for base in (Path.cwd(), Path(__file__).resolve().parents[3]):
         contract_path = base / DEFAULT_ENV_CONTRACT_PATH
         if not contract_path.is_file():
             continue
-        if contract_path.suffix == ".py":
-            # Python contract module: get defaults without parsing as JSON.
-            with contextlib.suppress(Exception):
-                import sys
-                tools_dir = contract_path.resolve().parent
-                if str(tools_dir) not in sys.path:
-                    sys.path.insert(0, str(tools_dir))
-                from repo_vars_contract import REPO_VARS_CONTRACT  # noqa: PLC0415
-                defaults = REPO_VARS_CONTRACT.default_dict()
+        if contract_path.suffix == ".json":
+            with contextlib.suppress(OSError, json.JSONDecodeError, TypeError):
+                with contract_path.open() as f:
+                    contract = json.load(f)
+                defaults = contract.get("defaults") or {}
                 ctx = defaults.get(var_name)
                 if ctx and str(ctx).strip():
                     return str(ctx).strip()
-            break
-        with contextlib.suppress(OSError, json.JSONDecodeError, TypeError):
-            with contract_path.open() as f:
-                contract = json.load(f)
-            defaults = contract.get("defaults") or {}
-            ctx = defaults.get(var_name)
-            if ctx and str(ctx).strip():
-                return str(ctx).strip()
         break
     return fallback
 
 
 def _list_pending_trigger_uris(runtime_bucket_root: str) -> list[str]:
     """List existing run trigger URIs under runtime root."""
+    from cli import gcs
+
     prefix = f"{runtime_bucket_root}/triggers/runs/"
-    rc, out = shared.run_capture(["gcloud", "storage", "ls", prefix])
-    if rc != 0:
-        text = (out or "").lower()
-        if "matched no objects" in text or "one or more urls matched no objects" in text:
-            return []
-        raise RuntimeError(f"Failed to list pending triggers at {prefix}: {out}")
-    return [line.strip() for line in (out or "").splitlines() if line.strip().endswith(".json")]
+    try:
+        return [uri for uri in gcs.list_prefix(prefix) if uri.endswith(".json")]
+    except gcs.GcsError as exc:
+        raise RuntimeError(f"Failed to list pending triggers at {prefix}: {exc}") from exc
 
 
 def _default_run_id(project: str, bmt_id: str) -> str:
-    now = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    now = Instant.now().format_iso(unit="second", basic=True)
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     sha = _resolve_source_sha()[:12]
@@ -69,9 +68,11 @@ def _default_run_id(project: str, bmt_id: str) -> str:
     return shared.sanitize_run_id(raw)
 
 
+_FULL_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
+
+
 def _is_full_sha(value: str) -> bool:
-    v = value.strip()
-    return len(v) == 40 and all(ch in "0123456789abcdefABCDEF" for ch in v)
+    return bool(_FULL_SHA_RE.fullmatch(value.strip()))
 
 
 def _resolve_source_sha() -> str:
@@ -135,13 +136,10 @@ def run_trigger() -> None:
         "BMT_STATUS_CONTEXT",
         DEFAULT_STATUS_CONTEXT,
     )
-    runtime_ctx = cfg.bmt_runtime_context or _default_context_from_contract(
-        "BMT_RUNTIME_CONTEXT",
-        DEFAULT_RUNTIME_CONTEXT,
-    )
+    runtime_ctx = DEFAULT_RUNTIME_CONTEXT
 
     runtime_bucket_root = shared.runtime_bucket_root_uri(bucket)
-    triggered_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    triggered_at = Instant.now().format_iso(unit="second")
     sha = _resolve_source_sha()
     if not _is_full_sha(sha):
         raise RuntimeError("Unable to resolve a valid 40-char source SHA (HEAD_SHA or GITHUB_SHA).")
@@ -203,7 +201,7 @@ def run_trigger() -> None:
         publisher = pubsub_v1.PublisherClient()
         topic_path = publisher.topic_path(cfg.gcp_project, pubsub_topic)
         future = publisher.publish(topic_path, json.dumps(run_payload).encode())
-        future.result()
+        future.result(timeout=_PUBSUB_PUBLISH_TIMEOUT_SEC)
         print(f"Published trigger to Pub/Sub topic {pubsub_topic!r}")
 
     manifest = {"legs": legs}

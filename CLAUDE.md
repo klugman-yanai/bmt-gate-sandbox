@@ -14,7 +14,7 @@ You author config/scripts here, test locally against real infra, and push assets
 
 **Conventions:** `gcp/` is the source of truth for deployable VM code/config/templates and syncs manually to bucket `code/`; runtime artifacts live under bucket `runtime/`. Default jobs config for local runs is `gcp/code/sk/config/bmt_jobs.json`.
 
-**Canonical flow for testing production CI locally:** [docs/testing-production-ci-locally.md](docs/testing-production-ci-locally.md).
+**Canonical flow for testing production CI locally:** [docs/development.md](docs/development.md#testing-production-ci-locally).
 
 **Docs index:** [docs/README.md](docs/README.md).
 
@@ -24,7 +24,7 @@ Use a single, consistent approach for time so timestamps and durations stay corr
 
 | Need | Use | Notes |
 | ---- | --- | ------ |
-| **Wall-clock “now”** (timestamps, TTL, age vs stored time) | `datetime.now(timezone.utc)` | Prefer `.timestamp()` when you need epoch float (e.g. cutoff, cache TTL). Use project helpers (`now_iso()`, `now_stamp()`, `utc_epoch()`) where available. |
+| **Wall-clock “now”** (timestamps, TTL, age vs stored time) | `datetime.now(timezone.utc)` | Prefer `.timestamp()` when you need epoch float (e.g. cutoff, cache TTL). Use project helpers (`now_iso()`, `now_stamp()`) where available. |
 | **Durations / elapsed time** (how long something took, timeouts) | `time.monotonic()` | Not comparable to wall-clock or `st_mtime`; use only for deltas. |
 | **Sleep / backoff** | `time.sleep()` | For retries and polling intervals. |
 | **Non-UTC display or scheduling** | `zoneinfo` (stdlib in 3.9+) | Use when you need a specific timezone; otherwise stick to UTC. |
@@ -37,38 +37,25 @@ Scripts organized by category prefix:
 
 | Prefix | Category | Description |
 | ------ | -------- | ----------- |
-| `shared_*` | Shared libraries | Not executed directly; imported by other scripts |
-| `bucket_*` | GCS operations | Sync, upload, validate bucket contents |
-| `bmt_*` | BMT execution | Local batch runner, live monitor |
-| `gh_*` | GitHub/debug | Env inspection, app permissions |
+| `tools/shared/` | Shared libraries | Not executed directly; imported by other tools |
+| `tools/remote/` | GCS / bucket | Sync, upload, verify, validate bucket; `bucket_*`, `bmt_monitor`, `bmt_run_local`, `bmt_wait_verdicts` |
+| `tools/bmt/` | BMT execution | Local batch runner, live monitor, wait verdicts |
+| `tools/repo/` | Repo / GitHub | Layout policies, gh_* (env, app perms, repo vars, validate VM vars), paths, vars_contract, results_prefix |
+| `tools/terraform/` | Terraform | Export Terraform outputs to GitHub repo vars |
 
-**Files:**
-- `shared_bucket_env.py` — Bucket URI helpers, click option for `--bucket`; fixed code/runtime roots.
-- `shared_time_utils.py` — UTC timestamp helpers (`now_iso`, `now_stamp`, `utc_epoch`)
-- `bucket_sync_gcp.py` — Sync `gcp/` to GCS
-- `bucket_upload_runner.py` — Upload runner binary with rotation
-- `bucket_upload_wavs.py` — Upload wav datasets
-- `bucket_validate_contract.py` — Validate required bucket objects
-- `bmt_run_local.py` — Local batch runner (no GCS/VM)
-- `bmt_monitor.py` — Live TUI dashboard for workflow/VM/GCS status
-- `gh_show_env.py` — Show env vars used by CI, VM, and tools
-- `gh_app_perms.py` — Fetch GitHub App permissions via JWT
-- `terraform_repo_vars.py` — Export Terraform outputs to GitHub repo vars; **`just terraform-export-vars`**, **`just terraform-export-vars-apply`**
-- `gh_repo_vars.py` — Repo vars check/apply (Terraform-backed); use with `just repo-vars-check`, `just repo-vars-apply`
-- `gh_validate_vm_vars.py` — Validate VM-related vars; `just validate-vm-vars`
-- `bucket_verify_gcp_sync.py`, `bucket_verify_runtime_seed_sync.py` — Verify sync (used by `just verify-sync`)
-- `bucket_clean_bloat.py` — Remove Python/uv bloat from GCS; `just clean-bloat`
-- `gcp_layout_policy.py` — Validate `gcp/` as 1:1 bucket mirror; **`just validate-layout`**
-- `repo_layout_policy.py` — Validate repo root (allowed/required top-level); **`just validate-repo-layout`**
-- `env_surface_report.py` — Env surface report (optional)
-- `diff_github_core_main.py` — Diff this repo vs core-main; run with `CORE_MAIN=<path> uv run python tools/diff_github_core_main.py` (see [docs/drift-core-main-vs-bmt-gcloud.md](docs/drift-core-main-vs-bmt-gcloud.md); `just diff-core-main` if defined)
-- `bmt_wait_verdicts.py` — Wait for verdicts (optional/local)
+**Run tools** via `uv run python -m tools.<folder>.<module>` (e.g. `uv run python -m tools.remote.bucket_sync_gcp`) or `just` recipes. Key modules:
 
-**Layout validators:** Use **`just validate-layout`** to check the `gcp/` directory (code + runtime) matches the bucket mirror contract. Use **`just validate-repo-layout`** to check repo root (allowed top-level dirs/files, required paths). Run both when changing layout or adding root-level entries.
+- **shared/** — `bucket_env.py`, `bucket_sync.py`, `layout_patterns.py`, `gh.py`, `verdict.py`, `time_utils.py`, `env_contract.py`
+- **remote/** — `bucket_sync_gcp.py`, `bucket_verify_gcp_sync.py`, `bucket_verify_runtime_seed_sync.py`, `bucket_sync_runtime_seed.py`, `bucket_upload_runner.py`, `bucket_upload_wavs.py`, `bucket_validate_contract.py`, `bucket_clean_bloat.py`, `bmt_monitor.py`, `bmt_run_local.py`, `bmt_wait_verdicts.py`
+- **bmt/** — `bmt_run_local.py`, `bmt_monitor.py`, `bmt_wait_verdicts.py` (also in remote; use bmt for `just monitor`)
+- **repo/** — `gcp_layout_policy.py`, `repo_layout_policy.py`, `gh_show_env.py`, `gh_app_perms.py`, `gh_repo_vars.py`, `gh_validate_vm_vars.py`, `paths.py`, `vars_contract.py`, `results_prefix.py`
+- **terraform/** — `terraform_repo_vars.py`
 
-**Config vs repo vars:** **Terraform** (infra/terraform) is the source of truth for all non-secret configuration. Run **`just terraform-export-vars-apply`** to set GitHub repo variables from Terraform outputs. **infra/bootstrap/** holds shell bootstrap (`.env.example`, `bootstrap_gh_vars.sh`) for secrets and one-off `gh variable set` / `gh secret set`. **`tools/gh_repo_vars.py`** checks or applies repo vars (expected values from Terraform when available); use `just repo-vars-check` and `just repo-vars-apply`. See [infra/README.md](infra/README.md).
+**Layout validators:** Run **`just test`** to run both layout policies (gcp + repo). Or run `uv run python -m tools.repo.gcp_layout_policy` and `uv run python -m tools.repo.repo_layout_policy` separately when changing layout or adding root-level entries.
 
-All scripts use `click` for CLI parsing. Run `just` to see available recipes.
+**Config vs repo vars:** **Terraform** (infra/terraform) is the source of truth for all non-secret configuration. Run **`just terraform-export-vars-apply`** to set GitHub repo variables from Terraform outputs. **infra/bootstrap/** holds shell bootstrap (`.env.example`, `bootstrap_gh_vars.sh`) for secrets and one-off `gh variable set` / `gh secret set`. **`tools/repo/gh_repo_vars.py`** checks or applies repo vars (expected values from Terraform when available); use `just repo-vars-check` and `just repo-vars-apply`. See [infra/README.md](infra/README.md).
+
+Tools are **Python classes** with a `run()` method (and optional attributes). When run as scripts they read configuration from **environment variables only** (no CLI flags). Use `just` to see and run recipes.
 
 ## Linting and Type Checking
 
@@ -102,15 +89,15 @@ These cover: pointer resolution and path construction in the manager (`tests/sk/
 
 ### Local BMT batch (no GCS)
 
-Runs the **local** batch runner (different code path from the VM manager); useful for runner/config/score logic only:
+Runs the **local** batch runner (different code path from the VM manager); useful for runner/config/score logic only. Set env and run (or call `BmtRunLocal().run(...)` from Python):
 
 ```bash
-python3 tools/bmt_run_local.py \
-  --bmt-id false_reject_namuh \
-  --jobs-config gcp/code/sk/config/bmt_jobs.json \
-  --runner gcp/runtime/sk/runners/kardome_runner \
-  --dataset-root data/sk/inputs/false_rejects \
-  --workers 4
+BMT_ID=false_reject_namuh \
+BMT_JOBS_CONFIG=gcp/code/sk/config/bmt_jobs.json \
+BMT_RUNNER=gcp/runtime/sk/runners/kardome_runner \
+BMT_DATASET_ROOT=data/sk/inputs/false_rejects \
+BMT_WORKERS=4 \
+uv run python tools/bmt_run_local.py
 ```
 
 ### Testing the pointer/snapshot flow (with GCS)
@@ -188,7 +175,7 @@ GCS_BUCKET="<bucket>" python3 tools/bucket_validate_contract.py --require-runner
 
 ### CI Pipeline (trigger-and-stop — `.github/workflows/dummy-build-and-test.yml`)
 
-The workflow uses **uv-managed Python**: `astral-sh/setup-uv`, then `uv sync` and `uv run python ... ci_driver.py`. The VM runs the watcher with `uv run python gcp/code/vm_watcher.py` from the repo root (same uv-managed venv).
+The workflow uses **uv-managed Python**: `astral-sh/setup-uv`, then `uv sync` and `uv run bmt <cmd>`. The VM runs the watcher with `uv run python gcp/code/vm_watcher.py` from the repo root (same uv-managed venv).
 
 The workflow has two jobs; it does not block for the full BMT run. All CI logic is in **`.github/scripts/ci_driver.py`**:
 
@@ -221,12 +208,12 @@ Python package co-located with `ci_driver.py` at `.github/scripts/`. `ci_driver.
 
 The `gcp/` directory mirrors the bucket `code/` namespace. On the VM:
 
-- **vm_watcher.py** — Polls GCS for run triggers. For each trigger: posts pending commit status, creates/updates a **GitHub Check Run** (implemented), runs `root_orchestrator.py` once per leg, reads verdicts from manager summaries (in-memory), updates each leg's `current.json` pointer and cleans stale snapshots, posts final commit status, completes the Check Run, deletes trigger. Optionally exits after one run (`--exit-after-run`) so the VM can stop. **PR comments are not implemented.**
+- **vm_watcher.py** — Polls GCS (or Pub/Sub) for run triggers. For each trigger: posts pending commit status, creates/updates a **GitHub Check Run** (implemented), runs `root_orchestrator.py` once per leg, reads verdicts from manager summaries (in-memory), updates each leg's `current.json` pointer and cleans stale snapshots, posts final commit status, completes the Check Run, deletes trigger. With `--exit-after-run`, after each run the VM idles for `--idle-timeout-sec` (default 600) waiting for another trigger; if none arrives, it exits so the startup script can stop the instance. The workflow reuses RUNNING VMs (no stop/start) so consecutive runs avoid cold boot. **PR comments are not implemented.**
 - **root_orchestrator.py** — Per leg: downloads `bmt_projects.json`, jobs config, and the project’s manager script from the bucket; invokes the manager with bucket, project, bmt_id, run_id, run_context; writes root summary to GCS.
 - **Per-project managers** — Each project has its own **bmt_manager.py** (e.g. `sk/bmt_manager.py`). They load BMT job config (dict/JSON), cache runner/template/dataset from GCS via `gcloud` CLI, run the runner binary per WAV in a thread pool, parse scores, evaluate gate, and write outputs under `{results_prefix}/snapshots/{run_id}/` (latest.json, ci_verdict.json, logs). Baseline is read by resolving `current.json` to the last-passing snapshot.
 - **gcp/code/lib/** — Shared VM-side code only: `github_auth.py` (GitHub App JWT + installation token), `github_checks.py` (Check Run create/update), `status_file.py`. No `bmt_lib/` or `github_api.py` in the current implementation.
 
-See **docs/architecture.md** for the full script reference; **docs/implementation.md** for current data flow and limitations. Planned changes (SDK, Pydantic, bmt_lib, PR comments): **docs/plans/future-architecture.md**.
+See **docs/architecture.md** for the full script reference, data flow, and limitations. Planned changes (SDK, Pydantic, bmt_lib, PR comments): **docs/plans/future-architecture.md**.
 
 ### Config Files
 
@@ -238,7 +225,7 @@ See **docs/architecture.md** for the full script reference; **docs/implementatio
 
 Each (project, bmt_id) has a **canonical pointer** at `{results_prefix}/current.json`. The manager never writes to the pointer; it writes all outputs under `{results_prefix}/snapshots/{run_id}/` (latest.json, ci_verdict.json, logs). After all legs complete, the watcher updates `current.json` (latest + last_passing run_ids) and deletes snapshots not referenced by the pointer. The gate reads baseline by resolving the pointer to the last-passing snapshot.
 
-The **Check Run** is implemented and runs after the watcher updates `current.json` (after all legs complete); it reads from in-memory aggregation. PR comments are **not** implemented. Commit status and Check Run must not assume any file exists at the bare `results_prefix/` root other than `current.json`. Every outcome must produce a clear commit status and Check Run; see `docs/communication-flow.md`.
+The **Check Run** is implemented and runs after the watcher updates `current.json` (after all legs complete); it reads from in-memory aggregation. PR comments are **not** implemented. Commit status and Check Run must not assume any file exists at the bare `results_prefix/` root other than `current.json`. Every outcome must produce a clear commit status and Check Run; see `docs/github-and-ci.md`.
 
 ### Key Result Paths
 
@@ -266,7 +253,7 @@ gh variable set GCP_ZONE "<zone>"
 gh variable set BMT_VM_NAME "<vm-name>"
 ```
 
-**Required (from Terraform):** `BMT_PROJECTS`, `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Terraform (variables in `infra/terraform/variables.tf`) and export to GitHub with `just terraform-export-vars-apply`. Do not set them manually as optional overrides.
+**Required (from Terraform):** `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Terraform (variables in `infra/terraform/variables.tf`) and export to GitHub with `just terraform-export-vars-apply`. Do not set them manually as optional overrides.
 
 | Variable | Purpose |
 | -------- | ------- |
@@ -278,7 +265,6 @@ gh variable set BMT_VM_NAME "<vm-name>"
 | `BMT_VM_NAME` | VM instance name (workflow starts it; VM stops itself after one run) |
 | `BMT_STATUS_CONTEXT` | Commit status name (from Terraform; must match branch protection) |
 | `BMT_HANDSHAKE_TIMEOUT_SEC` | Handshake timeout seconds (from Terraform) |
-| `BMT_PROJECTS` | Projects filter, e.g. `all` or `["sk"]` (from Terraform) |
 
 **Optional** (leave unset for defaults): **Sandbox/testing:** `BMT_RUNNERS_PRESEEDED_IN_GCS` — when set to `true`, the workflow does not download runner artifacts; it verifies runners already exist in GCS and skips the upload-runners job (avoids "artifact not found" in bmt-gate-sandbox).
 

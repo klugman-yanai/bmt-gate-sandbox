@@ -1,0 +1,7 @@
+# VM runtime dependencies for vm_watcher (single source of truth).
+# Used by install_deps.sh and Packer (bmt-runtime.pkr.hcl). Keep in sync with pyproject.toml [vm] extras.
+httpx>=0.27
+google-cloud-storage>=2.16
+google-cloud-pubsub>=2.21
+PyJWT>=2.0
+cryptography>=41.0

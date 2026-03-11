@@ -87,24 +87,66 @@ uv run python .github/scripts/ci_driver.py wait \
 
 ---
 
+## Testing production CI locally
+
+This is the **canonical guide** for testing production BMT CI locally using the real VM and GCS (no mocks). Follow it when you want to validate the full handoff path before pushing to production.
+
+**Prerequisites**
+
+- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, and the Terraform-exported vars (`just terraform-export-vars-apply`), including `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
+- **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
+- **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
+
+Confirm env: `gh variable list` or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` as needed.
+
+**Strict prerequisite: sync the mirror**
+
+Before running any workflow steps, sync the local mirror to the bucket so the VM runs the same code and layout you have locally:
+
+```bash
+just deploy
+```
+
+Skipping this can cause the VM to run stale code. Re-run after changing anything under `gcp/`.
+
+**Option A: Deploy then trigger**
+
+After prerequisites and sync, trigger the real CI (push to your branch or use **Actions → BMT → Run workflow**). The workflow writes a trigger, starts the VM, and waits for handshake. Use `just vm-check <run_id>` to inspect trigger/ack and VM serial output.
+
+**Option B: Manual sequence**
+
+1. Sync mirror: `just deploy`.
+2. **Matrix** — `export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-matrix.out"`, `mkdir -p .local`, `BMT_CONFIG_ROOT=gcp/code UV_PROJECT=.github/bmt uv run bmt matrix`.
+3. **Trigger** — Pick `RUN_ID="local-$(date +%s)"`, set `GITHUB_RUN_ID`, `GITHUB_OUTPUT`, `FILTERED_MATRIX_JSON`, `RUN_CONTEXT`, `GITHUB_REPOSITORY`; run `UV_PROJECT=.github/bmt uv run bmt write-run-trigger`.
+4. **Sync VM metadata** — `UV_PROJECT=.github/bmt uv run bmt sync-vm-metadata` (or the equivalent CI step).
+5. **Start the VM** — `UV_PROJECT=.github/bmt uv run bmt start-vm` (debug/maintenance only; routine starts come from the workflow).
+6. **Wait for handshake** — Use the workflow or poll `runtime/triggers/acks/<run_id>.json`.
+7. **Verify** — `just monitor`, `just vm-check <run_id>`, GitHub PR Checks, GCS `current.json` and `snapshots/<run_id>/`.
+
+**Verify**
+
+- Trigger, ack, and VM serial: `just vm-check <run_id>` (read-only; does not start the VM).
+- Live TUI: `just monitor` or `just monitor --run-id <run_id>`.
+- Outcome: Check Run and commit status in GitHub; `current.json` and snapshot dirs in GCS at the results prefix.
+
+See [architecture.md](architecture.md) and [plans/high-level-design-improvements.md](plans/high-level-design-improvements.md) for strategy and rationale.
+
+---
+
 ## Lint and type check
 
-Config: [../pyproject.toml](../pyproject.toml) (excludes `.venv`, `data`, `bmt_workspace`, `sk_runtime`, `local_batch`, `secrets`).
+All of the following are run by **`just test`** (pytest, ruff check, ruff format --check, basedpyright, shellcheck, gcp layout policy, repo layout policy). To run only lint/typecheck:
 
 ```bash
 ruff check .
 ruff format --check .
 basedpyright
-```
-
-Or:
-
-```bash
-just lint
+shellcheck --severity=warning gcp/code/bootstrap/*.sh .github/bmt/cli/resources/startup_entrypoint.sh scripts/hooks/*.sh
 ```
 
 - **ruff:** Line length 120, Python 3.12 target.
 - **basedpyright:** Type checking across `.github/scripts`, `gcp/`, `tools/`.
+- **shellcheck:** Bootstrap and startup scripts under `gcp/code/bootstrap/`, `.github/bmt/cli/resources/startup_entrypoint.sh`, and `scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
 
 ---
 
@@ -113,32 +155,14 @@ just lint
 Run `just` (or `just --list`) for the full list. Key recipes:
 
 | Recipe | Purpose |
-|--------|---------|
-| `just test` | Unit tests (pytest). |
-| `just lint` | ruff check + format check + basedpyright. |
-| `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --auto`). |
-| `just sync-gcp` | Sync `gcp/code` to `<code-root>` (requires `GCS_BUCKET`). Skip when already in sync; use `--force` to re-sync. |
-| `just sync-runtime-seed` | Sync `gcp/runtime` to `<runtime-root>`. Skip when already in sync; use `--force` to re-sync. |
-| `just verify-sync` | Verify `gcp/code` and `gcp/runtime` match bucket manifests. |
-| `just deploy` | **Single deploy entrypoint:** runs `just sync-gcp` then `just verify-sync`. Run before `just prod-ci-local` to push the deploy surface to the bucket. |
-| `just clean-bloat [--scope code\|runtime\|both] [--execute]` | List/remove Python/uv bloat in GCS (dry-run by default). **Dangerous** with `--execute`. |
-| `just validate-layout` | Validate canonical `gcp/` mirror policy. |
-| `just validate-repo-layout` | Validate repo top-level layout policy (root clutter + tracked path policy). |
-| `just upload-runner` | Upload runner to bucket. Skip when size unchanged; use `--force` to re-upload. |
-| `just upload-wavs <source_dir>` | Upload wav dataset to bucket (explicit source path, e.g. `data/sk/inputs/false_rejects`). Skip when dest in sync; use `--force` to re-upload. |
-| `just validate-bucket` | Validate bucket contract (optional `--require-runner` via script). |
-| `just sync-vm-metadata` | Sync startup-critical VM metadata from repo configuration. Skip when already in sync; use `--force` to re-sync. |
-| `just start-vm [args]` | Manual VM start wrapper for debug/maintenance/testing. |
-| `just wait-handshake <workflow_run_id>` | Wait for VM ack under runtime triggers. |
-| `just show-env` | Print env var names used by CI, VM, and tools. |
-| `just repo-vars-check` | Check repo vars against contract + optional overrides + branch-rule consistency (e.g. `BMT_STATUS_CONTEXT`). |
-| `just repo-vars-apply` | Apply vars to GitHub (with optional args). Skip when vars already match; use `--force` to re-set all managed vars. |
-| `just validate-vm-vars` | Ensure repo vars match VM metadata. |
-| `just gcs-trigger <run_id>` | Show trigger and ack JSON for a workflow run. |
-| `just vm-serial` | Stream VM serial output. |
-| `just check-vm-gcs <run_id>` | Trigger/ack + VM serial tail. |
+| --- | --- |
+| `just test` | **Pre-push gate:** pytest, ruff check, ruff format --check, basedpyright, shellcheck, gcp layout policy, repo layout policy. |
+| `just deploy` | Sync `gcp/` to bucket and verify (sync code + runtime seed, then verify). Requires `GCS_BUCKET`. Run after changing gcp/ code. |
+| `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --run-id <id>`). |
+| `just vm-check <run_id>` | Show trigger, ack, and VM serial tail for a run. Read-only; does not start the VM. |
+| `just build-image [branch]` | Dispatch the BMT Image Build workflow (branch defaults to current). |
 
-**Bootstrap / one-off safety:** The sync, upload, sync-vm-metadata, and repo-vars-apply commands are **idempotent**: they skip work when the target is already in sync (e.g. manifest or content matches). Re-running after bootstrap is safe. Use `--force` to re-sync or re-upload when you have intentionally changed content.
+Other operations (sync, upload, validate, repo vars, bmt matrix/trigger, etc.) are run via `uv run python -m tools.<folder>.<module>` (e.g. `tools.remote.bucket_sync_gcp`, `tools.repo.gh_repo_vars`) or `uv run bmt <cmd>`; see [CLAUDE.md](../CLAUDE.md) and `uv run bmt --help`.
 
 ---
 
@@ -161,27 +185,26 @@ There is **no formal build step** for the BMT pipeline. Deployment is:
 2. **Manual sync `gcp/runtime` seed to `<runtime-root>`** when seed artifacts change:
 
    ```bash
-   GCS_BUCKET="<bucket>" uv run python tools/bucket_sync_runtime_seed.py
-   GCS_BUCKET="<bucket>" uv run python tools/bucket_verify_runtime_seed_sync.py
-   # or: just sync-runtime-seed && just verify-sync
+   GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_sync_runtime_seed
+   GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_verify_runtime_seed_sync
    ```
 
 3. **Upload runner and datasets** as needed:
 
-```bash
-GCS_BUCKET="<bucket>" uv run python tools/bucket_upload_runner.py --runner-path <path>
-GCS_BUCKET="<bucket>" uv run python tools/bucket_upload_wavs.py --source-dir data/sk/inputs/false_rejects
-```
+   ```bash
+   GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_upload_runner
+   GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_upload_wavs
+   ```
 
 Dataset policy:
+
 - `data/` is the local authoritative source for large WAV corpora.
 - `gcp/runtime/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
 
-4. **Validate bucket contract:**
+1. **Validate bucket contract:**
 
    ```bash
-   GCS_BUCKET="<bucket>" uv run python tools/bucket_validate_contract.py [--require-runner]
-   # or: just validate-bucket
+   GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_validate_contract
    ```
 
 CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `gcp/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../gcp/code/bootstrap/README.md](../gcp/code/bootstrap/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
@@ -192,6 +215,8 @@ The **BMT Image Build** workflow (`.github/workflows/bmt-image-build.yml`) build
 
 - **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/code/bootstrap/**` trigger the image build. The new image is published to the same family; Terraform and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
 - **Manual:** Run the workflow from the Actions tab (**BMT Image Build** → Run workflow) to rebuild with default inputs.
+- **Image-up-to-date check:** The BMT workflow runs a **Check image up to date** job first. If image-affecting paths changed on your branch/commit but no successful BMT Image Build run exists for that ref, the job fails with a clear message; run BMT Image Build for the branch and re-run BMT.
+- **Pre-commit:** When you commit under `infra/packer/` or `gcp/code/bootstrap/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/code/bootstrap/README.md](../gcp/code/bootstrap/README.md).
 - **Using the new image:** New VMs get the latest image automatically. For an existing VM, run the **BMT VM Provision** workflow (with the same image family) and recreate the instance if you need the new disk image (e.g. after cloud-init or bootstrap changes).
 
 ### Cleaning GCS and VM of Python/uv bloat
@@ -199,31 +224,32 @@ The **BMT Image Build** workflow (`.github/workflows/bmt-image-build.yml`) build
 To remove existing `__pycache__`, `.pyc`, `.venv`, and similar bloat from the bucket (e.g. after fixing sync excludes):
 
 - **GCS:** Run a dry-run first, then execute:
+
   ```bash
   GCS_BUCKET="<bucket>" just clean-bloat              # default: code scope, dry-run
   GCS_BUCKET="<bucket>" just clean-bloat --execute    # delete bloat under code
   GCS_BUCKET="<bucket>" just clean-bloat --scope both --execute   # code + runtime
   ```
+
 - **VM:** The startup wrapper removes bloat under `BMT_REPO_ROOT` after each code sync, so the next VM boot will clean the local tree. No extra step required.
 
 ## Bootstrap runbook
 
 Use this when handshake ack does not appear under `<runtime-root>/triggers/acks/<run_id>.json`.
 
-**Before testing a live PR:** Sync the bucket first (`just sync-gcp && just verify-sync`), then commit and push your branch. The pre-commit hook blocks commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`), so the VM runs the same code and config as your branch.
+Bootstrap runbook: "just deploy" (or `uv run python -m tools.remote.bucket_sync_gcp` then verify). The pre-commit hook blocks commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`), so the VM runs the same code and config as your branch.
 
 1. **Validate local layout and code sync**
 
    ```bash
-   just validate-layout
-   just sync-deploy
-   just verify-sync
+   uv run python -m tools.repo.gcp_layout_policy
+   just deploy
    ```
 
 2. **Validate bucket bootstrap objects**
 
    ```bash
-   GCS_BUCKET="<bucket>" uv run python tools/bucket_validate_contract.py
+   GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_validate_contract
    gcloud storage ls "gs://<bucket>/code/pyproject.toml"
    gcloud storage ls "gs://<bucket>/code/uv.lock"
    gcloud storage ls "gs://<bucket>/code/_tools/uv/linux-x86_64/uv"

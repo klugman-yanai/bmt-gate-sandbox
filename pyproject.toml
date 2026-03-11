@@ -1,11 +1,13 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "bmt-cloud-dev"
+name = "bmt-gcloud"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "bmt",
-    "click>=8.1.0",
     "rich>=13.0",
     "requests>=2.31.0",
     "whenever>=0.9.5",
@@ -16,11 +18,11 @@ dependencies = [
 bmt = { workspace = true }
 
 [tool.uv]
-# Workspace root only; do not attempt to build/install a root package.
-package = false
+# Root installable package exposing gcp and tools for CLI/tests. No PYTHONPATH/sys.path.
+package = true
 
 [tool.uv.workspace]
-members = [".github/bmt"]
+members = [".github/bmt", "gcp/code"]
 
 [project.optional-dependencies]
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
@@ -29,7 +31,11 @@ vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# bmt is a workspace member (.github/bmt); root is intentionally non-packaged.
+# Root package exposes gcp + tools. gcp/code is a workspace member for VM install.
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gcp*", "tools*"]
 
 [tool.basedpyright]
 include = ["."]
@@ -37,6 +43,7 @@ exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime"
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
+# Root package provides gcp, tools; bmt is installed from workspace.
 extraPaths = [".github/bmt"]
 # Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
 reportExplicitAny = false
@@ -48,11 +55,11 @@ reportUnknownArgumentType = false
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
+    "google-auth-stubs>=0.3.0",
     "httpx>=0.28.1",
     "prek>=0.3.3",
     "pyjwt>=2.11.0",
     "pytest>=9.0.2",
-    "pytest-cov>=7.0.0",
     "pytest-github-actions-annotate-failures>=0.4.0",
     "pytest-mock>=3.15.1",
     "pytest-randomly>=4.0.1",
@@ -61,12 +68,13 @@ dev = [
     "pytest-subprocess>=1.5.3",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
+    "whenever>=0.9.5",
 ]
 
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --timeout-method=thread --cov=.github/bmt/cli --cov=gcp/code --cov=tools --cov-report=term-missing --cov-report=xml --junitxml=junit.xml"
+addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --timeout-method=thread"
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",

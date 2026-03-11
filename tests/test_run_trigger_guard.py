@@ -23,7 +23,6 @@ def _set_required_env(monkeypatch: pytest.MonkeyPatch, output_file: Path, matrix
     monkeypatch.setenv("GITHUB_REF", "refs/heads/dev")
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("BMT_STATUS_CONTEXT", "BMT Gate")
-    monkeypatch.setenv("BMT_RUNTIME_CONTEXT", "BMT Runtime")
     monkeypatch.setenv("FILTERED_MATRIX_JSON", matrix)
     monkeypatch.setenv("RUN_CONTEXT", run_context)
 

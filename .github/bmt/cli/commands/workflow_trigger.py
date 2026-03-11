@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import contextlib
 import os
-from datetime import UTC, datetime
+import re
 from pathlib import Path
 
+from gcp.code.config.bmt_config import (
+    PREEMPT_ON_PR_STALE_QUEUE,
+    TRIGGER_METADATA_KEEP_RECENT,
+    TRIGGER_STALE_SEC,
+)
+from whenever import Instant
+
 from cli import gcs
-from cli.shared import _workflow_run_id, _workflow_runtime_root
+from cli.shared import workflow_run_id, workflow_runtime_root
+
+_FULL_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
 
 
 def _trigger_payload_is_valid(uri: str) -> bool:
@@ -22,9 +31,7 @@ def _trigger_payload_is_valid(uri: str) -> bool:
     if not (isinstance(repo, str) and "/" in repo):
         return False
     sha = payload.get("sha")
-    if not (
-        isinstance(sha, str) and len(sha) == 40 and all(c in "0123456789abcdefABCDEF" for c in sha)
-    ):
+    if not (isinstance(sha, str) and _FULL_SHA_RE.fullmatch(sha)):
         return False
     ref = payload.get("ref")
     if not (isinstance(ref, str) and ref.startswith("refs/")):
@@ -57,7 +64,7 @@ def _trigger_identity(uri: str) -> tuple[str, str, str]:
     return (repo, ctx, pr)
 
 
-def _trigger_age_seconds(uri: str, *, now: datetime | None = None) -> int | None:
+def _trigger_age_seconds(uri: str, *, now: Instant | None = None) -> int | None:
     """Return trigger age in seconds from payload.triggered_at, or None when unavailable/invalid."""
     payload, _ = gcs.download_json(uri)
     if not payload:
@@ -69,25 +76,18 @@ def _trigger_age_seconds(uri: str, *, now: datetime | None = None) -> int | None
     if value.endswith("Z"):
         value = f"{value[:-1]}+00:00"
     try:
-        triggered_at = datetime.fromisoformat(value)
-    except ValueError:
+        triggered_at = Instant.parse_iso(value)
+    except (ValueError, TypeError):
         return None
-    if triggered_at.tzinfo is None:
-        triggered_at = triggered_at.replace(tzinfo=UTC)
-    now_ts = (now or datetime.now(UTC)).timestamp()
-    age = int(now_ts - triggered_at.timestamp())
+    now_inst = now if now is not None else Instant.now()
+    age = int(now_inst.timestamp() - triggered_at.timestamp())
     return max(age, 0)
 
 
 def _gcs_rm_idempotent(uri: str) -> str:
-    """Return 'removed' or 'missing'. Raise on real error."""
-    try:
-        gcs.delete_object(uri)
-        return "removed"
-    except gcs.GcsError as e:
-        if "404" in str(e) or "not found" in str(e).lower():
-            return "missing"
-        raise
+    """Return 'removed'. Raise on error. Note: 404 is handled by gcs.delete_object (returns silently)."""
+    gcs.delete_object(uri)
+    return "removed"
 
 
 def _trim_trigger_family_keep_recent(prefix_uri: str, keep_recent: int) -> int:
@@ -113,13 +113,12 @@ def _trim_trigger_family_keep_recent(prefix_uri: str, keep_recent: int) -> int:
 
 
 def run_preflight_trigger_queue() -> None:
-    run_id = _workflow_run_id()
+    run_id = workflow_run_id()
     run_context = os.environ.get("RUN_CONTEXT", "dev")
-    preempt_raw = (os.environ.get("BMT_PREEMPT_ON_PR_STALE_QUEUE") or "1").strip().lower()
-    preempt_on_pr = preempt_raw in ("1", "true", "yes", "on")
-    stale_sec = int(os.environ.get("BMT_TRIGGER_STALE_SEC", "900"))
-    keep_recent = max(1, int(os.environ.get("BMT_TRIGGER_METADATA_KEEP_RECENT", "2")))
-    root = _workflow_runtime_root()
+    preempt_on_pr = PREEMPT_ON_PR_STALE_QUEUE
+    stale_sec = TRIGGER_STALE_SEC
+    keep_recent = max(1, TRIGGER_METADATA_KEEP_RECENT)
+    root = workflow_runtime_root()
     runs_prefix = f"{root}/triggers/runs/"
     current_uri = f"{runs_prefix}{run_id}.json"
 
@@ -157,7 +156,9 @@ def run_preflight_trigger_queue() -> None:
                 gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
 
     if invalid_removed or invalid_missing or invalid_failed:
-        print(f"::notice::Invalid trigger cleanup: removed={invalid_removed} missing={invalid_missing} failed={invalid_failed}")
+        print(
+            f"::notice::Invalid trigger cleanup: removed={invalid_removed} missing={invalid_missing} failed={invalid_failed}"
+        )
     if invalid_failed > 0:
         raise RuntimeError(
             f"Failed to remove {invalid_failed} invalid trigger file(s) under {runs_prefix}. "
@@ -214,7 +215,9 @@ def run_preflight_trigger_queue() -> None:
 
         if same_pr_blocking:
             restart = "yes" if removed > 0 else "no"
-            print(f"::notice::Preflight cleanup: removed={removed} missing={missing} failed={failed} preserved={len(preserved_blocking)} restart_vm={restart}")
+            print(
+                f"::notice::Preflight cleanup: removed={removed} missing={missing} failed={failed} preserved={len(preserved_blocking)} restart_vm={restart}"
+            )
         if failed > 0:
             raise RuntimeError(
                 f"Failed to remove {failed} same-PR stale trigger file(s) under {runs_prefix}. "
@@ -226,7 +229,7 @@ def run_preflight_trigger_queue() -> None:
 
         stale_blocking: list[str] = []
         preserved_blocking = 0
-        now = datetime.now(UTC)
+        now = Instant.now()
         for uri in blocking:
             age_sec = _trigger_age_seconds(uri, now=now)
             if age_sec is not None and age_sec >= stale_sec:
@@ -285,4 +288,6 @@ def run_preflight_trigger_queue() -> None:
     trim_status = _trim_trigger_family_keep_recent(f"{root}/triggers/status/", keep_recent)
     total_trimmed = trim_runs + trim_acks + trim_status
     if total_trimmed > 0:
-        print(f"::notice::Metadata trim: runs={trim_runs} acks={trim_acks} status={trim_status} total={total_trimmed}")
+        print(
+            f"::notice::Metadata trim: runs={trim_runs} acks={trim_acks} status={trim_status} total={total_trimmed}"
+        )

@@ -9,13 +9,30 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import shutil
 import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from google.api_core import exceptions as gcs_exceptions
+from google.cloud import storage as gcs_storage
+
+from gcp.code.config.constants import EXECUTABLE_MODE
+from gcp.code.utils import _bucket_uri, _code_bucket_root, _now_iso, _now_stamp, _runtime_bucket_root
+
+
+def _get_keep_recent_default() -> int:
+    try:
+        import config.bmt_config as _m
+    except ImportError:
+        import gcp.code.config.bmt_config as _m
+    return int(_m.TRIGGER_METADATA_KEEP_RECENT)
+
+
+KEEP_RECENT_DEFAULT: int = _get_keep_recent_default()
 
 
 class OrchestratorError(RuntimeError):
@@ -37,40 +54,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _now_stamp() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-
-
-def _code_bucket_root(bucket: str) -> str:
-    return f"gs://{bucket}/code"
-
-
-def _runtime_bucket_root(bucket: str) -> str:
-    return f"gs://{bucket}/runtime"
-
-
-def _bucket_uri(bucket_root: str, path_or_uri: str) -> str:
-    if path_or_uri.startswith("gs://"):
-        return path_or_uri
-    return f"{bucket_root}/{path_or_uri.lstrip('/')}"
-
-
 def _resolve_workspace_root(raw: str) -> Path:
     if raw.strip():
         return Path(raw).expanduser().resolve()
     preferred = Path("~/bmt_workspace").expanduser()
     legacy = Path("~/sk_runtime").expanduser()
     if legacy.exists() and not preferred.exists():
-        print("Warning: using legacy workspace path ~/sk_runtime (set --workspace-root or BMT_WORKSPACE_ROOT).")
         return legacy.resolve()
     return preferred.resolve()
 
 
-def _prune_run_dirs(run_parent: Path, keep_recent: int = 2) -> None:
+def _prune_run_dirs(run_parent: Path, keep_recent: int = KEEP_RECENT_DEFAULT) -> None:
     """Keep only the newest ``keep_recent`` run_* directories under one parent."""
     keep_recent = max(keep_recent, 1)
     run_dirs: list[tuple[float, Path]] = []
@@ -86,7 +80,7 @@ def _prune_run_dirs(run_parent: Path, keep_recent: int = 2) -> None:
         shutil.rmtree(stale_dir, ignore_errors=True)
 
 
-def _prune_workspace(workspace_root: Path, keep_recent_per_bmt: int = 2) -> None:
+def _prune_workspace(workspace_root: Path, keep_recent_per_bmt: int = KEEP_RECENT_DEFAULT) -> None:
     """Prune local workspace so each project/BMT keeps only current + previous run."""
     _prune_run_dirs(workspace_root, keep_recent=keep_recent_per_bmt)
     for project_dir in workspace_root.iterdir():
@@ -97,17 +91,46 @@ def _prune_workspace(workspace_root: Path, keep_recent_per_bmt: int = 2) -> None
                 _prune_run_dirs(bmt_dir, keep_recent=keep_recent_per_bmt)
 
 
+def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+    if not uri.startswith("gs://"):
+        raise ValueError(f"Not a GCS URI: {uri!r}")
+    parts = uri[len("gs://") :].split("/", 1)
+    return parts[0], (parts[1] if len(parts) > 1 else "")
+
+
+_gcs_client: gcs_storage.Client | None = None
+
+
+def _get_gcs_client() -> gcs_storage.Client:
+    global _gcs_client
+    if _gcs_client is None:
+        _gcs_client = gcs_storage.Client()
+    return _gcs_client
+
+
 def _gcloud_cp(src: str, dst: Path) -> None:
+    """Download a single object from GCS to local path (SDK-based)."""
     dst.parent.mkdir(parents=True, exist_ok=True)
-    _ = subprocess.run(
-        ["gcloud", "storage", "cp", src, str(dst), "--quiet"], check=True, capture_output=True, text=True
-    )
+    bucket_name, blob_name = _parse_gcs_uri(src)
+    blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
+    try:
+        blob.download_to_filename(str(dst))
+    except gcs_exceptions.NotFound:
+        raise OrchestratorError(f"GCS object not found: {src}") from None
+    except (gcs_exceptions.GoogleAPICallError, OSError):
+        logging.getLogger(__name__).exception("Failed to download %s", src)
+        raise
 
 
 def _gcloud_upload(src: Path, dst: str) -> None:
-    _ = subprocess.run(
-        ["gcloud", "storage", "cp", str(src), dst, "--quiet"], check=True, capture_output=True, text=True
-    )
+    """Upload local file to GCS (SDK-based)."""
+    bucket_name, blob_name = _parse_gcs_uri(dst)
+    ct = "application/json" if src.suffix.lower() == ".json" else None
+    try:
+        _get_gcs_client().bucket(bucket_name).blob(blob_name).upload_from_filename(str(src), content_type=ct)
+    except (gcs_exceptions.GoogleAPICallError, OSError):
+        logging.getLogger(__name__).exception("Failed to upload %s -> %s", src, dst)
+        raise
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -149,7 +172,7 @@ def main() -> int:
 
     workspace_root = _resolve_workspace_root(args.workspace_root)
     workspace_root.mkdir(parents=True, exist_ok=True)
-    _prune_workspace(workspace_root, keep_recent_per_bmt=2)
+    _prune_workspace(workspace_root, keep_recent_per_bmt=KEEP_RECENT_DEFAULT)
 
     run_root = workspace_root / args.project / args.bmt_id / f"run_{_now_stamp()}_{os.getpid()}"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -167,7 +190,7 @@ def main() -> int:
             raise OrchestratorError(f"Invalid JSON in {local_jobs}: {exc}") from exc
         _validate_jobs_config(jobs_payload, project=args.project, bmt_id=args.bmt_id, jobs_path=local_jobs)
 
-        local_manager.chmod(local_manager.stat().st_mode | 0o111)
+        local_manager.chmod(local_manager.stat().st_mode | EXECUTABLE_MODE)
 
         manager_summary_path = run_root / "manager_summary.json"
         command = [
@@ -232,19 +255,17 @@ def main() -> int:
         _gcloud_upload(summary_local, _bucket_uri(runtime_bucket_root, "bmt_root_results.json"))
 
         if args.human:
-            print(json.dumps(root_summary, indent=2))
+            pass
         else:
-            state = "PASS" if manager_exit_code == 0 else "FAIL"
-            print(f"BMT_ROOT_GATE={state} PROJECT={args.project} BMT={args.bmt_id}")
+            pass
 
         return manager_exit_code
     finally:
-        _prune_run_dirs(run_root.parent, keep_recent=2)
+        _prune_run_dirs(run_root.parent, keep_recent=KEEP_RECENT_DEFAULT)
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except OrchestratorError as exc:
-        print(f"::error::{exc}", file=sys.stderr)
+    except OrchestratorError:
         raise SystemExit(2) from None

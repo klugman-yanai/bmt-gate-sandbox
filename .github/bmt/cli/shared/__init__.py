@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import re
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -18,13 +16,16 @@ from cli.shared.config import (
     get_config as get_config,
 )
 from cli.shared.config import (
+    get_context as get_context,
+)
+from cli.shared.config import (
     load_bmt_config as load_bmt_config,
 )
 
 # ── Path defaults ──────────────────────────────────────────────────────────────
 
 DEFAULT_CONFIG_ROOT = "gcp/code"
-DEFAULT_ENV_CONTRACT_PATH = "tools/repo_vars_contract.py"
+DEFAULT_ENV_CONTRACT_PATH = "tools/repo/vars_contract.py"
 
 # ── Errors ─────────────────────────────────────────────────────────────────────
 
@@ -103,7 +104,7 @@ def require_env(name: str) -> str:
     return val.strip()
 
 
-def _workflow_run_id() -> str:
+def workflow_run_id() -> str:
     """Return WORKFLOW_RUN_ID or GITHUB_RUN_ID; raise if unset."""
     run_id = os.environ.get("WORKFLOW_RUN_ID") or os.environ.get("GITHUB_RUN_ID")
     if not run_id:
@@ -111,7 +112,7 @@ def _workflow_run_id() -> str:
     return str(run_id)
 
 
-def _workflow_runtime_root() -> str:
+def workflow_runtime_root() -> str:
     """Return gs://{GCS_BUCKET}/runtime; raise if GCS_BUCKET unset."""
     bucket = os.environ.get("GCS_BUCKET")
     if not bucket:
@@ -160,29 +161,9 @@ def gcs_exists(uri: str) -> bool:
     return _gcs_exists(uri)
 
 
-def run_capture(cmd: list[str]) -> tuple[int, str]:
-    """Run command; return (exit_code, stderr or stdout)."""
-    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
-    text = (proc.stderr or proc.stdout or "").strip()
-    return proc.returncode, text
-
-
-def run_capture_retry(
-    cmd: list[str], attempts: int = 3, base_delay: float = 2.0
-) -> tuple[int, str]:
-    """run_capture with exponential-backoff retry on non-zero exit (transient GCS errors)."""
-    rc, text = 1, ""
-    for attempt in range(1, attempts + 1):
-        rc, text = run_capture(cmd)
-        if rc == 0 or attempt >= attempts:
-            return rc, text
-        time.sleep(base_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5))  # noqa: S311
-    return rc, text
-
-
-def _compute_client() -> "google.cloud.compute_v1.InstancesClient":
-    """Lazy-init Compute Engine client."""
-    from google.cloud import compute_v1  # noqa: I001
+def _compute_client() -> Any:
+    """Lazy-init Compute Engine client (returns google.cloud.compute_v1.InstancesClient)."""
+    from google.cloud import compute_v1
 
     return compute_v1.InstancesClient()
 
@@ -208,7 +189,7 @@ def vm_stop(project: str, zone: str, instance_name: str) -> None:
 def vm_describe(project: str, zone: str, instance_name: str) -> dict[str, Any]:
     """Describe a Compute Engine instance as a dict."""
     try:
-        from google.cloud.compute_v1.types import Instance  # noqa: I001
+        from google.cloud.compute_v1.types import Instance
         from google.protobuf.json_format import MessageToDict
 
         instance: Instance = _compute_client().get(
@@ -226,7 +207,12 @@ def vm_list_names(
     try:
         client = _compute_client()
         if filter_expr:
-            it = client.list(project=project, zone=zone, filter=filter_expr)
+            from google.cloud.compute_v1.types import ListInstancesRequest
+
+            request = ListInstancesRequest(
+                project=project, zone=zone, filter=filter_expr
+            )
+            it = client.list(request=request)
         else:
             it = client.list(project=project, zone=zone)
         return [inst.name for inst in it if getattr(inst, "name", None)]
@@ -273,7 +259,7 @@ def vm_add_metadata(
     if not metadata and not metadata_files:
         raise GcloudError(f"No metadata provided for {instance_name}")
     try:
-        from google.cloud.compute_v1.types import Metadata, Items  # noqa: I001
+        from google.cloud.compute_v1.types import Items, Metadata
 
         # Get current metadata (need fingerprint for CAS update)
         instance = _compute_client().get(
@@ -329,4 +315,4 @@ def write_github_output(github_output: str | None, key: str, value: str) -> None
     if not github_output:
         return
     with Path(github_output).open("a", encoding="utf-8") as fh:
-        _ = fh.write(f"{key}={value}\n")
+        fh.write(f"{key}={value}\n")

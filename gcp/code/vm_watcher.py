@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -23,21 +24,53 @@ import traceback
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from google.api_core import exceptions as gcs_exceptions
 from google.cloud import storage as gcs_lib
+from whenever import Instant
 
-# Add code/lib to path for github_auth module
-_SCRIPT_DIR = Path(__file__).parent
-sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
-import github_auth  # type: ignore[import-not-found]  # noqa: E402
-import github_checks  # type: ignore[import-not-found]  # noqa: E402
-import github_pr_comment  # type: ignore[import-not-found]  # noqa: E402
-import github_pull_request  # type: ignore[import-not-found]  # noqa: E402
-import status_file  # type: ignore[import-not-found]  # noqa: E402
+
+def _get_bmt_config_defaults() -> tuple[int, int, int]:
+    try:
+        import config.bmt_config as _m
+    except ImportError:
+        import gcp.code.config.bmt_config as _m
+    return (
+        int(_m.IDLE_TIMEOUT_SEC),
+        int(_m.STALE_TRIGGER_AGE_HOURS),
+        int(_m.TRIGGER_METADATA_KEEP_RECENT),
+    )
+
+
+_idle_sec_val, _stale_hours_val, _keep_recent_val = _get_bmt_config_defaults()
+try:
+    from config.bmt_config import get_config
+    from constants import EXECUTABLE_MODE, GITHUB_API_VERSION, HTTP_TIMEOUT
+    from github import (
+        github_auth,
+        github_checks,
+        github_pr_comment,
+        github_pull_request,
+    )
+    from status import status_file
+    from utils import _bucket_uri, _code_bucket_root, _now_iso, _runtime_bucket_root
+except ImportError:
+    from gcp.code.config.bmt_config import get_config
+    from gcp.code.constants import EXECUTABLE_MODE, GITHUB_API_VERSION, HTTP_TIMEOUT
+    from gcp.code.github import (
+        github_auth,
+        github_checks,
+        github_pr_comment,
+        github_pull_request,
+    )
+    from gcp.code.status import status_file
+    from gcp.code.utils import _bucket_uri, _code_bucket_root, _now_iso, _runtime_bucket_root
+
+IDLE_TIMEOUT_DEFAULT = _idle_sec_val
+STALE_TRIGGER_AGE_HOURS_DEFAULT = _stale_hours_val
+KEEP_RECENT_DEFAULT = _keep_recent_val
 
 _shutdown = False
 _KEEP_RECENT_LOCAL_RUNS = 2
@@ -56,24 +89,24 @@ def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
         try:
             value = int(raw)
         except ValueError:
-            print(f"Warning: invalid integer for {name}={raw!r}; using default {default}.")
             value = default
     if minimum is not None:
         value = max(minimum, value)
     return value
 
 
-_KEEP_RECENT_WORKFLOW_FILES = _env_int("BMT_TRIGGER_METADATA_KEEP_RECENT", 2, minimum=0)
-_STALE_TRIGGER_AGE_HOURS = _env_int("BMT_STALE_TRIGGER_AGE_HOURS", 2, minimum=1)
+# Trigger metadata retention and stale age: fixed behavioral constants (from bmt_config)
+_KEEP_RECENT_WORKFLOW_FILES = KEEP_RECENT_DEFAULT
+_STALE_TRIGGER_AGE_HOURS = STALE_TRIGGER_AGE_HOURS_DEFAULT
 
 
-def _handle_signal(signum: int, _frame: Any) -> None:
+def _handle_signal(_signum: int, _frame: Any) -> None:
     global _shutdown
-    print(f"Received signal {signum}, shutting down gracefully...")
     _shutdown = True
 
 
 def parse_args() -> argparse.Namespace:
+    cfg = get_config(runtime=os.environ)
     parser = argparse.ArgumentParser(description="Poll GCS or Pub/Sub for BMT trigger files")
     _ = parser.add_argument("--bucket", required=True)
     _ = parser.add_argument("--poll-interval-sec", type=int, default=10)
@@ -86,36 +119,20 @@ def parse_args() -> argparse.Namespace:
     _ = parser.add_argument(
         "--idle-timeout-sec",
         type=int,
-        default=_env_int("BMT_IDLE_TIMEOUT_SEC", 600, minimum=0),
-        help="Exit if no trigger is found within this many seconds when --exit-after-run is set (0=disabled).",
+        default=IDLE_TIMEOUT_DEFAULT,
+        help="With --exit-after-run: idle period after each run with no new trigger before exiting (0=exit immediately after run).",
     )
     _ = parser.add_argument(
         "--subscription",
-        default=os.environ.get("BMT_PUBSUB_SUBSCRIPTION", ""),
+        default=cfg.bmt_pubsub_subscription or os.environ.get("BMT_PUBSUB_SUBSCRIPTION", ""),
         help="Pub/Sub subscription ID (e.g. bmt-vm-myvm). When set, uses Pub/Sub instead of GCS polling.",
     )
     _ = parser.add_argument(
         "--gcp-project",
-        default=os.environ.get("GCP_PROJECT", ""),
+        default=cfg.gcp_project or os.environ.get("GCP_PROJECT", ""),
         help="GCP project ID (required when --subscription is set).",
     )
     return parser.parse_args()
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _code_bucket_root(bucket: str) -> str:
-    return f"gs://{bucket}/code"
-
-
-def _runtime_bucket_root(bucket: str) -> str:
-    return f"gs://{bucket}/runtime"
-
-
-def _bucket_uri(bucket_root: str, path: str) -> str:
-    return f"{bucket_root}/{path.lstrip('/')}"
 
 
 def _resolve_workspace_root(raw: str) -> Path:
@@ -125,7 +142,6 @@ def _resolve_workspace_root(raw: str) -> Path:
     preferred = Path("~/bmt_workspace").expanduser()
     legacy = Path("~/sk_runtime").expanduser()
     if legacy.exists() and not preferred.exists():
-        print("Warning: using legacy workspace path ~/sk_runtime (set --workspace-root or BMT_WORKSPACE_ROOT).")
         return legacy.resolve()
     return preferred.resolve()
 
@@ -154,12 +170,11 @@ def _gcs_list(uri: str) -> list[str]:
     try:
         blobs = _get_gcs_client().list_blobs(bucket_name, prefix=prefix)
         return [f"gs://{bucket_name}/{b.name}" for b in blobs]
-    except Exception as exc:
-        print(f"  Warning: list failed for {uri}: {exc}")
+    except (gcs_exceptions.GoogleAPICallError, OSError):
         return []
 
 
-def _gcloud_ls(uri: str, recursive: bool = False) -> list[str]:  # noqa: ARG001 (recursive ignored; SDK always recurses)
+def _gcloud_ls(uri: str, *, recursive: bool = False) -> list[str]:  # noqa: ARG001 (recursive ignored; SDK always recurses)
     """List objects under a GCS URI prefix. Returns list of full URIs."""
     return _gcs_list(uri)
 
@@ -169,7 +184,7 @@ def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
 
     Returns:
       (payload, None) on success.
-      (None, "download_failed") on transient download failures.
+      (None, "download_failed") on 404 or transient download failures.
       (None, "invalid_json") when object exists but payload is malformed.
     """
     bucket_name, blob_name = _parse_gcs_uri(uri)
@@ -177,24 +192,21 @@ def _gcloud_download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
         blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
         text = blob.download_as_text(encoding="utf-8")
     except gcs_exceptions.NotFound:
-        print(f"  Failed to read {uri}: 404 Not Found")
         return None, "download_failed"
-    except Exception as exc:
-        print(f"  Failed to download {uri}: {exc}")
-        return None, "download_failed"
+    except (gcs_exceptions.GoogleAPICallError, OSError):
+        traceback.print_exc()
+        raise
     try:
         payload = json.loads(text)
-    except (json.JSONDecodeError, ValueError) as exc:
-        print(f"  Failed to parse {uri}: {exc}")
+    except (json.JSONDecodeError, ValueError):
         return None, "invalid_json"
     if not isinstance(payload, dict):
-        print(f"  Invalid JSON payload type for {uri}: expected object")
         return None, "invalid_json"
     return payload, None
 
 
 def _gcloud_upload_json(uri: str, payload: dict[str, Any]) -> bool:
-    """Upload a JSON object to GCS."""
+    """Upload a JSON object to GCS. Returns True on success."""
     bucket_name, blob_name = _parse_gcs_uri(uri)
     try:
         blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
@@ -203,12 +215,12 @@ def _gcloud_upload_json(uri: str, payload: dict[str, Any]) -> bool:
             content_type="application/json",
         )
         return True
-    except Exception as exc:
-        print(f"  Failed to upload {uri}: {exc}")
+    except (gcs_exceptions.GoogleAPICallError, OSError):
+        traceback.print_exc()
         return False
 
 
-def _gcloud_rm(uri: str, recursive: bool = False) -> bool:
+def _gcloud_rm(uri: str, *, recursive: bool = False) -> bool:
     """Delete a GCS object or all objects under a prefix."""
     bucket_name, blob_name = _parse_gcs_uri(uri)
     client = _get_gcs_client()
@@ -224,8 +236,7 @@ def _gcloud_rm(uri: str, recursive: bool = False) -> bool:
         return True
     except gcs_exceptions.NotFound:
         return True  # already gone
-    except Exception as exc:
-        print(f"  Warning: delete failed for {uri}: {exc}")
+    except (gcs_exceptions.GoogleAPICallError, OSError):
         return False
 
 
@@ -234,7 +245,7 @@ def _gcloud_exists(uri: str) -> bool:
     bucket_name, blob_name = _parse_gcs_uri(uri)
     try:
         return _get_gcs_client().bucket(bucket_name).blob(blob_name).exists()
-    except Exception:
+    except (gcs_exceptions.GoogleAPICallError, OSError):
         return False
 
 
@@ -440,7 +451,7 @@ def _download_orchestrator(code_bucket_root: str, workspace_root: Path) -> Path:
     local_path.parent.mkdir(parents=True, exist_ok=True)
     bucket_name, blob_name = _parse_gcs_uri(orchestrator_uri)
     _get_gcs_client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))
-    local_path.chmod(local_path.stat().st_mode | 0o111)
+    local_path.chmod(local_path.stat().st_mode | EXECUTABLE_MODE)
     return local_path
 
 
@@ -518,16 +529,15 @@ def _post_commit_status(
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
+            "X-GitHub-Api-Version": GITHUB_API_VERSION,
             "Content-Type": "application/json",
         },
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
             return 200 <= resp.status < 300
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
-        print(f"  Failed to post commit status: {exc}")
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
         return False
 
 
@@ -591,8 +601,7 @@ def _create_check_run_resilient(
                 output=output,
             )
             return check_run_id, token_in_use
-        except Exception as exc:
-            print(f"  Warning: Failed to create Check Run (attempt {attempt}/{max_attempts}): {exc}")
+        except (OSError, ValueError, RuntimeError):
             if attempt < max_attempts:
                 token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
     return None, token_in_use
@@ -623,8 +632,7 @@ def _update_check_run_resilient(
                 output=output,
             )
             return True, token_in_use
-        except Exception as exc:
-            print(f"  Warning: Failed to update Check Run (attempt {attempt}/{max_attempts}): {exc}")
+        except (OSError, ValueError, RuntimeError):
             if attempt < max_attempts:
                 token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
     return False, token_in_use
@@ -779,12 +787,6 @@ def _trim_trigger_family(
             deleted += 1
         else:
             failed += 1
-    if deleted or failed:
-        kept = len(entries) - deleted
-        print(
-            f"  Trimmed {family_prefix_uri}: kept={kept} deleted={deleted} failed={failed} "
-            f"(retain recent={max(keep_recent, 0)} + explicit={len(normalized_keep)})"
-        )
 
 
 def _cleanup_stale_run_triggers(runtime_bucket_root: str) -> None:
@@ -793,7 +795,7 @@ def _cleanup_stale_run_triggers(runtime_bucket_root: str) -> None:
     trigger_uris = [uri for uri in _gcloud_ls(runs_uri) if uri.endswith(".json")]
     if not trigger_uris:
         return
-    cutoff = datetime.now(UTC).timestamp() - _STALE_TRIGGER_AGE_HOURS * 3600
+    cutoff = Instant.now().timestamp() - _STALE_TRIGGER_AGE_HOURS * 3600
     deleted = 0
     for uri in trigger_uris:
         payload, err = _gcloud_download_json(uri)
@@ -803,14 +805,13 @@ def _cleanup_stale_run_triggers(runtime_bucket_root: str) -> None:
         if not isinstance(triggered_at_raw, str):
             continue
         try:
-            triggered_ts = datetime.fromisoformat(triggered_at_raw).timestamp()
-        except ValueError:
+            triggered_ts = Instant.parse_iso(triggered_at_raw.replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
             continue
         if triggered_ts < cutoff and _gcloud_rm(uri):
             deleted += 1
-            print(f"  Deleted stale trigger (age>{_STALE_TRIGGER_AGE_HOURS}h): {uri}")
     if deleted:
-        print(f"  Removed {deleted} stale trigger(s) from {runs_uri}")
+        pass
 
 
 def _cleanup_workflow_artifacts(
@@ -857,7 +858,7 @@ def _cleanup_legacy_result_history(bucket_root: str, results_prefix: str) -> Non
     for rel in legacy_prefixes:
         legacy_uri = _bucket_uri(bucket_root, rel)
         if _gcloud_rm(legacy_uri, recursive=True):
-            print(f"  Removed legacy history prefix: {legacy_uri}")
+            pass
 
 
 def _load_manager_summary(run_root: Path | None) -> dict[str, Any] | None:
@@ -1018,10 +1019,8 @@ def _failed_legs_display(summaries: list[dict[str, Any] | None]) -> str:
 def _heartbeat_loop(bucket: str, runtime_prefix: str, run_id: str, stop_event: threading.Event) -> None:
     """Background thread to update heartbeat every 15s."""
     while not stop_event.is_set():
-        try:
+        with contextlib.suppress(subprocess.CalledProcessError, OSError, ValueError, RuntimeError):
             status_file.update_heartbeat(bucket, runtime_prefix, run_id)
-        except Exception as exc:
-            print(f"  Heartbeat update failed: {exc}")
         stop_event.wait(15)  # Sleep 15s or until stop_event
 
 
@@ -1066,8 +1065,8 @@ def _check_run_progress_loop(
                 output={"title": title, "summary": summary},
                 attempts=2,
             )
-        except Exception as exc:
-            print(f"  Warning: progress thread update failed: {exc}")
+        except (subprocess.CalledProcessError, OSError, ValueError, RuntimeError):
+            pass
         stop_event.wait(interval_sec)
 
 
@@ -1107,7 +1106,6 @@ def _update_pointer_and_cleanup(
         "updated_at": updated_at,
     }
     if not _gcloud_upload_json(current_uri, new_pointer):
-        print(f"  Warning: failed to write pointer {current_uri}")
         return
     referenced: set[str] = set()
     if new_latest:
@@ -1129,7 +1127,7 @@ def _update_pointer_and_cleanup(
             continue
         delete_prefix = _bucket_uri(bucket_root, f"{results_prefix.rstrip('/')}/snapshots/{run_id_to_delete}")
         if _gcloud_rm(delete_prefix, recursive=True):
-            print(f"  Cleaned snapshot {run_id_to_delete}")
+            pass
     _cleanup_legacy_result_history(bucket_root, results_prefix)
 
 
@@ -1154,10 +1152,9 @@ def _process_run_trigger(  # noqa: PLR0911
         run_payload_error = None
     if run_payload is None:
         if run_payload_error == "invalid_json":
-            print(f"  Removing malformed run trigger: {run_trigger_uri}")
             _gcloud_rm(run_trigger_uri)
         else:
-            print(f"  Deferring run trigger after transient download/auth issue: {run_trigger_uri}")
+            pass
         return False
 
     legs_raw = run_payload.get("legs") or []
@@ -1182,33 +1179,29 @@ def _process_run_trigger(  # noqa: PLR0911
             pr_number = int(pr_raw)
 
     if not repository:
-        print("  Error: Run trigger missing repository; cannot resolve GitHub App auth")
         _gcloud_rm(run_trigger_uri)
-        return None
+        return False
 
     github_token = github_token_resolver(repository)
     if not github_token:
-        print(f"  Error: GitHub App auth could not be resolved for {repository}; keeping trigger for retry")
         return False
 
     if not legs_raw:
-        print(f"  Run trigger has no legs: {run_trigger_uri}")
         _gcloud_rm(run_trigger_uri)
-        return None
+        return False
 
     bucket = str(run_payload.get("bucket", "")).strip()
     code_bucket_root = _code_bucket_root(bucket) if bucket else default_code_bucket_root
     runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
     runtime_prefix = "runtime"
 
-    print(f"  Processing run {workflow_run_id} with {len(legs_raw)} requested leg(s)")
 
     run_id = str(workflow_run_id)
     workflow_run_id_str = str(workflow_run_id)
 
     should_check_pr_state = run_context == "pr" and pr_number is not None
     if run_context == "pr" and pr_number is None:
-        print("  Warning: run_context=pr but pull_request_number is missing; fail-open (continuing run).")
+        pass
 
     pr_state_at_pickup: dict[str, str | bool | None] | None = None
     skip_before_pickup_reason: str | None = None
@@ -1217,10 +1210,7 @@ def _process_run_trigger(  # noqa: PLR0911
         pr_state_at_pickup = github_pull_request.get_pr_state(github_token, repository, pr_number, attempts=3)
         state_at_pickup = str(pr_state_at_pickup.get("state"))
         if state_at_pickup == "unknown":
-            print(
-                f"  Warning: could not verify PR state at pickup (error={pr_state_at_pickup.get('error')}); "
-                "fail-open (continuing run)."
-            )
+            pass
         elif state_at_pickup == "closed":
             skip_before_pickup_reason = "pr_closed_before_pickup"
         else:
@@ -1275,7 +1265,6 @@ def _process_run_trigger(  # noqa: PLR0911
         if leg.get("decision") == "accepted"
     ]
     accepted_leg_count = len(accepted_exec_legs)
-    print(f"  Runtime support resolution: accepted={accepted_leg_count} rejected={len(rejected_legs)}")
 
     stop_heartbeat = threading.Event()
     heartbeat_thread: threading.Thread | None = None
@@ -1294,7 +1283,6 @@ def _process_run_trigger(  # noqa: PLR0911
         if heartbeat_thread is None:
             return
         heartbeat_thread.join(timeout=5)
-        print("  Stopped heartbeat thread")
         heartbeat_thread = None
 
     def _stop_progress_thread() -> None:
@@ -1328,9 +1316,9 @@ def _process_run_trigger(  # noqa: PLR0911
             superseding_sha=superseding_sha,
         )
         if github_pr_comment.upsert_pr_comment_by_marker(github_token, repository, pr_number, marker, body):
-            print("  Upserted PR comment")
+            pass
         else:
-            print("  Could not upsert PR comment (non-fatal)")
+            pass
 
     try:
         handshake_uri = _run_handshake_uri_from_trigger_uri(run_trigger_uri)
@@ -1367,7 +1355,7 @@ def _process_run_trigger(  # noqa: PLR0911
             },
         }
         if _gcloud_upload_json(handshake_uri, handshake_payload):
-            print(f"  Wrote VM handshake ack: {handshake_uri}")
+            pass
 
         started_at = _now_iso()
         initial_legs: list[dict[str, Any]] = []
@@ -1399,7 +1387,7 @@ def _process_run_trigger(  # noqa: PLR0911
 
         try:
             last_run_duration_sec = status_file.read_last_run_duration(bucket, runtime_prefix)
-        except Exception:
+        except (subprocess.CalledProcessError, OSError, ValueError):
             last_run_duration_sec = None
 
         initial_status = {
@@ -1437,25 +1425,18 @@ def _process_run_trigger(  # noqa: PLR0911
             "cancelled_at": started_at if (skip_before_pickup or accepted_leg_count == 0) else None,
             "superseded_by_sha": superseded_by_sha,
         }
-        try:
+        with contextlib.suppress(subprocess.CalledProcessError, OSError, ValueError):
             status_file.write_status(bucket, runtime_prefix, run_id, initial_status)
-            print(f"  Initialized status file for run {run_id}")
-        except Exception as exc:
-            print(f"  Warning: Failed to write initial status file: {exc}")
 
         if skip_before_pickup:
             if skip_before_pickup_reason == "superseded_by_new_commit":
-                print(
-                    "  Run was superseded by newer PR head before pickup; "
-                    "skipping run without GitHub status/check updates."
-                )
+                pass
             else:
-                print("  PR is already closed at pickup; skipping run without GitHub status/check updates.")
-            return None
+                pass
+            return False
 
         if accepted_leg_count == 0:
-            print("  No runtime-supported legs were accepted by VM; marking run as accepted_but_empty.")
-            return None
+            return False
 
         heartbeat_thread = threading.Thread(
             target=_heartbeat_loop,
@@ -1463,7 +1444,6 @@ def _process_run_trigger(  # noqa: PLR0911
             daemon=True,
         )
         heartbeat_thread.start()
-        print("  Started heartbeat thread")
 
         if repository and sha and github_token:
             check_run_id, github_token = _create_check_run_resilient(
@@ -1479,7 +1459,6 @@ def _process_run_trigger(  # noqa: PLR0911
                 token_resolver=github_token_resolver,
             )
             if check_run_id is not None:
-                print(f"  Created GitHub Check Run: {check_run_id}")
                 progress_thread = threading.Thread(
                     target=_check_run_progress_loop,
                     args=(
@@ -1495,12 +1474,10 @@ def _process_run_trigger(  # noqa: PLR0911
                     daemon=True,
                 )
                 progress_thread.start()
-                print("  Started Check Run progress thread")
 
         try:
             orchestrator_path = _download_orchestrator(code_bucket_root, workspace_root)
-        except subprocess.CalledProcessError as exc:
-            print(f"  Failed to download orchestrator: {exc}")
+        except subprocess.CalledProcessError:
             _stop_heartbeat_thread()
             _stop_progress_thread()
             try:
@@ -1526,8 +1503,8 @@ def _process_run_trigger(  # noqa: PLR0911
                     )
                     failed_status["errors"] = errors
                     status_file.write_status(bucket, runtime_prefix, run_id, failed_status)
-            except Exception as status_exc:
-                print(f"  Warning: Failed to write terminal failure status: {status_exc}")
+            except (subprocess.CalledProcessError, OSError, ValueError):
+                pass
             if repository and sha and github_token:
                 _post_commit_status_resilient(
                     repository,
@@ -1558,7 +1535,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         summary_line="The test runner could not start.",
                         details_line="For details, open the **Checks** tab on this PR.",
                     )
-            return None
+            return False
 
         try:
             accepted_completed = 0
@@ -1568,10 +1545,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     pr_state_now = github_pull_request.get_pr_state(github_token, repository, pr_number, attempts=3)
                     state_now = str(pr_state_now.get("state"))
                     if state_now == "unknown":
-                        print(
-                            f"  Warning: could not re-check PR state for leg {status_idx} "
-                            f"(error={pr_state_now.get('error')}); fail-open (continuing)."
-                        )
+                        pass
                     else:
                         cancel_detected = False
                         detected_reason: str | None = None
@@ -1598,12 +1572,9 @@ def _process_run_trigger(  # noqa: PLR0911
                             superseded_by_sha = detected_superseding_sha
                             cancelled_at = _now_iso()
                             if cancel_reason == "superseded_by_new_commit":
-                                print(
-                                    "  Run superseded before next leg; cancelling remaining legs. "
-                                    f"superseding_sha={superseded_by_sha or 'unknown'}"
-                                )
+                                pass
                             else:
-                                print(f"  PR closed before leg {exec_idx + 1}; cancelling remaining legs.")
+                                pass
                             try:
                                 current_status = status_file.read_status(bucket, runtime_prefix, run_id)
                                 if current_status:
@@ -1634,8 +1605,8 @@ def _process_run_trigger(  # noqa: PLR0911
                                             row["skip_reason"] = cancel_reason
                                             row["completed_at"] = cancelled_at
                                     status_file.write_status(bucket, runtime_prefix, run_id, current_status)
-                            except Exception as exc:
-                                print(f"  Warning: Failed to update cancellation status: {exc}")
+                            except (subprocess.CalledProcessError, OSError, ValueError):
+                                pass
                             break
 
                 try:
@@ -1651,8 +1622,8 @@ def _process_run_trigger(  # noqa: PLR0911
                         current_status["cancelled_at"] = None
                         current_status["superseded_by_sha"] = None
                         status_file.write_status(bucket, runtime_prefix, run_id, current_status)
-                except Exception as exc:
-                    print(f"  Warning: Failed to update status for leg {status_idx}: {exc}")
+                except (subprocess.CalledProcessError, OSError, ValueError):
+                    pass
 
                 trigger = {
                     "bucket": bucket,
@@ -1667,7 +1638,6 @@ def _process_run_trigger(  # noqa: PLR0911
                 exit_code = _run_orchestrator(orchestrator_path, trigger, workspace_root)
                 leg_duration = int(time.monotonic() - leg_start_time)
                 state = "PASS" if exit_code == 0 else "FAIL"
-                print(f"  Leg {exec_idx + 1}/{accepted_leg_count} {trigger['project']}.{trigger['bmt_id']} -> {state}")
                 run_root = _latest_run_root(workspace_root, trigger["project"], trigger["bmt_id"])
                 summary = _load_manager_summary(run_root)
                 leg_summaries.append(summary)
@@ -1721,8 +1691,8 @@ def _process_run_trigger(  # noqa: PLR0911
                                 },
                                 attempts=2,
                             )
-                except Exception as exc:
-                    print(f"  Warning: Failed to update status after leg {status_idx}: {exc}")
+                except (subprocess.CalledProcessError, OSError, ValueError):
+                    pass
 
             if cancelled_due_to_pr_state:
                 cancelled_at = _now_iso()
@@ -1744,14 +1714,12 @@ def _process_run_trigger(  # noqa: PLR0911
                         final_status["current_leg"] = None
                         final_status["superseded_by_sha"] = superseded_by_sha
                         status_file.write_status(bucket, runtime_prefix, run_id, final_status)
-                        try:
+                        with contextlib.suppress(subprocess.CalledProcessError, OSError, ValueError):
                             status_file.write_last_run_duration(
                                 bucket, runtime_prefix, final_status["elapsed_sec"]
                             )
-                        except Exception:
-                            pass
-                except Exception as exc:
-                    print(f"  Warning: Failed to finalize cancellation status file: {exc}")
+                except (subprocess.CalledProcessError, OSError, ValueError):
+                    pass
 
                 if repository and sha and github_token:
                     check_summary = "Cancelled: PR closed before completion."
@@ -1772,7 +1740,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         token_resolver=github_token_resolver,
                     )
                     if check_completed:
-                        print("  Completed Check Run: neutral (cancelled)")
+                        pass
 
                 if repository and sha and github_token:
                     cancel_description = "BMT cancelled: PR closed before completion."
@@ -1795,13 +1763,11 @@ def _process_run_trigger(  # noqa: PLR0911
                         details_line="",
                         superseding_sha=superseded_by_sha,
                     )
-                    print("  Cancelled run due to superseding commit; skipped pointer promotion.")
                 else:
-                    print("  Cancelled run due to closed PR; skipping pointer promotion and PR comments.")
-                return None
+                    pass
+                return False
 
             state, description = _aggregate_verdicts_from_summaries(leg_summaries)
-            print(f"  Aggregate: {state} — {description}")
 
             _stop_heartbeat_thread()
             _stop_progress_thread()
@@ -1816,15 +1782,12 @@ def _process_run_trigger(  # noqa: PLR0911
                     final_status["last_heartbeat"] = _now_iso()
                     final_status["elapsed_sec"] = int(time.monotonic() - start_timestamp)
                     status_file.write_status(bucket, runtime_prefix, run_id, final_status)
-                    try:
+                    with contextlib.suppress(subprocess.CalledProcessError, OSError, ValueError):
                         status_file.write_last_run_duration(
                             bucket, runtime_prefix, final_status["elapsed_sec"]
                         )
-                    except Exception as dur_exc:
-                        print(f"  Warning: Failed to persist last run duration: {dur_exc}")
-                    print("  Finalized status file")
-            except Exception as exc:
-                print(f"  Warning: Failed to finalize status file: {exc}")
+            except (subprocess.CalledProcessError, OSError, ValueError):
+                pass
 
             if repository and sha and github_token:
                 conclusion = "success" if state == "success" else "failure"
@@ -1838,7 +1801,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     output={
                         "title": f"BMT Complete: {'PASS' if state == 'success' else 'FAIL'}",
                         "summary": github_checks.render_results_table(
-                            leg_summaries,
+                            [s for s in leg_summaries if s is not None],
                             {
                                 "state": "PASS" if state == "success" else "FAIL",
                                 "decision": state,
@@ -1851,9 +1814,9 @@ def _process_run_trigger(  # noqa: PLR0911
                     token_resolver=github_token_resolver,
                 )
                 if check_completed:
-                    print(f"  Completed Check Run: {conclusion}")
+                    pass
                 else:
-                    print("  Could not finalize Check Run")
+                    pass
 
             if pointer_promotion_allowed:
                 for summary in leg_summaries:
@@ -1871,9 +1834,9 @@ def _process_run_trigger(  # noqa: PLR0911
                     context=gate_status_context,
                     token_resolver=github_token_resolver,
                 ):
-                    print(f"  Posted commit status: {state}")
+                    pass
                 else:
-                    print("  Could not post commit status")
+                    pass
                 if pr_number is not None:
                     details = "For details, open the **Checks** tab on this PR."
                     if state == "success":
@@ -1888,8 +1851,8 @@ def _process_run_trigger(  # noqa: PLR0911
                             summary_line=_failed_legs_display(leg_summaries),
                             details_line=details,
                         )
+            return True
         except Exception as exc:
-            print(f"  Error during BMT run: {exc}")
             traceback.print_exc()
             _stop_heartbeat_thread()
             _stop_progress_thread()
@@ -1911,8 +1874,8 @@ def _process_run_trigger(  # noqa: PLR0911
                     errors.append({"at": failed_at, "message": f"Unhandled error: {exc!s}"})
                     failed_status["errors"] = errors
                     status_file.write_status(bucket, runtime_prefix, run_id, failed_status)
-            except Exception as status_exc:
-                print(f"  Warning: Failed to write terminal failure status: {status_exc}")
+            except (subprocess.CalledProcessError, OSError, ValueError):
+                pass
             if repository and sha and github_token:
                 _post_commit_status_resilient(
                     repository,
@@ -1938,16 +1901,17 @@ def _process_run_trigger(  # noqa: PLR0911
                     token_resolver=github_token_resolver,
                 )
                 if not check_completed:
-                    print("  Warning: Failed to complete Check Run on error")
+                    pass
                 if pr_number is not None:
                     _upsert_pr_comment(
                         result="❌ BMT failed",
                         summary_line="The test runner encountered an error.",
                         details_line="For details, open the **Checks** tab on this PR.",
                     )
-            return None
-    except Exception as exc:
-        print(f"  Warning: post-run finalization failed: {exc}")
+            return False
+    except Exception:
+        logging.getLogger(__name__).exception("Unhandled exception in run trigger processing")
+        return False
     finally:
         _stop_heartbeat_thread()
         _stop_progress_thread()
@@ -1957,7 +1921,6 @@ def _process_run_trigger(  # noqa: PLR0911
             keep_workflow_ids={workflow_run_id_str},
         )
         _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)
-        print(f"  Run {workflow_run_id} complete")
 
 
 def _run_pubsub_loop(
@@ -1977,26 +1940,23 @@ def _run_pubsub_loop(
     uses the GCS trigger URI reconstructed from the payload, and acks only
     after the trigger is fully consumed. Nacks cause Pub/Sub to redeliver.
     """
-    from google.cloud import pubsub_v1  # noqa: PLC0415
+    from google.cloud import pubsub_v1
 
     subscriber = pubsub_v1.SubscriberClient()
     idle_deadline = time.monotonic() + idle_timeout_sec if (exit_after_run and idle_timeout_sec > 0) else None
-    print(f"Pub/Sub mode: pulling from {subscription_path}")
 
     while not _shutdown:
         try:
             response = subscriber.pull(
                 request={"subscription": subscription_path, "max_messages": 1},
-                timeout=30,
+                timeout=HTTP_TIMEOUT,
             )
-        except Exception as exc:
-            print(f"  Warning: Pub/Sub pull error: {exc}")
+        except Exception:
             time.sleep(5)
             continue
 
         if not response.received_messages:
             if idle_deadline is not None and time.monotonic() >= idle_deadline:
-                print(f"Idle timeout ({idle_timeout_sec}s) reached with no trigger; exiting so VM can stop.")
                 return 0
             continue
 
@@ -2008,8 +1968,7 @@ def _run_pubsub_loop(
             ack_id = received_msg.ack_id
             try:
                 payload = json.loads(received_msg.message.data.decode("utf-8"))
-            except (json.JSONDecodeError, ValueError) as exc:
-                print(f"  Warning: malformed Pub/Sub message (acking to discard): {exc}")
+            except (json.JSONDecodeError, ValueError):
                 subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
                 continue
 
@@ -2018,7 +1977,6 @@ def _run_pubsub_loop(
             bucket = str(payload.get("bucket", "")).strip() or runtime_bucket_root.split("gs://", 1)[-1].split("/")[0]
             run_id = str(payload.get("workflow_run_id", "")).strip()
             if not run_id:
-                print("  Warning: Pub/Sub message missing workflow_run_id; discarding.")
                 subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
                 continue
 
@@ -2033,15 +1991,16 @@ def _run_pubsub_loop(
             if trigger_consumed:
                 subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
                 if exit_after_run:
-                    print("Exit-after-run: done, exiting so VM can stop.")
-                    return 0
+                    if idle_timeout_sec > 0:
+                        idle_deadline = time.monotonic() + idle_timeout_sec
+                    else:
+                        return 0
             else:
                 # Nack: let Pub/Sub redeliver after the ack deadline expires.
                 subscriber.modify_ack_deadline(
                     request={"subscription": subscription_path, "ack_ids": [ack_id], "ack_deadline_seconds": 0}
                 )
 
-    print("Watcher stopped.")
     return 0
 
 
@@ -2058,25 +2017,17 @@ def main() -> int:
 
     exit_after_run = getattr(args, "exit_after_run", False)
     idle_timeout_sec = getattr(args, "idle_timeout_sec", 0)
-    print(
-        f"BMT Watcher started: bucket={args.bucket} "
-        f"code={code_bucket_root} runtime={runtime_bucket_root} "
-        f"poll={args.poll_interval_sec}s"
-        + (f" idle_timeout={idle_timeout_sec}s" if exit_after_run and idle_timeout_sec > 0 else "")
-    )
-    print(f"Workspace: {workspace_root}")
 
     # Use GitHub App auth module for per-repository token resolution
     github_token_resolver = github_auth.resolve_auth_for_repository
 
     enabled_repositories = github_auth.list_enabled_repositories()
     if enabled_repositories is None:
-        print("Error: cannot start watcher without a valid GitHub App repository config.")
         return 2
     if not enabled_repositories:
-        print("Warning: no enabled repositories in GitHub App config; incoming triggers will be rejected.")
+        pass
     else:
-        print(f"Watcher configured for {len(enabled_repositories)} enabled repo(s): {', '.join(enabled_repositories)}.")
+        pass
 
     # Startup sweep: enforce bounded retention even after prior failed runs.
     _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)
@@ -2090,7 +2041,6 @@ def main() -> int:
 
     if subscription:
         if not gcp_project:
-            print("Error: --gcp-project (or GCP_PROJECT env) is required when --subscription is set.")
             return 1
         subscription_path = f"projects/{gcp_project}/subscriptions/{subscription}"
         return _run_pubsub_loop(
@@ -2111,7 +2061,6 @@ def main() -> int:
 
         if run_trigger_uris:
             idle_deadline = None  # reset once a trigger is found
-            print(f"[{_now_iso()}] Found {len(run_trigger_uris)} run trigger(s)")
             for run_trigger_uri in run_trigger_uris:
                 if _shutdown:
                     break
@@ -2123,16 +2072,16 @@ def main() -> int:
                     github_token_resolver,
                 )
                 if exit_after_run and trigger_consumed:
-                    print("Exit-after-run: done, exiting so VM can stop.")
-                    return 0
+                    if idle_timeout_sec > 0:
+                        idle_deadline = time.monotonic() + idle_timeout_sec
+                    else:
+                        return 0
         elif idle_deadline is not None and time.monotonic() >= idle_deadline:
-            print(f"Idle timeout ({idle_timeout_sec}s) reached with no trigger found; exiting so VM can stop.")
             return 0
 
         if not _shutdown:
             time.sleep(args.poll_interval_sec)
 
-    print("Watcher stopped.")
     return 0
 
 

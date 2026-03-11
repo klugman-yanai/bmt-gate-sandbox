@@ -14,10 +14,10 @@ fi
 cd "$(git rev-parse --show-toplevel)"
 code_ok=0
 runtime_ok=0
-if uv run python tools/bucket_verify_gcp_sync.py; then
+if uv run python -m tools.remote.bucket_verify_gcp_sync; then
   code_ok=1
 fi
-if uv run python tools/bucket_verify_runtime_seed_sync.py; then
+if uv run python -m tools.remote.bucket_verify_runtime_seed_sync; then
   runtime_ok=1
 fi
 

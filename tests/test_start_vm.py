@@ -102,7 +102,7 @@ def test_start_vm_times_out_when_not_running(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("GCP_ZONE", "zone")
     monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "1")
+    monkeypatch.setattr(start_vm, "VM_START_TIMEOUT_SEC", 1)
 
     monkeypatch.setattr(start_vm.shared, "vm_start", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -112,7 +112,8 @@ def test_start_vm_times_out_when_not_running(monkeypatch: pytest.MonkeyPatch) ->
     )
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
-    monotonic_values = iter([0.0, 0.5, 1.0, 1.6])
+    # run_start uses time.monotonic() many times; first call = start, then until deadline (start+1).
+    monotonic_values = iter([0.0] + [2.0] * 200)
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
 
     with pytest.raises(RuntimeError, match="did not reach ready state"):
@@ -177,8 +178,6 @@ def test_start_vm_recovers_when_status_drops_during_stabilization(monkeypatch: p
     monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
-    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
-    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
 
     describe_calls = iter(
         [
@@ -212,8 +211,7 @@ def test_start_vm_fails_when_recovery_attempts_are_exhausted(monkeypatch: pytest
     monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
-    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
-    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "1")
+    monkeypatch.setattr(start_vm, "VM_START_RECOVERY_ATTEMPTS", 1)
 
     describe_calls = iter(
         [
@@ -241,8 +239,6 @@ def test_start_vm_treats_fingerprint_race_as_idempotent_recovery_error(monkeypat
     monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
-    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
-    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
 
     describe_calls = iter(
         [
@@ -281,8 +277,6 @@ def test_start_vm_recovers_from_terminal_state_after_fingerprint_race(monkeypatc
     monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
-    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
-    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
 
     describe_calls = iter(
         [
@@ -324,8 +318,6 @@ def test_start_vm_recovers_after_initial_idempotent_start_when_not_running(
     monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
-    monkeypatch.setenv("BMT_VM_STABILIZATION_SEC", "45")
-    monkeypatch.setenv("BMT_VM_START_RECOVERY_ATTEMPTS", "2")
 
     describe_calls = iter(
         [

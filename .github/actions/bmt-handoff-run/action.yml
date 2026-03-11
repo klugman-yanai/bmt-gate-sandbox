@@ -116,7 +116,7 @@ runs:
       if: inputs.vm_pre_started != 'true'
       shell: bash
       run: |
-        uv run --project .github/bmt bmt select-available-vm
+        uv run bmt select-available-vm
         # Export selected VM as BMT_VM_NAME so all subsequent steps in this job use it
         selected_vm="$(grep '^selected_vm=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
         echo "BMT_VM_NAME=${selected_vm}" >> "$GITHUB_ENV"
@@ -128,25 +128,25 @@ runs:
       env:
         RUN_CONTEXT: ${{ inputs.run_context }}
         PR_NUMBER: ${{ inputs.pr_number }}
-      run: uv run --project .github/bmt bmt preflight-trigger-queue
+      run: uv run bmt preflight-trigger-queue
 
     - name: Sync VM metadata from workflow config
       if: inputs.vm_pre_started != 'true'
       shell: bash
-      run: uv run --project .github/bmt bmt sync-vm-metadata
+      run: uv run bmt sync-vm-metadata
 
     - name: Force clean VM restart after stale-trigger cleanup
       if: inputs.vm_pre_started != 'true' && steps.preflight.outputs.restart_vm == 'true'
       shell: bash
       env:
         STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: uv run --project .github/bmt bmt force-clean-vm-restart
+      run: uv run bmt write-context && uv run bmt force-clean-vm-restart
 
     - name: Start BMT VM
       id: start-vm
       if: inputs.vm_pre_started != 'true' && steps.select-vm.outputs.vm_reused_running != 'true'
       shell: bash
-      run: uv run --project .github/bmt bmt start-vm
+      run: uv run bmt start-vm
 
     - name: Write run trigger to GCS
       id: trigger
@@ -158,7 +158,7 @@ runs:
         HEAD_SHA: ${{ inputs.head_sha }}
         HEAD_BRANCH: ${{ inputs.head_branch }}
         PR_NUMBER: ${{ inputs.pr_number }}
-      run: uv run --project .github/bmt bmt write-run-trigger
+      run: uv run bmt write-run-trigger
 
     - name: Wait for VM handshake ack
       id: handshake
@@ -168,12 +168,12 @@ runs:
         RESTART_VM: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_restart_vm || steps.preflight.outputs.restart_vm }}
         STALE_CLEANUP_COUNT: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_stale_cleanup_count || steps.preflight.outputs.stale_cleanup_count }}
         VM_REUSED_RUNNING: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_vm_reused_running || steps.select-vm.outputs.vm_reused_running }}
-      run: uv run --project .github/bmt bmt wait-handshake
+      run: uv run bmt write-context && uv run bmt wait-handshake
 
     - name: Handshake timeout diagnostics
       if: ${{ always() && steps.handshake.outcome == 'failure' }}
       shell: bash
-      run: uv run --project .github/bmt bmt handshake-timeout-diagnostics
+      run: uv run bmt handshake-timeout-diagnostics
 
     - name: Fail when VM accepts zero runtime-supported legs
       id: accept-guard
@@ -215,7 +215,7 @@ runs:
         pr_number: ${{ inputs.pr_number }}
         filtered_matrix: ${{ inputs.filtered_matrix }}
         trigger_written: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
-        vm_started: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
+        vm_started: ${{ (steps.start-vm.outcome == 'success' || steps.select-vm.outputs.vm_reused_running == 'true') && 'true' || 'false' }}
         handshake_ok: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
         handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
         handshake_elapsed_sec: ${{ steps.handshake.outputs.handshake_elapsed_sec }}

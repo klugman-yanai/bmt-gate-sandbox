@@ -90,4 +90,4 @@ runs:
         GCS_BUCKET: ${{ inputs.gcs_bucket }}
         HANDOFF_STATE_LINE: ${{ inputs.handoff_state_line }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
-      run: uv run --project .github/bmt bmt write-handoff-summary
+      run: uv run bmt write-context && uv run bmt write-handoff-summary

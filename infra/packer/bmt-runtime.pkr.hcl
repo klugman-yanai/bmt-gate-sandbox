@@ -114,6 +114,10 @@ source "googlecompute" "bmt_runtime" {
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
+# Build contract: (1) Sync code from GCS to bmt_repo_root, (2) record glibc for manifest,
+# (3) install Google Cloud Ops Agent, (4) install Python 3.12 and deps from bootstrap/vm_deps.txt,
+# (5) write image manifest, (6) upload manifest to GCS, (7) cloud-init clean. Any provisioner failure fails the build.
+# ---------------------------------------------------------------------------
 
 build {
   name    = "bmt-runtime"
@@ -161,7 +165,7 @@ build {
   }
 
   # 4. Install Python 3.12 and VM dependencies into a pre-baked venv.
-  #    Uses pip directly (no uv dependency at runtime; uv is only needed during image build if desired).
+  #    Deps from shared bootstrap/vm_deps.txt (single source of truth; sync code already in place).
   provisioner "shell" {
     execute_command  = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     environment_vars = ["DEBIAN_FRONTEND=noninteractive"]
@@ -174,8 +178,7 @@ build {
       # Create the pre-baked venv.
       "sudo python3.12 -m venv ${var.bmt_repo_root}/.venv",
       "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet --upgrade pip",
-      # Install exact deps matching pyproject.toml vm extras.
-      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet httpx>=0.27 'google-cloud-storage>=2.16' 'google-cloud-pubsub>=2.21' 'PyJWT>=2.0' 'cryptography>=41.0'",
+      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet -r ${var.bmt_repo_root}/bootstrap/vm_deps.txt",
       # Verify imports.
       "sudo ${var.bmt_repo_root}/.venv/bin/python -c \"import jwt, cryptography, httpx, google.cloud.storage, google.cloud.pubsub_v1; print('OK')\"",
     ]
