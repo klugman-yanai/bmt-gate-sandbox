@@ -55,7 +55,7 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `BMT_RUNTIME_BACKEND` | `"vm"` | Runtime dispatcher backend (`vm` or `cloud_run_job`). |
 | `BMT_CLOUD_RUN_JOB` | — | Cloud Run Job name when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
 | `BMT_CLOUD_RUN_REGION` | — | Cloud Run region when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
-| `BMT_HANDSHAKE_TIMEOUT_SEC` | `"180"` | Timeout for runtime handshake wait. |
+| `BMT_HANDSHAKE_TIMEOUT_SEC` | `"420"` | Timeout for runtime handshake wait. Default is sized for cold-boot startup-script delays on fresh images. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING` | `"600"` | When select-available-vm reuses a RUNNING VM (no TERMINATED available, e.g. after cancel-in-progress), this timeout is used for handshake so the workflow does not fail while the VM finishes the previous trigger. Only used when a RUNNING VM was selected. |
 | `BMT_PREEMPT_ON_PR_STALE_QUEUE` | `"1"` | If stale queue files exist for PR runs, preflight cleanup may force clean runtime restart to avoid stalled handoffs. |
 | `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |

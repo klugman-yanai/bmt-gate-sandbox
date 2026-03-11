@@ -208,6 +208,11 @@ manifest = {
 }
 (repo / '.image_manifest.json').write_text(json.dumps(manifest, indent=2) + '\\n', encoding='utf-8')
 PY
+    # Reset cloud-init instance state before image capture.
+    # Without this, cloned VMs can inherit stale state and delay/skip startup sequencing.
+    if command -v cloud-init >/dev/null 2>&1; then
+      sudo cloud-init clean --logs --machine-id || sudo cloud-init clean --logs
+    fi
   "
 
 echo "Stopping builder VM..."

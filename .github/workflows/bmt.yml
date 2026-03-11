@@ -21,7 +21,7 @@ on:
         description: "PR number when head_event is pull_request"
         required: false
       available_artifacts:
-        description: "JSON array of runner artifact names (e.g. [\"runner-sk_gcc_release\"]) so uploads without artifact show as Skipped"
+        description: 'JSON array of runner artifact names (e.g. ["runner-sk_gcc_release"]) so uploads without artifact show as Skipped'
         required: false
         default: "[]"
   workflow_call:
@@ -49,7 +49,7 @@ on:
         type: string
         default: ""
       available_artifacts:
-        description: "JSON array of runner artifact names (e.g. [\"runner-sk_gcc_release\"]) so uploads without artifact show as Skipped"
+        description: 'JSON array of runner artifact names (e.g. ["runner-sk_gcc_release"]) so uploads without artifact show as Skipped'
         required: false
         type: string
         default: "[]"
@@ -73,12 +73,8 @@ env:
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
-  BMT_RUNTIME_CONTEXT: ${{ vars.BMT_RUNTIME_CONTEXT }}
-  # Cloud Run (future): uncomment when used
-  # BMT_RUNTIME_BACKEND: ${{ vars.BMT_RUNTIME_BACKEND }}
-  # BMT_CLOUD_RUN_JOB: ${{ vars.BMT_CLOUD_RUN_JOB }}
-  # BMT_CLOUD_RUN_REGION: ${{ vars.BMT_CLOUD_RUN_REGION }}
   BMT_HANDSHAKE_TIMEOUT_SEC: ${{ vars.BMT_HANDSHAKE_TIMEOUT_SEC }}
+  BMT_PUBSUB_TOPIC: ${{ vars.BMT_PUBSUB_TOPIC }}
 
 permissions:
   contents: read
@@ -106,7 +102,7 @@ jobs:
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
@@ -174,7 +170,7 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.matrix_need_upload) }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
@@ -257,7 +253,7 @@ jobs:
       handoff_reason: ${{ steps.run.outputs.handoff_reason || '' }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
@@ -317,7 +313,7 @@ jobs:
           always()
           && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
               || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1

@@ -8,6 +8,7 @@
     "bmt_repo_root": "BMT_REPO_ROOT",
     "service_account": "GCP_SA_EMAIL",
     "pubsub_subscription": "BMT_PUBSUB_SUBSCRIPTION",
+    "pubsub_topic": "BMT_PUBSUB_TOPIC",
     "bmt_status_context": "BMT_STATUS_CONTEXT",
     "bmt_handshake_timeout_sec": "BMT_HANDSHAKE_TIMEOUT_SEC",
     "bmt_projects": "BMT_PROJECTS",
@@ -27,6 +28,7 @@
   "optional_from_terraform": [
     "BMT_STATUS_CONTEXT",
     "BMT_HANDSHAKE_TIMEOUT_SEC",
+    "BMT_PUBSUB_TOPIC",
     "BMT_PROJECTS",
     "BMT_RUNTIME_CONTEXT",
     "BMT_TRIGGER_STALE_SEC",
