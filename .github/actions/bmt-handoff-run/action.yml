@@ -1,5 +1,6 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-action.json
 name: BMT Handoff Run
-description: Preflight, write trigger, sync VM metadata, start VM, wait handshake, write summary. Requires job env GCS_BUCKET, GCP_*, BMT_*.
+description: "When vm_pre_started is false (default): preflight, sync VM metadata, start VM, write trigger (GCS + Pub/Sub), wait handshake, write summary. When vm_pre_started is true (VM started in setup): set BMT_VM_NAME from input, write trigger, wait handshake, write summary. Start-before-trigger so cold start is outside handshake timeout; Pub/Sub delivers to already-running VM. Requires job env GCS_BUCKET, GCP_*, BMT_*."
 
 inputs:
   head_sha:
@@ -45,25 +46,49 @@ inputs:
     description: GCS bucket (summary context)
     required: false
     default: ""
+  vm_pre_started:
+    description: If true, VM was already started in setup; skip select/preflight/sync/restart/start and use pre_started_* inputs
+    required: false
+    default: "false"
+  pre_started_selected_vm:
+    description: Selected VM name when vm_pre_started is true
+    required: false
+    default: ""
+  pre_started_vm_reused_running:
+    description: vm_reused_running from setup when vm_pre_started
+    required: false
+    default: "false"
+  pre_started_restart_vm:
+    description: restart_vm from setup when vm_pre_started
+    required: false
+    default: "false"
+  pre_started_stale_cleanup_count:
+    description: stale_cleanup_count from setup when vm_pre_started
+    required: false
+    default: "0"
+  pre_started_vm_started:
+    description: vm_started from setup when vm_pre_started
+    required: false
+    default: "false"
 outputs:
   selected_vm:
     description: VM name selected from pool for this run
-    value: ${{ steps.select-vm.outputs.selected_vm }}
+    value: ${{ steps.select-vm.outputs.selected_vm || inputs.pre_started_selected_vm }}
   vm_reused_running:
     description: Whether a RUNNING VM was reused (no TERMINATED available); handshake uses longer timeout
-    value: ${{ steps.select-vm.outputs.vm_reused_running || 'false' }}
+    value: ${{ steps.select-vm.outputs.vm_reused_running || inputs.pre_started_vm_reused_running || 'false' }}
   trigger_written:
     description: Whether the run trigger was written to GCS
     value: ${{ steps.trigger.outcome == 'success' && 'true' || 'false' }}
   handshake_ok:
-    description: Whether the VM acknowledged the trigger
+    description: Whether the VM confirmed the trigger
     value: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
   handshake_uri:
     description: GCS URI of the handshake ack artifact
     value: ${{ steps.handshake.outputs.handshake_uri }}
   vm_started:
     description: Whether the BMT VM was started
-    value: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
+    value: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_vm_started || (steps.start-vm.outcome == 'success' || steps.select-vm.outputs.vm_reused_running == 'true') || 'false' }}
   handoff_reason:
     description: Handoff result reason (ok, no_runtime_supported_legs, handshake_timeout)
     value: ${{ steps.handoff-reason.outputs.handoff_reason || (steps.handshake.outcome == 'success' && 'ok' || 'handshake_timeout') }}
@@ -78,8 +103,14 @@ runs:
         service_account: ${{ inputs.service_account }}
         python_version: "3.12"
 
+    - name: Set VM from setup (pre-started)
+      if: inputs.vm_pre_started == 'true'
+      shell: bash
+      run: echo "BMT_VM_NAME=${{ inputs.pre_started_selected_vm }}" >> "$GITHUB_ENV"
+
     - name: Select available VM from pool
       id: select-vm
+      if: inputs.vm_pre_started != 'true'
       shell: bash
       run: |
         uv run --project .github/bmt bmt select-available-vm
@@ -89,11 +120,30 @@ runs:
 
     - name: Preflight runtime trigger queue (stale cleanup)
       id: preflight
+      if: inputs.vm_pre_started != 'true'
       shell: bash
       env:
         RUN_CONTEXT: ${{ inputs.run_context }}
         PR_NUMBER: ${{ inputs.pr_number }}
       run: uv run --project .github/bmt bmt preflight-trigger-queue
+
+    - name: Sync VM metadata from workflow config
+      if: inputs.vm_pre_started != 'true'
+      shell: bash
+      run: uv run --project .github/bmt bmt sync-vm-metadata
+
+    - name: Force clean VM restart after stale-trigger cleanup
+      if: inputs.vm_pre_started != 'true' && steps.preflight.outputs.restart_vm == 'true'
+      shell: bash
+      env:
+        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
+      run: uv run --project .github/bmt bmt force-clean-vm-restart
+
+    - name: Start BMT VM
+      id: start-vm
+      if: inputs.vm_pre_started != 'true' && steps.select-vm.outputs.vm_reused_running != 'true'
+      shell: bash
+      run: uv run --project .github/bmt bmt start-vm
 
     - name: Write run trigger to GCS
       id: trigger
@@ -107,31 +157,14 @@ runs:
         PR_NUMBER: ${{ inputs.pr_number }}
       run: uv run --project .github/bmt bmt write-run-trigger
 
-    - name: Sync VM metadata from workflow config
-      shell: bash
-      run: uv run --project .github/bmt bmt sync-vm-metadata
-
-    - name: Force clean VM restart after stale-trigger cleanup
-      if: steps.preflight.outputs.restart_vm == 'true'
-      shell: bash
-      env:
-        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-      run: uv run --project .github/bmt bmt force-clean-vm-restart
-
-    - name: Start BMT VM
-      id: start-vm
-      if: steps.select-vm.outputs.vm_reused_running != 'true'
-      shell: bash
-      run: uv run --project .github/bmt bmt start-vm
-
     - name: Wait for VM handshake ack
       id: handshake
       shell: bash
       env:
         WORKFLOW_RUN_ID: ${{ github.run_id }}
-        RESTART_VM: ${{ steps.preflight.outputs.restart_vm }}
-        STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        VM_REUSED_RUNNING: ${{ steps.select-vm.outputs.vm_reused_running }}
+        RESTART_VM: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_restart_vm || steps.preflight.outputs.restart_vm }}
+        STALE_CLEANUP_COUNT: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_stale_cleanup_count || steps.preflight.outputs.stale_cleanup_count }}
+        VM_REUSED_RUNNING: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_vm_reused_running || steps.select-vm.outputs.vm_reused_running }}
       run: uv run --project .github/bmt bmt wait-handshake
 
     - name: Handshake timeout diagnostics
@@ -152,7 +185,7 @@ runs:
           echo "VM accepted ${accepted} leg(s)."
           exit 0
         fi
-        echo "::error::no_runtime_supported_legs: VM acknowledged trigger but accepted zero runtime-supported legs."
+        echo "::warning::no_runtime_supported_legs: VM confirmed trigger but accepted zero supported test runs."
         exit 1
 
     - name: Resolve handoff reason
@@ -163,7 +196,7 @@ runs:
         reason="ok"
         if [[ "${{ steps.handshake.outcome }}" != "success" ]]; then
           reason="handshake_timeout"
-        elif [[ "${{ steps.accept-guard.outcome }}" == "failure" ]]; then
+        elif [[ "${{ steps.handshake.outputs.handshake_accepted_leg_count }}" == "0" ]] || [[ -z "${{ steps.handshake.outputs.handshake_accepted_leg_count }}" ]]; then
           reason="no_runtime_supported_legs"
         fi
         echo "handoff_reason=${reason}" >>"$GITHUB_OUTPUT"
@@ -182,9 +215,9 @@ runs:
         vm_started: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
         handshake_ok: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
         handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
-        vm_name: ${{ steps.select-vm.outputs.selected_vm }}
+        vm_name: ${{ steps.select-vm.outputs.selected_vm || inputs.pre_started_selected_vm }}
         gcp_project: ${{ inputs.gcp_project }}
         gcp_zone: ${{ inputs.gcp_zone }}
         gcs_bucket: ${{ inputs.gcs_bucket }}
-        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM acknowledged trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
-        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM acknowledged trigger but reported no runtime-supported legs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not acknowledge trigger within handshake timeout.' || '' }}"
+        handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM confirmed trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero supported test runs.' || 'Handoff failed: VM did not confirm trigger.' }}"
+        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM confirmed trigger but reported no supported test runs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not confirm trigger within handshake timeout.' || '' }}"

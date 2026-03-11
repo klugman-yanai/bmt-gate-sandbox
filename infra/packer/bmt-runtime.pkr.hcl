@@ -85,7 +85,7 @@ source "googlecompute" "bmt_runtime" {
   machine_type = var.machine_type
 
   source_image_family       = var.base_image_family
-  source_image_project_id   = var.base_image_project
+  source_image_project_id   = [var.base_image_project]
 
   image_name        = local.image_name
   image_family      = var.image_family
@@ -121,6 +121,7 @@ build {
 
   # 1. Install gcloud CLI (if missing) and sync code snapshot from GCS
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       # Ensure Google Cloud CLI is available (Ubuntu 22.04 base may not have it).
@@ -140,6 +141,7 @@ build {
 
   # 2. Record glibc version for manifest.
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "GLIBC_VERSION_RAW=$(ldd --version 2>/dev/null | head -n1 || true)",
@@ -149,6 +151,7 @@ build {
 
   # 3. Install Google Cloud Ops Agent
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh",
@@ -160,6 +163,7 @@ build {
   # 4. Install Python 3.12 and VM dependencies into a pre-baked venv.
   #    Uses pip directly (no uv dependency at runtime; uv is only needed during image build if desired).
   provisioner "shell" {
+    execute_command  = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     environment_vars = ["DEBIAN_FRONTEND=noninteractive"]
     inline = [
       "set -euo pipefail",
@@ -179,6 +183,7 @@ build {
 
   # 5. Write image manifest (used by SLSA provenance and startup verification)
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "sudo python3 - <<'PY'",
@@ -222,16 +227,7 @@ build {
   #    Prevents cloned VMs from inheriting stale cloud-init status that can
   #    delay or block startup-script execution sequencing.
   provisioner "shell" {
-    inline = [
-      "set -euo pipefail",
-      "if command -v cloud-init >/dev/null 2>&1; then sudo cloud-init clean --logs --machine-id || sudo cloud-init clean --logs; fi",
-    ]
-  }
-
-  # 7. Reset cloud-init state before image capture.
-  #    Prevents cloned VMs from inheriting stale cloud-init status that can
-  #    delay or block startup-script execution sequencing.
-  provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "if command -v cloud-init >/dev/null 2>&1; then sudo cloud-init clean --logs --machine-id || sudo cloud-init clean --logs; fi",

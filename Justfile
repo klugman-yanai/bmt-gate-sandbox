@@ -55,6 +55,14 @@ upload-wavs source_dir dest_prefix="sk/inputs/false_rejects":
 validate-bucket:
     uv run python tools/bucket_validate_contract.py
 
+# Build VM image via Packer (dispatches bmt-image-build.yml on current branch; optionally pass branch=<name>)
+build-image branch="":
+    #!/usr/bin/env -S bash -eu
+    B="{{branch}}"
+    if [[ -z "$B" ]]; then B="$(git rev-parse --abbrev-ref HEAD)"; fi
+    echo "Dispatching bmt-image-build.yml on branch: $B"
+    gh workflow run bmt-image-build.yml --ref "$B"
+
 # VM control (manual debug/maintenance/testing only; sync-vm-metadata: skip when in sync, use --force to re-sync)
 sync-vm-metadata:
     uv run --project .github/bmt bmt sync-vm-metadata

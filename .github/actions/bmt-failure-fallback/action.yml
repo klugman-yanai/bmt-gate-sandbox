@@ -97,12 +97,12 @@ runs:
         if [[ "${{ inputs.prepare_result }}" != "success" ]]; then
           reason="Preparation failed before handoff context was established."
         elif [[ "${{ inputs.classify_result }}" == "failure" ]]; then
-          reason="No supported uploaded legs to hand off."
+          reason="No supported test runs to hand off."
         elif [[ "${{ inputs.handoff_result }}" == "failure" ]]; then
           if [[ "${{ steps.x.outputs.handoff_reason }}" == "no_runtime_supported_legs" ]]; then
-            reason="VM acknowledged trigger but accepted zero runtime-supported legs."
+            reason="VM confirmed trigger but accepted zero supported test runs."
           else
-            reason="VM did not acknowledge trigger within handshake timeout."
+            reason="VM did not confirm trigger within handshake timeout."
           fi
         fi
         echo "reason=${reason}" >>"$GITHUB_OUTPUT"
@@ -125,7 +125,7 @@ runs:
         vm_started: ${{ steps.x.outputs.vm_started }}
         handshake_ok: ${{ steps.x.outputs.handshake_ok }}
         handshake_uri: ${{ steps.x.outputs.handshake_uri }}
-        handoff_state_line: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero runtime-supported legs.' || 'Handoff failed: VM did not acknowledge trigger.' }}"
+        handoff_state_line: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero supported test runs.' || 'Handoff failed: VM did not confirm trigger.' }}"
         failure_reason: ${{ steps.reason.outputs.reason }}
 
     - name: Setup GCP for cleanup
@@ -144,7 +144,7 @@ runs:
         HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
         GITHUB_TOKEN: ${{ github.token }}
         BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
-        BMT_FAILURE_STATUS_DESCRIPTION: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: VM accepted zero runtime-supported legs.' || 'BMT cancelled: VM handshake timeout before pickup.' }}"
+        BMT_FAILURE_STATUS_DESCRIPTION: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: VM accepted zero supported test runs.' || 'BMT cancelled: VM handshake timeout before pickup.' }}"
       run: uv run --project .github/bmt bmt post-handoff-timeout-status
 
     - name: Cleanup failed trigger artifacts
