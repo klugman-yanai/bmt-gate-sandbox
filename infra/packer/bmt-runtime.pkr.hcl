@@ -84,8 +84,8 @@ source "googlecompute" "bmt_runtime" {
   zone         = var.gcp_zone
   machine_type = var.machine_type
 
-  source_image_family  = var.base_image_family
-  source_image_project = var.base_image_project
+  source_image_family       = var.base_image_family
+  source_image_project_id   = var.base_image_project
 
   image_name        = local.image_name
   image_family      = var.image_family
@@ -104,7 +104,8 @@ source "googlecompute" "bmt_runtime" {
   disk_size = 50
   disk_type = "pd-ssd"
 
-  ssh_username = "packer"
+  # Ubuntu 22.04 base image uses 'ubuntu', not 'packer'.
+  ssh_username = "ubuntu"
 
   # Packer cleans up the builder VM automatically; no manual trap needed.
   skip_create_image = false
@@ -118,10 +119,18 @@ build {
   name    = "bmt-runtime"
   sources = ["source.googlecompute.bmt_runtime"]
 
-  # 1. Sync code snapshot from GCS
+  # 1. Install gcloud CLI (if missing) and sync code snapshot from GCS
   provisioner "shell" {
     inline = [
       "set -euo pipefail",
+      # Ensure Google Cloud CLI is available (Ubuntu 22.04 base may not have it).
+      "if ! command -v gcloud >/dev/null 2>&1; then",
+      "  sudo apt-get update -qq",
+      "  sudo apt-get install -y -qq apt-transport-https ca-certificates gnupg curl",
+      "  echo 'deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main' | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list",
+      "  curl -sSf https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg",
+      "  sudo apt-get update -qq && sudo apt-get install -y -qq google-cloud-cli",
+      "fi",
       "sudo apt-get install -y -q google-cloud-cli-gke-gcloud-auth-plugin 2>/dev/null || true",
       "sudo rm -rf ${var.bmt_repo_root}",
       "sudo mkdir -p ${var.bmt_repo_root}",
@@ -151,6 +160,7 @@ build {
   # 4. Install Python 3.12 and VM dependencies into a pre-baked venv.
   #    Uses pip directly (no uv dependency at runtime; uv is only needed during image build if desired).
   provisioner "shell" {
+    environment_vars = ["DEBIAN_FRONTEND=noninteractive"]
     inline = [
       "set -euo pipefail",
       # Ensure Python 3.12 is available (Ubuntu 22.04 ships 3.10 by default).
@@ -204,7 +214,7 @@ build {
   # 6. Upload manifest to GCS so SLSA provenance generator can reference it
   provisioner "shell" {
     inline = [
-      "gcloud storage cp ${var.bmt_repo_root}/.image_manifest.json gs://${var.gcs_bucket}/provenance/image-manifests/${local.image_name}.json",
+      "sudo gcloud storage cp ${var.bmt_repo_root}/.image_manifest.json gs://${var.gcs_bucket}/provenance/image-manifests/${local.image_name}.json",
     ]
   }
 
