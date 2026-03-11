@@ -86,6 +86,9 @@ outputs:
   handshake_uri:
     description: GCS URI of the handshake ack artifact
     value: ${{ steps.handshake.outputs.handshake_uri }}
+  handshake_elapsed_sec:
+    description: Seconds from start of wait until ack was received (for tuning BMT_HANDSHAKE_TIMEOUT_SEC)
+    value: ${{ steps.handshake.outputs.handshake_elapsed_sec }}
   vm_started:
     description: Whether the BMT VM was started
     value: ${{ inputs.vm_pre_started == 'true' && inputs.pre_started_vm_started || (steps.start-vm.outcome == 'success' || steps.select-vm.outputs.vm_reused_running == 'true') || 'false' }}
@@ -215,6 +218,7 @@ runs:
         vm_started: ${{ steps.start-vm.outcome == 'success' && 'true' || 'false' }}
         handshake_ok: ${{ steps.handshake.outcome == 'success' && 'true' || 'false' }}
         handshake_uri: ${{ steps.handshake.outputs.handshake_uri }}
+        handshake_elapsed_sec: ${{ steps.handshake.outputs.handshake_elapsed_sec }}
         vm_name: ${{ steps.select-vm.outputs.selected_vm || inputs.pre_started_selected_vm }}
         gcp_project: ${{ inputs.gcp_project }}
         gcp_zone: ${{ inputs.gcp_zone }}

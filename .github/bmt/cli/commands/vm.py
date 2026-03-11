@@ -559,6 +559,7 @@ def run_wait_handshake(timeout_sec: int | None = None) -> None:
         raise RuntimeError(f"Trigger file missing before handshake wait: {trigger_uri}")
 
     deadline = time.monotonic() + timeout_sec
+    wait_start = time.monotonic()
     payload: dict[str, Any] | None = None
     last_error: str | None = None
     last_progress = 0.0
@@ -567,7 +568,7 @@ def run_wait_handshake(timeout_sec: int | None = None) -> None:
     trigger_exists = trigger_exists_initially
 
     while time.monotonic() < deadline:
-        elapsed = time.monotonic() - (deadline - timeout_sec)
+        elapsed = time.monotonic() - wait_start
         payload, error = shared.download_json(ack_uri)
         if payload is not None:
             break
@@ -688,6 +689,9 @@ def run_wait_handshake(timeout_sec: int | None = None) -> None:
     )
     write_github_output(github_output, "handshake_run_disposition", run_disposition)
 
+    elapsed_sec = max(0, int(time.monotonic() - wait_start))
+    write_github_output(github_output, "handshake_elapsed_sec", str(elapsed_sec))
+
     print(
-        f"VM handshake received: requested={requested_count} accepted={accepted_count} vm_status={last_vm_status}"
+        f"VM handshake received in {elapsed_sec}s: requested={requested_count} accepted={accepted_count} vm_status={last_vm_status}"
     )

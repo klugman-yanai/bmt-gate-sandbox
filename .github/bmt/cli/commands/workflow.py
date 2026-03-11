@@ -402,6 +402,7 @@ def run_write_handoff_summary() -> None:
     trigger_written = os.environ.get("TRIGGER_WRITTEN", "false")
     vm_started = os.environ.get("VM_STARTED", "false")
     handshake_ok = os.environ.get("HANDSHAKE_OK", "false")
+    handshake_elapsed_sec = os.environ.get("HANDSHAKE_ELAPSED_SEC", "").strip()
     handoff_state_line = os.environ.get("HANDOFF_STATE_LINE", "")
     failure_reason = os.environ.get("FAILURE_REASON", "")
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
@@ -431,17 +432,23 @@ def run_write_handoff_summary() -> None:
     vm_icon = "✅" if vm_started == "true" else "❌"
     handshake_icon = "✅" if handshake_ok == "true" else "❌"
 
-    lines = [
-        "## BMT Handoff",
-        "",
-        links_line,
-        "",
+    table_rows = [
         "| | |",
         "|---|---|",
         f"| Trigger written | {trigger_icon} |",
         f"| VM started | {vm_icon} |",
         f"| VM confirmed | {handshake_icon} |",
-        f"| Test runs | **{legs_planned}** |",
+    ]
+    if handshake_elapsed_sec and handshake_ok == "true":
+        table_rows.append(f"| Handshake time | **{handshake_elapsed_sec}s** |")
+    table_rows.append(f"| Test runs | **{legs_planned}** |")
+
+    lines = [
+        "## BMT Handoff",
+        "",
+        links_line,
+        "",
+        *table_rows,
         "",
         handoff_state_line,
     ]
