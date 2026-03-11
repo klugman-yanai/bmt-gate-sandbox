@@ -24,7 +24,7 @@ from cli.shared.config import (
 # ── Path defaults ──────────────────────────────────────────────────────────────
 
 DEFAULT_CONFIG_ROOT = "gcp/code"
-DEFAULT_ENV_CONTRACT_PATH = "infra/terraform/repo-vars-mapping.json"
+DEFAULT_ENV_CONTRACT_PATH = "tools/repo_vars_contract.py"
 
 # ── Errors ─────────────────────────────────────────────────────────────────────
 

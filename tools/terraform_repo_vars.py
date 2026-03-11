@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
-"""Export Terraform outputs to GitHub repo variables.
+"""Export Terraform outputs + contract defaults to GitHub repo variables.
 
-Terraform is the source of truth for all non-secret configuration. This script
-reads terraform output -json and repo-vars-mapping.json, then either prints
-key=value or applies them with `gh variable set` (--apply).
-
+Hybrid: infra-derived vars from Terraform (terraform output -raw <name>);
+behavioral vars from repo_vars_contract defaults. Run from repo root.
 Secrets (GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID, BMT_DISPATCH_APP_PRIVATE_KEY)
-are never set by this script; set them manually. See infra/README.md.
+are not set here; set them manually. See infra/README.md.
 """
 
 from __future__ import annotations
 
-import json
 import subprocess
+import sys
 from pathlib import Path
+
+# So that repo_vars_contract can be imported when run as tools/terraform_repo_vars.py from repo root.
+_tools_dir = Path(__file__).resolve().parent
+if str(_tools_dir) not in sys.path:
+    sys.path.insert(0, str(_tools_dir))
 
 import click
 from click_exit import run_click_command
+
+from repo_vars_contract import REPO_VARS_CONTRACT, TERRAFORM_OUTPUT_TO_VAR
 
 
 def _repo_root() -> Path:
@@ -27,27 +32,12 @@ def _terraform_dir() -> Path:
     return _repo_root() / "infra" / "terraform"
 
 
-def _mapping_path() -> Path:
-    return _terraform_dir() / "repo-vars-mapping.json"
-
-
-def _load_mapping() -> dict:
-    path = _mapping_path()
-    if not path.is_file():
-        raise FileNotFoundError(f"Mapping not found: {path}")
-    with path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        raise ValueError("repo-vars-mapping.json must be a JSON object")
-    return data
-
-
-def _terraform_output_json() -> dict:
+def _terraform_output_raw(name: str) -> str:
     tf_dir = _terraform_dir()
     if not tf_dir.is_dir():
         raise FileNotFoundError(f"Terraform dir not found: {tf_dir}")
     proc = subprocess.run(
-        ["terraform", "output", "-json"],
+        ["terraform", "output", "-raw", name],
         cwd=tf_dir,
         capture_output=True,
         text=True,
@@ -55,47 +45,22 @@ def _terraform_output_json() -> dict:
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"terraform output failed: {(proc.stderr or proc.stdout or '').strip()}"
+            f"terraform output -raw {name} failed: {(proc.stderr or proc.stdout or '').strip()}"
         )
-    try:
-        out = json.loads(proc.stdout)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"terraform output not valid JSON: {e}") from e
-    if not isinstance(out, dict):
-        raise RuntimeError("terraform output -json must be an object")
-    return out
-
-
-def _sensitive(value: dict) -> bool:
-    return value.get("sensitive", False) is True
-
-
-def _get_output_value(output: dict) -> str | int | None:
-    val = output.get("value")
-    if val is None:
-        return None
-    return str(val)
+    return (proc.stdout or "").strip()
 
 
 def get_expected_repo_vars_from_terraform() -> dict[str, str]:
-    """Return GitHub var name -> value from Terraform outputs and mapping."""
-    mapping = _load_mapping()
-    tf_to_gh = mapping.get("terraform_output_to_gh_var")
-    if not isinstance(tf_to_gh, dict):
-        raise ValueError("repo-vars-mapping.json missing terraform_output_to_gh_var object")
-    outputs = _terraform_output_json()
+    """Return GitHub var name -> value: Terraform for infra vars, contract defaults for the rest."""
+    defaults = REPO_VARS_CONTRACT.default_dict()
+    var_to_tf: dict[str, str] = {v: k for k, v in TERRAFORM_OUTPUT_TO_VAR.items()}
     result: dict[str, str] = {}
-    for tf_key, gh_var in tf_to_gh.items():
-        if tf_key not in outputs:
-            continue
-        out = outputs[tf_key]
-        if not isinstance(out, dict):
-            continue
-        if _sensitive(out):
-            continue
-        val = _get_output_value(out)
-        if val is not None:
-            result[gh_var] = str(val)
+    for name in REPO_VARS_CONTRACT.all_var_names():
+        if name in var_to_tf:
+            tf_name = var_to_tf[name]
+            result[name] = _terraform_output_raw(tf_name)
+        else:
+            result[name] = defaults.get(name, "")
     return result
 
 
@@ -104,7 +69,7 @@ def get_expected_repo_vars_from_terraform() -> dict[str, str]:
     "--apply",
     is_flag=True,
     default=False,
-    help="Run `gh variable set` for each Terraform-sourced var (default: print key=value)",
+    help="Run `gh variable set` for each var (default: print key=value)",
 )
 @click.option(
     "--dry-run",
@@ -113,14 +78,14 @@ def get_expected_repo_vars_from_terraform() -> dict[str, str]:
     help="Print what would be set, do not run gh",
 )
 def main(apply: bool, dry_run: bool) -> int:
-    """Export Terraform outputs to GitHub repo variables."""
+    """Export repo vars to GitHub (Terraform for infra, contract defaults for behavioral)."""
     try:
         vars_to_set = get_expected_repo_vars_from_terraform()
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         click.echo(f"::error::{e}", err=True)
         return 1
     if not vars_to_set:
-        click.echo("No Terraform-sourced vars to export.", err=True)
+        click.echo("No repo vars to export.", err=True)
         return 1
     if dry_run:
         for name in sorted(vars_to_set.keys()):
