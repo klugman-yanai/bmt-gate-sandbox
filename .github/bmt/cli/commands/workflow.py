@@ -247,7 +247,7 @@ def run_force_clean_vm_restart() -> None:
 def run_wait_handshake() -> None:
     from cli.commands import vm
 
-    base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "180"))
+    base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "420"))
     restart_vm = os.environ.get("RESTART_VM", "false").lower() in ("true", "1", "yes")
     vm_reused_running = os.environ.get("VM_REUSED_RUNNING", "false").lower() in ("true", "1", "yes")
     stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")
