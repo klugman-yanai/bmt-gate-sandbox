@@ -14,6 +14,7 @@ requires-python = ">=3.12"
 description = "BMT CI driver: matrix discovery, trigger, VM lifecycle, and runner upload."
 dependencies = [
     "google-cloud-storage",
+    "google-cloud-pubsub",
     "PyGithub",
 ]
 

@@ -14,7 +14,7 @@ Start here for structure and day-to-day use. Plans and historical docs live unde
 | [github-app-permissions.md](github-app-permissions.md) | GitHub App permissions and how to check them. |
 | [github-actions-and-cli-tools.md](github-actions-and-cli-tools.md) | Actions summaries, re-run, debug; `gh` CLI; retention policy. |
 | [testing-production-ci-locally.md](testing-production-ci-locally.md) | Canonical how-to: test prod CI locally with real VM/GCS. |
-| [repository-structure-and-design.md](repository-structure-and-design.md) | Repo layout: `.github`, `packages/bmt-cli`, `deploy/`, `config/`, `tools/`. |
+| [repository-structure-and-design.md](repository-structure-and-design.md) | Repo layout: `.github`, `gcp/`, `config/`, `tools/`. |
 
 ## Sandbox and production
 

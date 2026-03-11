@@ -17,7 +17,7 @@ Prod CI (build-and-test.yml)
   └─ trigger-bmt job dispatches bmt.yml
 
 Prod CI (bmt.yml)
-  └─ downloads BMT config from GCS (no deploy/ dir in prod)
+  └─ downloads BMT config from GCS (no gcp/ dir in prod)
   └─ downloads runner artifact from build job
   └─ uploads runner to GCS
   └─ writes trigger, starts VM, waits for ack
@@ -135,8 +135,8 @@ from __future__ import annotations
 
 # These defaults are only used when --config-root is not passed explicitly.
 # In production, bmt.yml always passes --config-root "$BMT_CONFIG_ROOT".
-DEFAULT_CONFIG_ROOT = "deploy/code"
-DEFAULT_RUNTIME_ROOT = "deploy/runtime"
+DEFAULT_CONFIG_ROOT = "gcp/code"
+DEFAULT_RUNTIME_ROOT = "gcp/runtime"
 DEFAULT_ENV_CONTRACT_PATH = "config/env_contract.json"
 DEFAULT_REPO_VARS_PATH = "config/repo_vars.toml"
 ```
@@ -194,7 +194,7 @@ Change this line in `classify-handoff` → "Build BMT matrix":
 
 ```yaml
 # FROM:
-run: uv run python ./.github/scripts/ci_driver.py matrix --config-root deploy/code --project-filter "${BMT_PROJECTS:-}"
+run: uv run python ./.github/scripts/ci_driver.py matrix --config-root gcp/code --project-filter "${BMT_PROJECTS:-}"
 
 # TO:
 run: uv run python ./.github/scripts/ci_driver.py matrix --config-root "$BMT_CONFIG_ROOT" --project-filter "${BMT_PROJECTS:-}"
@@ -214,7 +214,7 @@ Add `CONFIG_ROOT` env to the "Write run trigger to GCS" step in `handoff-run`:
         run: bash .github/scripts/workflows/bmt_workflow.sh write-run-trigger
 ```
 
-> `trigger.sh` reads `config_root="${CONFIG_ROOT:-deploy/code}"` — setting this env var overrides the default.
+> `trigger.sh` reads `config_root="${CONFIG_ROOT:-gcp/code}"` — setting this env var overrides the default.
 
 ---
 
@@ -375,7 +375,7 @@ Settings → Branches → `dev`:
    - `build` job uploads runner artifacts for `*_gcc_Release` presets
    - `trigger-bmt` job dispatches `bmt.yml`
 3. `bmt.yml` runs:
-   - Downloads config from GCS (no `deploy/` needed)
+   - Downloads config from GCS (no `gcp/` needed)
    - Downloads runner artifact from build run
    - Uploads runner to GCS, writes trigger, starts VM
 4. VM picks up trigger, runs BMT, posts commit status + Check Run
@@ -402,7 +402,7 @@ Settings → Branches → `dev`:
 
 | Decision | Rationale |
 |----------|-----------|
-| Config from GCS, not local `deploy/` | Prod repo needs no config files; dev repo owns them |
+| Config from GCS, not local `gcp/` | Prod repo needs no config files; dev repo owns them |
 | Separate prod GitHub App | Different trust boundary than test App |
 | Upload artifact before cleanup | `build-and-test.yml` `rm -rf ./**/build` deletes runner |
 | `dispatch-workflow` command | Keeps trigger job to ~20 lines, reusable |

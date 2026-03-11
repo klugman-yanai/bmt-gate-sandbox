@@ -1,8 +1,8 @@
 {
   "REF_PATH": "data/sk/sk/music/ref.wav",
   "MICS_PATH": "data/sk/sk/music/SK_WuW_A_0_D_2.6_H_70_S_70_T_Music_N_70_E_up.wav",
-  "KARDOME_OUTPUT_PATH": "deploy/code/sk/tests/kardome_output.wav",
-  "USER_OUTPUT_PATH": "deploy/code/sk/tests/user_output.wav",
+  "KARDOME_OUTPUT_PATH": "gcp/code/sk/tests/kardome_output.wav",
+  "USER_OUTPUT_PATH": "gcp/code/sk/tests/user_output.wav",
   "CALIB_BIN_PATH": "/tmp/dummy/calib.bin",
   "NUM_SOURCE_TEST": 0,
   "QUIET_PATH": "",

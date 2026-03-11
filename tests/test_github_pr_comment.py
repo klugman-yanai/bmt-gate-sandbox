@@ -1,17 +1,11 @@
-"""Tests for deploy/code/lib/github_pr_comment.py."""
+"""Tests for gcp/code/lib/github_pr_comment.py."""
 
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 from typing import Any
 
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "deploy" / "code" / "lib") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "deploy" / "code" / "lib"))
-
-import github_pr_comment  # type: ignore[import-not-found]  # noqa: E402
+import github_pr_comment  # type: ignore[import-not-found]
 
 
 class _Resp:

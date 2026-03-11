@@ -4,16 +4,10 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
+import gh_repo_vars as repo_vars  # type: ignore[import-not-found]
 import pytest
-
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "tools") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "tools"))
-
-import gh_repo_vars as repo_vars  # type: ignore[import-not-found]  # noqa: E402
 
 
 def _cp(*, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:

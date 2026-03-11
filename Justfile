@@ -15,23 +15,23 @@ lint:
     basedpyright
 
 # Bucket sync / verify (safe to re-run: skip when already in sync; use --force to re-sync)
-sync-remote:
-    uv run python tools/bucket_sync_remote.py
+sync-gcp:
+    uv run python tools/bucket_sync_gcp.py
 
-# Pull bucket content into deploy/ so local is 1:1 with bucket (code + runtime, excluding ephemeral paths)
-pull-remote:
-    uv run python tools/bucket_pull_remote.py
+# Pull bucket content into gcp/ (requires tools/bucket_pull_gcp.py; use sync-gcp for push)
+pull-gcp:
+    @echo "pull-gcp not implemented; use sync-gcp to push gcp/ to bucket"
 
 sync-runtime-seed:
     uv run python tools/bucket_sync_runtime_seed.py
 
 verify-sync:
-    uv run python tools/bucket_verify_remote_sync.py
+    uv run python tools/bucket_verify_gcp_sync.py
     uv run python tools/bucket_verify_runtime_seed_sync.py
 
-# Single deploy entrypoint: sync deploy surface to bucket and verify
+# Single deploy entrypoint: sync gcp surface to bucket and verify
 deploy:
-    just sync-remote
+    just sync-gcp
     just verify-sync
 
 # Remove Python/uv bloat from GCS (dry-run by default; use --execute to delete)
@@ -40,7 +40,7 @@ clean-bloat *args:
 
 # Layout / policy
 validate-layout:
-    uv run python tools/deploy_layout_policy.py
+    uv run python tools/gcp_layout_policy.py
 
 validate-repo-layout:
     uv run python tools/repo_layout_policy.py
@@ -57,10 +57,10 @@ validate-bucket:
 
 # VM control (manual debug/maintenance/testing only; sync-vm-metadata: skip when in sync, use --force to re-sync)
 sync-vm-metadata:
-    uv run --project packages/bmt-cli bmt sync-vm-metadata
+    uv run --project .github/bmt bmt sync-vm-metadata
 
 start-vm *args:
-    uv run --project packages/bmt-cli bmt start-vm --allow-manual-start {{args}}
+    uv run --project .github/bmt bmt start-vm --allow-manual-start {{args}}
 
 wait-handshake workflow_run_id timeout_sec="180":
     #!/usr/bin/env -S bash -eu
@@ -72,7 +72,7 @@ wait-handshake workflow_run_id timeout_sec="180":
     export GCP_ZONE="${GCP_ZONE:-}"
     export BMT_VM_NAME="${BMT_VM_NAME:-}"
     mkdir -p .local
-    uv run --project packages/bmt-cli bmt wait-handshake
+    uv run --project .github/bmt bmt wait-handshake
 
 # Runtime observability
 monitor *args:
@@ -107,7 +107,13 @@ check-vm-gcs run_id:
     PROJECT="$(gh variable get GCP_PROJECT)"
     gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" --project="$PROJECT" 2>/dev/null | tail -c 2048 || echo "(failed - check VM name/zone/project)"
 
-# Config / environment tooling (repo-vars-apply: skip when vars match; use --force to re-set all)
+# Config / environment tooling (Terraform is source of truth; repo-vars from terraform output)
+terraform-export-vars:
+    uv run python tools/terraform_repo_vars.py
+
+terraform-export-vars-apply:
+    uv run python tools/terraform_repo_vars.py --apply
+
 show-env:
     uv run python tools/gh_show_env.py
 

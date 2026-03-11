@@ -4,9 +4,23 @@
 repos:
   - repo: local
     hooks:
-      - id: verify-remote-bucket-sync
-        name: deploy/ bucket sync check
-        entry: scripts/hooks/pre-commit-sync-remote.sh
+      - id: verify-gcp-bucket-sync
+        name: gcp/ bucket sync check
+        entry: scripts/hooks/pre-commit-sync-gcp.sh
         language: script
-        files: ^deploy/
+        files: ^gcp/
         pass_filenames: false
+      - id: pytest-fast
+        name: pytest fast gate
+        entry: bash -lc 'uv run pytest -q -m "unit or contract"'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: pytest
+        name: pytest fast gate (alias)
+        entry: bash -lc 'uv run pytest -q -m "unit or contract"'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

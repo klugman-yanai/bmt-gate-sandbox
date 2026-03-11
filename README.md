@@ -2,7 +2,7 @@
 
 **Purpose:** This repo exists so you can **reliably test production CI locally using the real VM and GCS** — no mocks. That is the main goal. Supporting that goal are:
 
-1. **Mirror of deploy (VM/GCS)** — The `deploy/` directory is the local mirror of the bucket namespace. Sync/pull from GCS so you develop against the same code and layout the VM uses. See [deploy/README.md](deploy/README.md).
+1. **Mirror of gcp (VM/GCS)** — The `gcp/` directory is the local mirror of the bucket namespace. Sync/pull from GCS so you develop against the same code and layout the VM uses. See [gcp/README.md](gcp/README.md).
 2. **Test suite** — Unit and integration tests for BMT logic, gate, pointer/snapshot flow, and CI commands. Run without GCS/VM when possible; use real bucket/VM when you need to validate the full path.
 3. **Dev QoL tools** — Just recipes, tools (sync, upload, validate, local BMT, monitor), and repo-vars/VM helpers for managing BMTs and debugging handoff.
 
@@ -24,7 +24,7 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 
 ## Dev quality of life
 
-- **Just recipes** — `just test`, `just lint`, `just sync-remote`, `just verify-sync`, `just validate-bucket`, `just show-env`, `just repo-vars-check`, `just repo-vars-apply`, `just validate-vm-vars`. Run `just` for the full list.
+- **Just recipes** — `just test`, `just lint`, `just sync-gcp`, `just verify-sync`, `just terraform-export-vars`, `just repo-vars-check`, `just repo-vars-apply`, `just show-env`, `just validate-vm-vars`. Run `just` for the full list.
 - **GitHub CLI** — `gh pr checks --watch` to wait for BMT and other checks; `gh run watch <run_id>` to follow a workflow run.
 - **Job summaries** — Workflow runs write handoff and routing summaries to the Actions run summary.
 
@@ -56,43 +56,44 @@ See [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md#
 
 ## Configuration
 
-Canonical source: **config/env_contract.json**. Optional overrides: **config/repo_vars.toml**.
+**Terraform is the source of truth** for all non-secret configuration. Apply Terraform, then export repo vars from Terraform outputs. Secrets are set manually (see [infra/README.md](infra/README.md)).
 
-| Required repo vars | Optional (common) |
-|--------------------|-------------------|
-| `GCS_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` | `BMT_PROJECTS`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC` |
+| Required (from Terraform) | Secrets (set manually) |
+|---------------------------|------------------------|
+| `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCP_SA_EMAIL`, `BMT_PUBSUB_SUBSCRIPTION` | `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` |
 
-VM metadata (`GCS_BUCKET`, `BMT_REPO_ROOT`) is synced from repo config by the workflow. Branch protection should require the commit status named by `BMT_STATUS_CONTEXT`.
+Optional vars (e.g. `BMT_PROJECTS`, `BMT_STATUS_CONTEXT`) have Terraform defaults; export them with `just terraform-export-vars`.
 
-Useful commands: `just sync-vm-metadata`, `just start-vm`, `just wait-handshake <workflow_run_id>`, `just repo-vars-check`, `just repo-vars-apply`, `just show-env`, `just validate-vm-vars`.
+Useful commands: `just terraform-export-vars`, `just terraform-export-vars-apply`, `just repo-vars-check`, `just repo-vars-apply`, `just show-env`, `just validate-vm-vars`, `just sync-vm-metadata`, `just start-vm`, `just wait-handshake <workflow_run_id>`.
 
-See [docs/configuration.md](docs/configuration.md) for full env contract, VM metadata, and secrets.
+See [docs/configuration.md](docs/configuration.md) and [infra/README.md](infra/README.md).
 
 ## GCS contract (summary)
 
 - **Roots** — `<code-root> = gs://<bucket>/code`; `<runtime-root> = gs://<bucket>/runtime`.
-- **Code root** — Deployable code/config/bootstrap from `deploy/code`; manual sync only.
+- **Code root** — Deployable code/config/bootstrap from `gcp/code`; manual sync only.
 - **Runtime root** — Triggers (`runs/`, `acks/`, `status/`), runner bundles, `current.json`, `snapshots/<run_id>/`.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/configuration.md](docs/configuration.md) for full layout.
 
 ## Local usage
 
-**Testing production CI locally with real VM/GCS:** Follow [Testing production CI locally](docs/testing-production-ci-locally.md). Set repo vars (or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`), sync the mirror (`just sync-remote`, `just verify-sync`), then run `just prod-ci-local` or the manual sequence in that doc. Use `just monitor` or `just gcs-trigger <run_id>` to inspect; verify in GCS or via Check Run. See also [docs/development.md](docs/development.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
+**Testing production CI locally with real VM/GCS:** Follow [Testing production CI locally](docs/testing-production-ci-locally.md). Set repo vars (or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`), sync the mirror (`just sync-gcp`, `just verify-sync`), then run `just prod-ci-local` or the manual sequence in that doc. Use `just monitor` or `just gcs-trigger <run_id>` to inspect; verify in GCS or via Check Run. See also [docs/development.md](docs/development.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
 
-- **Local BMT batch** (no cloud): `uv run python tools/bmt_run_local.py --bmt-id ... --jobs-config ... --runner ... --runtime-root deploy/runtime --dataset-root ... --workers 4`. See [docs/development.md](docs/development.md).
-- **Bucket tools** (set `GCS_BUCKET`): `just sync-remote`, `just verify-sync`, `just sync-runtime-seed`, `just upload-runner`, `just upload-wavs <source_dir>`, `just validate-bucket`.
+- **Local BMT batch** (no cloud): `uv run python tools/bmt_run_local.py --bmt-id ... --jobs-config ... --runner ... --runtime-root gcp/runtime --dataset-root ... --workers 4`. See [docs/development.md](docs/development.md).
+- **Bucket tools** (set `GCS_BUCKET`): `just sync-gcp`, `just verify-sync`, `just sync-runtime-seed`, `just upload-runner`, `just upload-wavs <source_dir>`, `just validate-bucket`.
 
 ## Repository layout
 
-- **deploy/code/** — Deployable VM code/config/templates; synced manually to `<code-root>`.
-- **deploy/runtime/** — Runtime seed (runners + placeholders); synced to `<runtime-root>`.
+- **gcp/code/** — Deployable VM code/config/templates; synced manually to `<code-root>`.
+- **gcp/runtime/** — Runtime seed (runners + placeholders); synced to `<runtime-root>`.
 - **data/** — Local-only datasets; upload explicitly.
-- **.github/** — Workflows (`dummy-build-and-test.yml`, `bmt.yml`) and CI scripts.
-- **tools/** — Bucket sync, upload, validation, local BMT, env/repo-vars.
+- **infra/** — Terraform (source of truth for non-secret config), bootstrap scripts, and [infra/README.md](infra/README.md).
+- **.github/** — Workflows and CI scripts.
+- **tools/** — Bucket sync, upload, validation, local BMT, Terraform export, repo-vars.
 - **.local/diagnostics/** — Ad-hoc diagnostics (gitignored).
 
-See [deploy/README.md](deploy/README.md) for canonical mirror policy.
+See [gcp/README.md](gcp/README.md) for canonical mirror policy.
 
 ## Documentation
 
@@ -112,8 +113,8 @@ Full index: [docs/README.md](docs/README.md).
 | [docs/plans/future-architecture.md](docs/plans/future-architecture.md) | Planned changes (SDK, Pydantic, bmt_lib, PR comments). |
 | [docs/plans/high-level-design-improvements.md](docs/plans/high-level-design-improvements.md) | Purpose-driven design improvements (first-class local prod CI test, doc flow, production surface, test tiers). |
 | [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md) | Enabling BMT in production repo. |
-| [deploy/README.md](deploy/README.md) | Local bucket mirror policy. |
-| [deploy/code/bootstrap/README.md](deploy/code/bootstrap/README.md) | VM bootstrap and auth. |
+| [gcp/README.md](gcp/README.md) | Local bucket mirror policy. |
+| [gcp/code/bootstrap/README.md](gcp/code/bootstrap/README.md) | VM bootstrap and auth. |
 
 ## Notes
 
@@ -123,4 +124,4 @@ Full index: [docs/README.md](docs/README.md).
 
 ## Test vs production
 
-When moving to production: update GitHub App credentials and repo mapping (`deploy/code/config/github_repos.json`), and status context name (`BMT_STATUS_CONTEXT`) for branch protection. See [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md).
+When moving to production: update GitHub App credentials and repo mapping (`gcp/code/config/github_repos.json`), and status context name (`BMT_STATUS_CONTEXT`) for branch protection. See [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md).

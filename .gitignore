@@ -12,6 +12,9 @@ debug/
 *.pyc
 .venv/
 *.egg-info/
+.coverage
+coverage.xml
+junit.xml
 
 # Local staging (manual assets)
 repo/staging/
@@ -40,6 +43,6 @@ compile_commands.json
 .DS_Store
 Thumbs.db
 
-# Local credentials and env (copy config/bmt/.env.example to config/bmt/.env)
+# Local credentials and env (copy infra/bootstrap/.env.example to infra/bootstrap/.env)
 gcp-key.json
 .env

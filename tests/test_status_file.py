@@ -1,15 +1,8 @@
-"""Tests for deploy/code/lib/status_file.py."""
+"""Tests for gcp/code/lib/status_file.py."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT / "deploy" / "code" / "lib") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "deploy" / "code" / "lib"))
-
-import status_file  # type: ignore[import-not-found]  # noqa: E402
+import status_file  # type: ignore[import-not-found]
 
 
 def test_status_uri_with_runtime_prefix() -> None:

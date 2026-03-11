@@ -4,7 +4,7 @@ This is the **canonical guide** for testing production BMT CI locally using the 
 
 ## Prerequisites
 
-- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PROJECTS`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
+- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
 - **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
 - **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
 
@@ -15,7 +15,7 @@ Confirm env: run `just show-env` to print the variable names used by CI, VM, and
 **Before** running any workflow steps, sync the local mirror to the bucket so the VM runs the same code and layout you have locally:
 
 ```bash
-just sync-remote
+just sync-gcp
 just verify-sync
 ```
 
@@ -37,7 +37,7 @@ Use this when you need to run steps individually or debug a specific step.
 
 1. **Sync mirror** (if not already done):
    ```bash
-   just sync-remote
+   just sync-gcp
    just verify-sync
    ```
 

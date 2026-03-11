@@ -97,7 +97,7 @@ def run_trigger() -> None:
     Reads FILTERED_MATRIX_JSON, RUN_CONTEXT, PR_NUMBER, GITHUB_OUTPUT from env; GCS_BUCKET and status context from config.
 
     Test-case (no real PR): set GITHUB_REPOSITORY to an enabled repo in
-    remote/code/config/github_repos.json (e.g. klugman-yanai/bmt-gate-sandbox) and
+    gcp/code/config/github_repos.json (e.g. klugman-yanai/bmt-gate-sandbox) and
     RUN_CONTEXT=dev so the VM skips PR state checks and can post status to the test repo.
     """
     cfg = get_config()
@@ -180,6 +180,17 @@ def run_trigger() -> None:
     except shared.GcloudError as exc:
         gh_error(f"Failed to write run trigger: {exc}")
         raise
+
+    # Also publish to Pub/Sub for near-instant VM delivery (optional).
+    pubsub_topic = cfg.bmt_pubsub_topic
+    if pubsub_topic and cfg.gcp_project:
+        from google.cloud import pubsub_v1  # type: ignore[import-untyped]
+
+        publisher = pubsub_v1.PublisherClient()
+        topic_path = publisher.topic_path(cfg.gcp_project, pubsub_topic)
+        future = publisher.publish(topic_path, json.dumps(run_payload).encode())
+        future.result()
+        print(f"Published trigger to Pub/Sub topic {pubsub_topic!r}")
 
     manifest = {"legs": legs}
     write_github_output(github_output, "manifest", json.dumps(manifest, separators=(",", ":")))

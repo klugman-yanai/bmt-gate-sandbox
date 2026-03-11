@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from cli import shared, gcs, github_api
+from cli import gcs, github_api, shared
 from cli.gh_output import gh_endgroup, gh_group, gh_notice, gh_warning
 from cli.shared import _workflow_run_id, _workflow_runtime_root, get_config
 
@@ -145,7 +145,32 @@ def run_resolve_uploaded_projects() -> None:
     root = _workflow_runtime_root()
     prefix = f"{root}/_workflow/uploaded/{run_id}/"
     uris = gcs.list_prefix(prefix)
-    names = sorted(u.split("/")[-1].replace(".json", "") for u in uris if u.endswith(".json"))
+    uploaded_projects = {
+        u.split("/")[-1].replace(".json", "").strip() for u in uris if u.endswith(".json")
+    }
+
+    # In sandbox/test flows, runner upload jobs can be intentionally skipped when
+    # the runner is already present in the bucket. Accept projects that already
+    # have runner metadata for the requested preset(s).
+    runner_matrix_raw = os.environ.get("RUNNER_MATRIX", "").strip()
+    if runner_matrix_raw:
+        with contextlib.suppress(json.JSONDecodeError):
+            runner_matrix = json.loads(runner_matrix_raw)
+            include = runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
+            if isinstance(include, list):
+                for entry in include:
+                    if not isinstance(entry, dict):
+                        continue
+                    project = str(entry.get("project", "")).strip()
+                    preset = str(entry.get("preset", "")).strip()
+                    if not project or not preset:
+                        continue
+                    meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
+                    payload, _ = gcs.download_json(meta_uri)
+                    if isinstance(payload, dict):
+                        uploaded_projects.add(project)
+
+    names = sorted(uploaded_projects)
     accepted = json.dumps(names)
     Path("accepted.txt").write_text(accepted)
     path = os.environ.get("GITHUB_OUTPUT")
@@ -224,23 +249,22 @@ def run_wait_handshake() -> None:
 
     base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "180"))
     restart_vm = os.environ.get("RESTART_VM", "false").lower() in ("true", "1", "yes")
+    vm_reused_running = os.environ.get("VM_REUSED_RUNNING", "false").lower() in ("true", "1", "yes")
     stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")
-    timeout = base_timeout + 60 if restart_vm else base_timeout
-    if restart_vm:
+
+    if vm_reused_running:
+        timeout = 600
+        gh_notice(f"Handshake branch=reuse-running timeout={timeout}s")
+    elif restart_vm:
+        timeout = base_timeout + 60
         print(
             f"::notice::Handshake branch=post-cleanup-restart stale_cleanup_count={stale_count} timeout={timeout}s"
         )
     else:
+        timeout = base_timeout
         gh_notice(f"Handshake branch=standard timeout={timeout}s")
-    prev = os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC")
-    os.environ["BMT_HANDSHAKE_TIMEOUT_SEC"] = str(timeout)
-    try:
-        vm.run_wait_handshake()
-    finally:
-        if prev is not None:
-            os.environ["BMT_HANDSHAKE_TIMEOUT_SEC"] = prev
-        else:
-            os.environ.pop("BMT_HANDSHAKE_TIMEOUT_SEC", None)
+
+    vm.run_wait_handshake(timeout_sec=timeout)
 
 
 def run_handshake_timeout_diagnostics() -> None:

@@ -10,6 +10,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+# SLSA v1.0 constants
+_SLSA_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+_SLSA_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
+_SLSA_BUILD_TYPE = "https://kardome.com/bmt/runner-upload/v1"
+
 from cli import shared
 from cli.shared import get_config, require_env, runtime_bucket_root_uri
 
@@ -49,6 +54,80 @@ def _remote_files_by_name(meta: dict[str, Any] | None) -> dict[str, dict[str, An
             continue
         out[name] = row
     return out
+
+
+def _write_runner_provenance(
+    *,
+    bucket: str,
+    root: str,
+    dest_prefix: str,
+    local_files: list[dict[str, str | int]],
+    source_ref: str,
+    project: str,
+    preset: str,
+) -> None:
+    """Write a SLSA v1.0 provenance document to GCS alongside the runner artifacts."""
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    git_sha = os.environ.get("GITHUB_SHA", "")
+    builder_id = (
+        f"https://github.com/{repository}/.github/workflows/build-and-test.yml"
+        if repository
+        else "https://kardome.com/bmt/runner-upload/v1"
+    )
+
+    provenance = {
+        "_type": _SLSA_STATEMENT_TYPE,
+        "subject": [
+            {
+                "name": f"{root}/{dest_prefix}/{str(row['name'])}",
+                "digest": {"sha256": str(row["sha256"])},
+            }
+            for row in local_files
+        ],
+        "predicateType": _SLSA_PREDICATE_TYPE,
+        "predicate": {
+            "buildDefinition": {
+                "buildType": _SLSA_BUILD_TYPE,
+                "externalParameters": {
+                    "source_ref": source_ref,
+                    "project": project,
+                    "preset": preset,
+                },
+                "resolvedDependencies": [
+                    {
+                        "uri": f"https://github.com/{repository}",
+                        "digest": {"gitCommit": git_sha},
+                    }
+                ] if git_sha else [],
+            },
+            "runDetails": {
+                "builder": {"id": builder_id},
+                "metadata": {
+                    "invocationId": run_id,
+                    "startedOn": now,
+                    "finishedOn": now,
+                    "github_repository": repository,
+                    "github_run_id": run_id,
+                    "gcs_bucket": bucket,
+                    "dest_prefix": dest_prefix,
+                },
+            },
+        },
+    }
+
+    provenance_dest = f"{root}/{dest_prefix}/runner.slsa.json"
+    with tempfile.TemporaryDirectory(prefix="slsa_runner_") as tmp_dir:
+        prov_path = Path(tmp_dir) / "runner.slsa.json"
+        prov_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+        rc, err = shared.run_capture_retry(
+            ["gcloud", "storage", "cp", str(prov_path), provenance_dest, "--quiet"]
+        )
+        if rc != 0:
+            print(f"::warning::Failed to upload runner provenance: {err}")
+            return
+    print(f"Uploaded runner provenance (SLSA v1.0) -> {provenance_dest}")
 
 
 def run() -> None:
@@ -131,7 +210,17 @@ def run() -> None:
     if not uploaded:
         unchanged = ", ".join(skipped) if skipped else "none"
         print(f"Runner upload skipped: no content changes for {project}/{preset} ({unchanged})")
-        return  # No GCS writes; workflow may still record project marker if ref already present
+        # Still write provenance so the Sign step has a file to sign even when runner is unchanged.
+        _write_runner_provenance(
+            bucket=bucket,
+            root=root,
+            dest_prefix=dest_prefix,
+            local_files=local_files,
+            source_ref=source_ref,
+            project=project,
+            preset=preset,
+        )
+        return
 
     meta = {
         "uploaded_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -158,4 +247,15 @@ def run() -> None:
         if rc != 0:
             raise RuntimeError(f"Failed to upload runner_meta.json: {err}")
     print(f"Uploaded runner_meta.json -> {meta_dest}")
+
+    _write_runner_provenance(
+        bucket=bucket,
+        root=root,
+        dest_prefix=dest_prefix,
+        local_files=local_files,
+        source_ref=source_ref,
+        project=project,
+        preset=preset,
+    )
+
     print(f"Runner upload complete: {len(uploaded)} changed file(s) for {project}/{preset}")

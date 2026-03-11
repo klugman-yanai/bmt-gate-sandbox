@@ -21,6 +21,11 @@ def _set_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Pat
     _write(lib_dir / "libKardome.so", b"lib-binary-v1")
 
     monkeypatch.setenv("GCS_BUCKET", "bucket-a")
+    monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
+    monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("GCP_ZONE", "zone")
+    monkeypatch.setenv("BMT_VM_NAME", "vm")
     monkeypatch.setenv("PROJECT", "sk")
     monkeypatch.setenv("PRESET", "sk_gcc_release")
     monkeypatch.setenv("SOURCE_REF", "abc123")
@@ -36,17 +41,17 @@ def _sha(path: Path) -> str:
 def test_upload_runner_uploads_all_when_remote_meta_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     runner_dir, lib_dir = _set_env(monkeypatch, tmp_path)
 
-    monkeypatch.setattr(upload_runner.gcloud, "run_capture", lambda _cmd: (1, "not found"))
+    monkeypatch.setattr(upload_runner.shared, "run_capture", lambda _cmd: (1, "not found"))
     cp_calls: list[list[str]] = []
     monkeypatch.setattr(
-        upload_runner.gcloud,
+        upload_runner.shared,
         "run_capture_retry",
         lambda cmd: (cp_calls.append(cmd) or (0, "")),
     )
 
     upload_runner.run()
 
-    assert len(cp_calls) == 3
+    assert len(cp_calls) == 4
     assert any(str(runner_dir / "kardome_runner") in call for call in cp_calls)
     assert any(str(lib_dir / "libKardome.so") in call for call in cp_calls)
     assert any("runner_meta.json" in " ".join(call) for call in cp_calls)
@@ -63,17 +68,18 @@ def test_upload_runner_skips_when_remote_hashes_match(monkeypatch: pytest.Monkey
         ]
     }
 
-    monkeypatch.setattr(upload_runner.gcloud, "run_capture", lambda _cmd: (0, json.dumps(remote_meta)))
+    monkeypatch.setattr(upload_runner.shared, "run_capture", lambda _cmd: (0, json.dumps(remote_meta)))
     cp_calls: list[list[str]] = []
     monkeypatch.setattr(
-        upload_runner.gcloud,
+        upload_runner.shared,
         "run_capture_retry",
         lambda cmd: (cp_calls.append(cmd) or (0, "")),
     )
 
     upload_runner.run()
 
-    assert cp_calls == []
+    assert len(cp_calls) == 1
+    assert any("runner.slsa.json" in " ".join(call) for call in cp_calls)
 
 
 def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -87,17 +93,17 @@ def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatc
         ]
     }
 
-    monkeypatch.setattr(upload_runner.gcloud, "run_capture", lambda _cmd: (0, json.dumps(remote_meta)))
+    monkeypatch.setattr(upload_runner.shared, "run_capture", lambda _cmd: (0, json.dumps(remote_meta)))
     cp_calls: list[list[str]] = []
     monkeypatch.setattr(
-        upload_runner.gcloud,
+        upload_runner.shared,
         "run_capture_retry",
         lambda cmd: (cp_calls.append(cmd) or (0, "")),
     )
 
     upload_runner.run()
 
-    assert len(cp_calls) == 2
+    assert len(cp_calls) == 3
     joined = [" ".join(call) for call in cp_calls]
     assert any("kardome_runner" in text and "runner_meta.json" not in text for text in joined)
     assert any("runner_meta.json" in text for text in joined)

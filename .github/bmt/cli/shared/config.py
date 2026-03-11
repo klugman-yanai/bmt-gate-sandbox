@@ -23,12 +23,12 @@ class BmtConfig:
     gcp_project: str
     gcp_zone: str
     bmt_vm_name: str
-    bmt_projects: str = "all"
     bmt_status_context: str = "BMT Gate"
     bmt_runtime_context: str = "BMT Runtime"
     bmt_runtime_backend: str = ""
     bmt_cloud_run_job: str = ""
     bmt_cloud_run_region: str = ""
+    bmt_pubsub_topic: str = ""
     bmt_handshake_timeout_sec: int = 180
     bmt_preempt_on_pr_stale_queue: str = "1"
     bmt_trigger_stale_sec: int = 900
@@ -91,12 +91,12 @@ def load_bmt_config(
         gcp_project=_get("GCP_PROJECT"),
         gcp_zone=_get("GCP_ZONE"),
         bmt_vm_name=_get("BMT_VM_NAME"),
-        bmt_projects=_get("BMT_PROJECTS", "all"),
         bmt_status_context=_get("BMT_STATUS_CONTEXT", "BMT Gate"),
         bmt_runtime_context=_get("BMT_RUNTIME_CONTEXT", "BMT Runtime"),
         bmt_runtime_backend=_get("BMT_RUNTIME_BACKEND"),
         bmt_cloud_run_job=_get("BMT_CLOUD_RUN_JOB"),
         bmt_cloud_run_region=_get("BMT_CLOUD_RUN_REGION"),
+        bmt_pubsub_topic=_get("BMT_PUBSUB_TOPIC"),
         bmt_handshake_timeout_sec=_coerce_int(_get("BMT_HANDSHAKE_TIMEOUT_SEC") or "180", 180),
         bmt_preempt_on_pr_stale_queue=_get("BMT_PREEMPT_ON_PR_STALE_QUEUE", "1"),
         bmt_trigger_stale_sec=_coerce_int(_get("BMT_TRIGGER_STALE_SEC") or "900", 900),

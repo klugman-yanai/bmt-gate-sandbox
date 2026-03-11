@@ -2,8 +2,7 @@
 """Validate code/runtime bucket contract for manual sync deployments.
 
 Paths such as sk/results/false_rejects and runner URIs are project-specific
-(current sk project); derive from bmt_projects.json + jobs config where possible.
-CLI and contract allow overrides.
+(current sk project). CLI and contract allow overrides.
 """
 
 from __future__ import annotations
@@ -26,15 +25,10 @@ from shared_bucket_env import (
 
 REQUIRED_CODE = [
     "root_orchestrator.py",
-    "bmt_projects.json",
     "pyproject.toml",
     "sk/bmt_manager.py",
     "sk/config/bmt_jobs.json",
     "sk/config/input_template.json",
-    "uv.lock",
-    "_tools/uv/linux-x86_64/uv",
-    "_tools/uv/linux-x86_64/uv.sha256",
-    "bootstrap/ensure_uv.sh",
     "bootstrap/startup_wrapper.sh",
 ]
 

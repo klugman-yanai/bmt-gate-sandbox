@@ -19,15 +19,15 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     ".python-version",
     "CLAUDE.md",
     "CMakePresets.json",
+    "CMakeLists.txt",
     "Justfile",
     "README.md",
-    "config",
     "tools",
     "docs",
-    "packages",
+    "infra",
     "pyproject.toml",
     "pyrightconfig.json",
-    "deploy",
+    "gcp",
     "ruff.toml",
     "scripts",
     "tests",
@@ -49,10 +49,10 @@ FORBIDDEN_EXISTING_TOP_LEVEL = {
 
 REQUIRED_PATHS = (
     ".github/workflows/bmt.yml",
-    ".github/workflows/dummy-build-and-test.yml",
+    ".github/workflows/build-and-test.yml",
     DEFAULT_CONFIG_ROOT,
     DEFAULT_RUNTIME_ROOT,
-    "scripts/hooks/pre-commit-sync-remote.sh",
+    "scripts/hooks/pre-commit-sync-gcp.sh",
 )
 
 
