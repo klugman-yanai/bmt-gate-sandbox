@@ -1844,6 +1844,8 @@ def _process_run_trigger(  # noqa: PLR0911
                                 "decision": state,
                                 "reasons": [],
                             },
+                            run_id=run_id,
+                            runtime_bucket_root=runtime_bucket_root,
                         ),
                     },
                     token_resolver=github_token_resolver,

@@ -1,4 +1,9 @@
-"""Post a comment on a GitHub PR (issue) using the Issues API."""
+"""Post comments on a GitHub PR (Issues API).
+
+Used by the BMT VM to post the \"Later\" PR comment: pass/fail, scores, logs
+(see docs/sample_output.md). The workflow posts the \"Now\" comment; the VM
+upserts a second comment when the run completes.
+"""
 
 from __future__ import annotations
 

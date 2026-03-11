@@ -54,6 +54,8 @@ These are set from Terraform via `just terraform-export-vars-apply`; do not set 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
+| `BMT_VM_POOL` | — | **Recommended.** Comma-separated VM names (e.g. `vm1,vm2`). Pool is explicit and version-controlled; each name is verified via Compute SDK. When set, select-available-vm assigns by run ID so concurrent workflows get different VMs. If unset, uses `BMT_VM_NAME` only. Pool must never be empty. |
+| `BMT_VM_POOL_LABEL` | — | Optional. Label filter to discover pool from GCP (e.g. `bmt-gate:true`). Use when you prefer discovery by instance label over an explicit list. Overrides `BMT_VM_POOL` when set. |
 | `BMT_RUNTIME_CONTEXT` | `"BMT Runtime"` | Non-gating runtime check-run context for live progress and terminal runtime outcome. |
 | `BMT_RUNTIME_BACKEND` | `"vm"` | Runtime dispatcher backend (`vm` or `cloud_run_job`). |
 | `BMT_CLOUD_RUN_JOB` | — | Cloud Run Job name when `BMT_RUNTIME_BACKEND=cloud_run_job`. |
@@ -65,6 +67,8 @@ These are set from Terraform via `just terraform-export-vars-apply`; do not set 
 | `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
 
 Omitted vars inherit from current GitHub repo context first, then from Terraform outputs (when you run `just terraform-export-vars`) or contract defaults. Optional overrides can be passed via `just repo-vars-apply --config <path>` with a TOML/JSON file.
+
+**VM pool (concurrent runs):** For two or more VMs, set **`BMT_VM_POOL`** to a comma-separated list of instance names (e.g. `bmt-vm-1,bmt-vm-2`). This is the recommended approach: explicit, version-controlled, and verified via the Compute SDK. Leave `BMT_VM_POOL_LABEL` unset unless you prefer discovery by instance label.
 
 For `BMT_STATUS_CONTEXT`, `tools/gh_repo_vars.py` resolves the desired value from the effective branch rules using **infra/branch-status-context.json**. This keeps branch protection and repo variables aligned. Values for `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`, and `BMT_PROJECTS` come from Terraform (static config); export with `just terraform-export-vars-apply`.
 

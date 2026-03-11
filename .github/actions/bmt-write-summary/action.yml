@@ -31,7 +31,7 @@ inputs:
     required: false
     default: "false"
   handshake_ok:
-    description: Whether VM acknowledged trigger
+    description: Whether VM confirmed trigger
     required: false
     default: "false"
   handshake_uri:

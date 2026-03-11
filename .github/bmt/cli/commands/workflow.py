@@ -410,9 +410,9 @@ def run_write_handoff_summary() -> None:
     legs_planned = len(json.loads(filtered_matrix_raw).get("include", []))
     if not handoff_state_line:
         handoff_state_line = {
-            "run_success": "Handoff complete: VM acknowledged trigger.",
-            "skip": "Handoff complete: no supported uploaded legs to hand off.",
-            "failure": "Handoff failed: VM did not acknowledge trigger.",
+            "run_success": "Handoff complete: VM confirmed trigger.",
+            "skip": "Handoff complete: no supported test runs to hand off.",
+            "failure": "Handoff failed: VM did not confirm trigger.",
         }.get(mode, "Handoff state unavailable. Check this workflow run.")
 
     # Links line: PR · Workflow run · SHA on branch
@@ -437,17 +437,21 @@ def run_write_handoff_summary() -> None:
         "|---|---|",
         f"| Trigger written | {trigger_icon} |",
         f"| VM started | {vm_icon} |",
-        f"| Handshake acked | {handshake_icon} |",
-        f"| Legs handed off | **{legs_planned}** |",
+        f"| VM confirmed | {handshake_icon} |",
+        f"| Test runs | **{legs_planned}** |",
         "",
         handoff_state_line,
     ]
     if failure_reason:
         lines.extend(["", f"> ⚠️ {failure_reason}"])
-    lines.extend([
-        "",
-        "_BMT result will appear in the PR **Checks** tab and **Comments** — not here._",
-    ])
+    lines.extend(
+        [
+            "",
+            "_BMT result will appear in the PR **Checks** tab and **Comments** — not here._",
+        ]
+    )
     if mode == "failure":
-        lines.extend(["", "_Handoff failed — inspect the trigger and handshake steps above for details._"])
+        lines.extend(
+            ["", "_Handoff failed — inspect the trigger and handshake steps above for details._"]
+        )
     _append_step_summary("\n".join(lines) + "\n")
