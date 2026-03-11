@@ -145,7 +145,32 @@ def run_resolve_uploaded_projects() -> None:
     root = _workflow_runtime_root()
     prefix = f"{root}/_workflow/uploaded/{run_id}/"
     uris = gcs.list_prefix(prefix)
-    names = sorted(u.split("/")[-1].replace(".json", "") for u in uris if u.endswith(".json"))
+    uploaded_projects = {
+        u.split("/")[-1].replace(".json", "").strip() for u in uris if u.endswith(".json")
+    }
+
+    # In sandbox/test flows, runner upload jobs can be intentionally skipped when
+    # the runner is already present in the bucket. Accept projects that already
+    # have runner metadata for the requested preset(s).
+    runner_matrix_raw = os.environ.get("RUNNER_MATRIX", "").strip()
+    if runner_matrix_raw:
+        with contextlib.suppress(json.JSONDecodeError):
+            runner_matrix = json.loads(runner_matrix_raw)
+            include = runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
+            if isinstance(include, list):
+                for entry in include:
+                    if not isinstance(entry, dict):
+                        continue
+                    project = str(entry.get("project", "")).strip()
+                    preset = str(entry.get("preset", "")).strip()
+                    if not project or not preset:
+                        continue
+                    meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
+                    payload, _ = gcs.download_json(meta_uri)
+                    if isinstance(payload, dict):
+                        uploaded_projects.add(project)
+
+    names = sorted(uploaded_projects)
     accepted = json.dumps(names)
     Path("accepted.txt").write_text(accepted)
     path = os.environ.get("GITHUB_OUTPUT")

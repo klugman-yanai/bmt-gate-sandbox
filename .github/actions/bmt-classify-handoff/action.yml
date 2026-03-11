@@ -40,6 +40,8 @@ runs:
         python_version: "3.12"
 
     - id: list
+      env:
+        RUNNER_MATRIX: ${{ inputs.runner_matrix }}
       shell: bash
       run: uv run --project .github/bmt bmt resolve-uploaded-projects
 
