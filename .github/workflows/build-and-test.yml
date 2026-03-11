@@ -249,10 +249,9 @@ jobs:
           echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
 
   bmt:
-    needs: [pytest-fast, dummy-build-release]
+    needs: [dummy-build-release]
     if: >-
       always() && (needs.dummy-build-release.result == 'success' || needs.dummy-build-release.result == 'skipped')
-      && (needs.pytest-fast.result == 'success' || needs.pytest-fast.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       && contains(
         fromJson('["dev","ci/check-bmt-gate"]'),
