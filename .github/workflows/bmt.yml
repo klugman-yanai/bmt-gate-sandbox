@@ -314,8 +314,9 @@ jobs:
     steps:
       - name: Checkout repo (for local actions)
         if: >-
-          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
+          always()
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
@@ -324,8 +325,9 @@ jobs:
 
       - uses: ./.github/actions/bmt-job-setup
         if: >-
-          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
+          always()
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
@@ -333,8 +335,9 @@ jobs:
 
       - name: Build diagnostic context from merged handoff outputs
         if: >-
-          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
+          always()
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
         id: ctx
         shell: bash
         env:
@@ -357,8 +360,9 @@ jobs:
 
       - name: Failure fallback
         if: >-
-          always() && needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled'
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure')
+          always()
+          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
         uses: ./.github/actions/bmt-failure-fallback
         with:
           prepare_result: ${{ needs.setup.result }}
