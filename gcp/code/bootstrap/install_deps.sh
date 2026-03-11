@@ -28,11 +28,13 @@ _compute_dep_fingerprint() {
   return 1
 }
 
-python3_bin="$(command -v python3 || true)"
+# Prefer python3.12 explicitly; fall back to python3.
+python3_bin="$(command -v python3.12 || command -v python3 || true)"
 if [[ -z "${python3_bin}" || ! -x "${python3_bin}" ]]; then
-  echo "::error::python3 not found; cannot install dependencies." >&2
+  echo "::error::python3.12 (or python3) not found; cannot install dependencies." >&2
   exit 1
 fi
+echo "Using Python: ${python3_bin} ($("${python3_bin}" --version 2>&1 || true))"
 
 # Create venv if missing.
 if [[ ! -d "${VENV}" ]]; then

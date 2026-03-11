@@ -139,22 +139,7 @@ builder_created=1
 
 wait_for_ssh "$BMT_IMAGE_BUILDER_VM_NAME"
 
-echo "Syncing bucket code locally from gs://${GCS_BUCKET}/code ..."
-mkdir -p "${tmp_dir}/code"
-gcloud storage rsync "gs://${GCS_BUCKET}/code" "${tmp_dir}/code" --recursive
-
-if [[ ! -f "${tmp_dir}/code/bootstrap/install_deps.sh" ]]; then
-  echo "::error::Bucket code sync is missing bootstrap/install_deps.sh" >&2
-  exit 1
-fi
-
-echo "Uploading code snapshot to builder VM..."
-gcloud compute scp --recurse "${tmp_dir}/code" "${BMT_IMAGE_BUILDER_VM_NAME}:/tmp/bmt-code" \
-  --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE" \
-  --quiet
-
-echo "Installing VM dependencies on builder..."
+echo "Syncing code from bucket directly on builder VM..."
 gcloud compute ssh "$BMT_IMAGE_BUILDER_VM_NAME" \
   --project="$GCP_PROJECT" \
   --zone="$GCP_ZONE" \
@@ -163,7 +148,8 @@ gcloud compute ssh "$BMT_IMAGE_BUILDER_VM_NAME" \
     set -euo pipefail
     sudo rm -rf /opt/bmt
     sudo mkdir -p /opt/bmt
-    sudo cp -a /tmp/bmt-code/. /opt/bmt/
+    sudo gcloud storage rsync gs://${GCS_BUCKET}/code /opt/bmt --recursive
+    test -f /opt/bmt/bootstrap/install_deps.sh || { echo '::error::Bucket code sync is missing bootstrap/install_deps.sh' >&2; exit 1; }
     GLIBC_VERSION_RAW=\$(ldd --version 2>/dev/null | head -n1 || true)
     printf 'GLIBC_VERSION=%s\n' \"\$GLIBC_VERSION_RAW\" | sudo tee /tmp/bmt-image-build-meta.env >/dev/null
     echo 'Installing Google Cloud Ops Agent for Cloud Logging...'
