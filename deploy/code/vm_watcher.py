@@ -1992,20 +1992,29 @@ def main() -> int:
         return 2
     if not enabled_repositories:
         print("Warning: no enabled repositories in GitHub App config; incoming triggers will be rejected.")
+    resolved_repositories: list[str] = []
     unresolved_repositories: list[str] = []
     for repository in enabled_repositories:
         token = github_token_resolver(repository)
-        if not token:
+        if token:
+            resolved_repositories.append(repository)
+        else:
             unresolved_repositories.append(repository)
+    if not resolved_repositories:
+        joined = ", ".join(unresolved_repositories) if unresolved_repositories else "<none>"
+        print(
+            f"Error: GitHub App auth preflight failed for all enabled repositories ({joined}); "
+            "cannot service any triggers. Ensure at least one repo has valid *_ID, *_INSTALLATION_ID, "
+            "and *_PRIVATE_KEY credentials."
+        )
+        return 2
     if unresolved_repositories:
         joined = ", ".join(unresolved_repositories)
         print(
-            "Error: GitHub App auth preflight failed for enabled repositories: "
-            f"{joined}. Ensure *_ID, *_INSTALLATION_ID, and *_PRIVATE_KEY are present and valid."
+            f"Warning: GitHub App auth unavailable for {len(unresolved_repositories)} repo(s): {joined}. "
+            "Triggers for these repos will be rejected; other repos will proceed normally."
         )
-        return 2
-    if enabled_repositories:
-        print(f"GitHub App auth preflight passed for {len(enabled_repositories)} enabled repository(ies).")
+    print(f"GitHub App auth preflight passed for {len(resolved_repositories)} repo(s): {', '.join(resolved_repositories)}.")
 
     # Startup sweep: enforce bounded retention even after prior failed runs.
     _prune_workspace_runs(workspace_root, keep_recent_per_bmt=_KEEP_RECENT_LOCAL_RUNS)
