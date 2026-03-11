@@ -180,85 +180,54 @@ def run_capture_retry(
     return rc, text
 
 
+def _compute_client() -> "google.cloud.compute_v1.InstancesClient":
+    """Lazy-init Compute Engine client."""
+    from google.cloud import compute_v1  # noqa: I001
+
+    return compute_v1.InstancesClient()
+
+
 def vm_start(project: str, zone: str, instance_name: str) -> None:
     """Start a stopped Compute Engine instance."""
-    cmd = [
-        "gcloud",
-        "compute",
-        "instances",
-        "start",
-        instance_name,
-        "--zone",
-        zone,
-        "--project",
-        project,
-    ]
-    rc, err = run_capture(cmd)
-    if rc != 0:
-        raise GcloudError(f"Failed to start VM {instance_name}: {err}")
+    try:
+        op = _compute_client().start(project=project, zone=zone, instance=instance_name)
+        op.result()  # wait for completion
+    except Exception as exc:
+        raise GcloudError(f"Failed to start VM {instance_name}: {exc}") from exc
 
 
 def vm_stop(project: str, zone: str, instance_name: str) -> None:
     """Stop a running Compute Engine instance."""
-    cmd = [
-        "gcloud",
-        "compute",
-        "instances",
-        "stop",
-        instance_name,
-        "--zone",
-        zone,
-        "--project",
-        project,
-    ]
-    rc, err = run_capture(cmd)
-    if rc != 0:
-        raise GcloudError(f"Failed to stop VM {instance_name}: {err}")
+    try:
+        op = _compute_client().stop(project=project, zone=zone, instance=instance_name)
+        op.result()  # wait for completion
+    except Exception as exc:
+        raise GcloudError(f"Failed to stop VM {instance_name}: {exc}") from exc
 
 
 def vm_describe(project: str, zone: str, instance_name: str) -> dict[str, Any]:
-    """Describe a Compute Engine instance as JSON."""
-    cmd = [
-        "gcloud",
-        "compute",
-        "instances",
-        "describe",
-        instance_name,
-        "--zone",
-        zone,
-        "--project",
-        project,
-        "--format=json",
-    ]
-    rc, out = run_capture(cmd)
-    if rc != 0:
-        raise GcloudError(f"Failed to describe VM {instance_name}: {out}")
+    """Describe a Compute Engine instance as a dict."""
     try:
-        payload = json.loads(out)
-    except json.JSONDecodeError as exc:
-        raise GcloudError(f"Invalid JSON while describing VM {instance_name}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise GcloudError(f"Invalid VM describe payload for {instance_name}: expected object")
-    return payload
+        from google.cloud.compute_v1.types import Instance  # noqa: I001
+        from google.protobuf.json_format import MessageToDict
+
+        instance: Instance = _compute_client().get(
+            project=project, zone=zone, instance=instance_name,
+        )
+        return MessageToDict(instance._pb, preserving_proto_field_name=True)
+    except Exception as exc:
+        raise GcloudError(f"Failed to describe VM {instance_name}: {exc}") from exc
 
 
 def vm_serial_output(project: str, zone: str, instance_name: str) -> str:
     """Fetch serial output text for a VM."""
-    cmd = [
-        "gcloud",
-        "compute",
-        "instances",
-        "get-serial-port-output",
-        instance_name,
-        "--zone",
-        zone,
-        "--project",
-        project,
-    ]
-    rc, out = run_capture(cmd)
-    if rc != 0:
-        raise GcloudError(f"Failed to get serial output for {instance_name}: {out}")
-    return out
+    try:
+        resp = _compute_client().get_serial_port_output(
+            project=project, zone=zone, instance=instance_name,
+        )
+        return resp.contents or ""
+    except Exception as exc:
+        raise GcloudError(f"Failed to get serial output for {instance_name}: {exc}") from exc
 
 
 def vm_serial_output_retry(
@@ -286,28 +255,39 @@ def vm_add_metadata(
     metadata_files: dict[str, Path] | None = None,
 ) -> None:
     """Set custom metadata keys and optional metadata-from-file values on a Compute Engine instance."""
-    cmd = [
-        "gcloud",
-        "compute",
-        "instances",
-        "add-metadata",
-        instance_name,
-        "--zone",
-        zone,
-        "--project",
-        project,
-    ]
-    if metadata:
-        cmd.extend(["--metadata", ",".join(f"{k}={v}" for k, v in metadata.items())])
-    if metadata_files:
-        cmd.extend(
-            ["--metadata-from-file", ",".join(f"{k}={v}" for k, v in metadata_files.items())]
-        )
     if not metadata and not metadata_files:
         raise GcloudError(f"No metadata provided for {instance_name}")
-    rc, err = run_capture(cmd)
-    if rc != 0:
-        raise GcloudError(f"Failed to update VM metadata for {instance_name}: {err}")
+    try:
+        from google.cloud.compute_v1.types import Metadata, Items  # noqa: I001
+
+        # Get current metadata (need fingerprint for CAS update)
+        instance = _compute_client().get(
+            project=project, zone=zone, instance=instance_name,
+        )
+        existing = {}
+        fingerprint = ""
+        if instance.metadata:
+            fingerprint = instance.metadata.fingerprint or ""
+            for item in instance.metadata.items_:
+                existing[item.key] = item.value
+
+        # Merge new metadata
+        existing.update(metadata)
+        if metadata_files:
+            for key, path in metadata_files.items():
+                existing[key] = Path(path).read_text(encoding="utf-8")
+
+        items = [Items(key=k, value=v) for k, v in existing.items()]
+        meta = Metadata(items=items, fingerprint=fingerprint)
+
+        op = _compute_client().set_metadata(
+            project=project, zone=zone, instance=instance_name, metadata_resource=meta,
+        )
+        op.result()
+    except GcloudError:
+        raise
+    except Exception as exc:
+        raise GcloudError(f"Failed to update VM metadata for {instance_name}: {exc}") from exc
 
 
 # ── Config loading ─────────────────────────────────────────────────────────────
