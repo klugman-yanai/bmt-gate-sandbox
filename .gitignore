@@ -12,6 +12,9 @@ debug/
 *.pyc
 .venv/
 *.egg-info/
+.coverage
+coverage.xml
+junit.xml
 
 # Local staging (manual assets)
 repo/staging/
