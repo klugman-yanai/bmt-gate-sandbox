@@ -8,6 +8,12 @@ import pytest
 from cli.commands import vm as sync_vm_metadata
 
 
+@pytest.fixture(autouse=True)
+def _required_bmt_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
+    monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
+
+
 def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
@@ -38,21 +44,35 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
     def _fake_exists(_uri: str) -> bool:
         return True
 
+    describe_calls = {"count": 0}
+
     def _fake_describe(_project: str, _zone: str, _instance_name: str) -> dict[str, object]:
+        describe_calls["count"] += 1
+        if describe_calls["count"] == 1:
+            return {
+                "metadata": {
+                    "items": [
+                        {"key": "GCS_BUCKET", "value": "train-kws-202311-bmt-gate"},
+                        {"key": "BMT_REPO_ROOT", "value": "/opt/bmt"},
+                        {"key": "startup-script", "value": "#!/bin/bash\necho hi\n"},
+                        {"key": "startup-script-url", "value": ""},
+                    ]
+                }
+            }
         return {
             "metadata": {
                 "items": [
                     {"key": "GCS_BUCKET", "value": "train-kws-202311-bmt-gate"},
                     {"key": "BMT_REPO_ROOT", "value": "/opt/bmt"},
-                    {"key": "startup-script", "value": "#!/bin/bash\necho hi\n"},
+                    {"key": "startup-script", "value": captured.get("startup_script_content", "")},
                     {"key": "startup-script-url", "value": ""},
                 ]
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "vm_add_metadata", _fake_add_metadata)
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "vm_describe", _fake_describe)
+    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.shared, "vm_add_metadata", _fake_add_metadata)
+    monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
 
     sync_vm_metadata.run_sync_metadata()
 
@@ -93,7 +113,7 @@ def test_sync_vm_metadata_fails_when_required_code_object_missing(monkeypatch: p
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/bootstrap/startup_example.sh")
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
 
     with pytest.raises(RuntimeError, match="Missing required code objects"):
         sync_vm_metadata.run_sync_metadata()
@@ -108,7 +128,7 @@ def test_sync_vm_metadata_fails_when_uv_artifact_missing(monkeypatch: pytest.Mon
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/_tools/uv/linux-x86_64/uv")
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
 
     with pytest.raises(RuntimeError, match="Missing required code objects"):
         sync_vm_metadata.run_sync_metadata()
@@ -123,7 +143,7 @@ def test_sync_vm_metadata_fails_when_runtime_pyproject_missing(monkeypatch: pyte
     def _fake_exists(uri: str) -> bool:
         return not uri.endswith("/pyproject.toml")
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
 
     with pytest.raises(RuntimeError, match="Missing required code objects"):
         sync_vm_metadata.run_sync_metadata()
@@ -151,8 +171,8 @@ def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.Mo
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "gcs_exists", _fake_exists)
-    monkeypatch.setattr(sync_vm_metadata.gcloud, "vm_describe", _fake_describe)
+    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _fake_exists)
+    monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
 
     with pytest.raises(RuntimeError, match="Legacy BMT_BUCKET_PREFIX"):
         sync_vm_metadata.run_sync_metadata()

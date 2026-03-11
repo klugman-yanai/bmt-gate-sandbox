@@ -42,3 +42,29 @@ def github_bmt_root(repo_root: Path) -> Path:
 def _stable_repo_cwd(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
     # Keep relative-path behavior deterministic regardless of where pytest is invoked.
     monkeypatch.chdir(repo_root)
+
+
+@pytest.fixture(autouse=True)
+def _reset_bmt_config_cache() -> None:
+    # Commands cache env-derived config; reset between tests to avoid cross-test leakage.
+    from cli.shared.config import reset_config_cache
+
+    reset_config_cache()
+    yield
+    reset_config_cache()
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Auto-assign baseline test-layer markers to keep suite taxonomy consistent."""
+    for item in items:
+        name = item.nodeid
+        if "live_smoke" in name:
+            item.add_marker("live_smoke")
+            continue
+        if any(key in name for key in ("test_ci_commands.py", "test_bootstrap_scripts.py", "test_devtools_exit_codes.py")):
+            item.add_marker("integration")
+            continue
+        if any(key in name for key in ("test_run_trigger_guard.py", "test_wait_handshake.py", "test_start_vm.py", "test_sync_vm_metadata.py", "test_upload_runner_dedup.py", "test_vm_watcher_")):
+            item.add_marker("contract")
+            continue
+        item.add_marker("unit")

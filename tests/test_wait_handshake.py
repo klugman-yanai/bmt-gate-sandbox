@@ -8,6 +8,15 @@ import pytest
 from cli.commands import vm as wait_handshake
 
 
+@pytest.fixture(autouse=True)
+def _required_bmt_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
+    monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("GCP_ZONE", "zone")
+    monkeypatch.setenv("BMT_VM_NAME", "vm")
+
+
 def test_wait_handshake_success_uses_runtime_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -29,9 +38,9 @@ def test_wait_handshake_success_uses_runtime_paths(
     def fake_exists(uri: str) -> bool:
         return uri == trigger_uri
 
-    monkeypatch.setattr(wait_handshake.gcloud, "gcs_exists", fake_exists)
+    monkeypatch.setattr(wait_handshake.shared, "gcs_exists", fake_exists)
     monkeypatch.setattr(
-        wait_handshake.gcloud,
+        wait_handshake.shared,
         "download_json",
         lambda _uri: (
             {
@@ -43,12 +52,12 @@ def test_wait_handshake_success_uses_runtime_paths(
         ),
     )
     monkeypatch.setattr(
-        wait_handshake.gcloud,
+        wait_handshake.shared,
         "vm_describe",
         lambda *_args, **_kwargs: {"status": "RUNNING"},
     )
 
-    wait_handshake.run_wait_handshake()
+    wait_handshake.run_wait_handshake(timeout_sec=5)
 
     captured = capsys.readouterr()
     assert f"Expected runtime status path: {runtime_status_uri}" in captured.out
@@ -81,11 +90,12 @@ def test_wait_handshake_fails_fast_on_status_path_mismatch(
     def fake_exists(uri: str) -> bool:
         return uri == trigger_uri
 
-    monkeypatch.setattr(wait_handshake.gcloud, "gcs_exists", fake_exists)
-    monkeypatch.setattr(wait_handshake.gcloud, "download_json", lambda _uri: (None, None))
+    monkeypatch.setattr(wait_handshake.shared, "gcs_exists", fake_exists)
+    monkeypatch.setattr(wait_handshake.shared, "download_json", lambda _uri: (None, None))
+    monkeypatch.setattr(wait_handshake.shared, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
 
     with pytest.raises(RuntimeError, match="Timed out waiting for VM handshake ack"):
-        wait_handshake.run_wait_handshake()
+        wait_handshake.run_wait_handshake(timeout_sec=2)
 
 
 def test_wait_handshake_preserves_v2_support_fields(
@@ -104,9 +114,9 @@ def test_wait_handshake_preserves_v2_support_fields(
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
     monkeypatch.setenv("BMT_HANDSHAKE_TIMEOUT_SEC", "5")
 
-    monkeypatch.setattr(wait_handshake.gcloud, "gcs_exists", lambda uri: uri == trigger_uri)
+    monkeypatch.setattr(wait_handshake.shared, "gcs_exists", lambda uri: uri == trigger_uri)
     monkeypatch.setattr(
-        wait_handshake.gcloud,
+        wait_handshake.shared,
         "download_json",
         lambda _uri: (
             {
@@ -138,9 +148,9 @@ def test_wait_handshake_preserves_v2_support_fields(
             None,
         ),
     )
-    monkeypatch.setattr(wait_handshake.gcloud, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
+    monkeypatch.setattr(wait_handshake.shared, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
 
-    wait_handshake.run_wait_handshake()
+    wait_handshake.run_wait_handshake(timeout_sec=5)
 
     content = output_file.read_text(encoding="utf-8")
     assert "handshake_support_resolution_version=v2" in content

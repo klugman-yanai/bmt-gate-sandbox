@@ -8,6 +8,13 @@ from cli.commands.vm import _is_truthy
 from cli.shared import require_env as _required_env
 
 
+@pytest.fixture(autouse=True)
+def _required_bmt_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GCS_BUCKET", "bucket-a")
+    monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
+    monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
+
+
 def test_required_env_returns_trimmed_value(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BMT_VM_NAME", "  bmt-performance-gate  ")
     assert _required_env("BMT_VM_NAME") == "bmt-performance-gate"
@@ -82,8 +89,8 @@ def test_start_vm_waits_for_running_and_advanced_start(
     # monotonic: main-loop polls, then stabilization enters and immediately expires
     monotonic_values = iter([0.0, 1.0, 2.0, 3.0, 100.0, 200.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     start_vm.run_start()
@@ -97,9 +104,9 @@ def test_start_vm_times_out_when_not_running(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "1")
 
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(start_vm.shared, "vm_start", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        start_vm.gcloud,
+        start_vm.shared,
         "vm_describe",
         lambda *_args, **_kwargs: {"status": "STAGING", "lastStartTimestamp": "old-ts"},
     )
@@ -120,7 +127,7 @@ def test_start_vm_continues_when_already_running_error(monkeypatch: pytest.Monke
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "5")
 
     def _raise_already_running(*_args, **_kwargs) -> None:
-        raise start_vm.gcloud.GcloudError("Failed to start VM vm: Instance is already running")
+        raise start_vm.shared.GcloudError("Failed to start VM vm: Instance is already running")
 
     describe_calls = iter(
         [
@@ -132,8 +139,8 @@ def test_start_vm_continues_when_already_running_error(monkeypatch: pytest.Monke
     )
     monotonic_values = iter([0.0, 1.0, 100.0, 200.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", _raise_already_running)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", _raise_already_running)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     start_vm.run_start()
@@ -157,8 +164,8 @@ def test_start_vm_allows_manual_with_flag(monkeypatch: pytest.MonkeyPatch) -> No
     )
     monotonic_values = iter([0.0, 1.0, 100.0, 200.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     start_vm.run_start()
@@ -188,8 +195,8 @@ def test_start_vm_recovers_when_status_drops_during_stabilization(monkeypatch: p
     def _fake_start(*_args, **_kwargs) -> None:
         started.append(True)
 
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 100.0, 101.0])
@@ -217,8 +224,8 @@ def test_start_vm_fails_when_recovery_attempts_are_exhausted(monkeypatch: pytest
             {"status": "STOPPING", "lastStartTimestamp": "new-ts-2"},
         ]
     )
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
@@ -252,13 +259,13 @@ def test_start_vm_treats_fingerprint_race_as_idempotent_recovery_error(monkeypat
     def _fake_start(*_args, **_kwargs) -> None:
         call_count["value"] += 1
         if call_count["value"] == 2:
-            raise start_vm.gcloud.GcloudError(
+            raise start_vm.shared.GcloudError(
                 "Failed to start VM vm: The resource is not ready. "
                 "'The resource fingerprint changed during the start operation.'"
             )
 
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 100.0, 101.0])
@@ -293,13 +300,13 @@ def test_start_vm_recovers_from_terminal_state_after_fingerprint_race(monkeypatc
     def _fake_start(*_args, **_kwargs) -> None:
         call_count["value"] += 1
         if call_count["value"] == 2:
-            raise start_vm.gcloud.GcloudError(
+            raise start_vm.shared.GcloudError(
                 "Failed to start VM vm: The resource is not ready. "
                 "'The resource fingerprint changed during the start operation.'"
             )
 
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 100.0])
@@ -335,12 +342,12 @@ def test_start_vm_recovers_after_initial_idempotent_start_when_not_running(
     def _fake_start(*_args, **_kwargs) -> None:
         call_count["value"] += 1
         if call_count["value"] == 1:
-            raise start_vm.gcloud.GcloudError(
+            raise start_vm.shared.GcloudError(
                 "Failed to start VM vm: The resource is currently stopping. Please try again."
             )
 
-    monkeypatch.setattr(start_vm.gcloud, "vm_start", _fake_start)
-    monkeypatch.setattr(start_vm.gcloud, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(start_vm.shared, "vm_start", _fake_start)
+    monkeypatch.setattr(start_vm.shared, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 100.0])
