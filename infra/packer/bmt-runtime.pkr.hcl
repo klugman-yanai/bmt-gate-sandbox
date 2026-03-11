@@ -140,13 +140,24 @@ build {
     ]
   }
 
-  # 3. Install Python and VM dependencies via uv
+  # 3. Install Python 3.12 and VM dependencies into a pre-baked venv.
+  #    Uses pip directly (no uv dependency at runtime; uv is only needed during image build if desired).
   provisioner "shell" {
     inline = [
       "set -euo pipefail",
-      "UV_BIN=${var.bmt_repo_root}/_tools/uv/linux-x86_64/uv",
-      "sudo \"$UV_BIN\" python install 3.12",
-      "sudo BMT_UV_BIN=\"$UV_BIN\" bash ${var.bmt_repo_root}/bootstrap/install_deps.sh ${var.bmt_repo_root}",
+      # Ensure Python 3.12 is available (Ubuntu 22.04 ships 3.10 by default).
+      "sudo add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true",
+      "sudo apt-get update -q",
+      "sudo apt-get install -y -q python3.12 python3.12-venv python3.12-dev",
+      # Create the pre-baked venv.
+      "sudo python3.12 -m venv ${var.bmt_repo_root}/.venv",
+      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet --upgrade pip",
+      # Install exact deps matching pyproject.toml vm extras.
+      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet httpx>=0.27 'google-cloud-storage>=2.16' 'google-cloud-pubsub>=2.21' 'PyJWT>=2.0' 'cryptography>=41.0'",
+      # Verify imports.
+      "sudo ${var.bmt_repo_root}/.venv/bin/python -c \"import jwt, cryptography, httpx, google.cloud.storage, google.cloud.pubsub_v1; print('OK')\"",
+      # Write fingerprint so startup_example.sh skips dep install on first boot.
+      "sudo bash -c \"sha256sum ${var.bmt_repo_root}/pyproject.toml ${var.bmt_repo_root}/uv.lock 2>/dev/null | sha256sum | awk '{print \\$1}' > ${var.bmt_repo_root}/.venv/.bmt_dep_fingerprint || true\"",
     ]
   }
 
