@@ -17,3 +17,13 @@ output "image_family" {
   description = "Image family the VM was created from"
   value       = var.image_family
 }
+
+output "pubsub_subscription" {
+  description = "Pub/Sub subscription ID for VM trigger delivery (pass as BMT_PUBSUB_SUBSCRIPTION)"
+  value       = google_pubsub_subscription.bmt_vm.name
+}
+
+output "pubsub_topic" {
+  description = "Pub/Sub topic for CI to publish triggers to"
+  value       = google_pubsub_topic.bmt_triggers.name
+}

@@ -181,6 +181,17 @@ def run_trigger() -> None:
         gh_error(f"Failed to write run trigger: {exc}")
         raise
 
+    # Also publish to Pub/Sub for near-instant VM delivery (optional).
+    pubsub_topic = cfg.bmt_pubsub_topic
+    if pubsub_topic and cfg.gcp_project:
+        from google.cloud import pubsub_v1  # type: ignore[import-untyped]
+
+        publisher = pubsub_v1.PublisherClient()
+        topic_path = publisher.topic_path(cfg.gcp_project, pubsub_topic)
+        future = publisher.publish(topic_path, json.dumps(run_payload).encode())
+        future.result()
+        print(f"Published trigger to Pub/Sub topic {pubsub_topic!r}")
+
     manifest = {"legs": legs}
     write_github_output(github_output, "manifest", json.dumps(manifest, separators=(",", ":")))
     write_github_output(github_output, "run_trigger_uri", run_trigger_uri_str)

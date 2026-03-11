@@ -86,3 +86,62 @@ resource "google_compute_instance" "bmt_vm" {
   # VM starts in TERMINATED state after creation; the workflow starts it per-run.
   desired_status = "TERMINATED"
 }
+
+# ---------------------------------------------------------------------------
+# Pub/Sub trigger delivery
+# ---------------------------------------------------------------------------
+
+resource "google_pubsub_topic" "bmt_triggers" {
+  name    = "bmt-triggers"
+  project = var.gcp_project
+}
+
+resource "google_pubsub_topic" "bmt_triggers_dlq" {
+  name    = "bmt-triggers-dlq"
+  project = var.gcp_project
+}
+
+resource "google_pubsub_subscription" "bmt_vm" {
+  name    = "bmt-vm-${var.bmt_vm_name}"
+  topic   = google_pubsub_topic.bmt_triggers.id
+  project = var.gcp_project
+
+  # Ack deadline: long enough to cover VM boot + leg startup (up to 10 min).
+  ack_deadline_seconds = 600
+
+  # Retain undelivered messages for 1 hour (matches BMT_STALE_TRIGGER_AGE_HOURS).
+  message_retention_duration = "3600s"
+
+  dead_letter_policy {
+    dead_letter_topic     = google_pubsub_topic.bmt_triggers_dlq.id
+    max_delivery_attempts = 3
+  }
+}
+
+# VM service account → subscriber on its subscription
+resource "google_pubsub_subscription_iam_member" "vm_subscriber" {
+  project      = var.gcp_project
+  subscription = google_pubsub_subscription.bmt_vm.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${var.service_account}"
+}
+
+# CI service account (same SA) → publisher on the topic
+resource "google_pubsub_topic_iam_member" "ci_publisher" {
+  project = var.gcp_project
+  topic   = google_pubsub_topic.bmt_triggers.name
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${var.service_account}"
+}
+
+# DLQ topic needs pubsub SA to forward dead letters
+resource "google_pubsub_topic_iam_member" "dlq_publisher" {
+  project = var.gcp_project
+  topic   = google_pubsub_topic.bmt_triggers_dlq.name
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}
+
+data "google_project" "project" {
+  project_id = var.gcp_project
+}
