@@ -12,10 +12,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-try:
-    from constants import GITHUB_API_VERSION, HTTP_TIMEOUT
-except ImportError:
-    from gcp.code.constants import GITHUB_API_VERSION, HTTP_TIMEOUT
+from gcp.code.config.constants import GITHUB_API_VERSION, HTTP_TIMEOUT
+
 
 def _split_repo(repo: str) -> tuple[str, str] | None:
     owner, _, name = repo.partition("/")

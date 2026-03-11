@@ -7,17 +7,9 @@ import time
 import urllib.error
 import urllib.request
 
-try:
-    from utils import _now_iso
-except ImportError:
-    from gcp.code.utils import _now_iso
+from gcp.code.config.constants import GITHUB_API_VERSION
+from gcp.code.utils import _now_iso
 
-
-
-try:
-    from constants import GITHUB_API_VERSION
-except ImportError:
-    from gcp.code.constants import GITHUB_API_VERSION
 
 def get_pr_state(
     token: str,

@@ -9,10 +9,7 @@ from typing import Any
 import httpx
 from whenever import Instant
 
-try:
-    from constants import GITHUB_API_VERSION, HTTP_TIMEOUT
-except ImportError:
-    from gcp.code.constants import GITHUB_API_VERSION, HTTP_TIMEOUT
+from gcp.code.config.constants import GITHUB_API_VERSION, HTTP_TIMEOUT
 
 _REASON_LABELS: dict[str, str] = {
     "score_below_last": "Score dropped below baseline",
@@ -249,7 +246,9 @@ def render_results_table(
                     uri = (summary.get("ci_verdict_uri") or "").strip()
                     if uri.endswith("ci_verdict.json"):
                         logs_uri = uri[: -len("ci_verdict.json")] + "logs/"
-                        log_links.append(f"  - `{summary.get('project_id', '?')}.{summary.get('bmt_id', '?')}`: `{logs_uri}`")
+                        log_links.append(
+                            f"  - `{summary.get('project_id', '?')}.{summary.get('bmt_id', '?')}`: `{logs_uri}`"
+                        )
             lines.append("- Runner failed — check per-file logs:")
             if log_links:
                 lines.extend(log_links)

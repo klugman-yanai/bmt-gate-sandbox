@@ -20,53 +20,23 @@ from typing import Any
 
 from whenever import Instant
 
-try:
-    from constants import EXECUTABLE_MODE
-except ImportError:
-    from gcp.code.constants import EXECUTABLE_MODE
-
-try:
-    from utils import _bucket_uri
-except ImportError:
-    from gcp.code.utils import _bucket_uri
-
-try:
-    from bmt_manager_base import (
-        BmtManagerBase,
-        _effective_gate_comparison,
-        _gcloud_cp,
-        _gcloud_ls_json,
-        _gcloud_rsync,
-        _gcs_exists,
-        _gcs_object_meta,
-        _load_json,
-        _manifest_digest,
-        _mark_cache,
-        _resolve_last_passing_run_id,
-        _write_json,
-        parse_args as _base_parse_args,
-    )
-except ImportError:
-    from gcp.code.bmt_manager_base import (
-        BmtManagerBase,
-        _effective_gate_comparison,  # noqa: F401 (re-export for tests)
-        _gcloud_cp,
-        _gcloud_ls_json,
-        _gcloud_rsync,
-        _gcs_exists,
-        _gcs_object_meta,
-        _load_json,
-        _manifest_digest,
-        _mark_cache,
-        _resolve_last_passing_run_id,  # noqa: F401 (re-export for tests)
-        _write_json,
-        parse_args as _base_parse_args,
-    )
-
-try:
-    from utils import _now_iso
-except ImportError:
-    from gcp.code.utils import _now_iso
+from gcp.code.config.constants import EXECUTABLE_MODE
+from gcp.code.projects.base.bmt_manager_base import (
+    BmtManagerBase,
+    _effective_gate_comparison,
+    _gcloud_cp,
+    _gcloud_ls_json,
+    _gcloud_rsync,
+    _gcs_exists,
+    _gcs_object_meta,
+    _load_json,
+    _manifest_digest,
+    _mark_cache,
+    _resolve_last_passing_run_id,
+    _write_json,
+    parse_args as _base_parse_args,
+)
+from gcp.code.utils import _bucket_uri, _now_iso
 
 
 class SKManagerError(RuntimeError):

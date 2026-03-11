@@ -28,11 +28,7 @@ try:
 except ImportError:
     HAS_JWT = False
 
-
-try:
-    from constants import GITHUB_API_VERSION, HTTP_TIMEOUT
-except ImportError:
-    from gcp.code.constants import GITHUB_API_VERSION, HTTP_TIMEOUT
+from gcp.code.config.constants import GITHUB_API_VERSION, HTTP_TIMEOUT
 
 _ALIAS_WARNING_EMITTED: set[tuple[str, str]] = set()
 

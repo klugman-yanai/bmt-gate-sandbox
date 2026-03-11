@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import gcp.code.bmt_manager_base as base
-import gcp.code.sk.bmt_manager as mgr
+import gcp.code.projects.base.bmt_manager_base as base
+import gcp.code.projects.sk.bmt_manager as mgr
 
 
 def _make_mock_blob(exists: bool, text: str | None = None) -> MagicMock:

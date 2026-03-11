@@ -22,15 +22,5 @@
         "CMAKE_BUILD_TYPE": "Debug"
       }
     }
-  ],
-  "buildPresets": [
-    {
-      "name": "sk_gcc_Release-build",
-      "configurePreset": "sk_gcc_Release"
-    },
-    {
-      "name": "sk_gcc_Debug-build",
-      "configurePreset": "sk_gcc_Debug"
-    }
   ]
 }

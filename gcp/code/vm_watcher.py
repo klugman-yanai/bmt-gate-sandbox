@@ -47,25 +47,27 @@ def _get_bmt_config_defaults() -> tuple[int, int, int]:
 _idle_sec_val, _stale_hours_val, _keep_recent_val = _get_bmt_config_defaults()
 try:
     from config.bmt_config import get_config
-    from constants import EXECUTABLE_MODE, GITHUB_API_VERSION, HTTP_TIMEOUT
-    from github import (
+    from utils import _bucket_uri, _code_bucket_root, _now_iso, _runtime_bucket_root
+
+    from gcp.code.config.constants import EXECUTABLE_MODE, GITHUB_API_VERSION, HTTP_TIMEOUT
+
+    from .github import (
         github_auth,
         github_checks,
         github_pr_comment,
         github_pull_request,
+        status_file,
     )
-    from status import status_file
-    from utils import _bucket_uri, _code_bucket_root, _now_iso, _runtime_bucket_root
 except ImportError:
     from gcp.code.config.bmt_config import get_config
-    from gcp.code.constants import EXECUTABLE_MODE, GITHUB_API_VERSION, HTTP_TIMEOUT
+    from gcp.code.config.constants import EXECUTABLE_MODE, GITHUB_API_VERSION, HTTP_TIMEOUT
     from gcp.code.github import (
         github_auth,
         github_checks,
         github_pr_comment,
         github_pull_request,
+        status_file,
     )
-    from gcp.code.status import status_file
     from gcp.code.utils import _bucket_uri, _code_bucket_root, _now_iso, _runtime_bucket_root
 
 IDLE_TIMEOUT_DEFAULT = _idle_sec_val
@@ -1195,7 +1197,6 @@ def _process_run_trigger(  # noqa: PLR0911
     runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
     runtime_prefix = "runtime"
 
-
     run_id = str(workflow_run_id)
     workflow_run_id_str = str(workflow_run_id)
 
@@ -1715,9 +1716,7 @@ def _process_run_trigger(  # noqa: PLR0911
                         final_status["superseded_by_sha"] = superseded_by_sha
                         status_file.write_status(bucket, runtime_prefix, run_id, final_status)
                         with contextlib.suppress(subprocess.CalledProcessError, OSError, ValueError):
-                            status_file.write_last_run_duration(
-                                bucket, runtime_prefix, final_status["elapsed_sec"]
-                            )
+                            status_file.write_last_run_duration(bucket, runtime_prefix, final_status["elapsed_sec"])
                 except (subprocess.CalledProcessError, OSError, ValueError):
                     pass
 
@@ -1783,9 +1782,7 @@ def _process_run_trigger(  # noqa: PLR0911
                     final_status["elapsed_sec"] = int(time.monotonic() - start_timestamp)
                     status_file.write_status(bucket, runtime_prefix, run_id, final_status)
                     with contextlib.suppress(subprocess.CalledProcessError, OSError, ValueError):
-                        status_file.write_last_run_duration(
-                            bucket, runtime_prefix, final_status["elapsed_sec"]
-                        )
+                        status_file.write_last_run_duration(bucket, runtime_prefix, final_status["elapsed_sec"])
             except (subprocess.CalledProcessError, OSError, ValueError):
                 pass
 

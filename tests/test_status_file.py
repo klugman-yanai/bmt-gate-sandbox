@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gcp.code.status import status_file  # type: ignore[import-not-found]
+from gcp.code.github import status_file
 
 
 def test_status_uri_with_runtime_prefix() -> None:

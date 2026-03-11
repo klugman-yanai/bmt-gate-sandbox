@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import gcp.code.sk.bmt_manager as mgr
+import gcp.code.projects.sk.bmt_manager as mgr
 
 
 def test_false_reject_forces_gte_comparison() -> None:
