@@ -17,7 +17,6 @@ ALLOWED_TOP_LEVEL = {
 }
 
 REQUIRED_CODE_FILES = (
-    "bmt_projects.json",
     "pyproject.toml",
     "root_orchestrator.py",
     "uv.lock",
