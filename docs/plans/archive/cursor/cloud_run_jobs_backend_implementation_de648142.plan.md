@@ -292,7 +292,7 @@ sequenceDiagram
 | ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | Serial constraint | Enforced by preflight cleanup + blocking check in trigger.py | Not needed; each job is independent                                             |
 | current.json      | Read-then-write, no precondition; safe because VM is serial  | **Must** use `if_generation_match` CAS with retry (concurrent tasks)            |
-| Handshake         | Poll every 5s, timeout 180s                                  | Unchanged; backend-agnostic                                                     |
+| Handshake         | Poll every 5s, timeout 420s                                  | Unchanged; backend-agnostic                                                     |
 | Task retries      | VM restart is manual; no built-in retry                      | Cloud Run retries failed tasks (default 3); ack-exists check makes retries safe |
 | Secrets           | VM metadata (env vars on instance)                           | Secret Manager bindings projected as env vars to task                           |
 | Code updates      | Startup wrapper pulls from GCS on every boot                 | GCS-pull entrypoint (recommended) mirrors this; baked-image requires rebuild    |

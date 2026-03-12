@@ -1,7 +1,7 @@
-"""GitHub Check Runs API integration for live BMT progress updates.
+"""GitHub Check Runs API integration for BMT Gate (Checks tab).
 
-This module provides functions to create and update GitHub Check Runs,
-which appear in the PR UI with live progress information.
+Output format per docs/sample_output.md: pass/fail, scores, logs. The Check Run
+appears on the PR Checks tab; branch protection can require it to pass before merge.
 """
 
 from datetime import UTC, datetime
@@ -24,6 +24,24 @@ _REASON_LABELS: dict[str, str] = {
 
 def _human_reason(code: str) -> str:
     return _REASON_LABELS.get(code, code)
+
+
+def gcs_uri_to_console_url(gs_uri: str) -> str:
+    """Convert a gs:// URI to a GCS Console browser URL (option 1: no signing).
+
+    Example: gs://my-bucket/runtime/foo/logs -> https://console.cloud.google.com/storage/browser/my-bucket/runtime/foo/logs
+    """
+    if not gs_uri or not (gs_uri.startswith("gs://")):
+        return ""
+    rest = gs_uri[5:].strip("/")
+    if not rest:
+        return ""
+    parts = rest.split("/", 1)
+    bucket = parts[0]
+    path = parts[1] if len(parts) > 1 else ""
+    if not bucket:
+        return ""
+    return f"https://console.cloud.google.com/storage/browser/{bucket}/{path}"
 
 
 def _delta_str(delta: float | None, tolerance_abs: float, passed: bool) -> str:
@@ -109,9 +127,9 @@ def update_check_run(
 
 
 def render_progress_markdown(legs: list[dict[str, Any]], elapsed_sec: int, eta_sec: int | None) -> str:
-    """Render progress table as markdown for Check Run output (GitHub browser).
+    """Render in-progress table for BMT Gate Check Run (pass/fail per leg, progress).
 
-    Optimized for what devs see in the PR: headline first, then table.
+    See docs/sample_output.md. Final output uses render_results_table (scores, logs).
     """
     legs_completed = sum(1 for leg in legs if leg["status"] not in ["pending", "running"])
     legs_total = len(legs)
@@ -148,17 +166,25 @@ def render_progress_markdown(legs: list[dict[str, Any]], elapsed_sec: int, eta_s
     return "\n".join(lines)
 
 
-def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[str, Any]) -> str:
-    """Render final results table as markdown.
+def render_results_table(
+    leg_summaries: list[dict[str, Any]],
+    aggregate: dict[str, Any],
+    *,
+    run_id: str | None = None,
+    runtime_bucket_root: str | None = None,
+) -> str:
+    """Render final BMT Gate output: pass/fail, scores, logs (per docs/sample_output.md).
 
     Args:
         leg_summaries: List of manager summary dicts
         aggregate: Aggregate verdict dict with state/decision/reasons
+        run_id: Optional workflow run id for "Run status" GCS link
+        runtime_bucket_root: Optional gs://bucket/runtime for building status/logs URLs
 
     Returns:
-        Markdown string with results table
+        Markdown for Check Run summary (verdict table + GCS log links)
     """
-    lines = []
+    lines = ["**Pass/fail, scores, logs**", ""]
 
     lines.append("| Project | BMT | Verdict | Score | Baseline | Delta | Reason | Duration |")
     lines.append("|---------|-----|---------|-------|----------|-------|--------|----------:|")
@@ -228,6 +254,28 @@ def render_results_table(leg_summaries: list[dict[str, Any]], aggregate: dict[st
             lines.append("- Score dropped below baseline — see delta above. Baseline updates on next passing merge.")
         if "bootstrap_no_previous_result" in failed_reasons:
             lines.append("- No baseline yet — will be set once this run passes.")
+
+    # Logs: GCS Console links (run status + per-leg snapshot logs)
+    lines += ["", "**Logs**", ""]
+    has_log_links = False
+    if runtime_bucket_root and run_id:
+        status_uri = f"{runtime_bucket_root.rstrip('/')}/triggers/status/{run_id}.json"
+        status_url = gcs_uri_to_console_url(status_uri)
+        if status_url:
+            lines.append(f"- Run status (orchestrator/watcher): [open in GCS]({status_url})")
+            has_log_links = True
+    for summary in leg_summaries:
+        project = summary.get("project_id", "?")
+        bmt_id = summary.get("bmt_id", "?")
+        uri = (summary.get("ci_verdict_uri") or "").strip()
+        if uri.endswith("ci_verdict.json"):
+            logs_uri = uri[: -len("ci_verdict.json")] + "logs/"
+            console_url = gcs_uri_to_console_url(logs_uri)
+            if console_url:
+                lines.append(f"- {project}.{bmt_id}: [logs]({console_url})")
+                has_log_links = True
+    if not has_log_links:
+        lines.append("_No log links available._")
 
     return "\n".join(lines)
 

@@ -219,6 +219,21 @@ def vm_describe(project: str, zone: str, instance_name: str) -> dict[str, Any]:
         raise GcloudError(f"Failed to describe VM {instance_name}: {exc}") from exc
 
 
+def vm_list_names(
+    project: str, zone: str, *, filter_expr: str | None = None
+) -> list[str]:
+    """List instance names in a zone; optional filter (e.g. labels.bmt-gate=true). Uses google-cloud-compute SDK."""
+    try:
+        client = _compute_client()
+        if filter_expr:
+            it = client.list(project=project, zone=zone, filter=filter_expr)
+        else:
+            it = client.list(project=project, zone=zone)
+        return [inst.name for inst in it if getattr(inst, "name", None)]
+    except Exception as exc:
+        raise GcloudError(f"Failed to list instances in {project}/{zone}: {exc}") from exc
+
+
 def vm_serial_output(project: str, zone: str, instance_name: str) -> str:
     """Fetch serial output text for a VM."""
     try:

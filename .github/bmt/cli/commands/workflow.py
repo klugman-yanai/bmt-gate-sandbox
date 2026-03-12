@@ -10,6 +10,7 @@ from pathlib import Path
 from cli import gcs, github_api, shared
 from cli.gh_output import gh_endgroup, gh_group, gh_notice, gh_warning
 from cli.shared import _workflow_run_id, _workflow_runtime_root, get_config
+from cli.shared.defaults import DEFAULT_HANDSHAKE_TIMEOUT_SEC
 
 
 def _github_output() -> Path:
@@ -264,7 +265,9 @@ def run_force_clean_vm_restart() -> None:
 def run_wait_handshake() -> None:
     from cli.commands import vm
 
-    base_timeout = int(os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", "420"))
+    base_timeout = int(
+        os.environ.get("BMT_HANDSHAKE_TIMEOUT_SEC", str(DEFAULT_HANDSHAKE_TIMEOUT_SEC))
+    )
     restart_vm = os.environ.get("RESTART_VM", "false").lower() in ("true", "1", "yes")
     vm_reused_running = os.environ.get("VM_REUSED_RUNNING", "false").lower() in ("true", "1", "yes")
     stale_count = os.environ.get("STALE_CLEANUP_COUNT", "0")
@@ -399,6 +402,7 @@ def run_write_handoff_summary() -> None:
     trigger_written = os.environ.get("TRIGGER_WRITTEN", "false")
     vm_started = os.environ.get("VM_STARTED", "false")
     handshake_ok = os.environ.get("HANDSHAKE_OK", "false")
+    handshake_elapsed_sec = os.environ.get("HANDSHAKE_ELAPSED_SEC", "").strip()
     handoff_state_line = os.environ.get("HANDOFF_STATE_LINE", "")
     failure_reason = os.environ.get("FAILURE_REASON", "")
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
@@ -410,9 +414,9 @@ def run_write_handoff_summary() -> None:
     legs_planned = len(json.loads(filtered_matrix_raw).get("include", []))
     if not handoff_state_line:
         handoff_state_line = {
-            "run_success": "Handoff complete: VM acknowledged trigger.",
-            "skip": "Handoff complete: no supported uploaded legs to hand off.",
-            "failure": "Handoff failed: VM did not acknowledge trigger.",
+            "run_success": "Handoff complete: VM confirmed trigger.",
+            "skip": "Handoff complete: no supported test runs to hand off.",
+            "failure": "Handoff failed: VM did not confirm trigger.",
         }.get(mode, "Handoff state unavailable. Check this workflow run.")
 
     # Links line: PR · Workflow run · SHA on branch
@@ -428,26 +432,36 @@ def run_write_handoff_summary() -> None:
     vm_icon = "✅" if vm_started == "true" else "❌"
     handshake_icon = "✅" if handshake_ok == "true" else "❌"
 
+    table_rows = [
+        "| | |",
+        "|---|---|",
+        f"| Trigger written | {trigger_icon} |",
+        f"| VM started | {vm_icon} |",
+        f"| VM confirmed | {handshake_icon} |",
+    ]
+    if handshake_elapsed_sec and handshake_ok == "true":
+        table_rows.append(f"| Handshake time | **{handshake_elapsed_sec}s** |")
+    table_rows.append(f"| Test runs | **{legs_planned}** |")
+
     lines = [
         "## BMT Handoff",
         "",
         links_line,
         "",
-        "| | |",
-        "|---|---|",
-        f"| Trigger written | {trigger_icon} |",
-        f"| VM started | {vm_icon} |",
-        f"| Handshake acked | {handshake_icon} |",
-        f"| Legs handed off | **{legs_planned}** |",
+        *table_rows,
         "",
         handoff_state_line,
     ]
     if failure_reason:
         lines.extend(["", f"> ⚠️ {failure_reason}"])
-    lines.extend([
-        "",
-        "_BMT result will appear in the PR **Checks** tab and **Comments** — not here._",
-    ])
+    lines.extend(
+        [
+            "",
+            "_BMT result will appear in the PR **Checks** tab and **Comments** — not here._",
+        ]
+    )
     if mode == "failure":
-        lines.extend(["", "_Handoff failed — inspect the trigger and handshake steps above for details._"])
+        lines.extend(
+            ["", "_Handoff failed — inspect the trigger and handshake steps above for details._"]
+        )
     _append_step_summary("\n".join(lines) + "\n")

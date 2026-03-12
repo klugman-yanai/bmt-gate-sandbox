@@ -56,10 +56,10 @@ on:
     outputs:
       bmt_gate_passed:
         description: "Handoff succeeded (write-summary ran)."
-        value: ${{ jobs.gate.outputs.bmt_gate_passed }}
+        value: ${{ jobs.handoff.outputs.bmt_gate_passed }}
       bmt_fallback_run:
         description: "Failure-fallback ran."
-        value: ${{ jobs.gate.outputs.bmt_fallback_run }}
+        value: ${{ jobs.handoff.outputs.bmt_fallback_run }}
 
 concurrency:
   group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
@@ -72,18 +72,18 @@ env:
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE }}
   BMT_VM_NAME: ${{ vars.BMT_VM_NAME }}
+  BMT_VM_POOL: ${{ vars.BMT_VM_POOL }}
   BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT }}
   BMT_HANDSHAKE_TIMEOUT_SEC: ${{ vars.BMT_HANDSHAKE_TIMEOUT_SEC }}
   BMT_PUBSUB_TOPIC: ${{ vars.BMT_PUBSUB_TOPIC }}
-  BMT_RUNNERS_PRESEEDED_IN_GCS: ${{ vars.BMT_RUNNERS_PRESEEDED_IN_GCS }}
 
 permissions:
   contents: read
   actions: read
 
 jobs:
-  # Success: setup → upload-runners → handoff (classify + run + summary).
-  # Failure: setup or handoff fails → gate runs fallback (post status, cleanup) then sets outputs.
+  # Success: setup (includes VM start) → upload-runners → handshake (classify + trigger + wait ack + summary).
+  # Failure: setup or handshake fails → handoff runs fallback (post status, cleanup) then sets outputs.
   setup:
     name: Setup
     runs-on: ubuntu-22.04
@@ -101,6 +101,11 @@ jobs:
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
       matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
+      selected_vm: ${{ steps.select-vm.outputs.selected_vm || '' }}
+      vm_reused_running: ${{ steps.select-vm.outputs.vm_reused_running || 'false' }}
+      restart_vm: ${{ steps.preflight.outputs.restart_vm || 'false' }}
+      stale_cleanup_count: ${{ steps.preflight.outputs.stale_cleanup_count || '0' }}
+      vm_started: ${{ steps.start-vm.outcome == 'success' || steps.select-vm.outputs.vm_reused_running == 'true' }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -152,8 +157,40 @@ jobs:
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           AVAILABLE_ARTIFACTS: ${{ inputs.available_artifacts || '[]' }}
-          BMT_RUNNERS_PRESEEDED_IN_GCS: ${{ env.BMT_RUNNERS_PRESEEDED_IN_GCS }}
         run: uv run --project .github/bmt bmt filter-upload-matrix
+
+      - name: Select available VM from pool
+        id: select-vm
+        shell: bash
+        run: |
+          uv run --project .github/bmt bmt select-available-vm
+          selected_vm="$(grep '^selected_vm=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
+          echo "BMT_VM_NAME=${selected_vm}" >> "$GITHUB_ENV"
+
+      - name: Preflight runtime trigger queue (stale cleanup)
+        id: preflight
+        shell: bash
+        env:
+          RUN_CONTEXT: ${{ steps.run-context.outputs.run_context }}
+          PR_NUMBER: ${{ steps.prepare.outputs.pr_number }}
+        run: uv run --project .github/bmt bmt preflight-trigger-queue
+
+      - name: Sync VM metadata from workflow config
+        shell: bash
+        run: uv run --project .github/bmt bmt sync-vm-metadata
+
+      - name: Force clean VM restart after stale-trigger cleanup
+        if: steps.preflight.outputs.restart_vm == 'true'
+        shell: bash
+        env:
+          STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
+        run: uv run --project .github/bmt bmt force-clean-vm-restart
+
+      - name: Start BMT VM
+        id: start-vm
+        if: steps.select-vm.outputs.vm_reused_running != 'true'
+        shell: bash
+        run: uv run --project .github/bmt bmt start-vm
 
       - name: Workflow summary notice
         run: echo "::notice::BMT result will appear in the PR Checks tab and Comments, not in this workflow summary."
@@ -229,8 +266,8 @@ jobs:
         run: |
           echo '{}' | gsutil cp - "gs://${GCS_BUCKET}/runtime/_workflow/uploaded/${{ github.run_id }}/${{ matrix.project }}.json"
 
-  handoff:
-    name: Handoff
+  handshake:
+    name: Handshake
     needs: [setup, upload-runners]
     runs-on: ubuntu-22.04
     permissions:
@@ -246,7 +283,7 @@ jobs:
       has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
       accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
       filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
-      # Handoff-run outputs
+      # Handshake-run outputs (VM ack, trigger, etc.)
       selected_vm: ${{ steps.run.outputs.selected_vm || '' }}
       trigger_written: ${{ steps.run.outputs.trigger_written || 'false' }}
       handshake_ok: ${{ steps.run.outputs.handshake_ok || 'false' }}
@@ -291,12 +328,18 @@ jobs:
           gcp_project: ${{ env.GCP_PROJECT }}
           gcp_zone: ${{ env.GCP_ZONE }}
           gcs_bucket: ${{ env.GCS_BUCKET }}
+          vm_pre_started: "true"
+          pre_started_selected_vm: ${{ needs.setup.outputs.selected_vm }}
+          pre_started_vm_reused_running: ${{ needs.setup.outputs.vm_reused_running }}
+          pre_started_restart_vm: ${{ needs.setup.outputs.restart_vm }}
+          pre_started_stale_cleanup_count: ${{ needs.setup.outputs.stale_cleanup_count }}
+          pre_started_vm_started: ${{ needs.setup.outputs.vm_started }}
       # No separate write-summary step needed; bmt-handoff-run already writes
       # the handoff summary internally (bmt-write-summary with if: always()).
 
-  gate:
-    name: Gate
-    needs: [setup, handoff]
+  handoff:
+    name: Handoff
+    needs: [setup, handshake]
     if: always()
     runs-on: ubuntu-22.04
     permissions:
@@ -305,7 +348,7 @@ jobs:
       id-token: write
       statuses: write
     env:
-      BMT_VM_NAME: ${{ needs.handoff.outputs.selected_vm || vars.BMT_VM_NAME }}
+      BMT_VM_NAME: ${{ needs.handshake.outputs.selected_vm || vars.BMT_VM_NAME }}
     outputs:
       bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
       bmt_fallback_run: ${{ steps.outcome.outputs.bmt_fallback_run }}
@@ -313,8 +356,8 @@ jobs:
       - name: Checkout repo (for local actions)
         if: >-
           always()
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
-              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
+          && (needs.setup.result == 'failure' || needs.handshake.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handshake.result == 'cancelled')
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
@@ -324,8 +367,8 @@ jobs:
       - uses: ./.github/actions/bmt-job-setup
         if: >-
           always()
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
-              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
+          && (needs.setup.result == 'failure' || needs.handshake.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handshake.result == 'cancelled')
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
@@ -334,20 +377,20 @@ jobs:
       - name: Build diagnostic context from merged handoff outputs
         if: >-
           always()
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
-              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
+          && (needs.setup.result == 'failure' || needs.handshake.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handshake.result == 'cancelled')
         id: ctx
         shell: bash
         env:
-          CLASSIFY_PATH: ${{ needs.handoff.outputs.classify_path || 'unknown' }}
-          HAS_LEGS: ${{ needs.handoff.outputs.has_legs || 'false' }}
-          ACCEPTED_PROJECTS: ${{ needs.handoff.outputs.accepted_projects || '[]' }}
-          FILTERED_MATRIX: ${{ needs.handoff.outputs.filtered_matrix || '{"include":[]}' }}
-          TRIGGER_WRITTEN: ${{ needs.handoff.outputs.trigger_written || 'false' }}
-          VM_STARTED: ${{ needs.handoff.outputs.vm_started || 'false' }}
-          HANDSHAKE_OK: ${{ needs.handoff.outputs.handshake_ok || 'false' }}
-          HANDSHAKE_URI: ${{ needs.handoff.outputs.handshake_uri || '' }}
-          HANDOFF_REASON: ${{ needs.handoff.outputs.handoff_reason || '' }}
+          CLASSIFY_PATH: ${{ needs.handshake.outputs.classify_path || 'unknown' }}
+          HAS_LEGS: ${{ needs.handshake.outputs.has_legs || 'false' }}
+          ACCEPTED_PROJECTS: ${{ needs.handshake.outputs.accepted_projects || '[]' }}
+          FILTERED_MATRIX: ${{ needs.handshake.outputs.filtered_matrix || '{"include":[]}' }}
+          TRIGGER_WRITTEN: ${{ needs.handshake.outputs.trigger_written || 'false' }}
+          VM_STARTED: ${{ needs.handshake.outputs.vm_started || 'false' }}
+          HANDSHAKE_OK: ${{ needs.handshake.outputs.handshake_ok || 'false' }}
+          HANDSHAKE_URI: ${{ needs.handshake.outputs.handshake_uri || '' }}
+          HANDOFF_REASON: ${{ needs.handshake.outputs.handoff_reason || '' }}
         run: |
           echo "classify_outputs=$(jq -nc --arg path "$CLASSIFY_PATH" --arg has_legs "$HAS_LEGS" \
             --argjson accepted "$ACCEPTED_PROJECTS" --argjson matrix "$FILTERED_MATRIX" \
@@ -359,15 +402,15 @@ jobs:
       - name: Failure fallback
         if: >-
           always()
-          && (needs.setup.result == 'failure' || needs.handoff.result == 'failure'
-              || needs.setup.result == 'cancelled' || needs.handoff.result == 'cancelled')
+          && (needs.setup.result == 'failure' || needs.handshake.result == 'failure'
+              || needs.setup.result == 'cancelled' || needs.handshake.result == 'cancelled')
         uses: ./.github/actions/bmt-failure-fallback
         with:
           prepare_result: ${{ needs.setup.result }}
           prepare_outputs: ${{ toJson(needs.setup.outputs) }}
-          classify_result: ${{ needs.handoff.outputs.classify_result }}
+          classify_result: ${{ needs.handshake.outputs.classify_result }}
           classify_outputs: ${{ steps.ctx.outputs.classify_outputs }}
-          handoff_result: ${{ needs.handoff.outputs.handoff_result == 'skipped' && 'success' || needs.handoff.outputs.handoff_result }}
+          handoff_result: ${{ needs.handshake.outputs.handoff_result == 'skipped' && 'success' || needs.handshake.outputs.handoff_result }}
           handoff_outputs: ${{ steps.ctx.outputs.handoff_outputs }}
           dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
           dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
@@ -378,5 +421,5 @@ jobs:
 
       - id: outcome
         run: |
-          echo "bmt_gate_passed=${{ needs.handoff.result == 'success' }}" >> "$GITHUB_OUTPUT"
-          echo "bmt_fallback_run=${{ needs.setup.result != 'cancelled' && needs.handoff.result != 'cancelled' && (needs.setup.result == 'failure' || needs.handoff.result == 'failure') }}" >> "$GITHUB_OUTPUT"
+          echo "bmt_gate_passed=${{ needs.handshake.result == 'success' }}" >> "$GITHUB_OUTPUT"
+          echo "bmt_fallback_run=${{ needs.setup.result != 'cancelled' && needs.handshake.result != 'cancelled' && (needs.setup.result == 'failure' || needs.handshake.result == 'failure') }}" >> "$GITHUB_OUTPUT"

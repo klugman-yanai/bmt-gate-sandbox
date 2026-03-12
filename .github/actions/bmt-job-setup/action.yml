@@ -24,7 +24,7 @@ runs:
         github-token: ${{ inputs.github-token }}
 
     - name: Setup uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7
       with:
         version: "0.10.9"
 

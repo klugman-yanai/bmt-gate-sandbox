@@ -36,7 +36,7 @@ deploy:
 
 # Remove Python/uv bloat from GCS (dry-run by default; use --execute to delete)
 clean-bloat *args:
-    uv run python tools/bucket_clean_bloat.py {{args}}
+    uv run python tools/bucket_clean_bloat.py {{ args }}
 
 # Layout / policy
 validate-layout:
@@ -50,24 +50,34 @@ upload-runner:
     uv run python tools/bucket_upload_runner.py
 
 upload-wavs source_dir dest_prefix="sk/inputs/false_rejects":
-    uv run python tools/bucket_upload_wavs.py --source-dir {{source_dir}} --dest-prefix {{dest_prefix}}
+    uv run python tools/bucket_upload_wavs.py --source-dir {{ source_dir }} --dest-prefix {{ dest_prefix }}
 
 validate-bucket:
     uv run python tools/bucket_validate_contract.py
+
+# Build VM image via Packer (dispatches bmt-image-build.yml; pass branch name or defaults to current)
+build-image branch="":
+    #!/usr/bin/env -S bash -eu
+    B="{{ branch }}"
+    if [[ -z "$B" ]]; then B="$(git rev-parse --abbrev-ref HEAD)"; fi
+    REPO="$(git remote get-url origin | sed 's|.*github.com[:/]\(.*\)\.git|\1|;s|.*github.com[:/]\(.*\)|\1|')"
+    echo "Dispatching bmt-image-build.yml on branch: $B (repo: $REPO)"
+    gh workflow run bmt-image-build.yml --repo "$REPO" --ref "$B"
 
 # VM control (manual debug/maintenance/testing only; sync-vm-metadata: skip when in sync, use --force to re-sync)
 sync-vm-metadata:
     uv run --project .github/bmt bmt sync-vm-metadata
 
 start-vm *args:
-    uv run --project .github/bmt bmt start-vm --allow-manual-start {{args}}
+    uv run --project .github/bmt bmt start-vm --allow-manual-start {{ args }}
 
-wait-handshake workflow_run_id timeout_sec="180":
+# Default matches .github/bmt/cli/shared/defaults.py DEFAULT_HANDSHAKE_TIMEOUT_SEC
+wait-handshake workflow_run_id timeout_sec="420":
     #!/usr/bin/env -S bash -eu
     export GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET}"
-    export GITHUB_RUN_ID="{{workflow_run_id}}"
+    export GITHUB_RUN_ID="{{ workflow_run_id }}"
     export GITHUB_OUTPUT="${PWD}/.local/wait-handshake.out"
-    export BMT_HANDSHAKE_TIMEOUT_SEC="{{timeout_sec}}"
+    export BMT_HANDSHAKE_TIMEOUT_SEC="{{ timeout_sec }}"
     export GCP_PROJECT="${GCP_PROJECT:-}"
     export GCP_ZONE="${GCP_ZONE:-}"
     export BMT_VM_NAME="${BMT_VM_NAME:-}"
@@ -76,12 +86,12 @@ wait-handshake workflow_run_id timeout_sec="180":
 
 # Runtime observability
 monitor *args:
-    uv run python tools/bmt_monitor.py {{args}}
+    uv run python tools/bmt_monitor.py {{ args }}
 
 gcs-trigger run_id:
     #!/usr/bin/env -S bash -eu
     GCS_BUCKET="$(gh variable get GCS_BUCKET)"
-    RID="{{run_id}}"
+    RID="{{ run_id }}"
     ROOT="gs://$GCS_BUCKET/runtime"
     echo "=== Trigger (workflow wrote this) ==="
     gcloud storage cat "$ROOT/triggers/runs/$RID.json" 2>/dev/null || echo "(not found or failed)"
@@ -99,7 +109,7 @@ vm-serial:
 
 check-vm-gcs run_id:
     #!/usr/bin/env -S bash -eu
-    just gcs-trigger {{run_id}}
+    just gcs-trigger {{ run_id }}
     echo ""
     echo "=== VM serial (last 2KB) ==="
     VM="$(gh variable get BMT_VM_NAME)"
@@ -109,6 +119,7 @@ check-vm-gcs run_id:
 
 # Full production CI sequence locally (sync → matrix → trigger → sync-vm-metadata → start-vm → wait-handshake).
 # Requires: GCS_BUCKET, GCP_PROJECT, GCP_ZONE, BMT_VM_NAME (and gcloud auth). Optional: BMT_PUBSUB_TOPIC for Pub/Sub.
+
 # Run from repo root. Saves run id to .local/prod-ci-run-id.txt for just gcs-trigger / just wait-handshake.
 prod-ci-local:
     #!/usr/bin/env -S bash -eu
@@ -152,7 +163,7 @@ repo-vars-check:
     uv run python tools/gh_repo_vars.py
 
 repo-vars-apply *args:
-    uv run python tools/gh_repo_vars.py --apply {{args}}
+    uv run python tools/gh_repo_vars.py --apply {{ args }}
 
 validate-vm-vars *args:
-    uv run python tools/gh_validate_vm_vars.py {{args}}
+    uv run python tools/gh_validate_vm_vars.py {{ args }}

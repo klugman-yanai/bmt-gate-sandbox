@@ -11,8 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from cli import shared
-from cli.gh_output import gh_error, gh_warning
-from cli.shared import get_config, require_env, write_github_output
+from cli.gh_output import gh_error, gh_notice, gh_warning
+from cli.shared import (
+    get_config,
+    require_env,
+    write_github_output,
+)
+from cli.shared.defaults import (
+    DEFAULT_HANDSHAKE_TIMEOUT_SEC,
+    DEFAULT_VM_START_TIMEOUT_SEC,
+    DEFAULT_VM_STOP_WAIT_TIMEOUT_SEC,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -74,7 +83,11 @@ def _vm_status(project: str, zone: str, instance_name: str) -> str:
 
 
 def _stop_and_wait(
-    project: str, zone: str, instance_name: str, timeout_sec: int = 180, poll_sec: int = 5,
+    project: str,
+    zone: str,
+    instance_name: str,
+    timeout_sec: int = DEFAULT_VM_STOP_WAIT_TIMEOUT_SEC,
+    poll_sec: int = 5,
 ) -> None:
     """Stop a VM and wait until it reaches TERMINATED state."""
     shared.vm_stop(project, zone, instance_name)
@@ -107,43 +120,96 @@ def _serial_tail(project: str, zone: str, instance_name: str, lines: int = 50) -
 
 
 def run_select_available_vm() -> None:
-    """Select workflow-owned VM (BMT_VM_NAME) and decide reuse/start behavior."""
+    """Select a VM from the pool (BMT_VM_POOL, BMT_VM_POOL_LABEL, or BMT_VM_NAME). Pool is never empty; VMs are verified via Compute SDK. With multiple VMs, assigns by run ID so concurrent runs get different VMs."""
     cfg = get_config()
     cfg.require_gcp()
     project = cfg.gcp_project
     zone = cfg.gcp_zone
     github_output = require_env("GITHUB_OUTPUT")
 
-    pool = [cfg.bmt_vm_name]
+    # Build pool: optional discovery by label (SDK), else BMT_VM_POOL comma-separated, else single BMT_VM_NAME
+    pool: list[str] = []
+    pool_label = (os.environ.get("BMT_VM_POOL_LABEL") or "").strip()
+    if pool_label:
+        # Discover instances by label (e.g. "bmt-gate:true" -> filter labels.bmt-gate=true)
+        if ":" in pool_label:
+            key, val = pool_label.split(":", 1)
+            key_safe = key.strip().replace("_", "-")
+            filter_expr = f"labels.{key_safe}={val.strip()}"
+        else:
+            filter_expr = f"labels.{pool_label.strip()}=*"
+        pool = shared.vm_list_names(project, zone, filter_expr=filter_expr)
+        pool.sort()
+        print(f"VM pool from label {pool_label!r} ({len(pool)} instance(s)): {pool}")
+    if not pool:
+        pool_raw = (os.environ.get("BMT_VM_POOL") or "").strip()
+        pool = [n.strip() for n in pool_raw.split(",") if n.strip()] if pool_raw else []
+    if not pool:
+        if not (cfg.bmt_vm_name and cfg.bmt_vm_name.strip()):
+            gh_error(
+                "BMT VM pool is empty and BMT_VM_NAME is not set. Set BMT_VM_POOL (comma-separated) or BMT_VM_POOL_LABEL to list by label, or BMT_VM_NAME."
+            )
+            raise RuntimeError(
+                "BMT VM pool must not be empty; set BMT_VM_POOL, BMT_VM_POOL_LABEL, or BMT_VM_NAME."
+            )
+        pool = [cfg.bmt_vm_name]
+        print(f"VM pool from BMT_VM_NAME (1 instance): {pool}")
+    elif not pool_label:
+        print(f"VM pool ({len(pool)} instance(s)): {pool}")
 
-    print(f"VM pool ({len(pool)} instance(s)): {pool}")
+    # Pool must never be empty
+    if not pool:
+        gh_error(
+            "BMT VM pool is empty. Set BMT_VM_POOL (comma-separated names) or BMT_VM_POOL_LABEL (e.g. bmt-gate:true) to discover VMs via Compute API."
+        )
+        raise RuntimeError("BMT VM pool must not be empty.")
+
+    # Verify each VM exists via SDK and collect statuses
     statuses: dict[str, str] = {}
+    missing: list[str] = []
     for vm_name in pool:
         status = _vm_status(project, zone, vm_name)
         statuses[vm_name] = status
-        print(f"  {vm_name}: {status}")
-        # Prefer TERMINATED: start this VM and assign our trigger (e.g. vm-1 when vm-0 is STOPPING).
-        if status == "TERMINATED":
-            print(f"Selected VM: {vm_name} (TERMINATED — will start and assign this run)")
-            write_github_output(github_output, "selected_vm", vm_name)
-            write_github_output(github_output, "vm_reused_running", "false")
-            return
+        if status == "unknown":
+            missing.append(vm_name)
+        else:
+            print(f"  {vm_name}: {status}")
+    if missing:
+        gh_error(
+            f"VM(s) not found in {project}/{zone}: {missing}. "
+            "Confirm with: gcloud compute instances list --project=" + project + " --zones=" + zone
+        )
+        raise RuntimeError(f"BMT VM pool has missing instance(s) in GCP: {missing}")
 
-    # No TERMINATED VM — stop the RUNNING VM first to ensure a clean startup
-    # (avoids stale watcher from cancelled runs, ensures metadata script re-runs).
-    for vm_name in pool:
-        if statuses.get(vm_name) == "RUNNING":
-            print(f"VM {vm_name} is RUNNING; stopping to ensure clean startup...")
-            _stop_and_wait(project, zone, vm_name)
-            print(f"Selected VM: {vm_name} (was RUNNING, now TERMINATED — will start clean)")
-            write_github_output(github_output, "selected_vm", vm_name)
-            write_github_output(github_output, "vm_reused_running", "false")
-            return
+    # Assign by run ID so concurrent workflows get different VMs when multiple are available
+    run_id_str = os.environ.get("GITHUB_RUN_ID", "0")
+    run_id_int = int(run_id_str) if run_id_str.isdigit() else 0
+
+    terminated = [v for v in pool if statuses.get(v) == "TERMINATED"]
+    if terminated:
+        idx = run_id_int % len(terminated)
+        selected = terminated[idx]
+        print(f"Selected VM: {selected} (TERMINATED — will start and assign this run)")
+        write_github_output(github_output, "selected_vm", selected)
+        write_github_output(github_output, "vm_reused_running", "false")
+        return
+
+    # No TERMINATED — use a RUNNING VM: stop it for clean startup, then we will start it again
+    running = [v for v in pool if statuses.get(v) == "RUNNING"]
+    if running:
+        idx = run_id_int % len(running)
+        selected = running[idx]
+        print(f"VM {selected} is RUNNING; stopping to ensure clean startup...")
+        _stop_and_wait(project, zone, selected)
+        print(f"Selected VM: {selected} (was RUNNING, now TERMINATED — will start clean)")
+        write_github_output(github_output, "selected_vm", selected)
+        write_github_output(github_output, "vm_reused_running", "false")
+        return
 
     status_summary = ", ".join(f"{v}={s}" for v, s in statuses.items())
     msg = (
-        f"No selectable VM state for configured BMT_VM_NAME ({status_summary}). "
-        "VM must be TERMINATED or RUNNING; wait for state stabilization and re-trigger."
+        f"No selectable VM state for pool ({status_summary}). "
+        "Each VM must be TERMINATED or RUNNING; wait for state stabilization and re-trigger."
     )
     gh_error(f"No BMT VM is available. {msg}")
     gh_warning(msg)
@@ -159,10 +225,11 @@ def run_start() -> None:
     """Start the BMT VM. GCP/BMT identity from config; timeouts and BMT_ALLOW_MANUAL_VM_START from env."""
     cfg = get_config()
     cfg.require_gcp()
-    timeout_sec = int(os.environ.get("BMT_VM_START_TIMEOUT_SEC", "180"))
+    timeout_sec = int(os.environ.get("BMT_VM_START_TIMEOUT_SEC", str(DEFAULT_VM_START_TIMEOUT_SEC)))
     poll_interval_sec = 5
     stabilization_sec = int(os.environ.get("BMT_VM_STABILIZATION_SEC", "45"))
     recovery_attempts_max = int(os.environ.get("BMT_VM_START_RECOVERY_ATTEMPTS", "2"))
+    recovery_start_delay_sec = int(os.environ.get("BMT_VM_RECOVERY_START_DELAY_SEC", "10"))
 
     in_actions = _is_truthy(os.environ.get("GITHUB_ACTIONS"))
     if not in_actions and not _is_truthy(os.environ.get("BMT_ALLOW_MANUAL_VM_START")):
@@ -226,24 +293,35 @@ def run_start() -> None:
     last_seen_start: str | None = None
     recovery_attempts = 0
     recovery_pending = False
-    stop_retry_done = False  # only one wait-for-TERMINATED + retry per run
+    stop_retry_done = False  # only one wait-for-TERMINATED + retry per run (initial); during recovery we allow repeat
     while time.monotonic() < deadline:
         describe = shared.vm_describe(project, zone, instance_name)
         last_seen_status = _instance_status(describe)
         last_seen_start = _last_start_timestamp(describe)
 
-        # If VM is STOPPING (e.g. previous run self-stopped), wait for TERMINATED then start again
-        if last_seen_status == "STOPPING" and not stop_retry_done:
+        # If VM is STOPPING, wait for TERMINATED then retry start. Allow when: first time (not stop_retry_done)
+        # or during recovery (recovery_attempts > 0) so we can retry after a fingerprint failure on recovery start.
+        if last_seen_status == "STOPPING" and (not stop_retry_done or recovery_attempts > 0):
             stop_deadline = time.monotonic() + min(120, max(0, int(deadline - time.monotonic())))
-            gh_warning(
-                "VM is STOPPING (e.g. from previous run); waiting for TERMINATED then retrying start."
+            gh_notice(
+                "VM is in STOPPING state (may have been stopped by another run or failure-fallback); "
+                "waiting for TERMINATED then retrying start."
             )
             while time.monotonic() < stop_deadline:
                 describe = shared.vm_describe(project, zone, instance_name)
                 s = _instance_status(describe)
                 if s == "TERMINATED":
                     print("VM reached TERMINATED; issuing retry start.")
-                    stop_retry_done = True
+                    if recovery_attempts == 0:
+                        stop_retry_done = True
+                    if recovery_attempts > 0 and recovery_start_delay_sec > 0:
+                        print(
+                            f"Waiting {recovery_start_delay_sec}s after TERMINATED before start "
+                            "(reduces fingerprint race during recovery)."
+                        )
+                        time.sleep(
+                            min(recovery_start_delay_sec, max(0, int(deadline - time.monotonic())))
+                        )
                     _request_start("retry after VM stopped")
                     break
                 remaining = stop_deadline - time.monotonic()
@@ -255,10 +333,18 @@ def run_start() -> None:
                 time.sleep(min(poll_interval_sec, remaining))
             continue
 
-        # If VM is already TERMINATED on first poll (e.g. stopped before we could start), issue start once
-        if last_seen_status == "TERMINATED" and not stop_retry_done:
-            gh_warning("VM is TERMINATED; issuing retry start.")
-            stop_retry_done = True
+        # If VM is already TERMINATED (e.g. stopped before we could start, or after recovery start failed), issue start.
+        # Allow when first time or during recovery so we can retry after fingerprint failure.
+        if last_seen_status == "TERMINATED" and (not stop_retry_done or recovery_attempts > 0):
+            gh_notice("VM is TERMINATED; issuing retry start.")
+            if recovery_attempts == 0:
+                stop_retry_done = True
+            if recovery_attempts > 0 and recovery_start_delay_sec > 0:
+                print(
+                    f"Waiting {recovery_start_delay_sec}s after TERMINATED before start "
+                    "(reduces fingerprint race during recovery)."
+                )
+                time.sleep(min(recovery_start_delay_sec, max(0, int(deadline - time.monotonic()))))
             _request_start("retry after VM stopped")
             continue
 
@@ -463,38 +549,48 @@ def run_wait_handshake(timeout_sec: int | None = None) -> None:
     print(
         "Handshake confirms VM pickup only; final BMT Gate status updates after VM execution completes."
     )
+    if timeout_sec < 300:
+        print(
+            f"::notice::Handshake timeout={timeout_sec}s; for cold-start VMs consider BMT_HANDSHAKE_TIMEOUT_SEC=300 or {DEFAULT_HANDSHAKE_TIMEOUT_SEC}"
+        )
 
     trigger_exists_initially = shared.gcs_exists(trigger_uri)
     if not trigger_exists_initially:
         raise RuntimeError(f"Trigger file missing before handshake wait: {trigger_uri}")
 
     deadline = time.monotonic() + timeout_sec
+    wait_start = time.monotonic()
     payload: dict[str, Any] | None = None
     last_error: str | None = None
     last_progress = 0.0
+    last_full_progress = 0.0
     last_vm_status = _vm_status(project, zone, instance_name)
     trigger_exists = trigger_exists_initially
 
     while time.monotonic() < deadline:
-        elapsed = time.monotonic() - (deadline - timeout_sec)
+        elapsed = time.monotonic() - wait_start
         payload, error = shared.download_json(ack_uri)
         if payload is not None:
             break
         last_error = error
-        if elapsed - last_progress >= 15:
+        remaining = max(0, int(deadline - time.monotonic()))
+        # Light progress every poll (5s) so the step doesn't look stuck
+        if elapsed - last_progress >= poll_interval_sec:
+            print(f"  ... waiting {int(elapsed)}s / {timeout_sec}s (remaining ~{remaining}s)")
+            last_progress = elapsed
+        # Full diagnostic every 15s (GCS + VM status)
+        if elapsed - last_full_progress >= 15:
             trigger_exists = shared.gcs_exists(trigger_uri)
             last_vm_status = _vm_status(project, zone, instance_name)
             runtime_status_exists = shared.gcs_exists(runtime_status_uri)
-            remaining = max(0, int(deadline - time.monotonic()))
             print(
                 f"  ... waiting {int(elapsed)}s / {timeout_sec}s timeout (remaining ~{remaining}s) "
                 f"vm_status={last_vm_status} trigger_exists={trigger_exists} "
                 f"runtime_status_exists={runtime_status_exists}"
             )
-            last_progress = elapsed
-        remaining = deadline - time.monotonic()
+            last_full_progress = elapsed
         if remaining > 0:
-            time.sleep(min(poll_interval_sec, remaining))
+            time.sleep(min(poll_interval_sec, deadline - time.monotonic()))
 
     if payload is None:
         trigger_exists = shared.gcs_exists(trigger_uri)
@@ -593,6 +689,9 @@ def run_wait_handshake(timeout_sec: int | None = None) -> None:
     )
     write_github_output(github_output, "handshake_run_disposition", run_disposition)
 
+    elapsed_sec = max(0, int(time.monotonic() - wait_start))
+    write_github_output(github_output, "handshake_elapsed_sec", str(elapsed_sec))
+
     print(
-        f"VM handshake received: requested={requested_count} accepted={accepted_count} vm_status={last_vm_status}"
+        f"VM handshake received in {elapsed_sec}s: requested={requested_count} accepted={accepted_count} vm_status={last_vm_status}"
     )
