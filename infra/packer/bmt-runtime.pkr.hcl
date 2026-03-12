@@ -178,7 +178,7 @@ build {
       # Create the pre-baked venv.
       "sudo python3.12 -m venv ${var.bmt_repo_root}/.venv",
       "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet --upgrade pip",
-      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet -r ${var.bmt_repo_root}/bootstrap/vm_deps.txt",
+      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet -r ${var.bmt_repo_root}/vm/vm_deps.txt",
       # Verify imports.
       "sudo ${var.bmt_repo_root}/.venv/bin/python -c \"import jwt, cryptography, httpx, google.cloud.storage, google.cloud.pubsub_v1; print('OK')\"",
     ]

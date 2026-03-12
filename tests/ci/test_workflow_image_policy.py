@@ -6,7 +6,12 @@ from pathlib import Path
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    # Tests can move around; resolve repo root by walking upward.
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file() and (parent / ".github").is_dir() and (parent / "gcp").is_dir():
+            return parent
+    raise RuntimeError(f"Unable to resolve repo root from {here}")
 
 
 def test_bmt_image_build_enforces_family_policy() -> None:

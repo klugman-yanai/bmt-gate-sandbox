@@ -28,5 +28,5 @@ Any extra top-level directory (for example `gcp/vmfs`, `gcp/bucket`, `gcp/bootst
 - **Pull bucket into local gcp/** (refresh from GCS so local has all code + runtime artifacts, e.g. after CI uploads): `just pull-gcp` (requires `GCS_BUCKET`). Excludes ephemeral paths (triggers, results, outputs, inputs, .venv) so layout stays valid.
 - Verify both mirrors against bucket manifests: `just verify-sync`
 - Validate local layout policy: `just validate-layout`
-- Pre-commit hook (`scripts/hooks/pre-commit-sync-gcp.sh`) blocks commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`).
+- Pre-commit hook (`tools/scripts/hooks/pre-commit-sync-gcp.sh`) blocks commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`).
 - Local diagnostics are non-authoritative and belong under `.local/diagnostics/`.

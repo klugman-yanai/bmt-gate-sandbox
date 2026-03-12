@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from testutils import combined_output, decode_output_json, read_github_output
+from tests._support.testutils import combined_output, decode_output_json, read_github_output
 
 
 def _run(

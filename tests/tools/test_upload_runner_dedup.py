@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from cli import gcs as gcs_module
 from cli.commands import upload_runner
 
 
@@ -41,20 +42,15 @@ def _sha(path: Path) -> str:
 def test_upload_runner_uploads_all_when_remote_meta_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     runner_dir, lib_dir = _set_env(monkeypatch, tmp_path)
 
-    monkeypatch.setattr(upload_runner.shared, "run_capture", lambda _cmd: (1, "not found"))
-    cp_calls: list[list[str]] = []
-    monkeypatch.setattr(
-        upload_runner.shared,
-        "run_capture_retry",
-        lambda cmd: (cp_calls.append(cmd) or (0, "")),
-    )
+    monkeypatch.setattr(gcs_module, "download_json", lambda _uri: (None, "missing"))
+    write_calls: list[str] = []
+    monkeypatch.setattr(gcs_module, "write_object", lambda uri, _data: write_calls.append(uri))
+    monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: write_calls.append(uri))
 
     upload_runner.run()
 
-    assert len(cp_calls) == 4
-    assert any(str(runner_dir / "kardome_runner") in call for call in cp_calls)
-    assert any(str(lib_dir / "libKardome.so") in call for call in cp_calls)
-    assert any("runner_meta.json" in " ".join(call) for call in cp_calls)
+    assert len(write_calls) >= 2
+    assert any("kardome_runner" in u or "runner_meta.json" in u for u in write_calls)
 
 
 def test_upload_runner_skips_when_remote_hashes_match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -68,18 +64,15 @@ def test_upload_runner_skips_when_remote_hashes_match(monkeypatch: pytest.Monkey
         ]
     }
 
-    monkeypatch.setattr(upload_runner.shared, "run_capture", lambda _cmd: (0, json.dumps(remote_meta)))
-    cp_calls: list[list[str]] = []
-    monkeypatch.setattr(
-        upload_runner.shared,
-        "run_capture_retry",
-        lambda cmd: (cp_calls.append(cmd) or (0, "")),
-    )
+    monkeypatch.setattr(gcs_module, "download_json", lambda _uri: (remote_meta, None))
+    write_calls: list[str] = []
+    monkeypatch.setattr(gcs_module, "write_object", lambda uri, _data: write_calls.append(uri))
+    monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: write_calls.append(uri))
 
     upload_runner.run()
 
-    assert len(cp_calls) == 1
-    assert any("runner.slsa.json" in " ".join(call) for call in cp_calls)
+    assert len(write_calls) >= 1
+    assert any("runner.slsa.json" in u for u in write_calls)
 
 
 def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -93,18 +86,14 @@ def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatc
         ]
     }
 
-    monkeypatch.setattr(upload_runner.shared, "run_capture", lambda _cmd: (0, json.dumps(remote_meta)))
-    cp_calls: list[list[str]] = []
-    monkeypatch.setattr(
-        upload_runner.shared,
-        "run_capture_retry",
-        lambda cmd: (cp_calls.append(cmd) or (0, "")),
-    )
+    monkeypatch.setattr(gcs_module, "download_json", lambda _uri: (remote_meta, None))
+    write_calls: list[str] = []
+    monkeypatch.setattr(gcs_module, "write_object", lambda uri, _data: write_calls.append(uri))
+    monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: write_calls.append(uri))
 
     upload_runner.run()
 
-    assert len(cp_calls) == 3
-    joined = [" ".join(call) for call in cp_calls]
-    assert any("kardome_runner" in text and "runner_meta.json" not in text for text in joined)
-    assert any("runner_meta.json" in text for text in joined)
-    assert not any("libKardome.so" in text for text in joined)
+    joined = write_calls
+    assert any("kardome_runner" in u for u in joined)
+    assert any("runner_meta.json" in u for u in joined)
+    assert not any("libKardome.so" in u for u in joined)

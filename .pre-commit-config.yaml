@@ -6,13 +6,13 @@ repos:
     hooks:
       - id: verify-gcp-bucket-sync
         name: gcp/ bucket sync check
-        entry: scripts/hooks/pre-commit-sync-gcp.sh
+        entry: tools/scripts/hooks/pre-commit-sync-gcp.sh
         language: script
         files: ^gcp/
         pass_filenames: false
       - id: image-build-warning
         name: image-build path warning
-        entry: scripts/hooks/pre-commit-image-build-warning.sh
+        entry: tools/scripts/hooks/pre-commit-image-build-warning.sh
         language: script
         files: ^(infra/packer/|gcp/code/bootstrap/)
         pass_filenames: false

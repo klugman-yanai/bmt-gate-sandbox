@@ -106,6 +106,7 @@ def test_closed_before_pickup_skips_run(monkeypatch: pytest.MonkeyPatch, tmp_pat
     )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
 
     watcher._process_run_trigger(
         run_trigger_uri,
@@ -172,6 +173,7 @@ def test_superseded_before_pickup_skips_run(monkeypatch: pytest.MonkeyPatch, tmp
     )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
 
     watcher._process_run_trigger(
         run_trigger_uri,
@@ -249,6 +251,7 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
     )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 88)
     monkeypatch.setattr(
         watcher.github_checks,
@@ -362,6 +365,7 @@ def test_superseded_mid_run_cancels_between_legs_and_upserts_commit_comment(
     )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 88)
     monkeypatch.setattr(
         watcher.github_checks, "update_check_run", lambda *_args, **kwargs: check_updates.append(kwargs)
@@ -450,6 +454,7 @@ def test_closed_mid_run_posts_terminal_error_when_first_status_post_fails(
     monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 88)
     monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_pull_request, "get_pr_state", lambda *_args, **_kwargs: next(pr_states))
@@ -520,6 +525,7 @@ def test_final_check_run_is_created_at_completion_if_startup_creation_fails(
     monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
 
     def _create_check_run(*_args: Any, **_kwargs: Any) -> int:
         create_calls.append(1)
@@ -598,6 +604,7 @@ def test_pr_state_api_failure_fails_open_and_completes(
     )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 42)
     monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -673,6 +680,7 @@ def test_non_pr_run_does_not_check_pr_state(monkeypatch: pytest.MonkeyPatch, tmp
     )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -731,6 +739,7 @@ def test_completed_status_wins_against_late_heartbeat_write(monkeypatch: pytest.
     monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
@@ -784,6 +793,7 @@ def test_orchestrator_download_failure_marks_status_failed(monkeypatch: pytest.M
     )
     monkeypatch.setattr(watcher.status_file, "write_status", status_store.write)
     monkeypatch.setattr(watcher.status_file, "read_status", status_store.read)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_post_commit_status", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher.github_checks, "create_check_run", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(watcher.github_checks, "update_check_run", lambda *_args, **_kwargs: None)

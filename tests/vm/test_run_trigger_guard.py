@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from cli import gcs as gcs_module
 from cli.commands import trigger as run_trigger
 
 
@@ -37,17 +38,12 @@ def test_trigger_rejects_when_other_pending_trigger_exists(
 
     runtime_root = "gs://bucket-a/runtime"
     monkeypatch.setattr(
-        run_trigger.shared,
-        "run_capture",
-        lambda _cmd: (
-            0,
-            "\n".join(
-                [
-                    f"{runtime_root}/triggers/runs/99999.json",
-                    f"{runtime_root}/triggers/runs/10001.json",
-                ]
-            ),
-        ),
+        gcs_module,
+        "list_prefix",
+        lambda _prefix: [
+            f"{runtime_root}/triggers/runs/99999.json",
+            f"{runtime_root}/triggers/runs/10001.json",
+        ],
     )
     uploaded: list[str] = []
     monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, _payload: uploaded.append(uri))
@@ -66,7 +62,7 @@ def test_trigger_allows_when_only_current_run_trigger_exists(
     _set_required_env(monkeypatch, output_file, matrix, "dev")
 
     current_trigger = "gs://bucket-a/runtime/triggers/runs/10001.json"
-    monkeypatch.setattr(run_trigger.shared, "run_capture", lambda _cmd: (0, f"{current_trigger}\n"))
+    monkeypatch.setattr(gcs_module, "list_prefix", lambda _prefix: [current_trigger])
     uploaded: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
 
@@ -108,7 +104,7 @@ def test_trigger_collapses_multiple_rows_to_unique_project_requests(
     _set_required_env(monkeypatch, output_file, matrix, "dev")
 
     current_trigger = "gs://bucket-a/runtime/triggers/runs/10001.json"
-    monkeypatch.setattr(run_trigger.shared, "run_capture", lambda _cmd: (0, f"{current_trigger}\n"))
+    monkeypatch.setattr(gcs_module, "list_prefix", lambda _prefix: [current_trigger])
     uploaded: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
 
@@ -133,17 +129,12 @@ def test_trigger_rejects_queueing_for_pr_context(
 
     runtime_root = "gs://bucket-a/runtime"
     monkeypatch.setattr(
-        run_trigger.shared,
-        "run_capture",
-        lambda _cmd: (
-            0,
-            "\n".join(
-                [
-                    f"{runtime_root}/triggers/runs/99999.json",
-                    f"{runtime_root}/triggers/runs/10001.json",
-                ]
-            ),
-        ),
+        gcs_module,
+        "list_prefix",
+        lambda _prefix: [
+            f"{runtime_root}/triggers/runs/99999.json",
+            f"{runtime_root}/triggers/runs/10001.json",
+        ],
     )
     uploaded: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(run_trigger.shared, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))

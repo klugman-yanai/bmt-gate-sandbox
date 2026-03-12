@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from testutils import decode_output_json, read_github_output
+from tests._support.testutils import decode_output_json, read_github_output
 
 
 @pytest.mark.xfail(reason="Demonstrates that tests catch JSON structure violations", strict=True)
@@ -92,7 +92,7 @@ def test_negative_tests_run_and_verify_xfails() -> None:
             sys.executable,
             "-m",
             "pytest",
-            "tests/test_ci_commands_negative.py",
+            "tests/ci/test_ci_commands_negative.py",
             "-k",
             "not test_negative_tests_run_and_verify_xfails",
             "-v",

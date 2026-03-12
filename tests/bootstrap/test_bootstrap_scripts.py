@@ -9,11 +9,22 @@ from pathlib import Path
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    # Tests can move around; resolve repo root by walking upward.
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file() and (parent / "gcp").is_dir() and (parent / "infra").is_dir():
+            return parent
+    raise RuntimeError(f"Unable to resolve repo root from {here}")
+
+
+def _vm_path(rel: str) -> Path:
+    """Scripts and deps live under gcp/code/vm/ (single source of truth)."""
+    return _repo_root() / "gcp" / "code" / "vm" / rel
 
 
 def _bootstrap_path(rel: str) -> Path:
-    return _repo_root() / "gcp" / "code" / "bootstrap" / rel
+    """Alias for _vm_path; bootstrap name kept for test readability."""
+    return _vm_path(rel)
 
 
 def _metadata_entrypoint_path() -> Path:
@@ -38,8 +49,8 @@ def test_bootstrap_scripts_parse_with_bash_n() -> None:
         _bootstrap_path("rollback_startup_to_inline.sh"),
         _bootstrap_path("shared.sh"),
         _metadata_entrypoint_path(),
-        _repo_root() / "scripts" / "hooks" / "pre-commit-sync-gcp.sh",
-        _repo_root() / "scripts" / "hooks" / "pre-commit-image-build-warning.sh",
+        _repo_root() / "tools" / "scripts" / "hooks" / "pre-commit-sync-gcp.sh",
+        _repo_root() / "tools" / "scripts" / "hooks" / "pre-commit-image-build-warning.sh",
     )
     for script in scripts:
         if script.exists():
@@ -97,10 +108,18 @@ def test_install_deps_fails_without_pyproject(tmp_path: Path) -> None:
 
 
 def test_install_deps_fails_without_vm_deps(tmp_path: Path) -> None:
+    """install_deps.sh fails when pyproject has no [vm] optional-dependencies."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "pyproject.toml").write_text("[project]\nname='bootstrap-test'\nversion='0.0.1'\n", encoding="utf-8")
-    # No bootstrap/vm_deps.txt
+    (repo_root / "pyproject.toml").write_text(
+        "[project]\nname='bootstrap-test'\nversion='0.0.1'\n\n"
+        "[tool.setuptools.packages.find]\nwhere = [\".\"]\ninclude = [\"lib*\"]\n",
+        encoding="utf-8",
+    )
+    (repo_root / "lib").mkdir(parents=True, exist_ok=True)
+    (repo_root / "lib" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "lib" / "bmt_config.py").write_text("", encoding="utf-8")
+    # No [project.optional-dependencies] vm extra
 
     proc = subprocess.run(
         ["bash", str(_bootstrap_path("install_deps.sh")), str(repo_root)],
@@ -114,10 +133,15 @@ def test_install_deps_fails_when_import_check_fails(tmp_path: Path) -> None:
     """install_deps.sh must exit non-zero when the post-install import check fails (fail-fast)."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "pyproject.toml").write_text("[project]\nname='bootstrap-test'\nversion='0.0.1'\n", encoding="utf-8")
-    bootstrap_dir = repo_root / "bootstrap"
-    bootstrap_dir.mkdir(parents=True, exist_ok=True)
-    (bootstrap_dir / "vm_deps.txt").write_text("httpx>=0.27\n", encoding="utf-8")
+    (repo_root / "pyproject.toml").write_text(
+        "[project]\nname='bootstrap-test'\nversion='0.0.1'\n\n"
+        "[project.optional-dependencies]\nvm = [\"httpx>=0.27\"]\n\n"
+        "[tool.setuptools.packages.find]\nwhere = [\".\"]\ninclude = [\"lib*\"]\n",
+        encoding="utf-8",
+    )
+    (repo_root / "lib").mkdir(parents=True, exist_ok=True)
+    (repo_root / "lib" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "lib" / "bmt_config.py").write_text("", encoding="utf-8")
 
     venv_bin = repo_root / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
@@ -137,11 +161,11 @@ def test_install_deps_fails_when_import_check_fails(tmp_path: Path) -> None:
 
 
 def test_packer_and_install_deps_use_same_vm_deps_source() -> None:
-    """Packer template and install_deps.sh both use gcp/code/bootstrap/vm_deps.txt."""
+    """Packer template uses gcp/code/vm/vm_deps.txt; install_deps uses pyproject [vm]."""
     packer_content = _packer_template_path().read_text(encoding="utf-8")
-    assert "vm_deps.txt" in packer_content, "Packer should install from bootstrap/vm_deps.txt"
-    deps_file = _bootstrap_path("vm_deps.txt")
-    assert deps_file.exists(), "Single source of truth vm_deps.txt must exist"
+    assert "vm_deps.txt" in packer_content, "Packer should reference vm_deps.txt"
+    deps_file = _vm_path("vm_deps.txt")
+    assert deps_file.exists(), "Single source of truth vm_deps.txt must exist under gcp/code/vm/"
     lines = [
         s.strip()
         for s in deps_file.read_text(encoding="utf-8").splitlines()

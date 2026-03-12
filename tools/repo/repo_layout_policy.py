@@ -50,7 +50,7 @@ REQUIRED_PATHS = (
     ".github/workflows/build-and-test.yml",
     DEFAULT_CONFIG_ROOT,
     DEFAULT_RUNTIME_ROOT,
-    "scripts/hooks/pre-commit-sync-gcp.sh",
+    "tools/scripts/hooks/pre-commit-sync-gcp.sh",
 )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from pathlib import Path
 
 import gcp.code.vm_watcher as watcher  # type: ignore[import-not-found]
 
@@ -186,6 +187,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
 
     monkeypatch.setattr(watcher.status_file, "write_status", _write_status)
     monkeypatch.setattr(watcher.status_file, "read_status", _read_status)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
@@ -420,6 +422,7 @@ def test_process_run_trigger_closed_pr_skips_pointer_promotion(monkeypatch, tmp_
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher.status_file, "write_status", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.status_file, "read_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
@@ -484,6 +487,7 @@ def test_process_run_trigger_superseded_mid_run_skips_pointer_promotion(monkeypa
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher.status_file, "write_status", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher.status_file, "read_status", lambda *_args, **_kwargs: {"legs": [{}, {}]})
+    monkeypatch.setattr(watcher.status_file, "write_last_run_duration", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)

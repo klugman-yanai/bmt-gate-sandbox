@@ -141,12 +141,12 @@ All of the following are run by **`just test`** (pytest, ruff check, ruff format
 ruff check .
 ruff format --check .
 basedpyright
-shellcheck --severity=warning gcp/code/bootstrap/*.sh .github/bmt/cli/resources/startup_entrypoint.sh scripts/hooks/*.sh
+shellcheck --severity=warning gcp/code/bootstrap/*.sh .github/bmt/cli/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
 ```
 
 - **ruff:** Line length 120, Python 3.12 target.
 - **basedpyright:** Type checking across `.github/scripts`, `gcp/`, `tools/`.
-- **shellcheck:** Bootstrap and startup scripts under `gcp/code/bootstrap/`, `.github/bmt/cli/resources/startup_entrypoint.sh`, and `scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
+- **shellcheck:** Bootstrap and startup scripts under `gcp/code/bootstrap/`, `.github/bmt/cli/resources/startup_entrypoint.sh`, and `tools/scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
 
 ---
 
