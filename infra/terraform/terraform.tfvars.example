@@ -5,7 +5,7 @@ gcp_zone     = "europe-west4-a"
 gcs_bucket   = "my-bmt-bucket"
 bmt_vm_name  = "bmt-vm"
 service_account = "bmt-vm@my-gcp-project.iam.gserviceaccount.com"
-startup_wrapper_script_path = "../../gcp/code/bootstrap/startup_entrypoint.sh"
+startup_wrapper_script_path = "../../gcp/code/vm/startup_entrypoint.sh"
 
 # Optional (have defaults in variables.tf):
 # image_family = "bmt-runtime"

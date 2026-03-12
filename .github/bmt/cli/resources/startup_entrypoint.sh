@@ -18,7 +18,7 @@ export BMT_REPO_ROOT="${BMT_REPO_ROOT:-$(_read_meta "BMT_REPO_ROOT")}"
 
 GCS_BUCKET="${GCS_BUCKET:?Set metadata GCS_BUCKET}"
 BMT_REPO_ROOT="${BMT_REPO_ROOT:-/opt/bmt}"
-STARTUP_MAIN="${BMT_REPO_ROOT}/bootstrap/run_watcher.sh"
+STARTUP_MAIN="${BMT_REPO_ROOT}/vm/run_watcher.sh"
 
 if [[ ! -f "${STARTUP_MAIN}" ]]; then
 	_log_err "::error::Missing baked startup script: ${STARTUP_MAIN}"

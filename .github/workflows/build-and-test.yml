@@ -104,19 +104,15 @@ jobs:
       max-parallel: 6
       matrix:
         include: ${{ fromJson(needs.prepare-builds.outputs.release_presets) }}
-
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-
     steps:
       - name: Download repo-snapshot
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: repo-snapshot
-
       - name: Extract repo snapshot
         run: tar -xzf repo-snapshot.tar.gz -C .
-
       - name: Dummy build ( ${{ matrix.short }} )
         run: |
           echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
@@ -132,19 +128,15 @@ jobs:
       max-parallel: 6
       matrix:
         include: ${{ fromJson(needs.prepare-builds.outputs.non_release_presets) }}
-
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-
     steps:
       - name: Download repo-snapshot
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           name: repo-snapshot
-
       - name: Extract repo snapshot
         run: tar -xzf repo-snapshot.tar.gz -C .
-
       - name: Dummy build ( ${{ matrix.short }} )
         run: |
           echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
@@ -158,6 +150,11 @@ jobs:
       (needs.dummy-build-release.result == 'success' || needs.dummy-build-release.result == 'skipped') &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(fromJson('["dev", "ci/check-bmt-gate"]'), (github.base_ref || github.ref_name))
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      statuses: write
     uses: ./.github/workflows/bmt.yml
     with:
       ci_run_id: ${{ github.run_id }}

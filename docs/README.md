@@ -10,6 +10,7 @@ Start here for structure and day-to-day use. Plans and archived docs are in thei
 | **Set up config / repo vars** | [configuration.md](configuration.md), [../infra/README.md](../infra/README.md) |
 | **Understand the pipeline** (trigger, handoff, results) | [architecture.md](architecture.md), [github-and-ci.md](github-and-ci.md) |
 | **Develop and run tests** | [development.md](development.md) |
+| **Add a new BMT project** | [adding-a-new-project.md](adding-a-new-project.md) |
 | **Keep sandbox and production in sync** | [sandbox-and-production.md](sandbox-and-production.md) |
 
 ---
@@ -21,6 +22,7 @@ Start here for structure and day-to-day use. Plans and archived docs are in thei
 | [architecture.md](architecture.md) | Trigger-and-stop flow, GCS contract, script map, production surface, implementation/data flow, repository structure. |
 | [configuration.md](configuration.md) | Env contract, repo vars, VM metadata, secrets, bucket layout. |
 | [development.md](development.md) | Setup, testing (unit, local BMT, pointer/snapshot, **testing prod CI locally**), lint/typecheck, Justfile, deploy. |
+| [adding-a-new-project.md](adding-a-new-project.md) | How to add a new BMT project (e.g. Skyworth): gcp/code layout, manager script, bmt_jobs.json, app-repo matrix and runner upload, .github/bmt. |
 | [github-and-ci.md](github-and-ci.md) | Communication flow, GitHub App permissions, Actions/CLI tools, workflow output (intended UX). |
 
 ## Sandbox and production

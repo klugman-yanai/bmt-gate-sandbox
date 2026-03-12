@@ -14,7 +14,7 @@ test:
     ruff format --check .
     basedpyright
     command -v shellcheck >/dev/null 2>&1 || (echo "Install shellcheck (e.g. apt install shellcheck)" >&2; exit 1)
-    shellcheck --severity=warning gcp/code/bootstrap/*.sh .github/bmt/cli/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
+    shellcheck --severity=warning gcp/code/vm/*.sh .github/bmt/cli/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
     uv run python -m tools.repo.gcp_layout_policy
     uv run python -m tools.repo.repo_layout_policy
 
@@ -76,9 +76,22 @@ validate-vm-vars:
 clean-bloat:
     uv run python -m tools.remote.bucket_clean_bloat
 
+# Symlink gcp/bmt/dependencies/* into each project's gcp/bmt/<project>/lib/
+# so libKardome.so finds them without copying. Idempotent; use --dry-run to preview.
+symlink-deps:
+    uv run python tools/scripts/symlink_bmt_deps.py
+
 # -----------------------------------------------------------------------------
 # Image build
 # -----------------------------------------------------------------------------
+
+# Validate Packer template only (no GCP resources created)
+packer-validate:
+    packer validate \
+      -var 'gcp_project=dry-run' \
+      -var 'gcp_zone=europe-west4-a' \
+      -var 'gcs_bucket=dry-run' \
+      infra/packer/bmt-runtime.pkr.hcl
 
 # Dispatch Packer build workflow (branch defaults to current)
 build-image branch="":

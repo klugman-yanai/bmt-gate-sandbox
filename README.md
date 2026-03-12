@@ -106,7 +106,7 @@ Full index: [docs/README.md](docs/README.md).
 | [docs/configuration.md](docs/configuration.md) | Env contract, repo vars, VM metadata, secrets. |
 | [docs/development.md](docs/development.md) | Setup, testing, Justfile, deploy. |
 | [docs/development.md](docs/development.md#testing-production-ci-locally) | Canonical how-to: test prod CI locally. |
-| [gcp/README.md](gcp/README.md) | Bucket mirror policy. [gcp/code/bootstrap/README.md](gcp/code/bootstrap/README.md) — VM bootstrap. |
+| [gcp/README.md](gcp/README.md) | Bucket mirror policy. [gcp/code/vm/README.md](gcp/code/vm/README.md) — VM bootstrap. |
 
 ## Notes
 

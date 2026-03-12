@@ -20,7 +20,7 @@ class BucketVerifyGcpSync:
         self,
         *,
         bucket: str,
-        src_dir: str = DEFAULT_CONFIG_ROOT,
+        src_dir: Path | str = DEFAULT_CONFIG_ROOT,
         include_runtime_artifacts: bool = False,
     ) -> int:
         if not bucket:

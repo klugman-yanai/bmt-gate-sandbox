@@ -1,17 +1,30 @@
-"""Tests for gate comparison normalization in gcp/code/sk/bmt_manager.py."""
+"""Tests for gate comparison: config is the single source of truth (no bmt_id override)."""
 
 from __future__ import annotations
 
-import gcp.code.projects.sk.bmt_manager as mgr
+from gcp.code.projects.base import bmt_manager_base as base
 
 
-def test_false_reject_forces_gte_comparison() -> None:
-    assert mgr._effective_gate_comparison("false_reject_namuh", "lte") == "gte"
+def test_normalize_comparison_gte() -> None:
+    assert base._normalize_comparison("gte") == "gte"
+    assert base._normalize_comparison(" GtE ") == "gte"
 
 
-def test_non_false_reject_keeps_lte_comparison() -> None:
-    assert mgr._effective_gate_comparison("false_accept_namuh", "lte") == "lte"
+def test_normalize_comparison_lte() -> None:
+    assert base._normalize_comparison("lte") == "lte"
+    assert base._normalize_comparison(" LTE ") == "lte"
 
 
-def test_comparison_normalization_trims_and_lowercases() -> None:
-    assert mgr._effective_gate_comparison("false_reject_namuh", " GtE ") == "gte"
+def test_normalize_comparison_config_is_truth_no_override() -> None:
+    """Config comparison is used as-is; no bmt_id-based override."""
+    assert base._normalize_comparison("lte") == "lte"
+    assert base._normalize_comparison("gte") == "gte"
+
+
+def test_normalize_comparison_invalid_raises() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="must be 'gte' or 'lte'"):
+        base._normalize_comparison("gt")
+    with pytest.raises(ValueError, match="must be 'gte' or 'lte'"):
+        base._normalize_comparison("eq")

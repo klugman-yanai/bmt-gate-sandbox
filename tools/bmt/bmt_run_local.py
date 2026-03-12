@@ -63,12 +63,12 @@ class ResolvedConfig:
 
 @dataclass
 class RunOptions:
-    jobs_config: str = "gcp/code/sk/config/bmt_jobs.json"
+    jobs_config: Path | str = "gcp/code/sk/config/bmt_jobs.json"
     bmt_id: str = "false_reject_namuh"
     project_id: str = "sk"
     run_context: str = "manual"
-    code_root: str = DEFAULT_CONFIG_ROOT
-    runtime_root: str = DEFAULT_RUNTIME_ROOT
+    code_root: Path | str = DEFAULT_CONFIG_ROOT
+    runtime_root: Path | str = DEFAULT_RUNTIME_ROOT
     sk_root: str = ""
     results_subdir: str = "false_rejects"
     runner: str = ""
@@ -129,10 +129,11 @@ def counter_regex(bmt_cfg: dict[str, Any]) -> re.Pattern[str]:
     return re.compile(DEFAULT_COUNTER_PATTERN)
 
 
-def effective_gate_comparison(bmt_id: str, comparison: str) -> str:
+def normalize_gate_comparison(comparison: str) -> str:
+    """Use gate.comparison from config as-is. Normalize and validate."""
     normalized = comparison.strip().lower()
-    if bmt_id.startswith("false_reject") and normalized == "lte":
-        return "gte"
+    if normalized not in ("gte", "lte"):
+        raise ValueError(f"gate.comparison must be 'gte' or 'lte', got: {comparison!r}")
     return normalized
 
 
@@ -223,8 +224,7 @@ def resolve_config(opts: RunOptions) -> ResolvedConfig:
     else:
         log_root = results_dir.parent / "logs" / results_dir.name / "latest"
 
-    comparison = effective_gate_comparison(
-        opts.bmt_id,
+    comparison = normalize_gate_comparison(
         opts.comparison.strip() or str(gate_cfg.get("comparison", "gte")),
     )
     if comparison not in {"gte", "lte"}:
@@ -622,12 +622,12 @@ class BmtRunLocal:
     def run(
         self,
         *,
-        jobs_config: str = "gcp/code/sk/config/bmt_jobs.json",
+        jobs_config: Path | str = "gcp/code/sk/config/bmt_jobs.json",
         bmt_id: str = "false_reject_namuh",
         project_id: str = "sk",
         run_context: str = "manual",
-        code_root: str = DEFAULT_CONFIG_ROOT,
-        runtime_root: str = DEFAULT_RUNTIME_ROOT,
+        code_root: Path | str = DEFAULT_CONFIG_ROOT,
+        runtime_root: Path | str = DEFAULT_RUNTIME_ROOT,
         sk_root: str = "",
         results_subdir: str = "false_rejects",
         runner: str = "",
@@ -678,14 +678,17 @@ if __name__ == "__main__":
     if run_ctx not in ("manual", "dev", "pr"):
         run_ctx = "manual"
     num_src = e("BMT_NUM_SOURCE_TEST")
+    code_root: str | Path = (e("BMT_CODE_ROOT") or "").strip() or DEFAULT_CONFIG_ROOT
+    runtime_root: str | Path = (e("BMT_RUNTIME_ROOT") or "").strip() or DEFAULT_RUNTIME_ROOT
+    jobs_config_val: str | Path = (e("BMT_JOBS_CONFIG") or "").strip() or "gcp/code/sk/config/bmt_jobs.json"
     raise SystemExit(
         BmtRunLocal().run(
-            jobs_config=s("BMT_JOBS_CONFIG", "gcp/code/sk/config/bmt_jobs.json"),
+            jobs_config=jobs_config_val,
             bmt_id=s("BMT_ID", "false_reject_namuh"),
             project_id=s("BMT_PROJECT_ID", "sk"),
             run_context=run_ctx,
-            code_root=s("BMT_CODE_ROOT", DEFAULT_CONFIG_ROOT),
-            runtime_root=s("BMT_RUNTIME_ROOT", DEFAULT_RUNTIME_ROOT),
+            code_root=code_root,
+            runtime_root=runtime_root,
             sk_root=s("BMT_SK_ROOT"),
             results_subdir=s("BMT_RESULTS_SUBDIR", "false_rejects"),
             runner=s("BMT_RUNNER"),

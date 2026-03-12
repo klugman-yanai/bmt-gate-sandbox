@@ -95,13 +95,9 @@ This section defines **what to compare** between Kardome-org/core-main and bmt-g
 | `actions/bmt-handoff-run/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | `actions/bmt-write-summary/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | `actions/bmt-failure-fallback/action.yml` | ✅ | ✅ | **Must stay in sync.** |
-| `actions/bmt-job-setup/action.yml` | ✅ | ❌ | Prod only (build-job setup). |
-| **Actions (build / checkout)** | | | |
+| `actions/bmt-job-setup/action.yml` | ✅ | ✅ | **Must stay in sync.** Checkout + restore snapshot + uv + load-env. |
+| **Actions (GCP / shared)** | | | |
 | `actions/setup-gcp-uv/action.yml` | ✅ | ✅ | **Must stay in sync.** |
-| `actions/checkout-and-restore/action.yml` | ✅ | ❌ | Prod only. |
-| `actions/restore-snapshot/action.yml` | ✅ | ❌ | Prod only. |
-| `actions/setup-build-env/action.yml` | ✅ | ❌ | Prod only. |
-| `actions/checkout-robust/action.yml` | ❌ | ✅ | bmt-gcloud only. |
 | **BMT CLI / config** | | | |
 | `bmt/` (Python CLI, config) | ✅ | ✅ | **Must stay in sync** for behavior. |
 
@@ -137,4 +133,4 @@ diff -r "$CORE_MAIN/.github/actions/bmt-prepare" .github/actions/bmt-prepare
 **Intentional differences to keep documented**
 
 - **Main CI file name:** Production = `build-and-test.yml`; bmt-gcloud may use same name for sandbox copy.
-- **Build-job actions:** core-main has checkout-and-restore, restore-snapshot, setup-build-env, bmt-job-setup for the real build pipeline. bmt-gcloud does not need these for the dummy workflow.
+- **Build steps:** core-main may have real build steps in the build job; bmt-gcloud uses a dummy build. Both use `bmt-job-setup` in the BMT workflow (checkout + restore snapshot + uv + load-env).

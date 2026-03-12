@@ -10,7 +10,7 @@
 #   export TARGET_REPO=klugman-yanai/bmt-gate-sandbox
 #   export BMT_VM_NAME=bmt-performance-gate
 #   export BMT_GREEN_VM_NAME=bmt-performance-gate-v2
-#   ./remote/code/bootstrap/cutover_bmt_vm.sh
+#   ./remote/code/vm/cutover_bmt_vm.sh
 
 set -euo pipefail
 

@@ -18,7 +18,7 @@
 #
 # Example:
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-performance-gate GCS_BUCKET=...
-#   ./remote/code/bootstrap/build_bmt_image.sh
+#   ./remote/code/vm/build_bmt_image.sh
 
 set -euo pipefail
 
@@ -163,13 +163,13 @@ echo "Syncing bucket code locally from gs://${GCS_BUCKET}/code ..."
 mkdir -p "${tmp_dir}/code"
 _retry 3 5 gcloud storage rsync "gs://${GCS_BUCKET}/code" "${tmp_dir}/code" --recursive
 
-if [[ ! -f "${tmp_dir}/code/bootstrap/install_deps.sh" ]]; then
-	echo "::error::Bucket code sync is missing bootstrap/install_deps.sh. Run just sync-gcp and ensure GCS_BUCKET has code/ synced." >&2
+if [[ ! -f "${tmp_dir}/code/vm/install_deps.sh" ]]; then
+	echo "::error::Bucket code sync is missing vm/install_deps.sh. Run just sync-gcp and ensure GCS_BUCKET has code/ synced." >&2
 	exit 1
 fi
 
-if [[ ! -f "${tmp_dir}/code/bootstrap/vm_deps.txt" ]]; then
-	echo "::error::Bucket code sync is missing bootstrap/vm_deps.txt. Sync gcp/code to the bucket and re-run." >&2
+if [[ ! -f "${tmp_dir}/code/vm/vm_deps.txt" ]]; then
+	echo "::error::Bucket code sync is missing vm/vm_deps.txt. Sync gcp/code to the bucket and re-run." >&2
 	exit 1
 fi
 
@@ -204,7 +204,7 @@ _run_builder_install() {
       sudo apt-get update -q && sudo apt-get install -y -q python3.12 python3.12-venv python3.12-dev && break
       [[ \$attempt -lt 3 ]] && sleep \$((attempt * 10)) || exit 1
     done
-    sudo bash /opt/bmt/bootstrap/install_deps.sh /opt/bmt
+    sudo bash /opt/bmt/vm/install_deps.sh /opt/bmt
     sudo python3 - <<'PY'
 import hashlib
 import json

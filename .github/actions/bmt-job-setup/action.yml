@@ -1,5 +1,5 @@
 name: BMT job setup
-description: Checkout and restore snapshot, setup uv, sync BMT, load env. Run actions/checkout (sparse .github) before this so local actions exist.
+description: Checkout repo (sparse .github), restore repo-snapshot artifact, setup uv, sync BMT, load env. Run actions/checkout (sparse .github) before this so local actions exist.
 
 inputs:
   ref:
@@ -13,15 +13,39 @@ inputs:
     description: "Token for cross-run artifact download"
     required: false
     default: ${{ github.token }}
+  sparse-checkout:
+    description: "Paths to checkout (e.g. .github). Empty = full."
+    required: false
+    default: ".github"
 
 runs:
   using: composite
   steps:
-    - uses: ./.github/actions/checkout-and-restore
+    - name: Checkout
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       with:
         ref: ${{ inputs.ref }}
+        fetch-depth: 1
+        sparse-checkout: ${{ inputs.sparse-checkout }}
+        sparse-checkout-cone-mode: ${{ inputs.sparse-checkout != '' && 'false' || 'true' }}
+
+    - name: Download repo-snapshot (from current run)
+      if: ${{ inputs.run-id == '' || inputs.run-id == null }}
+      uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8
+      with:
+        name: repo-snapshot
+
+    - name: Download repo-snapshot (from run ${{ inputs.run-id }})
+      if: ${{ inputs.run-id != '' && inputs.run-id != null }}
+      uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8
+      with:
+        name: repo-snapshot
         run-id: ${{ inputs.run-id }}
         github-token: ${{ inputs.github-token }}
+
+    - name: Extract repo snapshot
+      shell: bash
+      run: tar -xzf repo-snapshot.tar.gz -C .
 
     - name: Setup uv
       uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7

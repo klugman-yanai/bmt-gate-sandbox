@@ -79,7 +79,7 @@ class BucketSyncRuntimeSeed:
         self,
         *,
         bucket: str,
-        src_dir: str = DEFAULT_RUNTIME_ROOT,
+        src_dir: Path | str = DEFAULT_RUNTIME_ROOT,
         delete: bool = False,
         allow_generated_artifacts: bool = False,
         force: bool = False,

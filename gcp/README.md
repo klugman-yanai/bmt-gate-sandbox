@@ -12,11 +12,12 @@ Any extra top-level directory (for example `gcp/vmfs`, `gcp/bucket`, `gcp/bootst
 
 ## What belongs where
 
-- Put watcher/orchestrator/bootstrap/lib/config/manager code in `gcp/code`.
-- Keep bootstrap edits under `gcp/code/bootstrap` only.
+- Put watcher/orchestrator/vm/lib/config/manager code in `gcp/code`.
+- Keep VM script edits under `gcp/code/vm` only.
 - Keep pinned UV checksum in `gcp/code/_tools/uv/linux-x86_64/uv.sha256` (binary is uploaded to bucket by `just sync-gcp`).
 - Keep VM runtime dependency contract in `gcp/code/pyproject.toml` and optional `gcp/code/uv.lock`. VM bootstrap uses repo-root `pyproject.toml` for fingerprinting; see [../docs/configuration.md](../docs/configuration.md#pyproject-files).
 - Put runner binaries and input directory placeholders in `gcp/runtime`.
+- **Runner lib dependencies:** Shared native deps (e.g. `libonnxruntime.so`) live in **`gcp/bmt/dependencies/`**. Each project’s lib dir (`gcp/bmt/<project>/lib/`) should contain the project’s `libKardome.so` plus **symlinks** to those shared deps so the loader finds them without copying. Run **`just symlink-deps`** (or `uv run python tools/scripts/symlink_bmt_deps.py`) to create/refresh symlinks; safe to run repeatedly. Paths are defined in `tools/repo/paths.py` (`DEFAULT_BMT_ROOT`, `BMT_DEPS_SUBDIR`, `BMT_PROJECT_LIB_SUBDIR`); override with **`BMT_ROOT`** env or **`--bmt-root`** for a different layout.
 - Do not put `triggers/`, `results/`, or `outputs/` under `gcp/runtime` (generated at runtime, not source).
 - Do not put local WAV datasets under `gcp/runtime/**/inputs`; keep local corpora under `data/` and upload explicitly.
 - Do not put `__pycache__` or `*.pyc` under either mirror.

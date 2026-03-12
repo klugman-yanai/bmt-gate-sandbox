@@ -22,7 +22,7 @@ class BucketVerifyRuntimeSeedSync:
         self,
         *,
         bucket: str,
-        src_dir: str = DEFAULT_RUNTIME_ROOT,
+        src_dir: Path | str = DEFAULT_RUNTIME_ROOT,
         allow_generated_artifacts: bool = False,
     ) -> int:
         if not bucket:

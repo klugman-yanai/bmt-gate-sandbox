@@ -748,7 +748,7 @@ class BmtMonitor:
         bucket: str = "",
         vm_name: str = "",
         zone: str = "",
-        config_root: str = DEFAULT_CONFIG_ROOT,
+        config_root: Path | str = DEFAULT_CONFIG_ROOT,
         interval: int = 5,
     ) -> None:
         if not bucket or not vm_name or not zone:

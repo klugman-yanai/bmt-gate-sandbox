@@ -27,7 +27,7 @@ REQUIRED_CODE = [
     "sk/bmt_manager.py",
     "sk/config/bmt_jobs.json",
     "sk/config/input_template.json",
-    "bootstrap/startup_entrypoint.sh",
+    "vm/startup_entrypoint.sh",
 ]
 
 

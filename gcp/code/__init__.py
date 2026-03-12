@@ -1,1 +1,1 @@
-"""GCP code root (config, bootstrap, per-project managers)."""
+"""GCP code root (config, vm scripts, per-project managers)."""

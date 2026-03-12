@@ -3,9 +3,9 @@
 # Does not block; reminds to run BMT Image Build for this branch (or rely on push trigger).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-staged="$(git diff --cached --name-only | grep -E '^(infra/packer/|gcp/code/bootstrap/)' || true)"
+staged="$(git diff --cached --name-only | grep -E '^(infra/packer/|gcp/code/vm/)' || true)"
 if [[ -n "${staged//[[:space:]]/}" ]]; then
-	echo "::notice::You changed image-affecting paths (infra/packer or gcp/code/bootstrap)."
+	echo "::notice::You changed image-affecting paths (infra/packer or gcp/code/vm)."
 	echo "Ensure BMT Image Build runs before merging: push to trigger it, or run the workflow manually from the Actions tab."
 fi
 exit 0

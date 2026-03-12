@@ -24,7 +24,7 @@ Environment=GCS_BUCKET=
 Environment=BMT_WORKSPACE_ROOT=/home/YOUR_VM_USER/bmt_workspace
 
 # Run the startup script (fetches secrets, exec watcher)
-ExecStart=/opt/bmt/bootstrap/run_watcher.sh
+ExecStart=/opt/bmt/vm/run_watcher.sh
 Restart=on-failure
 RestartSec=30
 

@@ -14,7 +14,7 @@ repos:
         name: image-build path warning
         entry: tools/scripts/hooks/pre-commit-image-build-warning.sh
         language: script
-        files: ^(infra/packer/|gcp/code/bootstrap/)
+        files: ^(infra/packer/|gcp/code/vm/)
         pass_filenames: false
       - id: pytest-fast
         name: pytest fast gate

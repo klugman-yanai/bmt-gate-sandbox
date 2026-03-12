@@ -3,9 +3,9 @@
 # Requires: GCP_PROJECT, GCP_ZONE, BMT_VM_NAME, GCS_BUCKET.
 # Optional: BMT_REPO_ROOT (default /opt/bmt).
 #
-# Usage: set vars then run ./gcp/code/bootstrap/audit_vm_and_bucket.sh
+# Usage: set vars then run ./gcp/code/vm/audit_vm_and_bucket.sh
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=... GCS_BUCKET=...
-#   ./gcp/code/bootstrap/audit_vm_and_bucket.sh
+#   ./gcp/code/vm/audit_vm_and_bucket.sh
 
 set -euo pipefail
 

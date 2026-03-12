@@ -90,9 +90,9 @@ The workflow syncs **VM metadata** from repo config so the VM uses the same buck
 - **BMT_REPO_ROOT** (optional; default `/opt/bmt`)
 - **BMT_IDLE_TIMEOUT_SEC** (optional; default `600`) — Idle period in seconds after each run before VM exits; `0` = exit immediately after one run.
 - **startup-script** (set from packaged `cli.resources/startup_entrypoint.sh` by `sync-vm-metadata`)
-- **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `gcp/code/bootstrap/set_startup_script_url.sh`)
+- **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `gcp/code/vm/set_startup_script_url.sh`)
 
-`sync-vm-metadata` also validates that required bootstrap code objects exist in `<code-root>` before starting the VM.
+`sync-vm-metadata` also validates that required VM code objects exist in `<code-root>` before starting the VM.
 This includes pinned UV tool artifacts under `<code-root>/_tools/uv/linux-x86_64/`.
 
 Defined under `vm_metadata` in the Terraform-backed contract. Consistency check `repo_vs_vm_metadata` ensures `GCS_BUCKET` matches between repo vars and VM metadata.
@@ -140,7 +140,7 @@ Use:
 Local large WAV corpora remain under `data/` (not inside `gcp/runtime`).
 Local mirror policy details: [../gcp/README.md](../gcp/README.md).
 
-- **`<code-root>/...`** — deployable watcher/orchestrator/manager/bootstrap/config mirrored from `gcp/code`.
+- **`<code-root>/...`** — deployable watcher/orchestrator/manager/vm scripts/config mirrored from `gcp/code`.
 - **`<code-root>/pyproject.toml`** — VM runtime package (build-system + `lib` package). Bootstrap `install_deps.sh` runs `pip install -e ".[vm]"` from the code root so the `lib` package and VM deps are installed in the venv; no PYTHONPATH.
 - **`<code-root>/uv.lock`** — optional pinned lock for `gcp/code` when using `uv sync` from code root.
 - **`<code-root>/_tools/uv/linux-x86_64/uv`** — pinned uv binary uploaded by `just sync-gcp`.

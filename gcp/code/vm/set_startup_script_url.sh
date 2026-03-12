@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time setup: set VM metadata so startup-script-url points at the GCS-hosted
-# entrypoint under code/bootstrap/startup_entrypoint.sh. Run from your laptop (same env as CI
+# entrypoint under code/vm/startup_entrypoint.sh. Run from your laptop (same env as CI
 # vars: GCS_BUCKET, GCP_PROJECT, GCP_ZONE, BMT_VM_NAME).
 #
 # Prerequisites:
@@ -16,7 +16,7 @@
 #
 # Example (match your GitHub Actions variables):
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-vm GCS_BUCKET=my-bmt-bucket
-#   ./gcp/code/bootstrap/set_startup_script_url.sh
+#   ./gcp/code/vm/set_startup_script_url.sh
 
 set -euo pipefail
 
@@ -37,7 +37,7 @@ if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$BMT_VM_NAME" || -z "$GCS_BUCKE
   exit 1
 fi
 
-ENTRYPOINT_URL="gs://${GCS_BUCKET}/code/bootstrap/startup_entrypoint.sh"
+ENTRYPOINT_URL="gs://${GCS_BUCKET}/code/vm/startup_entrypoint.sh"
 _log "Checking entrypoint at ${ENTRYPOINT_URL}..."
 if ! gcloud storage ls "${ENTRYPOINT_URL}" >/dev/null 2>&1; then
   _log_err "::error::Could not find startup entrypoint at: ${ENTRYPOINT_URL}"
@@ -52,4 +52,4 @@ gcloud compute instances add-metadata "$BMT_VM_NAME" \
   --metadata "GCS_BUCKET=${GCS_BUCKET},BMT_REPO_ROOT=${BMT_REPO_ROOT},startup-script=,startup-script-url=${ENTRYPOINT_URL}"
 
 _log "Done. On next boot the VM will run startup from ${ENTRYPOINT_URL}."
-_log "Rollback: ./gcp/code/bootstrap/rollback_startup_to_inline.sh"
+_log "Rollback: ./gcp/code/vm/rollback_startup_to_inline.sh"

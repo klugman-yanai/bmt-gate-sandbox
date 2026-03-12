@@ -13,7 +13,7 @@
 # Example:
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-performance-gate
 #   export BMT_IMAGE_FAMILY=bmt-runtime
-#   ./remote/code/bootstrap/create_bmt_green_vm.sh
+#   ./remote/code/vm/create_bmt_green_vm.sh
 
 set -euo pipefail
 

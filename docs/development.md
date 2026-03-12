@@ -141,12 +141,12 @@ All of the following are run by **`just test`** (pytest, ruff check, ruff format
 ruff check .
 ruff format --check .
 basedpyright
-shellcheck --severity=warning gcp/code/bootstrap/*.sh .github/bmt/cli/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
+shellcheck --severity=warning gcp/code/vm/*.sh .github/bmt/cli/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
 ```
 
 - **ruff:** Line length 120, Python 3.12 target.
 - **basedpyright:** Type checking across `.github/scripts`, `gcp/`, `tools/`.
-- **shellcheck:** Bootstrap and startup scripts under `gcp/code/bootstrap/`, `.github/bmt/cli/resources/startup_entrypoint.sh`, and `tools/scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
+- **shellcheck:** VM and startup scripts under `gcp/code/vm/`, `.github/bmt/cli/resources/startup_entrypoint.sh`, and `tools/scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
 
 ---
 
@@ -207,16 +207,16 @@ Dataset policy:
    GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_validate_contract
    ```
 
-CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `gcp/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../gcp/code/bootstrap/README.md](../gcp/code/bootstrap/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
+CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `gcp/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../gcp/code/vm/README.md](../gcp/code/vm/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
 
 ### VM image: rebuild when needed
 
 The **BMT Image Build** workflow (`.github/workflows/bmt-image-build.yml`) builds the VM image with Packer. To keep the image up to date:
 
-- **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/code/bootstrap/**` trigger the image build. The new image is published to the same family; Terraform and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
+- **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/code/vm/**` trigger the image build. The new image is published to the same family; Terraform and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
 - **Manual:** Run the workflow from the Actions tab (**BMT Image Build** → Run workflow) to rebuild with default inputs.
 - **Image-up-to-date check:** The BMT workflow runs a **Check image up to date** job first. If image-affecting paths changed on your branch/commit but no successful BMT Image Build run exists for that ref, the job fails with a clear message; run BMT Image Build for the branch and re-run BMT.
-- **Pre-commit:** When you commit under `infra/packer/` or `gcp/code/bootstrap/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/code/bootstrap/README.md](../gcp/code/bootstrap/README.md).
+- **Pre-commit:** When you commit under `infra/packer/` or `gcp/code/vm/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/code/vm/README.md](../gcp/code/vm/README.md).
 - **Using the new image:** New VMs get the latest image automatically. For an existing VM, run the **BMT VM Provision** workflow (with the same image family) and recreate the instance if you need the new disk image (e.g. after cloud-init or bootstrap changes).
 
 ### Cleaning GCS and VM of Python/uv bloat

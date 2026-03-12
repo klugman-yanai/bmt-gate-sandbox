@@ -8,7 +8,7 @@
 # Example:
 #   export TARGET_REPO=Kardome-org/core-main
 #   export BMT_ROLLBACK_VM_NAME=bmt-performance-gate
-#   ./remote/code/bootstrap/rollback_bmt_vm.sh
+#   ./remote/code/vm/rollback_bmt_vm.sh
 
 set -euo pipefail
 

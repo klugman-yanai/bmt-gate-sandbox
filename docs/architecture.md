@@ -103,9 +103,9 @@ What must match production when this repo is used as the source for CI and the b
 | Artifact | Description |
 | ---------- | ------------- |
 | **Workflow files** | `.github/workflows/bmt.yml`, `.github/workflows/build-and-test.yml` (when present), `.github/workflows/dummy-build-and-test.yml` (bmt-gcloud test workflow). |
-| **Composite actions** | All `.github/actions/` that run the CLI or setup: bmt-prepare, bmt-classify-handoff, bmt-handoff-run, bmt-write-summary, bmt-failure-fallback, bmt-job-setup; checkout-and-restore, restore-snapshot, setup-build-env, setup-gcp-uv. |
+| **Composite actions** | All `.github/actions/` that run the CLI or setup: bmt-prepare, bmt-classify-handoff, bmt-handoff-run, bmt-write-summary, bmt-failure-fallback, bmt-job-setup, setup-gcp-uv. |
 | **.github/bmt** | BMT CLI used by workflows (`UV_PROJECT=.github/bmt uv run bmt <cmd>`). |
-| **gcp/code/** | Layout synced to `gs://<bucket>/code`: bootstrap, root_orchestrator.py, vm_watcher.py, lib/, sk/, config. |
+| **gcp/code/** | Layout synced to `gs://<bucket>/code`: vm scripts, root_orchestrator.py, vm_watcher.py, lib/, sk/, config. |
 | **GCS layout** | `code/` and `runtime/` roots; triggers, acks, status, snapshots, current.json under runtime. |
 | **VM bootstrap** | Startup script, uv artifact, install_deps contract; branch-protection status context (e.g. `BMT_STATUS_CONTEXT`). |
 
@@ -173,12 +173,12 @@ Required fields:
 
 - VM metadata contains `GCS_BUCKET`, `BMT_REPO_ROOT`
 - Workflow sync step writes inline `startup-script` from packaged resource `cli.resources/startup_entrypoint.sh`
-- Entrypoint runs baked `bootstrap/run_watcher.sh` from local `BMT_REPO_ROOT`
+- Entrypoint runs baked `vm/run_watcher.sh` from local `BMT_REPO_ROOT`
 - Startup resolves `uv` in this order: `BMT_UV_BIN` override, `uv` on PATH, pinned artifact `<code-root>/_tools/uv/linux-x86_64/uv` verified by `<code-root>/_tools/uv/linux-x86_64/uv.sha256`
-- Dependency install on VM: `bootstrap/install_deps.sh` uses **repo-root** `pyproject.toml` for a fingerprint and `pip` for install (no uv at boot). The code-root `pyproject.toml` + `uv.lock` are the declarative VM contract; see [configuration.md](configuration.md#pyproject-files).
+- Dependency install on VM: `vm/install_deps.sh` uses **repo-root** `pyproject.toml` for a fingerprint and `pip` for install (no uv at boot). The code-root `pyproject.toml` + `uv.lock` are the declarative VM contract; see [configuration.md](configuration.md#pyproject-files).
 - `startup-script-url` mode remains optional for manual setup/cutover
 
-Rollback path: `gcp/code/bootstrap/rollback_startup_to_inline.sh`
+Rollback path: `gcp/code/vm/rollback_startup_to_inline.sh`
 
 ## Workspace contract
 
@@ -220,7 +220,7 @@ How the system runs today, with the current split storage contract and manual co
 - `<code-root> = gs://<bucket>/code`
 - `<runtime-root> = gs://<bucket>/runtime`
 
-Ownership: `gcp/code` is source of truth for deployable code/config/bootstrap only, manually synced to `<code-root>` (`just sync-gcp && just verify-sync`). `gcp/runtime` is source of truth for runtime seed and is manually synced to `<runtime-root>` (`just sync-runtime-seed`). Runtime artifacts must live under `<runtime-root>` only.
+Ownership: `gcp/code` is source of truth for deployable code/config/vm scripts only, manually synced to `<code-root>` (`just sync-gcp && just verify-sync`). `gcp/runtime` is source of truth for runtime seed and is manually synced to `<runtime-root>` (`just sync-runtime-seed`). Runtime artifacts must live under `<runtime-root>` only.
 
 **Data flow**
 

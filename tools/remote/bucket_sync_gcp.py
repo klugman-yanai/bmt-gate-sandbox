@@ -84,7 +84,7 @@ class BucketSyncGcp:
         self,
         *,
         bucket: str,
-        src_dir: str = DEFAULT_CONFIG_ROOT,
+        src_dir: Path | str = DEFAULT_CONFIG_ROOT,
         delete: bool = False,
         include_runtime_artifacts: bool = False,
         force: bool = False,

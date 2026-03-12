@@ -29,7 +29,7 @@ class BucketUploadRunner:
         self,
         *,
         bucket: str,
-        runner_path: str = "repo/staging/runners/sk_gcc_release/kardome_runner",
+        runner_path: Path | str = "repo/staging/runners/sk_gcc_release/kardome_runner",
         runner_uri: str = "sk/runners/sk_gcc_release/kardome_runner",
         source: str = "sandbox_manual",
         source_ref: str = "",

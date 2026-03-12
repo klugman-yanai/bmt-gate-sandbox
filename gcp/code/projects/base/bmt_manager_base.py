@@ -21,6 +21,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+import orjson
+
 from google.api_core import exceptions as gcs_exceptions
 from google.cloud import storage as gcs_storage
 
@@ -91,12 +93,22 @@ _UPLOAD_EXCLUDE = (
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"Missing JSON file: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return orjson.loads(path.read_bytes())  # type: ignore[no-any-return]
+
+
+def _write_runner_config(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON config for a single runner invocation (e.g. kardome_runner).
+
+    Uses orjson for speed. All BMTs/runners should use this for the same dump
+    pattern per run.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(orjson.dumps(payload, option=orjson.OPT_INDENT_2) + b"\n")
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.write_bytes(orjson.dumps(payload, option=orjson.OPT_INDENT_2) + b"\n")
 
 
 def _default_cache_root() -> Path:
@@ -240,11 +252,15 @@ def _mark_cache(cache_stats: dict[str, Any], key: str, *, hit: bool) -> None:
 # Gate helpers
 # ---------------------------------------------------------------------------
 
-def _effective_gate_comparison(bmt_id: str, comparison: str) -> str:
-    """Normalize comparison and enforce false-reject semantics."""
+def _normalize_comparison(comparison: str) -> str:
+    """Normalize and validate comparison for baseline gte/lte.
+
+    Used by projects that implement baseline comparison in their _evaluate_gate
+    (e.g. SK). Not used by the base; gate logic lives in project managers.
+    """
     normalized = comparison.strip().lower()
-    if bmt_id.startswith("false_reject") and normalized == "lte":
-        return "gte"
+    if normalized not in ("gte", "lte"):
+        raise ValueError(f"gate.comparison must be 'gte' or 'lte', got: {comparison!r}")
     return normalized
 
 
@@ -519,6 +535,28 @@ class BmtManagerBase(ABC):
         return {}
 
     # ------------------------------------------------------------------
+    # Gate evaluation (project-specific; no default in base)
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def _evaluate_gate(
+        self,
+        aggregate_score: float,
+        last_score: float | None,
+        failed_count: int,
+        file_results: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Compute pass/fail for this run.
+
+        Each project implements this. Return a dict with at least: passed (bool),
+        reason (str), and optionally current_score, last_score, comparison.
+        The base does not interpret bmt_cfg[\"gate\"]; projects that use
+        baseline gte/lte can read comparison and tolerance_abs from config and
+        call _gate_result from this package.
+        """
+        ...
+
+    # ------------------------------------------------------------------
     # Main orchestration loop
     # ------------------------------------------------------------------
 
@@ -599,8 +637,7 @@ class BmtManagerBase(ABC):
         aggregate_score = self.compute_score(file_results)
         raw_score = aggregate_score  # subclass may differentiate; kept for summary symmetry
 
-        # Gate evaluation
-        gate_cfg = self.bmt_cfg.get("gate", {}) if isinstance(self.bmt_cfg.get("gate"), dict) else {}
+        # Gate evaluation (subclass may override _evaluate_gate for custom logic)
         warning_policy = (
             self.bmt_cfg.get("warning_policy", {})
             if isinstance(self.bmt_cfg.get("warning_policy"), dict)
@@ -608,8 +645,6 @@ class BmtManagerBase(ABC):
         )
         demo_cfg = self.bmt_cfg.get("demo", {}) if isinstance(self.bmt_cfg.get("demo"), dict) else {}
         demo_force_pass = bool(demo_cfg.get("force_pass", False))
-        comparison = _effective_gate_comparison(self.bmt_id, str(gate_cfg.get("comparison", "gte")))
-        tolerance_abs = float(gate_cfg.get("tolerance_abs", 0.0) or 0.0)
 
         paths_cfg = self.bmt_cfg.get("paths", {})
         results_prefix = str(paths_cfg.get("results_prefix", "")).rstrip("/")
@@ -627,7 +662,7 @@ class BmtManagerBase(ABC):
                 "latest.json",
             )
         delta_from_previous = (aggregate_score - last_score) if last_score is not None else None
-        gate = _gate_result(comparison, aggregate_score, last_score, failed_count, self.run_context, tolerance_abs)
+        gate = self._evaluate_gate(aggregate_score, last_score, failed_count, file_results)
         status, reason_code = _resolve_status(gate, warning_policy)
 
         if reason_code == "runner_failures" and failed_count > 0 and _all_failures_are_timeouts(file_results):

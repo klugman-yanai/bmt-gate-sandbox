@@ -6,7 +6,7 @@ import importlib
 batch = importlib.import_module("tools.bmt.bmt_run_local")
 compute_gate = batch.compute_gate
 resolve_status = batch.resolve_status
-effective_gate_comparison = batch.effective_gate_comparison
+normalize_gate_comparison = batch.normalize_gate_comparison
 
 
 # ── compute_gate ──────────────────────────────────────────────────────────────
@@ -60,12 +60,18 @@ def test_lte_fails_when_higher():
     assert gate["reason"] == "score_above_last"
 
 
-def test_false_reject_forces_gte_comparison():
-    assert effective_gate_comparison("false_reject_namuh", "lte") == "gte"
+def test_normalize_gate_comparison_from_config() -> None:
+    """Config comparison is used as-is (gte/lte); only normalized and validated."""
+    assert normalize_gate_comparison("gte") == "gte"
+    assert normalize_gate_comparison("lte") == "lte"
+    assert normalize_gate_comparison(" GtE ") == "gte"
 
 
-def test_non_false_reject_keeps_lte_comparison():
-    assert effective_gate_comparison("false_accept_namuh", "lte") == "lte"
+def test_normalize_gate_comparison_invalid_raises() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="must be 'gte' or 'lte'"):
+        normalize_gate_comparison("gt")
 
 
 # ── resolve_status ────────────────────────────────────────────────────────────

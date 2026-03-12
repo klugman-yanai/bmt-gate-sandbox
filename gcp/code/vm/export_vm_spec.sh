@@ -2,11 +2,11 @@
 # Export current VM configuration to a timestamped JSON snapshot for rollback/auditing.
 # Required env vars: GCP_PROJECT, GCP_ZONE, BMT_VM_NAME
 # Optional:
-#   BMT_EXPORT_DIR (default: ./gcp/code/bootstrap/out)
+#   BMT_EXPORT_DIR (default: ./gcp/code/vm/out)
 #
 # Example:
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-performance-gate
-#   ./gcp/code/bootstrap/export_vm_spec.sh
+#   ./gcp/code/vm/export_vm_spec.sh
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ _log_err() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] [export_vm_spec] $*" >&2; }
 GCP_PROJECT="${GCP_PROJECT:-}"
 GCP_ZONE="${GCP_ZONE:-}"
 BMT_VM_NAME="${BMT_VM_NAME:-}"
-BMT_EXPORT_DIR="${BMT_EXPORT_DIR:-./gcp/code/bootstrap/out}"
+BMT_EXPORT_DIR="${BMT_EXPORT_DIR:-./gcp/code/vm/out}"
 
 if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE" || -z "$BMT_VM_NAME" ]]; then
   _log_err "::error::Set GCP_PROJECT, GCP_ZONE, and BMT_VM_NAME."

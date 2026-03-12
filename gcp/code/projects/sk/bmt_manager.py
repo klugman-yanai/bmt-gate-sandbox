@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import json
 import os
 import re
 import subprocess
@@ -23,7 +22,7 @@ from whenever import Instant
 from gcp.code.config.constants import EXECUTABLE_MODE
 from gcp.code.projects.base.bmt_manager_base import (
     BmtManagerBase,
-    _effective_gate_comparison,
+    _gate_result,
     _gcloud_cp,
     _gcloud_ls_json,
     _gcloud_rsync,
@@ -32,8 +31,10 @@ from gcp.code.projects.base.bmt_manager_base import (
     _load_json,
     _manifest_digest,
     _mark_cache,
+    _normalize_comparison,
     _resolve_last_passing_run_id,
     _write_json,
+    _write_runner_config,
     parse_args as _base_parse_args,
 )
 from gcp.code.utils import _bucket_uri, _now_iso
@@ -357,13 +358,11 @@ class SKBmtManager(BmtManagerBase):
             _set_dotted(cfg, dotted_key, value)
 
         runner_path = self.runner_path
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", dir=self.runtime_dir, delete=False) as temp_file:
-            json.dump(cfg, temp_file, indent=2)
-            temp_path = Path(temp_file.name)
-
-        exit_code = 1
-        error: str = ""
+        temp_path = Path(tempfile.mktemp(suffix=".json", dir=self.runtime_dir))
         try:
+            _write_runner_config(temp_path, cfg)
+            exit_code = 1
+            error: str = ""
             runner_cmd = [str(runner_path), str(temp_path)]
             custom_loader = runner_path.parent / "ld-linux-x86-64.so.2"
             if custom_loader.is_file():
@@ -409,6 +408,21 @@ class SKBmtManager(BmtManagerBase):
             "build_id": self.runner_build_id,
             "source_ref": "",
         }
+
+    def _evaluate_gate(
+        self,
+        aggregate_score: float,
+        last_score: float | None,
+        failed_count: int,
+        file_results: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """SK pass/fail: baseline comparison from bmt_cfg gate (gte for false_reject, lte for false_alarm)."""
+        gate_cfg = self.bmt_cfg.get("gate", {}) or {}
+        comparison = _normalize_comparison(str(gate_cfg.get("comparison", "gte")))
+        tolerance_abs = float(gate_cfg.get("tolerance_abs", 0.0) or 0.0)
+        return _gate_result(
+            comparison, aggregate_score, last_score, failed_count, self.run_context, tolerance_abs
+        )
 
     def _artifact_uris(self) -> dict[str, str]:
         return {

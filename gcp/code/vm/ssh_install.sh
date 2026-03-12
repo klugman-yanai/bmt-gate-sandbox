@@ -10,7 +10,7 @@
 #
 # Example:
 #   export GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_VM_NAME=bmt-vm
-#   ./gcp/code/bootstrap/ssh_install.sh
+#   ./gcp/code/vm/ssh_install.sh
 
 set -euo pipefail
 
@@ -35,5 +35,5 @@ gcloud compute ssh "$BMT_VM_NAME" \
 	-- \
 	"set -euo pipefail; \
    cd '${BMT_REPO_ROOT}'; \
-   ./bootstrap/install_deps.sh '${BMT_REPO_ROOT}'"
+   ./vm/install_deps.sh '${BMT_REPO_ROOT}'"
 _log "Done."

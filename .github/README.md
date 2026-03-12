@@ -2,22 +2,21 @@
 
 This repository keeps GitHub Actions logic in the native locations that GitHub executes:
 
-- `workflows/`: workflow entrypoints (`dummy-build-and-test.yml`, `bmt.yml`)
-- `actions/`: local composite actions used by workflows
-- `scripts/`: shell/Python helpers used by workflow steps
+- **workflows/** — `build-and-test.yml` (CI + BMT call), `bmt.yml` (BMT handoff), `bmt-image-build.yml`, `bmt-vm-provision.yml`
+- **actions/** — Local composite actions: `bmt-job-setup`, `bmt-prepare`, `bmt-classify-handoff`, `bmt-handoff-run`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
+- **bmt/** — BMT CLI (`uv run bmt …`) and config used by workflows
+- **docs/** — Notes and references: `action-versions.md`, `dry-and-organization.md`
 
 ## Why there is no `.github/jobs/`
 
-GitHub Actions does not execute files from `.github/jobs/`. Using that directory as an execution layer would require a custom generation/preprocessing system and add maintenance overhead.
-
-If reusable job-level logic is needed, use native `workflow_call` reusable workflows under `.github/workflows/`.
+GitHub Actions does not execute files from `.github/jobs/`. Use native `workflow_call` reusable workflows under `workflows/` for reusable job-level logic.
 
 ## Why `actions/setup-gcp-uv` exists
 
-`actions/setup-gcp-uv/action.yml` is a local composite action that centralizes repeated setup:
+`actions/setup-gcp-uv/action.yml` centralizes:
 
-1. `google-github-actions/auth@v3` (Workload Identity Federation)
-2. `google-github-actions/setup-gcloud@v3`
-3. Optional `astral-sh/setup-uv@v7`
+1. `google-github-actions/auth` (Workload Identity Federation)
+2. `google-github-actions/setup-gcloud`
+3. Optional `astral-sh/setup-uv`
 
-This keeps auth/toolchain versions in one place and removes duplicated setup blocks from workflows. Per-job `permissions` are still defined in each workflow job.
+That keeps auth and toolchain versions in one place. Per-job `permissions` are still set in each workflow job.

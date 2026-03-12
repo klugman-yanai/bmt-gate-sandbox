@@ -25,6 +25,8 @@ on:
         required: false
         default: "[]"
   workflow_call:
+    # Callers MUST pass permissions so nested jobs can use OIDC (id-token) and statuses:
+    #   permissions: { contents: read, actions: read, id-token: write, statuses: write }
     inputs:
       ci_run_id:
         description: "Caller run ID (artifact download)"
@@ -65,6 +67,10 @@ concurrency:
   group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
   cancel-in-progress: true
 
+# Canonical input resolution (workflow_dispatch + workflow_call). Use these expressions when passing ref/run-id to steps:
+#   head_sha:    inputs.head_sha || github.event.inputs.head_sha || github.sha
+#   head_branch: inputs.head_branch || github.event.inputs.head_branch || github.ref_name
+#   ci_run_id:   inputs.ci_run_id || github.event.inputs.ci_run_id
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
@@ -82,7 +88,7 @@ permissions:
   actions: read
 
 jobs:
-  # Ensure VM image was built when image-affecting paths (infra/packer, gcp/code/bootstrap) changed.
+  # Ensure VM image was built when image-affecting paths (infra/packer, gcp/code/vm) changed.
   check-image-up-to-date:
     name: Check image up to date
     runs-on: ubuntu-22.04
@@ -104,7 +110,7 @@ jobs:
         run: |
           set -euo pipefail
           # Paths that affect the baked VM image; must match bmt-image-build.yml paths.
-          AFFECTED_PATHS=("infra/packer" "gcp/code/bootstrap")
+          AFFECTED_PATHS=("infra/packer" "gcp/code/vm")
           git fetch origin "${DEFAULT_BRANCH}" --depth=1 2>/dev/null || true
           changed="$(git diff --name-only "origin/${DEFAULT_BRANCH}...${HEAD_SHA}" -- "${AFFECTED_PATHS[@]}" 2>/dev/null || true)"
           if [[ -z "${changed//[[:space:]]/}" ]]; then
@@ -124,7 +130,7 @@ jobs:
             echo "passed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "::error::Image-affecting paths changed (infra/packer or gcp/code/bootstrap), but no successful BMT Image Build run found for this ref (branch=${HEAD_BRANCH}, sha=${HEAD_SHA}). Run the BMT Image Build workflow for this branch/commit and re-run BMT."
+          echo "::error::Image-affecting paths changed (infra/packer or gcp/code/vm), but no successful BMT Image Build run found for this ref (branch=${HEAD_BRANCH}, sha=${HEAD_SHA}). Run the BMT Image Build workflow for this branch/commit and re-run BMT."
           echo "passed=false" >> "$GITHUB_OUTPUT"
           exit 1
 

@@ -268,7 +268,7 @@ gh variable set BMT_VM_NAME "<vm-name>"
 
 **Optional** (leave unset for defaults): **Sandbox/testing:** `BMT_RUNNERS_PRESEEDED_IN_GCS` — when set to `true`, the workflow does not download runner artifacts; it verifies runners already exist in GCS and skips the upload-runners job (avoids "artifact not found" in bmt-gate-sandbox).
 
-For **local** use (e.g. `gcp/code/bootstrap/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
+For **local** use (e.g. `gcp/code/vm/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
 
 ### CI workflow (trigger BMT from CI)
 

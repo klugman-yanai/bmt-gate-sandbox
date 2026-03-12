@@ -20,14 +20,14 @@ on:
         required: false
         default: "e2-standard-4"
   push:
-    # Rebuild VM image when Packer or bootstrap changes so the image stays up to date.
+    # Rebuild VM image when Packer or vm scripts change so the image stays up to date.
     branches:
       - main
       - ci/check-bmt-gate
       - dev
     paths:
       - 'infra/packer/**'
-      - 'gcp/code/bootstrap/**'
+      - 'gcp/code/vm/**'
 
 permissions:
   contents: read
@@ -41,14 +41,13 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SA_EMAIL }}
-
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db  # v3.0.1
+          python_version: "3.12"
+          install_uv: "true"
 
       - name: Set up Packer
         uses: hashicorp/setup-packer@54678572a9eae3130016b4548482317e9f83f9f3  # main
@@ -94,6 +93,13 @@ jobs:
           PACKER_GITHUB_API_TOKEN: ${{ github.token }}
         run: packer init infra/packer/bmt-runtime.pkr.hcl
 
+      - name: Packer validate
+        env:
+          PKR_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
+          PKR_VAR_gcp_zone: ${{ vars.GCP_ZONE }}
+          PKR_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
+        run: packer validate infra/packer/bmt-runtime.pkr.hcl
+
       - name: Packer build
         id: packer
         env:
@@ -115,9 +121,6 @@ jobs:
             exit 1
           fi
           echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7
 
       - name: Generate SLSA provenance
         env:
