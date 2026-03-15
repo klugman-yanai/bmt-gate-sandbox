@@ -322,7 +322,8 @@ class VmManager:
 
         project = self._cfg.gcp_project
         zone = self._cfg.gcp_zone
-        instance_name = self._cfg.bmt_vm_name
+        # Prefer explicit step env so CI uses the selected VM (e.g. bmt-gate-blue), not base/config.
+        instance_name = (os.environ.get("BMT_VM_NAME") or "").strip() or self._cfg.bmt_vm_name
         before_status = ""
         before_last_start: str | None = None
         try:
@@ -470,7 +471,8 @@ class VmManager:
         self._cfg.require_gcp()
         project = self._cfg.gcp_project
         zone = self._cfg.gcp_zone
-        instance_name = self._cfg.bmt_vm_name
+        # Prefer explicit step env so CI always uses the selected VM (e.g. bmt-gate-blue), not base/config.
+        instance_name = (os.environ.get("BMT_VM_NAME") or "").strip() or self._cfg.bmt_vm_name
         bucket = self._cfg.gcs_bucket
         repo_root = self._cfg.effective_repo_root
 

@@ -208,7 +208,10 @@ class HandoffManager:
         run_url = f"{server}/{repo_slug}/actions/runs/{run_id}" if run_id else ""
         repo_url = f"{server}/{repository}"
         pr_url = f"{repo_url}/pull/{pr_number}" if pr_number else ""
-        legs_planned = len(json.loads(filtered_matrix_raw).get("include", []))
+        _matrix = json.loads(filtered_matrix_raw)
+        if isinstance(_matrix, str):
+            _matrix = json.loads(_matrix)
+        legs_planned = len((_matrix if isinstance(_matrix, dict) else {}).get("include", []))
         if not handoff_state_line:
             handoff_state_line = {
                 "run_success": "Handoff complete: VM confirmed trigger.",

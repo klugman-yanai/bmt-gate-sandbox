@@ -215,6 +215,7 @@ jobs:
       - name: Sync VM metadata from workflow config
         env:
           BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
+          BMT_VM_NAME: ${{ steps.select-vm.outputs.selected_vm }}
         shell: bash
         run: uv run bmt sync-vm-metadata
 
@@ -222,12 +223,17 @@ jobs:
         if: steps.preflight.outputs.restart_vm == 'true'
         shell: bash
         env:
+          BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
+          BMT_VM_NAME: ${{ steps.select-vm.outputs.selected_vm }}
           STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
         run: uv run bmt write-context && uv run bmt force-clean-vm-restart
 
       - name: Start BMT VM
         id: start-vm
         if: steps.select-vm.outputs.vm_reused_running != 'true'
+        env:
+          BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
+          BMT_VM_NAME: ${{ steps.select-vm.outputs.selected_vm }}
         shell: bash
         run: uv run bmt start-vm
 
