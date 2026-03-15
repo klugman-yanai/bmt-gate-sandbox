@@ -21,7 +21,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write  # Called build-and-test.yml jobs need actions: write
 
 jobs:
   ci:
