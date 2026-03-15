@@ -102,7 +102,7 @@ jobs:
   # Pipeline: check-image-up-to-date → setup → (upload-runners ∥ handshake) → handoff (fallback on setup/handshake failure).
   # Ensure VM image was built when image-affecting paths (infra/packer, gcp/image) changed.
   check-image-up-to-date:
-    name: Check image up to date
+    name: Check image is up to date
     runs-on: ubuntu-22.04
     outputs:
       image_check_passed: ${{ steps.check.outputs.passed }}
@@ -124,7 +124,7 @@ jobs:
   # Success: setup (includes VM start) → upload-runners → handshake (classify + trigger + wait ack + summary).
   # Failure: setup or handshake fails → handoff runs fallback (post status, cleanup) then sets outputs.
   setup:
-    name: Setup
+    name: Prepare BMT run
     needs: check-image-up-to-date
     runs-on: ubuntu-22.04
     permissions:
@@ -245,7 +245,7 @@ jobs:
         run: uv run bmt validate-runner-in-repo
 
   handshake:
-    name: Handshake
+    name: Handshake with VM
     needs: [setup, upload-runners]
     runs-on: ubuntu-22.04
     permissions:
@@ -291,7 +291,7 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
 
   handoff:
-    name: Handoff
+    name: Report BMT result
     needs: [setup, handshake]
     if: always()
     runs-on: ubuntu-22.04

@@ -54,7 +54,7 @@ permissions:
 jobs:
   build-image:
     name: Packer build + SLSA provenance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       PKR_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
       PKR_VAR_gcp_zone: ${{ vars.GCP_ZONE || 'europe-west4-a' }}

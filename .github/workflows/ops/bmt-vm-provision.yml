@@ -34,7 +34,7 @@ concurrency:
 jobs:
   pulumi:
     name: Pulumi ${{ github.event.inputs.action }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       GCP_PROJECT: ${{ vars.GCP_PROJECT }}
       GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west4-a' }}

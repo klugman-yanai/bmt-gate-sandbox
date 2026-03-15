@@ -1,7 +1,8 @@
 name: CI
 
-# Structure aligned with Kardome-org/core-main test/check-bmt-gate-workflow-optimizations:
-# checkout-once → extract-presets → dev-build (no real builds) → decide-bmt → bmt.
+# Structure aligned with test/check-bmt-gate-workflow-optimizations and ci/check-bmt-gate:
+# Only release runners are sent to BMT; non-release builds run in parallel (do not block BMT).
+# checkout-once → extract-presets → build-release (gates BMT) + build-nonrelease (parallel) → decide-bmt → bmt.
 on:
   push:
     branches:
@@ -34,8 +35,8 @@ concurrency:
 
 jobs:
   checkout-once:
-    name: Checkout once
-    runs-on: ubuntu-latest
+    name: Checkout repository
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       actions: write
@@ -77,8 +78,8 @@ jobs:
           retention-days: 5
 
   extract-presets:
-    name: Extract presets
-    runs-on: ubuntu-latest
+    name: Parse CMake presets
+    runs-on: ubuntu-22.04
     outputs:
       presets_release: ${{ steps.parse.outputs.presets_release }}
       presets_nonrelease: ${{ steps.parse.outputs.presets_nonrelease }}
@@ -134,35 +135,58 @@ jobs:
             echo "presets_nonrelease=$presets_nonrelease"
           } >>"$GITHUB_OUTPUT"
 
-  # bmt-gcloud dev/test only: no real builds; replaces build-release/build-nonrelease from core-main.
-  dev-build:
-    name: Dev/test build (bmt-gcloud only)
+  # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
+  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+  build-release:
+    name: Build release
     needs: [checkout-once, extract-presets]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.extract-presets.outputs.presets_release) }}
     steps:
-      - name: Dev/test topology
+      - name: Release build placeholder (bmt-gcloud)
         run: |
-          echo "bmt-gcloud dev/test repo: presets extracted, no real builds (not part of production release package)."
+          echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT runs after this job."
+
+  # Non-release builds: run in parallel; do not block BMT.
+  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+  build-nonrelease:
+    name: Build non-release
+    needs: [checkout-once, extract-presets]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.extract-presets.outputs.presets_nonrelease) }}
+    steps:
+      - name: Non-release build placeholder (bmt-gcloud)
+        run: |
+          echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
   decide-bmt:
-    needs: [dev-build]
-    runs-on: ubuntu-latest
+    name: Decide whether to run BMT
+    needs: [build-release]
+    runs-on: ubuntu-22.04
     outputs:
       run_bmt: ${{ steps.out.outputs.run_bmt }}
     steps:
       - id: out
         run: |
-          r="${{ needs.dev-build.result }}"
+          r="${{ needs.build-release.result }}"
           same_repo="${{ github.event.pull_request.head.repo.full_name == github.repository }}"
           base_ref="${{ github.base_ref || github.ref_name }}"
-          if [[ "$r" != "success" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ "$r" != "success" && "$r" != "skipped" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [[ "$same_repo" != "true" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [[ "$base_ref" != "dev" && "$base_ref" != "ci/check-bmt-gate" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           echo "run_bmt=true" >> "$GITHUB_OUTPUT"
 
   bmt:
+    name: Run BMT gate
     needs: [decide-bmt]
-    # Run only when decide-bmt set run_bmt=true (dev-build ok, same repo, base dev or ci/check-bmt-gate).
+    # Run only when decide-bmt set run_bmt=true (build-release ok, same repo, base dev or ci/check-bmt-gate). Only release runners are sent to BMT.
     if: needs.decide-bmt.outputs.run_bmt == 'true'
     permissions:
       contents: read

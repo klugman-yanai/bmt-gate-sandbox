@@ -17,7 +17,7 @@ defaults:
 jobs:
   # ─────────────────────── 1) extract preset list ───────────────────────
   extract-presets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       presets: ${{ steps.parse.outputs.presets }}
     steps:
@@ -42,7 +42,7 @@ jobs:
   # ─────────────────────── 2) build every preset ────────────────────────
   build:
     needs: extract-presets
-    runs-on: ubuntu-latest # ← always GH-hosted; no self-hosted waiting
+    runs-on: ubuntu-22.04 # ← always GH-hosted; no self-hosted waiting
     strategy:
       fail-fast: false
       matrix:
