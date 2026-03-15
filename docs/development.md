@@ -49,10 +49,27 @@ Runs the **local** batch runner (different code path from the VM manager). Usefu
 uv run python -m tools.bmt.bmt_run_local \
   --bmt-id 4a5b6e82-a048-5c96-8734-2f64d2288378 \
   --jobs-config gcp/image/projects/sk/bmt_jobs.json \
-  --runner gcp/remote/sk/runners/kardome_runner \
-  --runtime-root gcp/remote \
+  --runtime-root gcp/stage \
   --dataset-root data/sk/inputs/false_rejects \
   --workers 4
+```
+
+The runner and template are resolved from `bmt_jobs.json` paths relative to `--runtime-root` (`gcp/stage/`) and `gcp/image/` automatically. You can also pass `BMT_RUNTIME_ROOT=gcp/stage` as an env var.
+
+### Local data access
+
+The staging area (`gcp/stage/`) contains `.keep` placeholders and `dataset_manifest.json` files that describe GCS datasets without materialising the actual WAVs locally (can be 30-40 GB). Three tiers:
+
+1. **Manifest only** (zero deps, offline) — `dataset_manifest.json` is tracked in git; lists all file names and sizes.
+2. **On-demand fetch** — `just fetch-inputs sk false_rejects` copies the dataset into `gcp/stage/`.
+3. **FUSE mount** (opt-in, dev QoL) — `just mount-data sk` mounts the inputs read-only at `gcp/mnt/sk-inputs/`.
+
+After uploading a new dataset, regenerate the manifest and commit it:
+
+```bash
+just gen-manifest sk false_rejects
+git add gcp/stage/projects/sk/inputs/false_rejects/dataset_manifest.json
+git commit -m "chore(data): update false_rejects manifest"
 ```
 
 ### Pointer/snapshot flow (with GCS)
@@ -116,7 +133,7 @@ Skipping this can cause the VM to run stale code. Re-run after changing anything
 
 **Option A: Deploy then trigger**
 
-After prerequisites and sync, trigger the real CI (push to your branch or use **Actions → BMT → Run workflow**). The workflow writes a trigger, starts the VM, and waits for handshake. Use `just vm-check <run_id>` to inspect trigger/ack and VM serial output.
+After prerequisites and sync, trigger the real CI: **push to your branch** (CI runs automatically) or use **Actions → CI → Run workflow** for a manual run on a chosen ref. Do not run both—a push already starts CI; running the workflow again starts a second run and the concurrency group cancels the first. Use `just vm-check <run_id>` to inspect trigger/ack and VM serial output.
 
 **Option B: Manual sequence**
 
