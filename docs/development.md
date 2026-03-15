@@ -145,6 +145,8 @@ Use [nektos/act](https://github.com/nektos/act) to run GitHub Actions workflows 
 - Docker running.
 - [act](https://github.com/nektos/act#installation) installed (e.g. `curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash`, or package manager).
 
+The repo root contains an `.actrc` that maps `ubuntu-22.04` to a compatible Docker image so BMT handoff jobs run correctly.
+
 **Vars and secrets**
 
 - Repo variables (e.g. `GCS_BUCKET`, `GCP_PROJECT`, `BMT_LIVE_VM`) are not available locally. Copy `.env.example` to `.env` and fill in values (do not commit `.env`). Pass them via `act --env-file .env` or set in the environment.
