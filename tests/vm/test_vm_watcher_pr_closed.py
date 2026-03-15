@@ -403,7 +403,7 @@ def test_superseded_mid_run_cancels_between_legs_and_upserts_commit_comment(
     assert len(pr_comment_calls) == 1
     _, marker, body = pr_comment_calls[0]
     assert "bmt-vm-comment-sha:abc123" in marker
-    assert "BMT superseded" in body
+    assert "Run superseded" in body
     assert "Superseded by" in body
     assert "/commit/abc123" in body
     assert "/commit/def789" in body

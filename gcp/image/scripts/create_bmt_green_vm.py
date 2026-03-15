@@ -33,8 +33,14 @@ def _resolve_image_name(project: str, image_family: str, image_name: str) -> str
         return image_name
     r = subprocess.run(
         [
-            "gcloud", "compute", "images", "describe-from-family", image_family,
-            "--project", project, "--format=value(name)",
+            "gcloud",
+            "compute",
+            "images",
+            "describe-from-family",
+            image_family,
+            "--project",
+            project,
+            "--format=value(name)",
         ],
         capture_output=True,
         text=True,
@@ -68,8 +74,16 @@ def _describe_blue_vm(project: str, zone: str, vm_name: str) -> dict | None:
     """Describe blue VM, return parsed JSON or None."""
     r = subprocess.run(
         [
-            "gcloud", "compute", "instances", "describe", vm_name,
-            "--project", project, "--zone", zone, "--format=json",
+            "gcloud",
+            "compute",
+            "instances",
+            "describe",
+            vm_name,
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--format=json",
         ],
         capture_output=True,
         text=True,
@@ -90,7 +104,18 @@ def _boot_disk_size_and_type(project: str, zone: str, data: dict) -> tuple[str, 
     if not boot_disk_source:
         return size_gb, disk_type
     r = subprocess.run(
-        ["gcloud", "compute", "disks", "describe", boot_disk_source, "--project", project, "--zone", zone, "--format=value(type)"],
+        [
+            "gcloud",
+            "compute",
+            "disks",
+            "describe",
+            boot_disk_source,
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--format=value(type)",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -98,7 +123,18 @@ def _boot_disk_size_and_type(project: str, zone: str, data: dict) -> tuple[str, 
     if r.returncode == 0 and r.stdout:
         disk_type = r.stdout.strip().split("/")[-1]
     r = subprocess.run(
-        ["gcloud", "compute", "disks", "describe", boot_disk_source, "--project", project, "--zone", zone, "--format=value(sizeGb)"],
+        [
+            "gcloud",
+            "compute",
+            "disks",
+            "describe",
+            boot_disk_source,
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--format=value(sizeGb)",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -155,10 +191,23 @@ def _build_create_cmd(
     startup_script = meta_items.get("startup-script", "")
 
     create_cmd = [
-        "gcloud", "compute", "instances", "create", green_name,
-        "--project", project, "--zone", zone,
-        "--machine-type", machine_type, "--image", image_name,
-        "--metadata", metadata_str, "--labels", labels,
+        "gcloud",
+        "compute",
+        "instances",
+        "create",
+        green_name,
+        "--project",
+        project,
+        "--zone",
+        zone,
+        "--machine-type",
+        machine_type,
+        "--image",
+        image_name,
+        "--metadata",
+        metadata_str,
+        "--labels",
+        labels,
     ]
     if network:
         create_cmd.extend(["--network", network])

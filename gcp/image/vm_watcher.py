@@ -43,11 +43,15 @@ from gcp.image.github_status import (
     _update_check_run_resilient,
 )
 from gcp.image.pointer_update import (
+    _cleanup_legacy_result_history,  # noqa: F401
+    _results_prefix_from_ci_verdict_uri,  # noqa: F401
     _update_pointer_and_cleanup,
 )
 from gcp.image.trigger_cleanup import (
     _cleanup_workflow_artifacts as _cleanup_workflow_artifacts_impl,
+    _run_id_from_json_uri,  # noqa: F401
     _trim_trigger_family,
+    _workflow_run_sort_key,  # noqa: F401
 )
 from gcp.image.trigger_resolution import (
     _discover_run_triggers,
@@ -410,7 +414,11 @@ def _build_leg_lists(
             leg["decision"] = "rejected"
             leg["reason"] = skip_before_pickup_reason or "skipped"
     accepted_legs = [
-        {"project": str(leg.get("project", "?")), "bmt_id": str(leg.get("bmt_id", "?")), "run_id": str(leg.get("run_id", "?"))}
+        {
+            "project": str(leg.get("project", "?")),
+            "bmt_id": str(leg.get("bmt_id", "?")),
+            "run_id": str(leg.get("run_id", "?")),
+        }
         for leg in requested_legs
         if leg.get("decision") == "accepted"
     ]
@@ -1053,7 +1061,9 @@ def _process_run_trigger(
             log_dump_url_final: str | None = None
             if state == "failure":
                 failed_runner_legs = [
-                    s for s in leg_summaries if s and (s.get("reason_code") or "") in ("runner_failures", "runner_timeout")
+                    s
+                    for s in leg_summaries
+                    if s and (s.get("reason_code") or "") in ("runner_failures", "runner_timeout")
                 ]
                 if failed_runner_legs:
                     try:
@@ -1303,7 +1313,9 @@ def _handle_one_pubsub_message(
     except (json.JSONDecodeError, ValueError):
         subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
         return False
-    bucket = str(payload.get("bucket", "")).strip() or runtime_bucket_root.split("gs://", 1)[-1].split("/", maxsplit=1)[0]
+    bucket = (
+        str(payload.get("bucket", "")).strip() or runtime_bucket_root.split("gs://", 1)[-1].split("/", maxsplit=1)[0]
+    )
     run_id = str(payload.get("workflow_run_id", "")).strip()
     if not run_id:
         subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})

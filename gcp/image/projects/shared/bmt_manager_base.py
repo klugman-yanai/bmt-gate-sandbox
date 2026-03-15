@@ -638,7 +638,17 @@ class BmtManagerBase(ABC):
         if demo_force_pass and status == "fail":
             status = "pass"
             reason_code = "demo_force_pass"
-        return status, reason_code, gate, aggregate_score, raw_score, delta_from_previous, failed_count, previous_latest, demo_force_pass
+        return (
+            status,
+            reason_code,
+            gate,
+            aggregate_score,
+            raw_score,
+            delta_from_previous,
+            failed_count,
+            previous_latest,
+            demo_force_pass,
+        )
 
     def _write_run_outputs(
         self,

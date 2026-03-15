@@ -240,10 +240,9 @@ class SKBmtManager(BmtManagerBase):
         template_hit = False
         if self.cache_enabled and template_meta_path.is_file() and self.cache_template_path.is_file():
             cached_meta = _load_json(template_meta_path)
-            template_hit = (
-                str(cached_meta.get("generation", "")) == str(template_remote_meta.get("generation", ""))
-                and int(cached_meta.get("size", -1)) == int(template_remote_meta.get("size", -2))
-            )
+            template_hit = str(cached_meta.get("generation", "")) == str(
+                template_remote_meta.get("generation", "")
+            ) and int(cached_meta.get("size", -1)) == int(template_remote_meta.get("size", -2))
         if not template_hit:
             t0 = time.monotonic()
             _gcloud_cp(self.template_uri, self.cache_template_path)
@@ -275,9 +274,8 @@ class SKBmtManager(BmtManagerBase):
             dataset_meta = _load_json(dataset_meta_path)
             last_sync_epoch = float(dataset_meta.get("last_sync_epoch", 0.0) or 0.0)
             age = Instant.now().timestamp() - last_sync_epoch
-            dataset_hit = (
-                str(dataset_meta.get("source_uri", "")) == self.dataset_uri
-                and age <= float(self.dataset_ttl_sec)
+            dataset_hit = str(dataset_meta.get("source_uri", "")) == self.dataset_uri and age <= float(
+                self.dataset_ttl_sec
             )
         dataset_uri = self.dataset_uri
         if self.cache_enabled:

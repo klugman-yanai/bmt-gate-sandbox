@@ -7,11 +7,11 @@ import traceback
 from datetime import timedelta
 from typing import Any
 
-# Default expiry for log-dump signed URLs (must match GCS lifecycle retention on log-dumps/)
-LOG_DUMP_SIGNED_URL_EXPIRY_DAYS: int = 3
-
 from google.api_core import exceptions as gcs_exceptions
 from google.cloud import storage as gcs_lib
+
+# Default expiry for log-dump signed URLs (must match GCS lifecycle retention on log-dumps/)
+LOG_DUMP_SIGNED_URL_EXPIRY_DAYS: int = 3
 
 _gcs_client_holder: list[gcs_lib.Client | None] = [None]
 

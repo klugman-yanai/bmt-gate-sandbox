@@ -135,7 +135,10 @@ def _resolve_one_leg(
     if project == "?":
         return [
             _one_leg_dict(
-                project, fallback_bmt, _derive_leg_run_id(run_id_base, bmt_id_raw or "invalid", used_run_ids), "invalid_leg_type"
+                project,
+                fallback_bmt,
+                _derive_leg_run_id(run_id_base, bmt_id_raw or "invalid", used_run_ids),
+                "invalid_leg_type",
             )
         ]
 
@@ -145,7 +148,10 @@ def _resolve_one_leg(
     if not manager_exists_cache[project]:
         return [
             _one_leg_dict(
-                project, fallback_bmt, _derive_leg_run_id(run_id_base, bmt_id_raw or "manager-missing", used_run_ids), "manager_missing"
+                project,
+                fallback_bmt,
+                _derive_leg_run_id(run_id_base, bmt_id_raw or "manager-missing", used_run_ids),
+                "manager_missing",
             )
         ]
 
@@ -155,7 +161,10 @@ def _resolve_one_leg(
     if jobs_error is not None or jobs_payload is None:
         return [
             _one_leg_dict(
-                project, fallback_bmt, _derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-error", used_run_ids), jobs_error or "jobs_schema_invalid"
+                project,
+                fallback_bmt,
+                _derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-error", used_run_ids),
+                jobs_error or "jobs_schema_invalid",
             )
         ]
 
@@ -163,7 +172,10 @@ def _resolve_one_leg(
     if not isinstance(bmts, dict):
         return [
             _one_leg_dict(
-                project, fallback_bmt, _derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-schema", used_run_ids), "jobs_schema_invalid"
+                project,
+                fallback_bmt,
+                _derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-schema", used_run_ids),
+                "jobs_schema_invalid",
             )
         ]
 

@@ -40,7 +40,7 @@ def _log_dir(workspace_root: Path) -> Path:
 
 
 def _configure_logger(
-    log_dir: Path,
+    _log_dir: Path,
     log_file: Path,
     logger_name: str,
     *,

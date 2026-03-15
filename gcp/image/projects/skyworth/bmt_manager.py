@@ -89,9 +89,7 @@ class SkyworthBmtManager(BmtManagerBase):
             encoding="utf-8",
         )
         cmd = [str(self._runner_path), str(input_file), str(cfg_path)]
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300, cwd=str(self.run_root), check=False
-        )
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=str(self.run_root), check=False)
         stdout = proc.stdout or ""
         match = self._counter_pattern.search(stdout)
         counter = int(match.group(1)) if match else 0

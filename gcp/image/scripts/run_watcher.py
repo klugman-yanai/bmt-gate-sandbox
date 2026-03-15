@@ -124,16 +124,19 @@ def _upload_log_and_stop(exit_code: int) -> None:
             ts_compact = Instant.now().format_iso(unit="second", basic=True)
             ts = f"{ts_compact[:8]}T{ts_compact[8:]}"
             dest = f"gs://{bucket}/logs/{vm_name}-{ts}.log"
-            r = subprocess.run(
-                ["gcloud", "storage", "cp", log_file, dest, "--quiet"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if r.returncode == 0:
-                _log("Uploaded startup log to GCS.")
-            else:
-                _log_err("Watcher log upload to GCS failed.")
+            try:
+                r = subprocess.run(
+                    ["gcloud", "storage", "cp", log_file, dest, "--quiet"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if r.returncode == 0:
+                    _log("Uploaded startup log to GCS.")
+                else:
+                    _log_err("Watcher log upload to GCS failed.")
+            except OSError:
+                _log_err("gcloud not available; skipping startup log upload.")
     _stop_instance_best_effort(exit_code)
 
 
@@ -158,9 +161,7 @@ def _access_secret_with_retry(secret_name: str, project: str, location: str | No
     return ""
 
 
-def _get_first_secret(
-    candidates: list[str], suffix: str, project: str, location: str | None
-) -> tuple[str, str]:
+def _get_first_secret(candidates: list[str], suffix: str, project: str, location: str | None) -> tuple[str, str]:
     for c in candidates:
         value = _access_secret_with_retry(f"{c}_{suffix}", project, location)
         if value:
@@ -242,17 +243,11 @@ def _setup_env_and_config() -> tuple[str, str, str, str] | None:
 
 
 def _resolve_workspace_root() -> None:
-    """Set BMT_WORKSPACE_ROOT from HOME/sk_runtime/bmt_workspace if not already set."""
+    """Set BMT_WORKSPACE_ROOT to HOME/bmt_workspace if not already set."""
     if os.environ.get("BMT_WORKSPACE_ROOT"):
         return
     home_dir = Path(os.environ.get("HOME", "/root"))
-    sk_runtime = home_dir / "sk_runtime"
-    bmt_workspace = home_dir / "bmt_workspace"
-    if sk_runtime.is_dir() and not bmt_workspace.is_dir():
-        _log_err("Warning: using legacy workspace path sk_runtime")
-        os.environ["BMT_WORKSPACE_ROOT"] = str(sk_runtime)
-    else:
-        os.environ["BMT_WORKSPACE_ROOT"] = str(bmt_workspace)
+    os.environ["BMT_WORKSPACE_ROOT"] = str(home_dir / "bmt_workspace")
     _log(f"Workspace root: {os.environ['BMT_WORKSPACE_ROOT']}")
 
 
@@ -300,9 +295,7 @@ def _configure_secrets_and_creds(project: str) -> None:
     _load_github_app_credentials("prod environment", "GITHUB_APP_PROD", project, secrets_location or None)
 
 
-def _launch_watcher(
-    repo_root: str, bucket: str, venv_python: str, sub_effective: str, project: str
-) -> int:
+def _launch_watcher(repo_root: str, bucket: str, venv_python: str, sub_effective: str, project: str) -> int:
     """Build watcher args, run subprocess, return exit code."""
     watcher_args = [
         venv_python,
