@@ -237,14 +237,17 @@ class VmManager:
             pool = vm_list_names(project, zone, filter_expr=filter_expr)
             pool.sort()
             print(f"VM pool from label {pool_label!r} ({len(pool)} instance(s)): {pool}")
+        derived_blue_green = False
         if not pool and self._cfg.bmt_vm_name and self._cfg.bmt_vm_name.strip():
             # Derive blue/green pool from VM name (declarative convention; no repo var).
+            # Only the named VM is required to exist; its sibling is included if it exists.
             name = self._cfg.bmt_vm_name.strip()
             if name.endswith("-blue") or name.endswith("-green"):
                 base = name.removesuffix("-green").removesuffix("-blue").rstrip("-")
                 if base:
                     pool = [f"{base}-blue", f"{base}-green"]
-                    print(f"VM pool from BMT_LIVE_VM blue/green (2 instance(s)): {pool}")
+                    derived_blue_green = True
+                    print(f"VM pool from BMT_LIVE_VM blue/green (candidates): {pool}")
         if not pool:
             if not (self._cfg.bmt_vm_name and self._cfg.bmt_vm_name.strip()):
                 gh_error(
@@ -269,9 +272,19 @@ class VmManager:
                 missing.append(vm_name)
             else:
                 print(f"  {vm_name}: {status}")
+
         if missing:
-            gh_error(f"VM(s) not found in {project}/{zone}: {missing}.")
-            raise RuntimeError(f"BMT VM pool has missing instance(s): {missing}")
+            if derived_blue_green:
+                # Sibling VM doesn't exist yet (single-VM Pulumi setup); shrink pool to what exists.
+                pool = [v for v in pool if v not in missing]
+                for m in missing:
+                    print(f"  {m}: not found — excluded from pool (blue/green sibling not provisioned)")
+                if not pool:
+                    gh_error(f"VM(s) not found in {project}/{zone}: {missing}.")
+                    raise RuntimeError(f"BMT VM pool has missing instance(s): {missing}")
+            else:
+                gh_error(f"VM(s) not found in {project}/{zone}: {missing}.")
+                raise RuntimeError(f"BMT VM pool has missing instance(s): {missing}")
 
         run_id_str = os.environ.get("GITHUB_RUN_ID", "0")
         run_id_int = int(run_id_str) if run_id_str.isdigit() else 0

@@ -54,6 +54,27 @@ def test_select_available_vm_prefers_terminated(tmp_path: Path, monkeypatch: pyt
     assert "vm_reused_running=false" in content
 
 
+def test_select_available_vm_blue_green_sibling_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When BMT_LIVE_VM is bmt-gate-blue but bmt-gate-green doesn't exist (single-VM Pulumi setup),
+    the pool shrinks to just bmt-gate-blue and selection proceeds normally."""
+    github_output = tmp_path / "github_output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("BMT_LIVE_VM", "bmt-gate-blue")
+    monkeypatch.setenv("GITHUB_RUN_ID", "99")
+
+    monkeypatch.setattr(
+        "ci.vm._vm_status",
+        lambda _p, _z, name: "TERMINATED" if name == "bmt-gate-blue" else "unknown",
+    )
+
+    VmManager.from_env().select()
+
+    content = github_output.read_text(encoding="utf-8")
+    assert "selected_vm=bmt-gate-blue" in content
+    assert "vm_reused_running=false" in content
+
+
 def test_select_available_vm_run_id_assigns_among_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When only RUNNING VMs exist, assignment uses run_id % len(running)."""
     github_output = tmp_path / "github_output.txt"
