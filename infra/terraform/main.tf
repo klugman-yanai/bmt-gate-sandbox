@@ -73,11 +73,9 @@ resource "google_compute_instance" "bmt_vm" {
     bmt-image-family = replace(lower(var.image_family), "_", "-")
   }
 
-  # Allow Terraform to start/stop the VM without destroying it.
-  # lifecycle.prevent_destroy guards against accidental `terraform destroy`.
+  # Boot image changes (e.g. after just build) replace the VM; allow that. Ignore startup-script drift from sync-vm-metadata.
   lifecycle {
-    prevent_destroy       = true
-    ignore_changes        = [metadata["startup-script"]]  # updated by bmt sync-vm-metadata
+    ignore_changes = [metadata["startup-script"]]
   }
 
   # VM starts in TERMINATED state after creation; the workflow starts it per-run.
