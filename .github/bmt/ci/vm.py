@@ -226,6 +226,7 @@ class VmManager:
         github_output = core.require_env("GITHUB_OUTPUT")
 
         pool: list[str] = []
+        derived_blue_green = False
         pool_label = (os.environ.get("BMT_VM_POOL_LABEL") or "").strip()
         if pool_label:
             if ":" in pool_label:
@@ -237,27 +238,18 @@ class VmManager:
             pool = vm_list_names(project, zone, filter_expr=filter_expr)
             pool.sort()
             print(f"VM pool from label {pool_label!r} ({len(pool)} instance(s)): {pool}")
-        derived_blue_green = False
-        if not pool and self._cfg.bmt_vm_name and self._cfg.bmt_vm_name.strip():
-            # Derive blue/green pool from VM name (declarative convention; no repo var).
-            # Only the named VM is required to exist; its sibling is included if it exists.
-            name = self._cfg.bmt_vm_name.strip()
-            if name.endswith("-blue") or name.endswith("-green"):
-                base = name.removesuffix("-green").removesuffix("-blue").rstrip("-")
-                if base:
-                    pool = [f"{base}-blue", f"{base}-green"]
-                    derived_blue_green = True
-                    print(f"VM pool from BMT_LIVE_VM blue/green (candidates): {pool}")
-        if not pool:
-            if not (self._cfg.bmt_vm_name and self._cfg.bmt_vm_name.strip()):
-                gh_error(
-                    "BMT VM pool is empty and BMT_LIVE_VM is not set. Set BMT_VM_POOL_LABEL or BMT_LIVE_VM."
-                )
-                raise RuntimeError("BMT VM pool must not be empty.")
-            pool = [self._cfg.bmt_vm_name]
-            print(f"VM pool from BMT_LIVE_VM (1 instance): {pool}")
-        elif not pool_label:
-            print(f"VM pool ({len(pool)} instance(s)): {pool}")
+        elif self._cfg.bmt_vm_name and self._cfg.bmt_vm_name.strip():
+            # BMT_LIVE_VM is the base name; blue/green are always derived as suffixes.
+            base = self._cfg.bmt_vm_name.strip()
+            pool = [f"{base}-blue", f"{base}-green"]
+            derived_blue_green = True
+            print(f"VM pool from BMT_LIVE_VM '{base}' (candidates): {pool}")
+        else:
+            gh_error(
+                "BMT_VM_POOL_LABEL or BMT_LIVE_VM is not set. "
+                "Set BMT_LIVE_VM to the VM base name (e.g. 'bmt-gate') or BMT_VM_POOL_LABEL to a GCP label."
+            )
+            raise RuntimeError("BMT VM pool must not be empty.")
 
         if not pool:
             gh_error("BMT VM pool is empty.")
