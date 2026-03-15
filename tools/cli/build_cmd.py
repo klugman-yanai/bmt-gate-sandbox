@@ -16,7 +16,7 @@ from tools.shared.rich_minimal import step_console, success_panel
 app = typer.Typer(no_args_is_help=True)
 
 PACKER_TEMPLATE = "infra/packer/bmt-runtime.pkr.hcl"  # relative to repo root
-IMAGE_BUILD_WORKFLOW = "ops/trigger-image-build.yml"
+IMAGE_BUILD_WORKFLOW = "trigger-image-build.yml"
 
 
 def _repo_slug() -> str:
@@ -77,45 +77,45 @@ def _run_packer_validate() -> int:
 
 
 def _dispatch_workflow(repo: str, branch: str) -> None:
-    # --ref makes GitHub use the trigger workflow file from this branch (no need for it on default).
-    # Pass branch input when the workflow accepts it; if target has older workflow (no inputs), retry without -f.
-    args = [
-        "gh",
-        "workflow",
-        "run",
-        IMAGE_BUILD_WORKFLOW,
-        "--repo",
-        repo,
-        "--ref",
-        branch,
-        "-f",
-        f"branch={branch}",
-    ]
-    result = subprocess.run(args, check=False, capture_output=True, text=True, cwd=repo_root())
-    if result.returncode != 0 and "422" in result.stderr and "Unexpected inputs" in result.stderr:
-        # Target repo's workflow doesn't declare branch input; dispatch without -f (workflow uses github.ref_name).
-        result = subprocess.run(
-            [
-                "gh",
-                "workflow",
-                "run",
-                IMAGE_BUILD_WORKFLOW,
-                "--repo",
-                repo,
-                "--ref",
-                branch,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            cwd=repo_root(),
-        )
-    if result.returncode != 0:
-        if result.stderr:
-            typer.echo(result.stderr.strip(), err=True)
+    # Dispatch the trigger workflow without --ref so GitHub finds it on the default branch
+    # (the trigger workflow may live at ops/ on feature branches but at root on main).
+    # Pass branch as an input so the trigger can build from the intended branch.
+    base_args = ["gh", "workflow", "run", IMAGE_BUILD_WORKFLOW, "--repo", repo]
+    with_input = subprocess.run(
+        base_args + ["-f", f"branch={branch}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=repo_root(),
+    )
+    if with_input.returncode == 0:
+        return
+    # Fall back: try with --ref (works when workflow is on the same branch as current)
+    with_ref = subprocess.run(
+        base_args + ["--ref", branch, "-f", f"branch={branch}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=repo_root(),
+    )
+    if with_ref.returncode == 0:
+        return
+    # Last attempt: workflow may not accept branch input
+    no_input = subprocess.run(
+        base_args,
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=repo_root(),
+    )
+    if no_input.returncode != 0:
+        err = no_input.stderr or with_ref.stderr or with_input.stderr
+        if err:
+            typer.echo(err.strip(), err=True)
         typer.echo(
-            "Trigger failed. Ensure .github/workflows/trigger-image-build.yml exists on this branch in the target repo "
-            "and accepts a 'branch' input (or omit inputs). Use --skip-image to run Pulumi only.",
+            "Trigger failed. Ensure trigger-image-build.yml (or ops/trigger-image-build.yml) "
+            "is accessible from the default branch and accepts a 'branch' input. "
+            "Use --skip-image to run Pulumi only.",
             err=True,
         )
         raise typer.Exit(1)
