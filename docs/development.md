@@ -147,7 +147,7 @@ Use [nektos/act](https://github.com/nektos/act) to run GitHub Actions workflows 
 
 **Vars and secrets**
 
-- Repo variables (e.g. `GCS_BUCKET`, `GCP_PROJECT`, `BMT_LIVE_VM`) are not available locally. Pass them via a **`.env`** in the repo root (do not commit; add `.env` to `.gitignore` if needed) or via `act -P ubuntu-22.04=...` / `act --env-file .env`.
+- Repo variables (e.g. `GCS_BUCKET`, `GCP_PROJECT`, `BMT_LIVE_VM`) are not available locally. Copy `.env.example` to `.env` and fill in values (do not commit `.env`). Pass them via `act --env-file .env` or set in the environment.
 - Secrets: put in a file (e.g. `.secrets`) and run `act --secret-file .secrets`, or pass per secret with `-s GITHUB_TOKEN=...`. For BMT handoff you need the same vars the workflow uses (see [configuration.md](configuration.md)).
 
 **What to run**
