@@ -216,6 +216,7 @@ jobs:
   upload-runners:
     name: Validate runner • ${{ matrix.project }}
     needs: setup
+    if: needs.setup.outputs.matrix_need_upload_keys != '[]'
     runs-on: ubuntu-22.04
     continue-on-error: true
     permissions:
@@ -223,7 +224,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJson(needs.setup.outputs.matrix_need_upload || '[]') }}
+      matrix: ${{ fromJson(needs.setup.outputs.matrix_need_upload || '{"include":[]}') }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
