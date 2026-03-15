@@ -109,7 +109,7 @@ class RunnerManager:
         preset = core.require_env("PRESET")
         run_id = core.workflow_run_id()
         root = core.workflow_runtime_root()
-        runner_path = Path("gcp/remote") / project / "runners" / preset / "kardome_runner"
+        runner_path = Path("gcp/stage") / project / "runners" / preset / "kardome_runner"
         if not runner_path.is_file():
             gh_warning(
                 f"VM does not support this BMT: requested runner not found at {runner_path}. "
@@ -161,6 +161,9 @@ class RunnerManager:
                 continue
             meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
             payload, _ = gcs.download_json(meta_uri)
+            if payload is None:
+                latest_uri = f"{root}/{project}/runners/{preset}/runner_latest_meta.json"
+                payload, _ = gcs.download_json(latest_uri)
             if payload is not None:
                 if preseeded:
                     if project not in projects_written:
@@ -332,8 +335,12 @@ class RunnerManager:
                         preset = str(entry.get("preset", "")).strip()
                         if not project or not preset:
                             continue
+                        # CI uploads write runner_meta.json; tools bucket upload-runner writes runner_latest_meta.json
                         meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
                         payload, _ = gcs.download_json(meta_uri)
+                        if not isinstance(payload, dict):
+                            latest_uri = f"{root}/{project}/runners/{preset}/runner_latest_meta.json"
+                            payload, _ = gcs.download_json(latest_uri)
                         if isinstance(payload, dict):
                             uploaded_projects.add(project)
             except json.JSONDecodeError as exc:
