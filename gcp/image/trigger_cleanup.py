@@ -87,6 +87,46 @@ def _cleanup_stale_run_triggers(
             _gcloud_rm(uri)
 
 
+def _trim_uploaded_markers(
+    family_prefix_uri: str,
+    *,
+    keep_ids: set[str],
+    keep_recent: int = TRIGGER_METADATA_KEEP_RECENT,
+) -> None:
+    """Prune stale _workflow/uploaded/<run_id>/ directories.
+
+    Structure is two-level: <family_prefix>/<run_id>/<project>.json.
+    Old run directories are deleted recursively; recent + explicit run IDs are retained.
+    """
+    all_uris = [uri for uri in _gcloud_ls(family_prefix_uri) if uri.endswith(".json")]
+    if not all_uris:
+        return
+
+    prefix = family_prefix_uri.rstrip("/") + "/"
+    run_ids: set[str] = set()
+    for uri in all_uris:
+        rel = uri[len(prefix):] if uri.startswith(prefix) else ""
+        parts = rel.split("/")
+        if len(parts) >= 2:
+            run_id = parts[0].strip()
+            if run_id:
+                run_ids.add(run_id)
+
+    if not run_ids:
+        return
+
+    normalized_keep = {rid.strip() for rid in keep_ids if rid and rid.strip()}
+    sorted_run_ids = sorted(run_ids, key=_workflow_run_sort_key, reverse=True)
+    recent_ids = set(sorted_run_ids[: max(keep_recent, 0)])
+    retained_ids = normalized_keep | recent_ids
+
+    for run_id in sorted(run_ids):
+        if run_id in retained_ids:
+            continue
+        dir_uri = f"{prefix}{run_id}/"
+        _gcloud_rm(dir_uri, recursive=True)
+
+
 def _cleanup_workflow_artifacts(
     *,
     runtime_bucket_root: str,
@@ -94,12 +134,14 @@ def _cleanup_workflow_artifacts(
     keep_recent: int = TRIGGER_METADATA_KEEP_RECENT,
     stale_hours: int = STALE_TRIGGER_AGE_HOURS,
     _trim_func: Callable[..., None] | None = None,
+    _trim_uploaded_func: Callable[..., None] | None = None,
 ) -> None:
     """Keep workflow metadata families bounded to current + previous entries.
 
-    Optional _trim_func allows injection for tests (e.g. from vm_watcher).
+    Optional _trim_func / _trim_uploaded_func allow injection for tests.
     """
     trim = _trim_func if _trim_func is not None else _trim_trigger_family
+    trim_uploaded = _trim_uploaded_func if _trim_uploaded_func is not None else _trim_uploaded_markers
     if not runtime_bucket_root.strip():
         return
 
@@ -119,3 +161,9 @@ def _cleanup_workflow_artifacts(
             keep_ids=keep_workflow_ids,
             keep_recent=keep_recent,
         )
+
+    trim_uploaded(
+        _bucket_uri(runtime_bucket_root, "_workflow/uploaded/"),
+        keep_ids=keep_workflow_ids,
+        keep_recent=keep_recent,
+    )

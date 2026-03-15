@@ -51,6 +51,7 @@ from gcp.image.trigger_cleanup import (
     _cleanup_workflow_artifacts as _cleanup_workflow_artifacts_impl,
     _run_id_from_json_uri,  # noqa: F401
     _trim_trigger_family,
+    _trim_uploaded_markers,
     _workflow_run_sort_key,  # noqa: F401
 )
 from gcp.image.trigger_resolution import (
@@ -185,13 +186,14 @@ def _cleanup_workflow_artifacts(
     keep_recent: int = _KEEP_RECENT_WORKFLOW_FILES,
     stale_hours: int = _STALE_TRIGGER_AGE_HOURS,
 ) -> None:
-    """Keep workflow metadata bounded; injects _trim_trigger_family for testability."""
+    """Keep workflow metadata bounded; injects trim funcs for testability."""
     _cleanup_workflow_artifacts_impl(
         runtime_bucket_root=runtime_bucket_root,
         keep_workflow_ids=keep_workflow_ids,
         keep_recent=keep_recent,
         stale_hours=stale_hours,
         _trim_func=_trim_trigger_family,
+        _trim_uploaded_func=_trim_uploaded_markers,
     )
 
 

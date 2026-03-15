@@ -115,11 +115,16 @@ def test_trim_trigger_family_keeps_recent_and_explicit(monkeypatch):
 
 def test_cleanup_workflow_artifacts_targets_prefixed_and_base_status(monkeypatch):
     calls: list[tuple[str, set[str], int]] = []
+    uploaded_calls: list[tuple[str, set[str], int]] = []
 
     def _capture(prefix: str, *, keep_ids: set[str], keep_recent: int) -> None:
         calls.append((prefix, set(keep_ids), keep_recent))
 
+    def _capture_uploaded(prefix: str, *, keep_ids: set[str], keep_recent: int) -> None:
+        uploaded_calls.append((prefix, set(keep_ids), keep_recent))
+
     monkeypatch.setattr(watcher, "_trim_trigger_family", _capture)
+    monkeypatch.setattr(watcher, "_trim_uploaded_markers", _capture_uploaded)
 
     watcher._cleanup_workflow_artifacts(
         runtime_bucket_root="gs://my-bucket/my-prefix/runtime",
@@ -132,6 +137,41 @@ def test_cleanup_workflow_artifacts_targets_prefixed_and_base_status(monkeypatch
     assert len(prefixes) == 2
     assert all(c[1] == {"222"} for c in calls)
     assert all(c[2] == watcher._KEEP_RECENT_WORKFLOW_FILES for c in calls)
+
+    assert len(uploaded_calls) == 1
+    assert uploaded_calls[0][0] == "gs://my-bucket/my-prefix/runtime/_workflow/uploaded/"
+    assert uploaded_calls[0][1] == {"222"}
+    assert uploaded_calls[0][2] == watcher._KEEP_RECENT_WORKFLOW_FILES
+
+
+def test_trim_uploaded_markers_deletes_old_run_dirs(monkeypatch):
+    listed = [
+        "gs://b/rt/_workflow/uploaded/100/sk.json",
+        "gs://b/rt/_workflow/uploaded/100/qa.json",
+        "gs://b/rt/_workflow/uploaded/101/sk.json",
+        "gs://b/rt/_workflow/uploaded/102/sk.json",
+        "gs://b/rt/_workflow/uploaded/103/sk.json",
+    ]
+    deleted: list[str] = []
+
+    from gcp.image import trigger_cleanup
+
+    monkeypatch.setattr(trigger_cleanup, "_gcloud_ls", lambda *_a, **_kw: listed)
+    monkeypatch.setattr(
+        trigger_cleanup,
+        "_gcloud_rm",
+        lambda uri, recursive=False: deleted.append(f"{uri}|{recursive}") or True,
+    )
+
+    trigger_cleanup._trim_uploaded_markers(
+        "gs://b/rt/_workflow/uploaded/",
+        keep_ids={"101"},
+        keep_recent=2,
+    )
+
+    # keep_recent=2 → keeps 103, 102 (newest two); keep_ids={"101"} → also keeps 101
+    # 100 is the only one deleted
+    assert deleted == ["gs://b/rt/_workflow/uploaded/100/|True"]
 
 
 def test_keep_recent_workflow_files_from_env(monkeypatch):
