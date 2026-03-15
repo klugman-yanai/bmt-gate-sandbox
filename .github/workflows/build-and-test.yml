@@ -166,34 +166,27 @@ jobs:
         run: |
           echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
-  decide-bmt:
-    name: Decide whether to run BMT
-    needs: [build-release]
-    runs-on: ubuntu-22.04
-    outputs:
-      run_bmt: ${{ steps.out.outputs.run_bmt }}
-    steps:
-      - id: out
-        run: |
-          r="${{ needs.build-release.result }}"
-          event="${{ github.event_name }}"
-          same_repo="${{ github.event.pull_request.head.repo.full_name == github.repository }}"
-          base_ref="${{ github.base_ref || github.ref_name }}"
-          if [[ "$r" != "success" && "$r" != "skipped" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          # Push and workflow_dispatch to this repo are same-repo (no fork; manual run from branch).
-          if [[ "$event" == "push" || "$event" == "workflow_dispatch" ]]; then same_repo="true"; fi
-          if [[ "$same_repo" != "true" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          # Allow: dev, ci/check-bmt-gate, and test/check-bmt-gate-* (sandbox dev branches)
-          if [[ "$base_ref" != "dev" && "$base_ref" != "ci/check-bmt-gate" && "$base_ref" != test/check-bmt-gate* ]]; then
-            echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          echo "run_bmt=true" >> "$GITHUB_OUTPUT"
-
-  bmt:
+  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 6 jobs, build-release → bmt-handoff → bmt-gate-summary.
+  bmt-handoff:
     name: Run BMT gate
-    needs: [decide-bmt]
-    # Run only when decide-bmt set run_bmt=true (build-release ok, same repo, base dev or ci/check-bmt-gate). Only release runners are sent to BMT.
-    if: needs.decide-bmt.outputs.run_bmt == 'true'
+    needs: build-release
+    if: >-
+      success()
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      && (
+        contains(
+          fromJson('["dev","ci/check-bmt-gate"]'),
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+            && github.event.pull_request.head.ref
+            || github.ref_name
+        )
+        || startsWith(
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+            && github.event.pull_request.head.ref
+            || github.ref_name,
+          'test/check-bmt-gate'
+        )
+      )
     permissions:
       contents: read
       actions: read
@@ -208,3 +201,14 @@ jobs:
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
       skip_image_check: true
     secrets: inherit
+
+  bmt-gate-summary:
+    name: BMT gate summary
+    needs: bmt-handoff
+    if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Log BMT result
+        run: |
+          echo "::notice::BMT gate passed: ${{ needs.bmt-handoff.outputs.bmt_gate_passed }}"
+          echo "::notice::BMT failure fallback ran: ${{ needs.bmt-handoff.outputs.bmt_fallback_run }}"
