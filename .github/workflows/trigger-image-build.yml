@@ -1,16 +1,9 @@
-# Thin trigger on default branch: runs the image build workflow *from the specified branch*.
-# Use this so "just build" can run the workflow file from your current branch (not default).
-# Merge this file to the repo's default branch once; then: gh workflow run trigger-image-build.yml -f branch=<your-branch>
+# Thin trigger: runs the image build workflow from the same ref this run was dispatched on.
+# just build uses: gh workflow run trigger-image-build.yml --ref <branch> so the run is on your branch.
 name: Trigger Image Build (from branch)
 
 on:
   workflow_dispatch:
-    inputs:
-      branch:
-        description: "Branch whose bmt-vm-image-build.yml to run (default: main)"
-        required: false
-        default: main
-        type: string
 
 permissions:
   contents: read
@@ -21,4 +14,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Call BMT Image Build from branch
-        uses: ./.github/workflows/bmt-vm-image-build.yml@${{ inputs.branch }}
+        uses: ./.github/workflows/bmt-vm-image-build.yml@${{ github.ref_name }}

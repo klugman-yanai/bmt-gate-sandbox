@@ -1,12 +1,10 @@
-# bmt-gcloud maintainer commands (run `just` for list)
+# bmt-gcloud maintainer commands
 
+# List recipes
 default:
     @just --list
 
-# -----------------------------------------------------------------------------
-# Pre-push: tests, lint, and layout policies
-# -----------------------------------------------------------------------------
-
+# Tests, lint, layout policies
 test:
     uv sync
     uv run python -m pytest tests/ -v
@@ -18,45 +16,27 @@ test:
     uv run python -m tools.repo.gcp_layout_policy
     uv run python -m tools.repo.repo_layout_policy
 
-# -----------------------------------------------------------------------------
-# Release package: refresh .github-release/bmt/ after editing .github/bmt/ Python
-# -----------------------------------------------------------------------------
-# Copy .github/bmt/ (ci, config, pyproject.toml, uv.lock) into .github-release/bmt/.
-
-# Run after editing .github/bmt/ code so the release package stays in sync.
+# Sync .github-release/bmt/ from .github/bmt/
 release-package:
     rm -rf .github-release/bmt/ci .github-release/bmt/config .github-release/bmt/pyproject.toml .github-release/bmt/uv.lock
     cp -r .github/bmt/ci .github/bmt/config .github/bmt/pyproject.toml .github/bmt/uv.lock .github-release/bmt/
     @echo "Updated .github-release/bmt/ from .github/bmt/ (ci, config, pyproject.toml, uv.lock)"
 
-# -----------------------------------------------------------------------------
-# Bucket: deploy and preflight (GCS_BUCKET from env or gh variable)
-# -----------------------------------------------------------------------------
-
-# Sync gcp/image to bucket and verify code + runtime seed. Run after changing gcp/ code.
+# Sync gcp/ to bucket and verify
 deploy:
     uv run python -m tools.remote.bucket_sync_gcp
     uv run python -m tools.remote.bucket_verify_gcp_sync
     uv run python -m tools.remote.bucket_verify_runtime_seed_sync
 
-# Pre-flight: bucket contents and diff code/ vs gcp/image. Report in .local/preflight-bucket-*.txt
+# Bucket preflight (diff, report to .local/)
 preflight:
     tools/scripts/run_preflight_bucket.sh
 
-# -----------------------------------------------------------------------------
-# VM and runtime observability
-# -----------------------------------------------------------------------------
-
-# Live TUI: trigger, ack, status, VM/GCS state (GCS_BUCKET, BMT_LIVE_VM, GCP_ZONE)
+# Live TUI for trigger/VM/GCS
 monitor:
     uv run python -m tools.bmt.bmt_monitor
 
-# -----------------------------------------------------------------------------
-# Repo vars, validation, Terraform (see docs/configuration.md)
-# -----------------------------------------------------------------------------
-
-# Terraform: preflight, apply, push vars. Default quiet; use -v/--verbose for full output.
-# E.g. just terraform, just terraform --verbose, just terraform import-topics
+# Preflight, apply, export vars (-v verbose; import-topics)
 terraform arg1="" arg2="":
     #!/usr/bin/env -S bash -eu
     VERBOSE=""
@@ -65,30 +45,27 @@ terraform arg1="" arg2="":
     uv run python -m tools.terraform.terraform_preflight $VERBOSE
     uv run python -m tools.terraform.terraform_apply $VERBOSE
 
-# Check repo vars vs Terraform/contract and vs VM metadata (run both together).
+# Check repo vars vs Terraform and VM metadata
 validate:
     uv run python -m tools.repo.gh_repo_vars
     uv run python -m tools.repo.gh_validate_vm_vars
 
-# Print env var names used by CI, VM, tools
+# Print CI/VM env var names
 show-env:
     uv run python -m tools.repo.gh_show_env
 
-# Remove Python/uv bloat from GCS (dry-run by default). Usage: just clean-bloat | just clean-bloat execute
-clean-bloat execute="":
+# Remove GCS bloat (dry-run; --execute to run)
+clean-bloat arg="":
     #!/usr/bin/env -S bash -eu
     EXEC_ARG=""
-    [[ "{{execute}}" == "execute" || "{{execute}}" == "--execute" ]] && EXEC_ARG="--execute"
+    [[ "{{arg}}" == "--execute" || "{{arg}}" == "-e" ]] && EXEC_ARG="--execute"
     uv run python -m tools.remote.bucket_clean_bloat $EXEC_ARG
 
-# Scaffold a new BMT project. Usage: just add-project myproject
+# Scaffold BMT project
 add-project project:
     uv run python tools/scripts/add_bmt_project.py "{{ project }}"
 
-# -----------------------------------------------------------------------------
-# Run workflows locally (act). Use .env for vars; required for handoff.
-# Usage: just act | just act handoff | just act trigger | just act <job> (e.g. just act prepare-builds)
-# -----------------------------------------------------------------------------
+# Run workflows locally (act; .env for vars)
 act which="":
     #!/usr/bin/env -S bash -eu
     VAR_ARG=""
@@ -115,13 +92,7 @@ act which="":
         ;;
     esac
 
-# -----------------------------------------------------------------------------
-# Image build then Terraform. Usage: just build | just build no_wait=1 | just build skip_image=1
-# - default: validate Packer, dispatch image build, wait, then run terraform.
-# - no_wait=1: dispatch image build and return (no wait, no terraform).
-# - skip_image=1: skip image build, run terraform only.
-# -----------------------------------------------------------------------------
-# Validate Packer template only (no GCP). Also run automatically at start of 'just build'.
+# Validate Packer template (no GCP)
 packer-validate:
     packer validate \
       -var 'gcp_project=dry-run' \
@@ -129,21 +100,25 @@ packer-validate:
       -var 'gcs_bucket=dry-run' \
       infra/packer/bmt-runtime.pkr.hcl
 
-build branch="" no_wait="" skip_image="":
+# Image build then terraform (--no-wait, --skip-image, optional branch)
+build first="" second="" third="":
     #!/usr/bin/env -S bash -eu
-    B="{{ branch }}"
+    B=""
+    [[ "{{first}}" != "" && "{{first}}" != "--no-wait" && "{{first}}" != "-w" && "{{first}}" != "--skip-image" ]] && B="{{first}}"
+    [[ -z "$B" && "{{second}}" != "" && "{{second}}" != "--no-wait" && "{{second}}" != "-w" && "{{second}}" != "--skip-image" ]] && B="{{second}}"
+    [[ -z "$B" && "{{third}}" != "" && "{{third}}" != "--no-wait" && "{{third}}" != "-w" && "{{third}}" != "--skip-image" ]] && B="{{third}}"
     [[ -z "$B" ]] && B="$(git rev-parse --abbrev-ref HEAD)"
     REPO="$(git remote get-url origin | sed 's|.*github.com[:/]\(.*\)\.git|\1|;s|.*github.com[:/]\(.*\)|\1|')"
 
     do_image=1
-    [[ "{{ skip_image }}" == "1" || "{{ skip_image }}" == "true" ]] && do_image=0
+    [[ "{{first}}" == "--skip-image" || "{{second}}" == "--skip-image" || "{{third}}" == "--skip-image" ]] && do_image=0
     run_terraform=1
-    [[ "{{ no_wait }}" == "1" || "{{ no_wait }}" == "true" ]] && run_terraform=0
+    [[ "{{first}}" == "--no-wait" || "{{first}}" == "-w" || "{{second}}" == "--no-wait" || "{{second}}" == "-w" || "{{third}}" == "--no-wait" || "{{third}}" == "-w" ]] && run_terraform=0
 
-    if [[ "{{ no_wait }}" == "1" || "{{ no_wait }}" == "true" ]]; then
+    if [[ $run_terraform -eq 0 ]]; then
       if [[ $do_image -eq 1 ]]; then
         echo "Dispatching image build from branch: $B (repo: $REPO)"
-        gh workflow run trigger-image-build.yml --repo "$REPO" -f branch="$B"
+        gh workflow run trigger-image-build.yml --repo "$REPO" --ref "$B"
       fi
       exit 0
     fi
@@ -155,13 +130,13 @@ build branch="" no_wait="" skip_image="":
         -var 'gcs_bucket=dry-run' \
         infra/packer/bmt-runtime.pkr.hcl
       echo "Dispatching image build from branch: $B (repo: $REPO)"
-      if ! gh workflow run trigger-image-build.yml --repo "$REPO" -f branch="$B" 2>&1; then
-        echo "::warning::Trigger workflow must exist on default branch. Use 'just build skip_image=1' to run terraform only."
+      if ! gh workflow run trigger-image-build.yml --repo "$REPO" --ref "$B" 2>&1; then
+        echo "::warning::Trigger workflow must exist on default branch. Use 'just build --skip-image' to run terraform only."
         exit 1
       fi
       echo "Waiting for image build to complete..."
       sleep 5
-      RUN_ID="$(gh run list --workflow=trigger-image-build.yml --repo "$REPO" --limit 1 --json databaseId -q '.[0].databaseId')"
+      RUN_ID="$(gh run list --workflow=trigger-image-build.yml --repo "$REPO" --branch "$B" --limit 1 --json databaseId -q '.[0].databaseId')"
       gh run watch "$RUN_ID" --repo "$REPO" --exit-status
     fi
 

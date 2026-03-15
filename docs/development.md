@@ -226,8 +226,8 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --run-id <id>`). |
 | `just vm-check <run_id>` | Show trigger, ack, and VM serial tail for a run. Read-only; does not start the VM. |
 | `just build` | Validate Packer, dispatch image build, wait, then run terraform. |
-| `just build no_wait=1` | Dispatch image build only (no wait, no terraform). |
-| `just build skip_image=1` | Skip image build; run terraform only. |
+| `just build --no-wait` | Dispatch image build only (no wait, no terraform). |
+| `just build --skip-image` | Skip image build; run terraform only. |
 | `just act` | Run build-and-test workflow locally. Uses .env if present. |
 | `just act handoff` | Run BMT handoff workflow with current HEAD. |
 | `just act trigger` | Run trigger-ci with pull_request event. |
@@ -305,7 +305,7 @@ To remove existing `__pycache__`, `.pyc`, `.venv`, and similar bloat from the bu
 
   ```bash
   GCS_BUCKET="<bucket>" just clean-bloat              # default: dry-run
-  GCS_BUCKET="<bucket>" just clean-bloat execute      # perform deletions
+  GCS_BUCKET="<bucket>" just clean-bloat --execute   # perform deletions
   ```
 
 - **VM:** The startup wrapper removes bloat under `BMT_REPO_ROOT` after each code sync, so the next VM boot will clean the local tree. No extra step required.
