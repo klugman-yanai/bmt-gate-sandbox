@@ -176,11 +176,17 @@ jobs:
       - id: out
         run: |
           r="${{ needs.build-release.result }}"
+          event="${{ github.event_name }}"
           same_repo="${{ github.event.pull_request.head.repo.full_name == github.repository }}"
           base_ref="${{ github.base_ref || github.ref_name }}"
           if [[ "$r" != "success" && "$r" != "skipped" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Push events to this repo are always same-repo (no fork pushes in GH Actions)
+          if [[ "$event" == "push" ]]; then same_repo="true"; fi
           if [[ "$same_repo" != "true" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          if [[ "$base_ref" != "dev" && "$base_ref" != "ci/check-bmt-gate" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Allow: dev, ci/check-bmt-gate, and test/check-bmt-gate-* (sandbox dev branches)
+          if [[ "$base_ref" != "dev" && "$base_ref" != "ci/check-bmt-gate" && "$base_ref" != test/check-bmt-gate* ]]; then
+            echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           echo "run_bmt=true" >> "$GITHUB_OUTPUT"
 
   bmt:
