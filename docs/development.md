@@ -186,7 +186,7 @@ Use [nektos/act](https://github.com/nektos/act) to run GitHub Actions workflows 
    act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json
    ```
 
-   Create `.github/workflows/events/pull_request.json` with a minimal payload (e.g. `{"pull_request": {"head": {"sha": "...", "ref": "feat/foo"}, "base": {"ref": "dev"}, "number": 1}, "repository": {"default_branch": "main"}}`) or use act’s default event payload and override as needed.
+   The repo includes `.github/workflows/events/pull_request.json` with placeholder values. For a run that matches your branch, replace `head.sha` and `head.ref` in the JSON with `git rev-parse HEAD` and `git branch --show-current` (or use a script that writes the file).
 
 **Limitations**
 
