@@ -84,11 +84,11 @@ todos:
 
 ### Dependency rules (research-backed)
 
-- **L0 (leaf):** Result-path names, status/conclusion enums, trigger decision codes. No imports from other gcp.image modules.
-- **L1:** Value objects (BucketPaths, LegIdentity), TypedDict payloads (trigger, leg, manager summary, ci_verdict). May use L0 only.
+- **L0 (leaf):** Result-path names, status/conclusion enums, trigger decision codes, log_config. No imports from other gcp.image modules. path_utils and config both import from L0 only for these; path_utils may take repo root from config.constants (L0) only, not from bmt_config (L2).
+- **L1:** Value objects (BucketPaths, LegIdentity), TypedDict payloads (trigger, leg, manager summary, ci_verdict), **GatePhaseResult** (in `gcp/image/models.py`). May use L0 only.
 - **L2:** Config (WatcherEnvConfig, BmtConfig, etc.). May use L0, L1.
 - **L3:** utils, gcs_helpers, path_utils. May use L0–L2.
-- **L4:** trigger_resolution, trigger_cleanup, pointer_update, verdict_aggregation, gate (new). May use L0–L3. Must not import vm_watcher or root_orchestrator.
+- **L4:** trigger_resolution, trigger_cleanup, pointer_update, verdict_aggregation, **trigger_pipeline** (new), **github_status / github_checks**, gate (new, logic only). May use L0–L3. Must not import vm_watcher or root_orchestrator. **gate must not import verdict_aggregation or bmt_manager_base**; only bmt_manager_base and verdict_aggregation import from gate.
 - **L5:** vm_watcher, root_orchestrator, bmt_manager_base. May use L0–L4.
 
 ---
@@ -175,6 +175,8 @@ Document that the canonical way to run the watcher is `python -m gcp.image watch
 
 **Layering:** Constants/enums must be L0 (leaf): no imports from other gcp.image modules. Both path_utils and config can then import this module without cycles.
 
+**Default constants layout (pin):** Use a single `config/constants.py` for result-path names and trigger decision/reason codes unless it grows too large; add `config/status.py` only then. path_utils and all L0 consumers MUST import from this chosen module to avoid duplication and cycles.
+
 ### Task 2.1: Result path constants
 
 **Files:**
@@ -210,7 +212,7 @@ Define constants or StrEnum for decision/reason codes (ACCEPTED, REJECTED, JOBS_
 
 **WatcherEnvConfig:** Use a **dataclass** (or NamedTuple), not Pydantic; a small bundle from _setup_env_and_config does not need validation.
 
-**Module layout:** Consider a single `gcp/image/models.py` (or `payloads.py`) containing BucketPaths, LegIdentity, and later TypedDicts; split into models/paths.py, models/trigger.py, models/summary.py only if the file grows beyond ~200 lines or has a clear boundary.
+**Module layout:** Consider a single `gcp/image/models.py` (or `payloads.py`) containing BucketPaths, LegIdentity, GatePhaseResult, and later TypedDicts. Split into models/paths.py, models/trigger.py, models/summary.py only when: (1) the file grows beyond ~200 lines (primary criterion), or (2) a subset has a clear boundary with zero or minimal imports from other model submodules so splitting doesn’t introduce circular or heavy cross-imports within models/. **GatePhaseResult lives in L1** (`gcp/image/models.py`); `gcp/image/gate.py` (L4) is logic-only and imports GatePhaseResult from models. Do not put GatePhaseResult in gate.py.
 
 ### Task 3.1: BucketPaths value object
 
@@ -231,10 +233,10 @@ Define `@dataclass(frozen=True) class LegIdentity: project, bmt_id, run_id, inde
 ### Task 3.3: GatePhaseResult (and optionally RunOutputContext)
 
 **Files:**
-- Create: `gcp/image/projects/shared/run_context.py` or add to `gcp/image/models.py` / `gcp/image/gate.py`
+- Create or modify: `gcp/image/models.py` (L1) — add GatePhaseResult here (not in gate.py).
 - Modify: `gcp/image/projects/shared/bmt_manager_base.py`
 
-Define `GatePhaseResult` dataclass with fields matching the current 9-tuple. Refactor `_run_gate_phase` to return GatePhaseResult. Refactor `_write_run_outputs` to accept GatePhaseResult plus remaining args. Add RunOutputContext only if still needed.
+Define `GatePhaseResult` dataclass in `gcp/image/models.py` with fields matching the current 9-tuple. Refactor `_run_gate_phase` to return GatePhaseResult. Refactor `_write_run_outputs` to accept GatePhaseResult plus remaining args. Add RunOutputContext only if still needed.
 
 ### Task 3.4: WatcherEnvConfig (run_watcher)
 
@@ -289,7 +291,7 @@ Define TypedDict for manager summary and for ci_verdict. Use in pointer_update, 
 - Create: `gcp/image/trigger_pipeline.py`
 - Modify: `gcp/image/vm_watcher.py`
 
-Move the logic: download trigger, resolve legs, build leg lists, run orchestrator loop, aggregate verdicts, update pointers, post final status into trigger_pipeline. Expose e.g. `process_run_trigger(trigger_uri, paths: BucketPaths, workspace_root: Path, github_token_resolver) -> bool`. vm_watcher’s _process_run_trigger builds BucketPaths and calls this. Avoid circular imports; keep PR/handshake logic in pipeline or vm_watcher as appropriate.
+Move the logic: download trigger, resolve legs, build leg lists, run orchestrator loop, aggregate verdicts, update pointers, post final status into trigger_pipeline. Expose e.g. `process_run_trigger(trigger_uri, paths: BucketPaths, workspace_root: Path, github_token_resolver, ...) -> bool`. vm_watcher’s _process_run_trigger builds BucketPaths and calls this. **Handshake** (build ack payload and upload to handshake URI) stays inside the pipeline, using trigger_resolution and gcs_helpers; the pipeline must **not** import vm_watcher so that only vm_watcher imports the pipeline.
 
 ### Task 5.2: Extract gate/verdict helpers from bmt_manager_base (defer until after Phase 3)
 
@@ -312,7 +314,7 @@ Either implement _log/_log_err to write the message or remove them and use loggi
 
 ### Task 6.1: Prefer guard clauses and lookup tables
 
-In 1–2 key files (e.g. trigger_resolution, vm_watcher), replace an if/elif chain with a dict lookup or early returns. Document in a short comment.
+**Concrete target:** In `trigger_resolution.py`, replace the decision/reason if/elif chain (e.g. around accepted/rejected/skip) with a single dict mapping `(decision, reason)` or a key string to outcome, and use early returns for invalid input. Optionally do a second pass in `vm_watcher` for one similar branch. Document the pattern in a short comment. Scope: 1–2 files only.
 
 ### Task 6.2: Update docs and CLAUDE.md
 

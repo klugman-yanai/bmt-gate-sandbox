@@ -5,10 +5,11 @@ Minimum user config (declarative):
   gcp_project, gcp_zone, gcs_bucket, service_account.
 - **Optional** in tfvars: bmt_vm_name (default bmt-gate-blue). Pulumi exports
   gcs_bucket, gcp_project, bmt_vm_name, service_account to GitHub as
-  GCS_BUCKET, GCP_PROJECT, BMT_LIVE_VM, GCP_SA_EMAIL. Zone is not exported;
-  at runtime zone is fixed in code (not overridable via env).
+  GCS_BUCKET, GCP_PROJECT, BMT_LIVE_VM, GCP_SA_EMAIL.
 
-Manual in GitHub (variables, not secrets): GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID.
+Manual in GitHub (variables, not secrets): GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID,
+GCP_ZONE, BMT_STATUS_CONTEXT. Zone and status context are user-overridable;
+if unset, zone is taken from gcloud/config and status context from branch protection.
 Subscription, topic, repo root, VM pool are derived in code from BMT_LIVE_VM and constants.
 """
 
@@ -64,6 +65,8 @@ REPO_VARS_CONTRACT = RepoVarsContract(
     manual_vars=(
         "GCP_WIF_PROVIDER",
         "BMT_DISPATCH_APP_ID",
+        "GCP_ZONE",
+        "BMT_STATUS_CONTEXT",
     ),
     defaults=(),
 )
