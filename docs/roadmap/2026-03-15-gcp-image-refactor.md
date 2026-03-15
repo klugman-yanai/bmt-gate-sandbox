@@ -40,8 +40,8 @@ todos:
 
 ## Enhancement Summary
 
-**Deepened on:** 2026-03-15  
-**Sections enhanced:** Overview, Phase 1 (CLI), Phase 2 (constants), Phase 3 (value objects), Phase 4 (typed payloads), Phase 5 (extract modules), dependency and type strategy.  
+**Deepened on:** 2026-03-15
+**Sections enhanced:** Overview, Phase 1 (CLI), Phase 2 (constants), Phase 3 (value objects), Phase 4 (typed payloads), Phase 5 (extract modules), dependency and type strategy.
 **Research agents used:** best-practices-researcher, architecture-strategist, code-simplicity-reviewer.
 
 ### Key Improvements
@@ -59,7 +59,12 @@ todos:
 
 - Lazy subcommand registration: register Typer subcommands inside `main()` (or a wire function) so heavy deps (GCS, GitHub) are not loaded for `--help`.
 - gate.py must not import bmt_manager_base or GCS; only constants, enums, and plain data (e.g. GatePhaseResult). bmt_manager_base and verdict_aggregation import from gate.
-- path_utils ↔ config: any new constants module must be L0-only so both can import it without cycles.
+- path_utils ↔ config: any new constants module must be L0-only so both can import it without cycles. If you later move VM_WATCHER_SCRIPT (or other path constants) into L0, have path_utils re-export or import from L0 so path_utils remains the single public name for on-image paths; optional for this refactor.
+
+### Technical review (post-deepen)
+
+- **Consistency:** Phase order, dependency rules, type strategy, and YAGNI/deferrals are consistent. No sys.argv mutation and config-based CLI are reflected in Phase 1 tasks.
+- **Clarifications applied:** (1) L4 now explicitly includes trigger_pipeline and github_status/github_checks; L0 includes log_config; gate must not import verdict_aggregation or bmt_manager_base. (2) Phase 2: default constants layout pinned to a single `config/constants.py` unless it grows too large; path_utils and L0 consumers use that module. (3) GatePhaseResult lives in L1 (`gcp/image/models.py`); gate.py (L4) is logic-only and imports from models. (4) Task 5.1: handshake stays inside the pipeline; pipeline must not import vm_watcher. (5) Task 6.1: concrete target added (trigger_resolution decision/reason → dict lookup + early returns; optional second pass in vm_watcher).
 
 ---
 
@@ -84,7 +89,7 @@ todos:
 
 ### Dependency rules (research-backed)
 
-- **L0 (leaf):** Result-path names, status/conclusion enums, trigger decision codes, log_config. No imports from other gcp.image modules. path_utils and config both import from L0 only for these; path_utils may take repo root from config.constants (L0) only, not from bmt_config (L2).
+- **L0 (leaf):** Only the **new** constants/status modules (result-path names, status/conclusion enums, trigger decision codes, log_config). No imports from other gcp.image modules. path_utils remains L3 and does not import L0 unless we move path-related constants into L0 (optional). config (L2) may import from L0.
 - **L1:** Value objects (BucketPaths, LegIdentity), TypedDict payloads (trigger, leg, manager summary, ci_verdict), **GatePhaseResult** (in `gcp/image/models.py`). May use L0 only.
 - **L2:** Config (WatcherEnvConfig, BmtConfig, etc.). May use L0, L1.
 - **L3:** utils, gcs_helpers, path_utils. May use L0–L2.
@@ -98,6 +103,7 @@ todos:
 ### Research Insights
 
 **Best practices:**
+
 - Do not build `sys.argv` and call `main()`; it is fragile and breaks tests and programmatic use.
 - Either: (1) Refactor each `main()` to accept optional kwargs or a config object, and have Typer callbacks parse options and call `main(**opts)` or `main(config=...)`; or (2) Use Click’s `app(args=["sub", "--opt"], standalone_mode=False)` for programmatic invocation without mutating sys.argv.
 - Prefer thin CLI, fat core: CLI only parses and builds config; core logic is in a function that takes config. Tests call the core function directly.
@@ -118,31 +124,32 @@ def main(config: WatcherConfig | None = None) -> int:
     ...
 ```
 
-**VM bootstrap:** Keep path_utils.VM_WATCHER_SCRIPT and scripts/run_watcher.py as the deploy contract; `python -m gcp.image` is the implementation detail. vm_watcher.py can remain a thin wrapper that calls the same code.
+**VM bootstrap:** Keep path_utils.VM_WATCHER_SCRIPT and scripts/run_watcher.py as the deploy contract; `python -m gcp.image` is the implementation detail. vm_watcher.py can remain a thin wrapper that calls the same code. **CLI exposes both** `watcher` (vm_watcher) and `run-watcher` (scripts/run_watcher); startup continues to use scripts/run_watcher.py so the VM contract is unchanged.
 
-### Task 1.1: Add Typer-based CLI skeleton and __main__.py
+### Task 1.1: Add Typer-based CLI skeleton and **main**.py
 
 **Files:**
+
 - Create: `gcp/image/cli.py`
 - Create: `gcp/image/__main__.py`
 - Modify: `gcp/image/path_utils.py` (ensure VM_WATCHER_SCRIPT / entrypoint names stay consistent)
 
 **Step 1: Add Typer dependency (if missing)**
 
-Check: `grep -r typer pyproject.toml uv.lock 2>/dev/null || true`  
+Check: `grep -r typer pyproject.toml uv.lock 2>/dev/null || true`
 If Typer is not in the root project, add it to the workspace member that provides gcp. Root already has `typer>=0.15.0`; add to gcp/image member only if running as standalone package.
 
 **Step 2: Create CLI module with subcommand stubs**
 
 Create `gcp/image/cli.py` with a Typer app. For the watcher subcommand: parse options, build a small config object (or kwargs), and call `vm_watcher.main(config=...)` or `vm_watcher.main(**opts)`. Do **not** set `sys.argv` and then call `main()`. Lazy-import vm_watcher inside the callback to avoid pulling GCS/GitHub on `--help`.
 
-**Step 3: Create __main__.py**
+**Step 3: Create **main**.py**
 
 Create `gcp/image/__main__.py` that imports `app` from `gcp.image.cli` and runs `app()`.
 
 **Step 4: Verify entrypoint**
 
-Run: `uv run python -m gcp.image watcher --help`  
+Run: `uv run python -m gcp.image watcher --help`
 Expected: Typer shows options for watcher.
 
 **Step 5: Commit**
@@ -152,14 +159,16 @@ Expected: Typer shows options for watcher.
 ### Task 1.2: Wire orchestrator and run-watcher subcommands
 
 **Files:**
+
 - Modify: `gcp/image/cli.py`
 - Modify: `gcp/image/scripts/run_watcher.py` (optional: keep as thin wrapper that calls `python -m gcp.image run-watcher` or import and call run_watcher_main)
 
-Same pattern: parse options, build config or kwargs, call orchestrator main / run_watcher main with that config. No sys.argv mutation.
+Same pattern: parse options, build config or kwargs, call orchestrator main / run_watcher main with that config. No sys.argv mutation. Expose both `watcher` (vm_watcher) and `run-watcher` (scripts/run_watcher) as subcommands; startup keeps using scripts/run_watcher.py so the VM deploy contract is unchanged.
 
 ### Task 1.3: Document single entrypoint and update startup (optional)
 
 **Files:**
+
 - Modify: `gcp/image/scripts/README.md`
 - Optionally: `gcp/image/scripts/startup_entrypoint.sh` and `.github/bmt/ci/resources/startup_entrypoint.sh`
 
@@ -180,6 +189,7 @@ Document that the canonical way to run the watcher is `python -m gcp.image watch
 ### Task 2.1: Result path constants
 
 **Files:**
+
 - Create or modify: `gcp/image/config/constants.py` (or keep separate `config/result_paths.py` if you prefer)
 - Modify: `gcp/image/pointer_update.py`, `gcp/image/projects/shared/bmt_manager_base.py`, `gcp/image/root_orchestrator.py`, `gcp/image/verdict_aggregation.py`, `gcp/image/github/github_checks.py`
 
@@ -188,6 +198,7 @@ Define constants: CURRENT_JSON, LATEST_JSON, CI_VERDICT_JSON, MANAGER_SUMMARY_JS
 ### Task 2.2: Status and conclusion enums
 
 **Files:**
+
 - Create or modify: `gcp/image/config/status.py` (or add to `config/constants.py`)
 - Modify: `gcp/image/vm_watcher.py`, `gcp/image/github/github_checks.py`, `gcp/image/github/status_file.py`, `gcp/image/verdict_aggregation.py`
 
@@ -196,6 +207,7 @@ Use `enum.StrEnum` for CommitStatus, CheckConclusion, and any run-outcome values
 ### Task 2.3: Trigger resolution decision/reason constants
 
 **Files:**
+
 - Modify: `gcp/image/trigger_resolution.py`; optionally add to `gcp/image/config/constants.py`
 
 Define constants or StrEnum for decision/reason codes (ACCEPTED, REJECTED, JOBS_SCHEMA_INVALID, etc.). Replace literals in trigger_resolution and callers.
@@ -217,6 +229,7 @@ Define constants or StrEnum for decision/reason codes (ACCEPTED, REJECTED, JOBS_
 ### Task 3.1: BucketPaths value object
 
 **Files:**
+
 - Create: `gcp/image/models/paths.py` or add to `gcp/image/models.py`
 - Modify: `gcp/image/vm_watcher.py`, `gcp/image/root_orchestrator.py`, `gcp/image/trigger_resolution.py`, `gcp/image/pointer_update.py`
 
@@ -225,6 +238,7 @@ Define `@dataclass(frozen=True) class BucketPaths: code_root, runtime_root, buck
 ### Task 3.2: LegIdentity value object
 
 **Files:**
+
 - Add to `gcp/image/models/paths.py` or `gcp/image/models.py`
 - Modify: `gcp/image/vm_watcher.py`, `gcp/image/trigger_resolution.py`, `gcp/image/root_orchestrator.py`
 
@@ -233,14 +247,16 @@ Define `@dataclass(frozen=True) class LegIdentity: project, bmt_id, run_id, inde
 ### Task 3.3: GatePhaseResult (and optionally RunOutputContext)
 
 **Files:**
+
 - Create or modify: `gcp/image/models.py` (L1) — add GatePhaseResult here (not in gate.py).
 - Modify: `gcp/image/projects/shared/bmt_manager_base.py`
 
-Define `GatePhaseResult` dataclass in `gcp/image/models.py` with fields matching the current 9-tuple. Refactor `_run_gate_phase` to return GatePhaseResult. Refactor `_write_run_outputs` to accept GatePhaseResult plus remaining args. Add RunOutputContext only if still needed.
+Define **GatePhaseResult** in **L1** (`gcp/image/models.py`) in this task; gate.py (Phase 5) will only import it from here—do not define GatePhaseResult in gate.py. Refactor `_run_gate_phase` to return GatePhaseResult. Refactor `_write_run_outputs` to accept GatePhaseResult plus remaining args. Add RunOutputContext only if still needed.
 
 ### Task 3.4: WatcherEnvConfig (run_watcher)
 
 **Files:**
+
 - Modify: `gcp/image/scripts/run_watcher.py`
 
 Define a **dataclass** WatcherEnvConfig (bucket, project, repo_root, sub_effective, etc.). Have _setup_env_and_config return `WatcherEnvConfig | None`. Refactor main() to use the config object.
@@ -260,14 +276,16 @@ Define a **dataclass** WatcherEnvConfig (bucket, project, repo_root, sub_effecti
 ### Task 4.1: TriggerPayload and leg payload TypedDicts
 
 **Files:**
+
 - Create: `gcp/image/models/trigger.py` or add to `gcp/image/models.py`
 - Modify: `gcp/image/vm_watcher.py`, `gcp/image/trigger_resolution.py`
 
-Define TypedDict for run trigger payload (legs, repository, sha, workflow_run_id, run_context, bucket, status_context, etc.) and for resolved leg (index, project, bmt_id, run_id, decision, reason). Use in _download_and_parse_trigger and _resolve_requested_legs / _build_leg_lists.
+Define TypedDict for run trigger payload (legs, repository, sha, workflow_run_id, run_context, bucket, status_context, etc.) and for resolved leg (index, project, bmt_id, run_id, decision, reason). Use in _download_and_parse_trigger and _resolve_requested_legs /_build_leg_lists.
 
 ### Task 4.2: ManagerSummary / CiVerdict TypedDicts
 
 **Files:**
+
 - Create: `gcp/image/models/summary.py` or add to `gcp/image/models.py`
 - Modify: `gcp/image/pointer_update.py`, `gcp/image/verdict_aggregation.py`, `gcp/image/github/github_checks.py`, `gcp/image/projects/shared/bmt_manager_base.py`
 
@@ -288,14 +306,16 @@ Define TypedDict for manager summary and for ci_verdict. Use in pointer_update, 
 ### Task 5.1: Extract trigger processing pipeline from vm_watcher
 
 **Files:**
+
 - Create: `gcp/image/trigger_pipeline.py`
 - Modify: `gcp/image/vm_watcher.py`
 
-Move the logic: download trigger, resolve legs, build leg lists, run orchestrator loop, aggregate verdicts, update pointers, post final status into trigger_pipeline. Expose e.g. `process_run_trigger(trigger_uri, paths: BucketPaths, workspace_root: Path, github_token_resolver, ...) -> bool`. vm_watcher’s _process_run_trigger builds BucketPaths and calls this. **Handshake** (build ack payload and upload to handshake URI) stays inside the pipeline, using trigger_resolution and gcs_helpers; the pipeline must **not** import vm_watcher so that only vm_watcher imports the pipeline.
+Move the logic: download trigger, resolve legs, build leg lists, run orchestrator loop, aggregate verdicts, update pointers, post final status into trigger_pipeline. Expose e.g. `process_run_trigger(trigger_uri, paths: BucketPaths, workspace_root: Path, github_token_resolver, ...) -> bool`. vm_watcher’s _process_run_trigger builds BucketPaths and calls this. **Handshake** (build ack payload and upload to handshake URI) and **status posting** (commit status, check run) stay inside the pipeline, using trigger_resolution, gcs_helpers, and the injected github_token_resolver (or callables passed from vm_watcher), so the flow is not split across two call sites. The pipeline must **not** import vm_watcher so that only vm_watcher imports the pipeline.
 
 ### Task 5.2: Extract gate/verdict helpers from bmt_manager_base (defer until after Phase 3)
 
 **Files:**
+
 - Create: `gcp/image/gate.py` or `gcp/image/projects/shared/gate.py`
 - Modify: `gcp/image/projects/shared/bmt_manager_base.py`, optionally `gcp/image/verdict_aggregation.py`
 
@@ -304,6 +324,7 @@ Move _resolve_status, _gate_result, _all_failures_are_timeouts into gate.py. gat
 ### Task 5.3: Fix script _log/_log_err (optional)
 
 **Files:**
+
 - Modify: `gcp/image/scripts/run_watcher.py`, `gcp/image/scripts/audit_vm_and_bucket.py`, etc.
 
 Either implement _log/_log_err to write the message or remove them and use logging/print where needed.
@@ -318,7 +339,7 @@ Either implement _log/_log_err to write the message or remove them and use loggi
 
 ### Task 6.2: Update docs and CLAUDE.md
 
-Update docs/architecture.md, CLAUDE.md, gcp/image/scripts/README.md: single entrypoint `python -m gcp.image`, subcommands, config/constants and config/result_paths (or constants.py/status.py), models/ for value objects and payload types. Add a short “Payload contract” subsection if not already present: trigger/ack/status/verdict shapes defined in gcp/image; CI and VM use these types.
+Update docs/architecture.md, CLAUDE.md, gcp/image/scripts/README.md: single entrypoint `python -m gcp.image`, subcommands, config/constants and config/result_paths (or constants.py/status.py), models/ for value objects and payload types. Add a short “Payload contract” subsection in **docs/architecture.md** (and optionally in this plan) if not already present: trigger/ack/status/verdict shapes defined in gcp/image; CI and VM use these types.
 
 ---
 
@@ -326,7 +347,7 @@ Update docs/architecture.md, CLAUDE.md, gcp/image/scripts/README.md: single entr
 
 - **After each task:** Run `uv run python -m pytest tests/ -v --tb=line -x` (or the narrower scope given in the task). Fix any failures before the next task.
 - **Ruff:** Run `ruff check gcp/image` and `basedpyright` after Phase 2 and Phase 4; fix new issues.
-- **Rollback:** Each task is a single commit; revert by commit if a phase causes regressions.
+- **Rollback:** Each task is a single commit; revert by commit if a phase causes regressions. Revert is feature-flag-free (no toggles to maintain).
 
 ---
 
