@@ -32,8 +32,7 @@ class BucketVerifyGcpSync:
             print(f"::error::Missing source directory: {src}", file=sys.stderr)
             return 1
 
-        code_root = bucket_root_uri(bucket)
-        manifest_uri = f"{code_root}/_meta/remote_manifest.json"
+        manifest_uri = f"{bucket_root_uri(bucket)}/_meta/remote_manifest.json"
         local_d, local_count = local_digest(src, include_runtime_artifacts, DEFAULT_CODE_EXCLUDES)
         manifest = download_manifest(manifest_uri, required=True)
 

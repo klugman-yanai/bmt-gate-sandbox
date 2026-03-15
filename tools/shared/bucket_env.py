@@ -28,5 +28,18 @@ def truthy(val: str | None) -> bool:
 
 
 def bucket_root_uri(bucket: str) -> str:
-    """Bucket root: gs://<bucket>. No code/ or runtime/ prefix."""
+    """Bucket root: gs://<bucket>. No code/ or runtime/ prefix.
+
+    Use this for runtime/, _meta/, and other non-code namespaces.
+    For the code namespace (gcp/image → VM) use code_bucket_root_uri.
+    """
     return f"gs://{bucket}"
+
+
+def code_bucket_root_uri(bucket: str) -> str:
+    """Code namespace root: gs://<bucket>/code.
+
+    This is where gcp/image is synced to and where the VM startup
+    script downloads from (gcloud storage rsync gs://<bucket>/code /opt/bmt).
+    """
+    return f"gs://{bucket}/code"

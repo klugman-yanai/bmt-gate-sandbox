@@ -13,7 +13,7 @@ from pathlib import Path
 from whenever import Instant
 
 from tools.repo.paths import DEFAULT_CONFIG_ROOT
-from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
+from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, code_bucket_root_uri, truthy
 from tools.shared.bucket_sync import download_manifest, local_digest, matches
 from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
 
@@ -86,7 +86,7 @@ class BucketSyncGcp:
         *,
         bucket: str,
         src_dir: Path | str = DEFAULT_CONFIG_ROOT,
-        delete: bool = False,
+        delete: bool = True,
         include_runtime_artifacts: bool = False,
         force: bool = False,
     ) -> int:
@@ -99,8 +99,8 @@ class BucketSyncGcp:
             print(f"::error::Missing source directory: {src}", file=sys.stderr)
             return 1
 
-        dest = bucket_root_uri(bucket)
-        manifest_uri = f"{dest}/_meta/remote_manifest.json"
+        dest = code_bucket_root_uri(bucket)
+        manifest_uri = f"{bucket_root_uri(bucket)}/_meta/remote_manifest.json"
 
         if not force:
             manifest = download_manifest(manifest_uri)
@@ -133,7 +133,8 @@ class BucketSyncGcp:
         manifest["include_runtime_artifacts"] = include_runtime_artifacts
         if not include_runtime_artifacts:
             manifest["excluded_patterns"] = list(DEFAULT_CODE_EXCLUDES)
-        return _upload_manifest(dest, manifest)
+        # Manifest lives at bucket root _meta/, not under code/; verify tool reads from there.
+        return _upload_manifest(bucket_root_uri(bucket), manifest)
 
 
 if __name__ == "__main__":
