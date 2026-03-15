@@ -28,11 +28,7 @@ jobs:
           if ! gh workflow run bmt-vm-image-build.yml --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
             DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef -q '.defaultBranchRef.name')
             if [[ -z "$DEFAULT_BRANCH" ]]; then DEFAULT_BRANCH=main; fi
-<<<<<<< HEAD
-            echo "::warning::bmt-vm-image-build.yml not on $REF, triggering from default branch $DEFAULT_BRANCH instead."
-=======
             echo "::warning::bmt-vm-image-build.yml not on $REF; triggering from default branch $DEFAULT_BRANCH (push this workflow + bmt-vm-image-build.yml to $REF to build from branch)."
->>>>>>> dc01e434a (sync v9)
             if ! gh workflow run bmt-vm-image-build.yml --repo "${{ github.repository }}" --ref "$DEFAULT_BRANCH" 2>&1; then
               echo "::error::Failed to trigger bmt-vm-image-build.yml on $REF or $DEFAULT_BRANCH. Ensure .github/workflows/bmt-vm-image-build.yml exists on one of those branches."
               exit 1
