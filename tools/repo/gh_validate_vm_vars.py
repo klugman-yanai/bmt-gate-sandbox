@@ -9,17 +9,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.repo.paths import repo_root, INFRA_TERRAFORM
 from tools.shared.env_contract import list_repo_vs_vm_metadata_vars, load_env_contract
 from tools.shared.gh import cmd_exists
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
 def _terraform_bmt_vm_name() -> str | None:
     """Return Terraform primary VM name if state is available; else None."""
-    tf_dir = _repo_root() / "infra" / "terraform"
+    tf_dir = repo_root() / INFRA_TERRAFORM
     if not tf_dir.is_dir():
         return None
     proc = subprocess.run(

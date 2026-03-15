@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.repo.paths import repo_root, INFRA_TERRAFORM
 
 CONFIG_FILENAME = "bmt.tfvars.json"
 EXAMPLE_FILENAME = "bmt.tfvars.example.json"
@@ -19,12 +20,8 @@ REQUIRED_KEYS = ("gcp_project", "gcp_zone", "gcs_bucket", "service_account")
 IMAGE_FAMILY = "bmt-runtime"
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
 def _terraform_dir() -> Path:
-    return _repo_root() / "infra" / "terraform"
+    return repo_root() / INFRA_TERRAFORM
 
 
 def _load_config() -> dict:

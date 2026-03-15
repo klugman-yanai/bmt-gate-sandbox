@@ -20,12 +20,7 @@ import sys
 import uuid
 from pathlib import Path
 
-
-def _repo_root() -> Path:
-    root = Path(__file__).resolve().parent.parent.parent
-    if not (root / "gcp" / "image").is_dir():
-        raise SystemExit("Expected repo root with gcp/image/")
-    return root
+from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 
 
 def _template_manager(project: str, project_class: str) -> str:
@@ -242,8 +237,8 @@ def main() -> int:
     _validate_project_name(args.project)
     bmt_id = str(uuid.uuid4())
 
-    root = _repo_root()
-    code_root = root / "gcp" / "image"
+    root = repo_root()
+    code_root = root / DEFAULT_CONFIG_ROOT
     project_dir = code_root / "projects" / args.project
 
     if project_dir.exists() and any(project_dir.iterdir()):

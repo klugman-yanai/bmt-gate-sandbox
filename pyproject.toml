@@ -87,6 +87,7 @@ dev = [
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.0",
+    "typer>=0.24.1",
     "whenever>=0.9.5",
 ]
 

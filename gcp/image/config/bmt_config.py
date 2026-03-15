@@ -51,13 +51,15 @@ VM_STOP_WAIT_TIMEOUT_SEC: Final[int] = 420
 DEFAULT_CONTEXT_FILE: Final[str] = ".bmt/context.json"
 
 # Only these env keys are injected into config. All other values are defaults or derived
-# in code — no env override for zone, subscription, topic, repo root, status context,
+# in code — no env override for zone, subscription, topic, status context,
 # or handshake/description constants (so users cannot break things by setting them).
+# BMT_REPO_ROOT is set by VM metadata or startup script; run_watcher and tests depend on it.
 RuntimeEnvKey = Literal[
     "GCS_BUCKET",
     "GCP_PROJECT",
     "GCP_SA_EMAIL",
     "BMT_LIVE_VM",
+    "BMT_REPO_ROOT",
     "GCP_WIF_PROVIDER",
 ]
 
@@ -66,6 +68,7 @@ _RUNTIME_KEYS: Final[frozenset[RuntimeEnvKey]] = frozenset({
     "GCP_PROJECT",
     "GCP_SA_EMAIL",
     "BMT_LIVE_VM",
+    "BMT_REPO_ROOT",
     "GCP_WIF_PROVIDER",
 })
 

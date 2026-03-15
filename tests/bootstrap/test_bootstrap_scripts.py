@@ -8,19 +8,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-
-def _repo_root() -> Path:
-    # Tests can move around; resolve repo root by walking upward.
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        if (parent / "pyproject.toml").is_file() and (parent / "gcp").is_dir() and (parent / "infra").is_dir():
-            return parent
-    raise RuntimeError(f"Unable to resolve repo root from {here}")
+from tools.repo.paths import GITHUB_BMT_ROOT, IMAGE_SCRIPTS, INFRA_SCRIPTS, repo_root
 
 
 def _vm_path(rel: str) -> Path:
     """Scripts and deps live under gcp/image/scripts/ (single source of truth)."""
-    return _repo_root() / "gcp" / "image" / "scripts" / rel
+    return repo_root() / IMAGE_SCRIPTS / rel
 
 
 def _bootstrap_path(rel: str) -> Path:
@@ -29,16 +22,17 @@ def _bootstrap_path(rel: str) -> Path:
 
 
 def _metadata_entrypoint_path() -> Path:
-    return _repo_root() / ".github" / "bmt" / "cli" / "resources" / "startup_entrypoint.sh"
+    """Packaged entrypoint used by sync-vm-metadata (ci.resources)."""
+    return repo_root() / GITHUB_BMT_ROOT / "ci" / "resources" / "startup_entrypoint.sh"
 
 
 def _packer_template_path() -> Path:
-    return _repo_root() / "infra" / "packer" / "bmt-runtime.pkr.hcl"
+    return repo_root() / "infra" / "packer" / "bmt-runtime.pkr.hcl"
 
 
 def _infra_script_path(rel: str) -> Path:
     """Scripts under infra/scripts/ (e.g. build_bmt_image.py)."""
-    return _repo_root() / "infra" / "scripts" / rel
+    return repo_root() / INFRA_SCRIPTS / rel
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -51,8 +45,8 @@ def test_bootstrap_scripts_parse_with_bash_n() -> None:
     scripts = (
         _bootstrap_path("startup_entrypoint.sh"),
         _metadata_entrypoint_path(),
-        _repo_root() / "tools" / "scripts" / "hooks" / "pre-commit-sync-gcp.sh",
-        _repo_root() / "tools" / "scripts" / "hooks" / "pre-commit-image-build-warning.sh",
+        repo_root() / "tools" / "scripts" / "hooks" / "pre-commit-sync-gcp.sh",
+        repo_root() / "tools" / "scripts" / "hooks" / "pre-commit-image-build-warning.sh",
     )
     for script in scripts:
         if script.exists():
@@ -60,23 +54,23 @@ def test_bootstrap_scripts_parse_with_bash_n() -> None:
 
 
 def test_install_deps_pip(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "pyproject.toml").write_text(
+    work_dir = tmp_path / "repo"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    (work_dir / "pyproject.toml").write_text(
         '[build-system]\nrequires = ["setuptools>=61"]\nbuild-backend = "setuptools.build_meta"\n\n'
         "[project]\nname='bootstrap-test'\nversion='0.0.1'\n\n"
         '[project.optional-dependencies]\nvm = ["httpx>=0.27"]\n\n'
         '[tool.setuptools.packages.find]\nwhere = ["."]\ninclude = ["config*"]\n',
         encoding="utf-8",
     )
-    (repo_root / "config").mkdir(parents=True, exist_ok=True)
-    (repo_root / "config" / "__init__.py").write_text("", encoding="utf-8")
-    (repo_root / "config" / "bmt_config.py").write_text("", encoding="utf-8")
-    bootstrap_dir = repo_root / "bootstrap"
+    (work_dir / "config").mkdir(parents=True, exist_ok=True)
+    (work_dir / "config" / "__init__.py").write_text("", encoding="utf-8")
+    (work_dir / "config" / "bmt_config.py").write_text("", encoding="utf-8")
+    bootstrap_dir = work_dir / "bootstrap"
     bootstrap_dir.mkdir(parents=True, exist_ok=True)
 
     pip_calls = tmp_path / "pip.calls"
-    venv_bin = repo_root / ".venv" / "bin"
+    venv_bin = work_dir / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
     _write_executable(
         venv_bin / "pip",
@@ -89,67 +83,67 @@ def test_install_deps_pip(tmp_path: Path) -> None:
     )
 
     subprocess.run(
-        [sys.executable, str(_bootstrap_path("install_deps.py")), str(repo_root)],
+        [sys.executable, str(_bootstrap_path("install_deps.py")), str(work_dir)],
         check=True,
-        cwd=_repo_root(),
+        cwd=work_dir,
     )
 
     assert pip_calls.exists(), "Expected pip installer to run"
     calls = pip_calls.read_text(encoding="utf-8")
     assert "--upgrade pip" in calls
     assert "-e" in calls and "[vm]" in calls
-    assert (repo_root / ".venv" / ".bmt_dep_fingerprint").is_file()
+    assert (work_dir / ".venv" / ".bmt_dep_fingerprint").is_file()
 
 
 def test_install_deps_fails_without_pyproject(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True, exist_ok=True)
+    work_dir = tmp_path / "repo"
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     proc = subprocess.run(
-        [sys.executable, str(_bootstrap_path("install_deps.py")), str(repo_root)],
+        [sys.executable, str(_bootstrap_path("install_deps.py")), str(work_dir)],
         check=False,
-        cwd=_repo_root(),
+        cwd=work_dir,
     )
     assert proc.returncode != 0
 
 
 def test_install_deps_fails_without_vm_deps(tmp_path: Path) -> None:
     """install_deps.py fails when pyproject has no [vm] optional-dependencies."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "pyproject.toml").write_text(
+    work_dir = tmp_path / "repo"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    (work_dir / "pyproject.toml").write_text(
         "[project]\nname='bootstrap-test'\nversion='0.0.1'\n\n"
         '[tool.setuptools.packages.find]\nwhere = ["."]\ninclude = ["config*"]\n',
         encoding="utf-8",
     )
-    (repo_root / "config").mkdir(parents=True, exist_ok=True)
-    (repo_root / "config" / "__init__.py").write_text("", encoding="utf-8")
-    (repo_root / "config" / "bmt_config.py").write_text("", encoding="utf-8")
+    (work_dir / "config").mkdir(parents=True, exist_ok=True)
+    (work_dir / "config" / "__init__.py").write_text("", encoding="utf-8")
+    (work_dir / "config" / "bmt_config.py").write_text("", encoding="utf-8")
     # No [project.optional-dependencies] vm extra
 
     proc = subprocess.run(
-        [sys.executable, str(_bootstrap_path("install_deps.py")), str(repo_root)],
+        [sys.executable, str(_bootstrap_path("install_deps.py")), str(work_dir)],
         check=False,
-        cwd=_repo_root(),
+        cwd=work_dir,
     )
     assert proc.returncode != 0
 
 
 def test_install_deps_fails_when_import_check_fails(tmp_path: Path) -> None:
     """install_deps.py must exit non-zero when the post-install import check fails (fail-fast)."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True, exist_ok=True)
-    (repo_root / "pyproject.toml").write_text(
+    work_dir = tmp_path / "repo"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    (work_dir / "pyproject.toml").write_text(
         "[project]\nname='bootstrap-test'\nversion='0.0.1'\n\n"
         '[project.optional-dependencies]\nvm = ["httpx>=0.27"]\n\n'
         '[tool.setuptools.packages.find]\nwhere = ["."]\ninclude = ["config*"]\n',
         encoding="utf-8",
     )
-    (repo_root / "config").mkdir(parents=True, exist_ok=True)
-    (repo_root / "config" / "__init__.py").write_text("", encoding="utf-8")
-    (repo_root / "config" / "bmt_config.py").write_text("", encoding="utf-8")
+    (work_dir / "config").mkdir(parents=True, exist_ok=True)
+    (work_dir / "config" / "__init__.py").write_text("", encoding="utf-8")
+    (work_dir / "config" / "bmt_config.py").write_text("", encoding="utf-8")
 
-    venv_bin = repo_root / ".venv" / "bin"
+    venv_bin = work_dir / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
     _write_executable(venv_bin / "pip", "#!/usr/bin/env bash\nexit 0\n")
     # Python that fails the import check (when -c is passed).
@@ -159,9 +153,9 @@ def test_install_deps_fails_when_import_check_fails(tmp_path: Path) -> None:
     )
 
     proc = subprocess.run(
-        [sys.executable, str(_bootstrap_path("install_deps.py")), str(repo_root)],
+        [sys.executable, str(_bootstrap_path("install_deps.py")), str(work_dir)],
         check=False,
-        cwd=_repo_root(),
+        cwd=work_dir,
     )
     assert proc.returncode != 0
 
@@ -181,26 +175,26 @@ def test_packer_and_install_deps_use_same_vm_deps_source() -> None:
 
 
 def test_run_watcher_handles_home_unset(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    (repo_root / "scripts").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_bootstrap_path("run_watcher.py"), repo_root / "scripts" / "run_watcher.py")
-    shutil.copy2(_repo_root() / "gcp" / "image" / "path_utils.py", repo_root / "path_utils.py")
-    (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
+    work_dir = tmp_path / "repo"
+    (work_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_bootstrap_path("run_watcher.py"), work_dir / "scripts" / "run_watcher.py")
+    shutil.copy2(repo_root() / "gcp" / "image" / "path_utils.py", work_dir / "path_utils.py")
+    (work_dir / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
-    venv_python = repo_root / ".venv" / "bin" / "python"
+    venv_python = work_dir / ".venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True, exist_ok=True)
     _write_executable(venv_python, "#!/usr/bin/env bash\nexit 0\n")
 
     env = os.environ.copy()
     env.pop("HOME", None)
-    env["BMT_REPO_ROOT"] = str(repo_root)
+    env["BMT_REPO_ROOT"] = str(work_dir)
     env["GCS_BUCKET"] = "test-bucket"
     env["BMT_SELF_STOP"] = "0"
 
     subprocess.run(
-        [sys.executable, str(repo_root / "scripts" / "run_watcher.py")],
+        [sys.executable, str(work_dir / "scripts" / "run_watcher.py")],
         check=True,
-        cwd=repo_root,
+        cwd=work_dir,
         env=env,
     )
 
@@ -213,35 +207,35 @@ def test_run_watcher_self_stop_falls_back_to_compute_api_when_gcloud_fails(tmp_p
 
 
 def test_run_watcher_fails_fast_when_prebaked_python_missing(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    (repo_root / "scripts").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_bootstrap_path("run_watcher.py"), repo_root / "scripts" / "run_watcher.py")
-    shutil.copy2(_repo_root() / "gcp" / "image" / "path_utils.py", repo_root / "path_utils.py")
-    (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
+    work_dir = tmp_path / "repo"
+    (work_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_bootstrap_path("run_watcher.py"), work_dir / "scripts" / "run_watcher.py")
+    shutil.copy2(repo_root() / "gcp" / "image" / "path_utils.py", work_dir / "path_utils.py")
+    (work_dir / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
     # No .venv/bin/python
 
     env = os.environ.copy()
-    env["BMT_REPO_ROOT"] = str(repo_root)
+    env["BMT_REPO_ROOT"] = str(work_dir)
     env["GCS_BUCKET"] = "test-bucket"
     env["BMT_SELF_STOP"] = "0"
 
     proc = subprocess.run(
-        [sys.executable, str(repo_root / "scripts" / "run_watcher.py")],
+        [sys.executable, str(work_dir / "scripts" / "run_watcher.py")],
         check=False,
-        cwd=repo_root,
+        cwd=work_dir,
         env=env,
     )
     assert proc.returncode != 0
 
 
 def test_run_watcher_fails_fast_when_prebaked_imports_missing(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    (repo_root / "scripts").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_bootstrap_path("run_watcher.py"), repo_root / "scripts" / "run_watcher.py")
-    shutil.copy2(_repo_root() / "gcp" / "image" / "path_utils.py", repo_root / "path_utils.py")
-    (repo_root / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
+    work_dir = tmp_path / "repo"
+    (work_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_bootstrap_path("run_watcher.py"), work_dir / "scripts" / "run_watcher.py")
+    shutil.copy2(repo_root() / "gcp" / "image" / "path_utils.py", work_dir / "path_utils.py")
+    (work_dir / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
-    venv_python = repo_root / ".venv" / "bin" / "python"
+    venv_python = work_dir / ".venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True, exist_ok=True)
     # Python that fails the venv import check (subprocess -c "import jwt; ...")
     _write_executable(
@@ -250,14 +244,14 @@ def test_run_watcher_fails_fast_when_prebaked_imports_missing(tmp_path: Path) ->
     )
 
     env = os.environ.copy()
-    env["BMT_REPO_ROOT"] = str(repo_root)
+    env["BMT_REPO_ROOT"] = str(work_dir)
     env["GCS_BUCKET"] = "test-bucket"
     env["BMT_SELF_STOP"] = "0"
 
     proc = subprocess.run(
-        [sys.executable, str(repo_root / "scripts" / "run_watcher.py")],
+        [sys.executable, str(work_dir / "scripts" / "run_watcher.py")],
         check=False,
-        cwd=repo_root,
+        cwd=work_dir,
         env=env,
     )
     assert proc.returncode != 0

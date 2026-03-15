@@ -21,6 +21,7 @@ from tools.repo.paths import (
     BMT_DEPS_SUBDIR,
     BMT_PROJECT_LIB_SUBDIR,
     DEFAULT_BMT_ROOT,
+    repo_root,
 )
 
 
@@ -50,13 +51,6 @@ def _find_project_lib_dirs(bmt_root: Path) -> list[Path]:
     return sorted(lib_dirs)
 
 
-def _repo_root() -> Path:
-    root = Path(__file__).resolve().parent.parent.parent
-    if not (root / "gcp").is_dir():
-        raise SystemExit("Run from repo root (gcp/ not found).")
-    return root
-
-
 def run(
     *,
     root: Path | None = None,
@@ -64,8 +58,8 @@ def run(
     deps_dir: Path | None = None,
     dry_run: bool = False,
 ) -> int:
-    repo_root = root or _repo_root()
-    bmt_base = _resolve_bmt_root(repo_root, bmt_root or os.environ.get("BMT_ROOT"))
+    repo_root_val = root or repo_root()
+    bmt_base = _resolve_bmt_root(repo_root_val, bmt_root or os.environ.get("BMT_ROOT"))
     deps = deps_dir or _find_deps_dir(bmt_base)
     if not deps.is_dir():
         print(f"{deps} not found; nothing to symlink.", file=sys.stderr)
@@ -95,7 +89,7 @@ def run(
                         if link_path.resolve() == target:
                             if dry_run:
                                 try:
-                                    rel = link_path.relative_to(repo_root)
+                                    rel = link_path.relative_to(repo_root_val)
                                 except ValueError:
                                     rel = link_path
                                 print(f"Already linked: {rel} -> {dep.name}")
@@ -112,7 +106,7 @@ def run(
             else:
                 link_path.symlink_to(os.path.relpath(target, link_path.parent))
                 try:
-                    rel = link_path.relative_to(repo_root)
+                    rel = link_path.relative_to(repo_root_val)
                 except ValueError:
                     rel = link_path
                 print(f"Linked {rel} -> {dep.name}")

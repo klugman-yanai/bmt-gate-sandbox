@@ -11,13 +11,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
+from tools.repo.paths import repo_root
 
 def _contract_module_path() -> Path:
-    return _repo_root() / "tools" / "repo" / "vars_contract.py"
+    return repo_root() / "tools" / "repo" / "vars_contract.py"
 
 
 def default_contract_path() -> Path:
@@ -26,7 +23,7 @@ def default_contract_path() -> Path:
 
 
 def _branch_status_context_path() -> Path:
-    return _repo_root() / "infra" / "branch-status-context.json"
+    return repo_root() / "infra" / "branch-status-context.json"
 
 
 def _build_contract_from_python() -> dict[str, Any]:

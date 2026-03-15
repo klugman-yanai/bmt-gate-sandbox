@@ -12,16 +12,11 @@ import json
 import sys
 from pathlib import Path
 
-
-def _repo_root() -> Path:
-    root = Path(__file__).resolve().parent.parent.parent
-    if not (root / "schemas").is_dir():
-        raise SystemExit("Expected repo root with schemas/")
-    return root
+from tools.repo.paths import repo_root
 
 
 def main() -> int:
-    root = _repo_root()
+    root = repo_root()
     schema_path = root / "schemas" / "bmt_jobs.schema.json"
     if not schema_path.is_file():
         print(f"::error::Schema not found: {schema_path}", file=sys.stderr)

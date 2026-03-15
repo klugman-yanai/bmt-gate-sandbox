@@ -11,8 +11,9 @@ This document describes **current** configuration: Terraform for infra-derived r
 **infra/terraform** defines GCP resources and outputs infra-derived values (bucket, project, zone, VM name, Pub/Sub, etc.). **tools/repo/vars_contract.py** defines the repo vars contract (required, optional, secrets) and default values for vars that have a default. Export combines both: Terraform for infra vars, contract defaults for the rest.
 
 ```bash
-just terraform-export-vars          # Print key=value
-just terraform-export-vars-apply    # Apply to GitHub (gh variable set)
+just terraform                      # Preflight, apply infra, push repo vars to GitHub
+just terraform --verbose            # Same with full output
+just terraform-import-topics        # Import Pub/Sub topics into state (fix 409), then apply
 ```
 
 Infra-derived vars come from Terraform outputs ([outputs.tf](../infra/terraform/outputs.tf)); the mapping to GitHub var names and the full list are in **tools/repo/vars_contract.py**. **Secrets** (`GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`) are set manually and never in Terraform. The GitHub App private key may live in the bucket; it is not a repo var when not used at repo level.

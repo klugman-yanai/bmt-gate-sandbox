@@ -24,7 +24,7 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 
 ## Dev quality of life
 
-- **Just recipes** — Workflows: `just test` (pytest + ruff + basedpyright + shellcheck + layout policies), `just deploy` (sync gcp/ to bucket + verify), `just monitor`, `just vm-check <run_id>`. Run `just` for the list.
+- **Unified CLI** — `uv run python -m tools --help` for all dev commands (bucket, terraform, repo, build, bmt). **Just recipes** are thin wrappers: `just test`, `just deploy`, `just monitor`, etc. Run `just` for the list.
 - **GitHub CLI** — `gh pr checks --watch` to wait for BMT and other checks; `gh run watch <run_id>` to follow a workflow run.
 - **Job summaries** — Workflow runs write handoff and routing summaries to the Actions run summary.
 
@@ -63,7 +63,7 @@ See [docs/github-and-ci.md](docs/github-and-ci.md#actions-and-cli-tools).
 |---------------------------|------------------------|
 | `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, `GCP_SA_EMAIL`, `BMT_PUBSUB_SUBSCRIPTION` | `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` |
 
-Required vars (e.g. `GCS_BUCKET`, `BMT_LIVE_VM`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`) are set from Terraform; use `uv run python -m tools.terraform.terraform_repo_vars` (or `just terraform-export-vars-apply`) to export and apply. See [docs/configuration.md](docs/configuration.md).
+Required vars (e.g. `GCS_BUCKET`, `BMT_LIVE_VM`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`) are set from Terraform; run `just terraform` to apply infra and push repo vars to GitHub. See [docs/configuration.md](docs/configuration.md).
 
 See [docs/configuration.md](docs/configuration.md) and [infra/README.md](infra/README.md).
 

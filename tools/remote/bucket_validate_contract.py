@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.repo.paths import DEFAULT_CONFIG_ROOT
+from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 from tools.repo.results_prefix import resolve_results_prefix
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 from tools.shared.bucket_env import (
@@ -53,8 +53,8 @@ class BucketValidateContract:
             return 1
 
         # Resolve results_prefix from config (primary SK BMT uses UUID)
-        repo_root = Path(__file__).resolve().parent.parent.parent
-        config_root = repo_root / DEFAULT_CONFIG_ROOT
+        root = repo_root()
+        config_root = root / DEFAULT_CONFIG_ROOT
         results_prefix = resolve_results_prefix(config_root, "sk", SK_BMT_FALSE_REJECT_NAMUH)
 
         bucket_root = bucket_root_uri(bucket)

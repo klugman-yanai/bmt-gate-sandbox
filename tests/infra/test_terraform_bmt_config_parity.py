@@ -7,19 +7,16 @@ from pathlib import Path
 
 from gcp.image.config.bmt_config import DEFAULT_REPO_ROOT
 from gcp.image.config.constants import DEFAULT_IMAGE_FAMILY, PUBSUB_TOPIC_NAME
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
+from tools.repo.paths import repo_root, INFRA_TERRAFORM
 
 
 def _read_terraform_variables() -> str:
-    path = _repo_root() / "infra" / "terraform" / "variables.tf"
+    path = repo_root() / INFRA_TERRAFORM / "variables.tf"
     return path.read_text()
 
 
 def _read_terraform_main() -> str:
-    path = _repo_root() / "infra" / "terraform" / "main.tf"
+    path = repo_root() / INFRA_TERRAFORM / "main.tf"
     return path.read_text()
 
 

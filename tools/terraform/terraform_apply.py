@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.repo.paths import repo_root, INFRA_TERRAFORM
+
 CONFIG_FILENAME = "bmt.tfvars.json"
 EXAMPLE_FILENAME = "bmt.tfvars.example.json"
 BACKEND_PREFIX = "terraform/bmt-vm"
@@ -50,12 +52,8 @@ def _apply_had_changes(apply_out: str) -> bool:
     return "No changes." not in apply_out
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
 def _terraform_dir() -> Path:
-    return _repo_root() / "infra" / "terraform"
+    return repo_root() / INFRA_TERRAFORM
 
 
 def _load_config() -> dict:

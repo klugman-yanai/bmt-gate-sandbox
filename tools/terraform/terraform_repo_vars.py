@@ -12,16 +12,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.repo.paths import repo_root, INFRA_TERRAFORM
 from tools.repo.vars_contract import REPO_VARS_CONTRACT, TERRAFORM_OUTPUT_TO_VAR
 
 
-def _repo_root() -> Path:
-    # __file__ is tools/terraform/terraform_repo_vars.py -> repo root is parent.parent.parent
-    return Path(__file__).resolve().parent.parent.parent
-
-
 def _terraform_dir() -> Path:
-    return _repo_root() / "infra" / "terraform"
+    return repo_root() / INFRA_TERRAFORM
 
 
 def _terraform_output_raw(name: str) -> str:

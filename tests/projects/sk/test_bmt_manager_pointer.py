@@ -108,8 +108,10 @@ def test_dataset_local_path_used_when_set(tmp_path, monkeypatch):
     ):
         from gcp.image.projects.sk import bmt_manager as sk_mgr
 
-        repo_root = Path(__file__).resolve().parents[3]
-        jobs_path = repo_root / "gcp/image/projects/sk/bmt_jobs.json"
+        from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
+
+        root = repo_root()
+        jobs_path = root / DEFAULT_CONFIG_ROOT / "projects/sk/bmt_jobs.json"
         if not jobs_path.exists():
             import pytest
 

@@ -21,18 +21,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 from tools.shared.bucket_sync import matches
 from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
 
 
-def _repo_root() -> Path:
-    root = Path(__file__).resolve().parents[2]
-    return root
-
-
-def _gcp_image_files(repo_root: Path) -> set[str]:
+def _gcp_image_files(root: Path) -> set[str]:
     """Return relative paths under gcp/image that are not excluded by code sync."""
-    image_root = repo_root / "gcp" / "image"
+    image_root = root / DEFAULT_CONFIG_ROOT
     if not image_root.is_dir():
         return set()
     out: set[str] = set()
@@ -90,8 +86,8 @@ def main() -> int:
     parser.add_argument("--report", type=Path, help="Path to saved preflight report (.txt)")
     parser.add_argument("--local-only", action="store_true", help="Only list gcp/image, no gcloud")
     args = parser.parse_args()
-    repo_root = _repo_root()
-    image_paths = _gcp_image_files(repo_root)
+    root = repo_root()
+    image_paths = _gcp_image_files(root)
     print(f"gcp/image files (excludes sync-excluded): {len(image_paths)}")
     if args.local_only:
         for p in sorted(image_paths):

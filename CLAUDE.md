@@ -43,6 +43,8 @@ Scripts organized by category prefix:
 | `tools/repo/` | Repo / GitHub | Layout policies, gh_* (env, app perms, repo vars, validate VM vars), paths, vars_contract, results_prefix |
 | `tools/terraform/` | Terraform | Export Terraform outputs to GitHub repo vars |
 
+**Unified CLI:** `uv run python -m tools --help` is the single entry point (Typer). All dev commands are under `tools bucket`, `tools terraform`, `tools repo`, `tools build`, `tools bmt`. **Just recipes** are thin wrappers (e.g. `just deploy` → `tools bucket deploy`); use `just` for the recommended interface.
+
 **Run tools** via `uv run python -m tools.<folder>.<module>` (e.g. `uv run python -m tools.remote.bucket_sync_gcp`) or `just` recipes. Key modules:
 
 - **shared/** — `bucket_env.py`, `bucket_sync.py`, `layout_patterns.py`, `gh.py`, `verdict.py`, `time_utils.py`, `env_contract.py`
@@ -253,9 +255,9 @@ gh variable set GCP_ZONE "<zone>"
 gh variable set BMT_VM_NAME "<vm-name>"
 ```
 
-**BMT VM is Terraform-managed.** `BMT_VM_NAME` is set from Terraform outputs via `just terraform-export-vars-apply` (or by the bmt-vm-provision workflow after apply). Console-created VMs are not required.
+**BMT VM is Terraform-managed.** `BMT_VM_NAME` is set from Terraform outputs via `just terraform` (or by the bmt-vm-provision workflow after apply). Console-created VMs are not required.
 
-**Required (from Terraform):** `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Terraform (variables in `infra/terraform/variables.tf`) and export to GitHub with `just terraform-export-vars-apply`. Do not set them manually as optional overrides.
+**Required (from Terraform):** `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Terraform (variables in `infra/terraform/variables.tf`) and export to GitHub with `just terraform`. Do not set them manually as optional overrides.
 
 | Variable | Purpose |
 | -------- | ------- |

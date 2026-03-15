@@ -2,6 +2,8 @@
 
 This document covers the **current** development workflow: setup, testing, lint/typecheck, Justfile recipes, and deploy (sync to bucket). For configuration and env vars see [configuration.md](configuration.md).
 
+**Unified CLI:** Run `uv run python -m tools --help` for the single Typer entry point (bucket, terraform, repo, build, bmt). Just recipes are thin wrappers around these commands; `just` remains the recommended interface.
+
 ---
 
 ## Setup
@@ -18,7 +20,7 @@ This document covers the **current** development workflow: setup, testing, lint/
 2. **Environment:** For local BMT runs you only need local paths (no GCS). For bucket sync, runner upload, and VM-related commands, set the canonical vars (see [configuration.md](configuration.md)). Typical local use:
 
    ```bash
-   export GCS_BUCKET="<your-bucket>"   # for bucket_* and just sync-deploy, validate-bucket, etc.
+   export GCS_BUCKET="<your-bucket>"   # for bucket_* and just deploy, just preflight, etc.
    ```
 
    Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM` for VM serial, validate, and CI workflow.
@@ -91,11 +93,11 @@ uv run python .github/scripts/ci_driver.py wait \
 
 This is the **canonical guide** for testing production BMT CI locally using the real VM and GCS (no mocks). Follow it when you want to validate the full handoff path before pushing to production.
 
-**Production source.** BMT uses Terraform-managed VM(s). `BMT_LIVE_VM` is set from Terraform via `just terraform-export-vars-apply` or from the **BMT VM Provision** workflow after apply. Console-created VMs are not required; Terraform is the single source.
+**Production source.** BMT uses Terraform-managed VM(s). `BMT_LIVE_VM` is set from Terraform via `just terraform` or from the **BMT VM Provision** workflow after apply. Console-created VMs are not required; Terraform is the single source.
 
 **Prerequisites**
 
-- **BMT VM:** Terraform-managed; create or update the VM and repo vars with `just terraform-export-vars-apply` or the **BMT VM Provision** workflow (Actions). Console-created VMs are not required.
+- **BMT VM:** Terraform-managed; create or update the VM and repo vars with `just terraform` or the **BMT VM Provision** workflow (Actions). Console-created VMs are not required.
 - **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, and Terraform-exported vars (`just terraform`). Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
 - **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
 - **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
@@ -225,7 +227,7 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just deploy` | Sync `gcp/` to bucket and verify (sync code + runtime seed, then verify). Requires `GCS_BUCKET`. Run after changing gcp/ code. |
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --run-id <id>`). |
 | `just vm-check <run_id>` | Show trigger, ack, and VM serial tail for a run. Read-only; does not start the VM. |
-| `just build` | Validate Packer, dispatch image build, wait, then run terraform. |
+| `just build` | Validate Packer, dispatch image build, wait. Add `--infra` to run terraform after. |
 | `just build --no-wait` | Dispatch image build only (no wait, no terraform). |
 | `just build --skip-image` | Skip image build; run terraform only. |
 | `just act` | Run build-and-test workflow locally. Uses .env if present. |
