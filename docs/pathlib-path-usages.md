@@ -47,10 +47,10 @@ rg -n '"gcp/|'"'"'gcp/' --type py
 
 - `tools/repo/paths.py` — all constants are `Path`
 - `tools/repo/results_prefix.py` — `config_root: str | Path`
-- `gcp/code/config/bmt_config.py` — `path: Path | str` for context file
-- `gcp/code/github/github_auth.py` — `config_path: str | Path`, `_resolve_config_path` returns `Path`
-- `gcp/code/vm_watcher.py`, `gcp/code/root_orchestrator.py` — `workspace_root: Path`, `Path(raw).expanduser().resolve()`
-- `bmt_manager_base.py` — `workspace_root: Path`, `Path(args.workspace_root).expanduser().resolve()`
+- `gcp/image/config/bmt_config.py` — `path: Path | str` for context file
+- `gcp/image/github/github_auth.py` — `config_path: str | Path`, `_resolve_config_path` returns `Path`
+- `gcp/image/vm_watcher.py`, `gcp/image/root_orchestrator.py` — `workspace_root: Path`, `Path(raw).expanduser().resolve()`
+- `bmt_manager_base.py` (in `gcp/image/projects/shared/`) — `workspace_root: Path`, `Path(args.workspace_root).expanduser().resolve()`
 
 ### 4. GCS / bucket URIs (keep as str)
 

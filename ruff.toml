@@ -112,7 +112,7 @@ max-complexity = 10
 
 [lint.per-file-ignores]
 # Lazy/google.* imports: allow inside functions (PLC0415) and isort single-line (I001)
-"gcp/code/**" = ["PLC0415"]
+"gcp/image/**" = ["PLC0415"]
 "tests/**" = [
     "S101",    # assert is fine in tests
     "PLR2004", # magic values OK in tests

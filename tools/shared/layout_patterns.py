@@ -7,9 +7,9 @@ verify_runtime_seed_sync, clean_bloat, and gcp_layout_policy.
 from __future__ import annotations
 
 # Layout policy: allowed top-level entries under gcp/
-ALLOWED_TOP_LEVEL = {"README.md", "code", "runtime"}
+ALLOWED_TOP_LEVEL = {"README.md", "image", "remote", "local", "__init__.py"}
 
-# Code namespace: exclude from sync/verify and forbid in layout (gcp/code).
+# Code namespace: exclude from sync/verify and forbid in layout (gcp/image).
 DEFAULT_CODE_EXCLUDES = (
     r"(^|/)__pycache__(/|$)",
     r"__pycache__",
@@ -80,10 +80,10 @@ CODE_CLEAN_PATTERNS = (
     r"(^|/)sk/results(/|$)",
 )
 
-# Layout policy: forbid these in gcp/code (same as code excludes).
+# Layout policy: forbid these in gcp/image (same as code excludes).
 FORBIDDEN_CODE_PATTERNS = DEFAULT_CODE_EXCLUDES
 
-# Layout policy: forbid these in gcp/runtime (includes .wav under inputs).
+# Layout policy: forbid these in gcp/remote (includes .wav under inputs).
 FORBIDDEN_RUNTIME_PATTERNS = (
     r"(^|/)triggers(/|$)",
     r"(^|/)sk/results(/|$)",

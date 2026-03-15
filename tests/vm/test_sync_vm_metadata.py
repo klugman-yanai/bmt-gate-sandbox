@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from cli.commands import vm as sync_vm_metadata
+from ci.vm import VmManager
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,7 @@ def _required_bmt_config(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
-    monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
+    monkeypatch.setenv("BMT_LIVE_VM", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
     monkeypatch.setenv("BMT_REPO_ROOT", "/opt/bmt")
 
@@ -67,10 +67,10 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.shared, "vm_add_metadata", _fake_add_metadata)
-    monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
+    monkeypatch.setattr("ci.vm.vm_add_metadata", _fake_add_metadata)
+    monkeypatch.setattr("ci.vm.vm_describe", _fake_describe)
 
-    sync_vm_metadata.run_sync_metadata()
+    VmManager.from_env().sync_metadata()
 
     assert captured["project"] == "train-kws-202311"
     assert captured["zone"] == "europe-west4-a"
@@ -95,7 +95,10 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_load_startup_entrypoint_script_from_packaged_resource() -> None:
-    script_content = sync_vm_metadata._load_startup_entrypoint_script()
+    from importlib import resources as importlib_resources
+
+    entrypoint = importlib_resources.files("ci.resources").joinpath("startup_entrypoint.sh")
+    script_content = entrypoint.read_text(encoding="utf-8")
     assert script_content.startswith("#!/usr/bin/env bash")
     assert "_read_meta" in script_content
 
@@ -103,7 +106,7 @@ def test_load_startup_entrypoint_script_from_packaged_resource() -> None:
 def test_sync_vm_metadata_does_not_require_bucket_code_objects(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
-    monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
+    monkeypatch.setenv("BMT_LIVE_VM", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
 
     def _forbid_gcs_exists(_uri: str) -> bool:
@@ -121,17 +124,16 @@ def test_sync_vm_metadata_does_not_require_bucket_code_objects(monkeypatch: pyte
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.shared, "gcs_exists", _forbid_gcs_exists)
-    monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
-    monkeypatch.setattr(sync_vm_metadata.shared, "vm_add_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("ci.vm.vm_describe", _fake_describe)
+    monkeypatch.setattr("ci.vm.vm_add_metadata", lambda *_args, **_kwargs: None)
 
-    sync_vm_metadata.run_sync_metadata()
+    VmManager.from_env().sync_metadata()
 
 
 def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "train-kws-202311")
     monkeypatch.setenv("GCP_ZONE", "europe-west4-a")
-    monkeypatch.setenv("BMT_VM_NAME", "bmt-performance-gate")
+    monkeypatch.setenv("BMT_LIVE_VM", "bmt-performance-gate")
     monkeypatch.setenv("GCS_BUCKET", "train-kws-202311-bmt-gate")
 
     def _fake_describe(_project: str, _zone: str, _instance_name: str) -> dict[str, object]:
@@ -147,7 +149,7 @@ def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.Mo
             }
         }
 
-    monkeypatch.setattr(sync_vm_metadata.shared, "vm_describe", _fake_describe)
+    monkeypatch.setattr("ci.vm.vm_describe", _fake_describe)
 
     with pytest.raises(RuntimeError, match="Legacy BMT_BUCKET_PREFIX"):
-        sync_vm_metadata.run_sync_metadata()
+        VmManager.from_env().sync_metadata()

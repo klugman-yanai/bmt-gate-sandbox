@@ -84,12 +84,12 @@ def _load_config(path: Path) -> dict[str, str]:
     return out
 
 
-def _get_expected_from_terraform() -> dict[str, str]:
-    """Return Terraform-sourced desired repo vars (empty if Terraform not run)."""
+def _get_expected_from_terraform() -> tuple[dict[str, str], str | None]:
+    """Return (Terraform-sourced desired repo vars, error message if Terraform failed)."""
     try:
-        return get_expected_repo_vars_from_terraform()
-    except Exception:
-        return {}
+        return get_expected_repo_vars_from_terraform(), None
+    except Exception as e:
+        return {}, str(e)
 
 
 def _string_list(raw: object) -> list[str]:
@@ -153,9 +153,14 @@ def _select_branch_rule_context(
     defaults: dict[str, str],
 ) -> str:
     if not contexts:
+        # Branch has no required status checks (e.g. protection not configured, or test repo).
+        # Fall back to declared → current → default so repo-vars-check can still run.
+        fallback = declared.get(check.repo_var) or current.get(check.repo_var) or defaults.get(check.repo_var)
+        if fallback:
+            return fallback
         raise RuntimeError(
             f"Branch rule drift check for {check.repo_var} failed: "
-            f"branch '{check.branch}' has no required_status_checks contexts."
+            f"branch '{check.branch}' has no required_status_checks contexts and no fallback (declared/current/default) for {check.repo_var}."
         )
 
     candidates = contexts
@@ -364,7 +369,12 @@ def _validate_wif_provider_consistency(desired: dict[str, str]) -> list[str]:
 
 
 def _render(value: str) -> str:
-    return value or "<empty>"
+    if not value:
+        return "<empty>"
+    # Avoid showing Terraform errors or ANSI garbage as "desired"
+    if "\n" in value or "No outputs found" in value or "Warning:" in value or "\x1b[" in value:
+        return "<run just terraform first>"
+    return value
 
 
 class GhRepoVars:
@@ -386,7 +396,7 @@ class GhRepoVars:
             return 2
 
         try:
-            declared = _get_expected_from_terraform()
+            declared, tf_error = _get_expected_from_terraform()
             if config_path.is_file():
                 overrides = _load_config(config_path)
                 for k, v in overrides.items():
@@ -478,6 +488,10 @@ class GhRepoVars:
         else:
             print("Config: (Terraform + optional overrides; no override file)")
         print(f"Contract: {contract_path}")
+        if tf_error:
+            print()
+            print(f"::warning::Terraform state unavailable: {tf_error}")
+            print("::warning::Desired values for infra-derived vars come from current/default only. Run `just terraform` to populate from Terraform.")
         print()
         if branch_rule_checks:
             print("Branch-rule sourced vars:")

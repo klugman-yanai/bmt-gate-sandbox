@@ -74,6 +74,4 @@ class FakeGithubBackend:
     checks: list[dict[str, Any]] = field(default_factory=list)
 
     def post_status(self, repository: str, sha: str, state: str, context: str) -> None:
-        self.statuses.append(
-            {"repository": repository, "sha": sha, "state": state, "context": context}
-        )
+        self.statuses.append({"repository": repository, "sha": sha, "state": state, "context": context})

@@ -9,16 +9,11 @@ from pathlib import Path
 def resolve_results_prefix(config_root: str | Path, project: str, bmt_id: str) -> str:
     """Load jobs config for project and return results_prefix for the given bmt_id.
 
-    Jobs path: config_root / project / config / bmt_jobs.json.
+    Jobs path: config_root / projects / project / bmt_jobs.json.
     Returns bmts[bmt_id].paths.results_prefix, stripped of trailing slash.
     """
     root = Path(config_root).resolve()
-    jobs_path = root / project / "config" / "bmt_jobs.json"
-    if not jobs_path.is_file() and project != "projects/sk":
-        # Support repo layout with projects/ prefix (e.g. gcp/code/projects/sk/config/bmt_jobs.json)
-        jobs_path_alt = root / "projects" / project / "config" / "bmt_jobs.json"
-        if jobs_path_alt.is_file():
-            jobs_path = jobs_path_alt
+    jobs_path = root / "projects" / project / "bmt_jobs.json"
     if not jobs_path.is_file():
         raise FileNotFoundError(f"Jobs config not found: {jobs_path}")
 
@@ -40,4 +35,3 @@ def resolve_results_prefix(config_root: str | Path, project: str, bmt_id: str) -
         raise ValueError(f"BMT '{bmt_id}' missing or invalid 'paths.results_prefix' in {jobs_path}")
 
     return str(prefix).rstrip("/")
-

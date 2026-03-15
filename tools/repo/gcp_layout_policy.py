@@ -10,18 +10,46 @@ from pathlib import Path
 from tools.shared.bucket_sync import matches
 from tools.shared.layout_patterns import ALLOWED_TOP_LEVEL, FORBIDDEN_CODE_PATTERNS, FORBIDDEN_RUNTIME_PATTERNS
 
-REQUIRED_CODE_FILES = (
+# Root-level code files required in every layout (no project-specific paths).
+SHARED_REQUIRED = (
     "pyproject.toml",
     "root_orchestrator.py",
     "vm_watcher.py",
-    "vm/startup_entrypoint.sh",
-    "vm/run_watcher.sh",
+    "scripts/startup_entrypoint.sh",
+    "scripts/run_watcher.py",
+    "scripts/validate_bucket_contract.py",
+    "scripts/install_deps.py",
     "config/github_repos.json",
-    "lib/status_file.py",
-    "sk/bmt_manager.py",
-    "sk/config/bmt_jobs.json",
-    "sk/config/input_template.json",
+    "github/status_file.py",
 )
+
+
+def _discover_project_dirs(tracked_under_gcp: set[str]) -> set[str]:
+    """Return project dirs (paths under image/) that have bmt_manager.py tracked."""
+    code_prefix = "image/"
+    project_dirs: set[str] = set()
+    for rel in tracked_under_gcp:
+        if not rel.startswith(code_prefix):
+            continue
+        rel_in_code = rel[len(code_prefix) :].lstrip("/")
+        if rel_in_code.endswith("bmt_manager.py"):
+            prefix = rel_in_code[: -len("bmt_manager.py")].rstrip("/")
+            if prefix:
+                project_dirs.add(prefix)
+    return project_dirs
+
+
+def _required_code_files(tracked_under_gcp: set[str]) -> tuple[str, ...]:
+    """Build required code file list: SHARED + per-project bmt_manager.py and bmt_jobs.json."""
+    required: list[str] = list(SHARED_REQUIRED)
+    for project_dir in sorted(_discover_project_dirs(tracked_under_gcp)):
+        required.append(f"{project_dir}/bmt_manager.py")
+        required.append(f"{project_dir}/bmt_jobs.json")
+    return tuple(required)
+
+
+# Legacy: discovery replaces fixed list. Tests that need a required list can call _required_code_files(tracked_set).
+REQUIRED_CODE_FILES = _required_code_files
 
 
 class GcpLayoutPolicy:
@@ -29,8 +57,8 @@ class GcpLayoutPolicy:
 
     def run(self) -> int:
         root = Path("gcp")
-        code_root = root / "code"
-        runtime_seed_root = root / "runtime"
+        code_root = root / "image"
+        runtime_seed_root = root / "remote"
 
         missing = False
 
@@ -40,16 +68,13 @@ class GcpLayoutPolicy:
 
         for path in (code_root, runtime_seed_root):
             if not path.exists():
-                print(f"::error::Missing canonical path: {path}", file=sys.stderr)
-                missing = True
+                if path == runtime_seed_root:
+                    pass  # remote/ optional (may be empty or created later)
+                else:
+                    print(f"::error::Missing canonical path: {path}", file=sys.stderr)
+                    missing = True
 
-        for rel in REQUIRED_CODE_FILES:
-            p = code_root / rel
-            if not p.exists():
-                print(f"::error::Missing required code mirror object: {p}", file=sys.stderr)
-                missing = True
-
-        # Only validate git-tracked paths under gcp/ so local .venv/cache dirs do not fail
+        # Required = shared + per-project (discovered from tracked */bmt_manager.py)
         proc = subprocess.run(
             ["git", "ls-files", "--", "gcp/"],
             capture_output=True,
@@ -65,7 +90,15 @@ class GcpLayoutPolicy:
                     continue
                 tracked_under_gcp.add(line[4:])  # drop "gcp/" prefix
 
-        code_prefix = "code/"
+        required_code_files = _required_code_files(tracked_under_gcp)
+        for rel in required_code_files:
+            p = code_root / rel
+            if not p.exists():
+                print(f"::error::Missing required code mirror object: {p}", file=sys.stderr)
+                missing = True
+
+        # Forbidden paths under image (code mirror)
+        code_prefix = "image/"
         forbidden_hits: list[str] = []
         for rel in sorted(tracked_under_gcp):
             if not rel.startswith(code_prefix):
@@ -75,14 +108,14 @@ class GcpLayoutPolicy:
                 forbidden_hits.append(rel_in_code)
 
         if forbidden_hits:
-            print("::error::Forbidden runtime/generated paths found in gcp/code:", file=sys.stderr)
+            print("::error::Forbidden runtime/generated paths found in gcp/image:", file=sys.stderr)
             for rel in forbidden_hits[:30]:
                 print(f"  - {rel}", file=sys.stderr)
             if len(forbidden_hits) > 30:
                 print(f"  ... and {len(forbidden_hits) - 30} more", file=sys.stderr)
             missing = True
 
-        runtime_prefix = "runtime/"
+        runtime_prefix = "remote/"
         forbidden_runtime_hits = []
         for rel in sorted(tracked_under_gcp):
             if not rel.startswith(runtime_prefix):
@@ -92,7 +125,7 @@ class GcpLayoutPolicy:
                 forbidden_runtime_hits.append(rel_in_runtime)
 
         if forbidden_runtime_hits:
-            print("::error::Forbidden generated/runtime paths found in gcp/runtime:", file=sys.stderr)
+            print("::error::Forbidden generated/runtime paths found in gcp/remote:", file=sys.stderr)
             for rel in forbidden_runtime_hits[:30]:
                 print(f"  - {rel}", file=sys.stderr)
             if len(forbidden_runtime_hits) > 30:
@@ -102,10 +135,10 @@ class GcpLayoutPolicy:
         unexpected_top_level = sorted(
             entry.name
             for entry in root.iterdir()
-            if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".")
+            if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".") and entry.name != "__pycache__"
         )
         if unexpected_top_level:
-            print("::error::gcp/ must be a direct bucket mirror with only code/ and runtime/.", file=sys.stderr)
+            print("::error::gcp/ must have image/ (code mirror) and remote/ only.", file=sys.stderr)
             for name in unexpected_top_level:
                 print(f"  - unexpected: gcp/{name}", file=sys.stderr)
             missing = True
@@ -114,7 +147,7 @@ class GcpLayoutPolicy:
             return 1
 
         print("GCP layout policy check passed")
-        print(f"Code mirror root: {code_root}")
+        print(f"Code mirror root (image): {code_root}")
         print(f"Runtime seed root: {runtime_seed_root}")
         print(f"Top-level entries: {', '.join(sorted(ALLOWED_TOP_LEVEL))}")
         return 0

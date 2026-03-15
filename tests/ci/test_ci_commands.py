@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from tests._support.testutils import combined_output, decode_output_json, read_github_output
 
 
@@ -130,7 +131,7 @@ def test_all_commands_are_registered(repo_root: Path) -> None:
         "matrix",
         "filter-supported-matrix",
         "parse-release-runners",
-        "trigger",
+        "write-run-trigger",
         "upload-runner",
         "start-vm",
         "sync-vm-metadata",
@@ -170,7 +171,7 @@ def test_upload_runner_fails_without_required_env(repo_root: Path) -> None:
 
 def test_trigger_fails_with_invalid_matrix_json(repo_root: Path, tmp_path: Path) -> None:
     result = _run(
-        "trigger",
+        "write-run-trigger",
         repo_root=repo_root,
         env={
             "GCS_BUCKET": "test-bucket",

@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
+
+
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
     return _ROOT
@@ -32,12 +34,8 @@ def _stable_repo_cwd(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
 
 @pytest.fixture(autouse=True)
 def _reset_bmt_config_cache() -> None:
-    # Commands cache env-derived config; reset between tests to avoid cross-test leakage.
-    from cli.shared.config import reset_config_cache
-
-    reset_config_cache()
+    # ci package does not cache config; no-op for cross-test isolation.
     yield
-    reset_config_cache()
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -47,10 +45,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if "live_smoke" in name:
             item.add_marker("live_smoke")
             continue
-        if any(key in name for key in ("test_ci_commands.py", "test_bootstrap_scripts.py", "test_devtools_exit_codes.py")):
+        if any(
+            key in name for key in ("test_ci_commands.py", "test_bootstrap_scripts.py", "test_devtools_exit_codes.py")
+        ):
             item.add_marker("integration")
             continue
-        if any(key in name for key in ("test_run_trigger_guard.py", "test_wait_handshake.py", "test_start_vm.py", "test_sync_vm_metadata.py", "test_upload_runner_dedup.py", "test_vm_watcher_")):
+        if any(
+            key in name
+            for key in (
+                "test_run_trigger_guard.py",
+                "test_wait_handshake.py",
+                "test_start_vm.py",
+                "test_sync_vm_metadata.py",
+                "test_upload_runner_dedup.py",
+                "test_vm_watcher_",
+            )
+        ):
             item.add_marker("contract")
             continue
         item.add_marker("unit")

@@ -1,11 +1,11 @@
-"""Tests for gcp/code/lib/github_pr_comment.py."""
+"""Tests for gcp/image/lib/github_pr_comment.py."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from gcp.code.github import github_pr_comment  # type: ignore[import-not-found]
+from gcp.image.github import github_pr_comment  # type: ignore[import-not-found]
 
 
 class _Resp:

@@ -21,7 +21,7 @@ This document covers the **current** development workflow: setup, testing, lint/
    export GCS_BUCKET="<your-bucket>"   # for bucket_* and just sync-deploy, validate-bucket, etc.
    ```
 
-   Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` for VM serial, validate-vm-vars, and CI workflow.
+   Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM` for VM serial, validate-vm-vars, and CI workflow.
 
 3. **Local diagnostics location:** Keep ad-hoc logs and snapshots under `.local/diagnostics/`. Do not use a root-level `debug/` directory.
 
@@ -45,10 +45,10 @@ Runs the **local** batch runner (different code path from the VM manager). Usefu
 
 ```bash
 uv run python tools/bmt_run_local.py \
-  --bmt-id false_reject_namuh \
-  --jobs-config gcp/code/sk/config/bmt_jobs.json \
-  --runner gcp/runtime/sk/runners/kardome_runner \
-  --runtime-root gcp/runtime \
+  --bmt-id 4a5b6e82-a048-5c96-8734-2f64d2288378 \
+  --jobs-config gcp/image/projects/sk/bmt_jobs.json \
+  --runner gcp/remote/sk/runners/kardome_runner \
+  --runtime-root gcp/remote \
   --dataset-root data/sk/inputs/false_rejects \
   --workers 4
 ```
@@ -60,11 +60,11 @@ Requires `gcloud` auth and a bucket with config/runner/dataset synced.
 **1. One-off manager run** — Run the VM-side manager locally; it reads `current.json` (or bootstraps), writes under `snapshots/<run_id>/`, and emits a summary:
 
 ```bash
-uv run python gcp/code/sk/bmt_manager.py \
+uv run python gcp/image/projects/sk/bmt_manager.py \
   --bucket "<bucket>" \
   --project-id sk \
-  --bmt-id false_reject_namuh \
-  --jobs-config gcp/code/sk/config/bmt_jobs.json \
+  --bmt-id 4a5b6e82-a048-5c96-8734-2f64d2288378 \
+  --jobs-config gcp/image/projects/sk/bmt_jobs.json \
   --workspace-root ./local_batch \
   --run-context dev \
   --run-id test-run-$(date +%s) \
@@ -80,7 +80,7 @@ Then inspect GCS: `gs://<bucket>/runtime/<results_prefix>/snapshots/<run_id>/` s
 ```bash
 uv run python .github/scripts/ci_driver.py wait \
   --manifest '<json with legs: project, bmt_id, run_id, triggered_at>' \
-  --config-root gcp/code \
+  --config-root gcp/image \
   --bucket "<bucket>" \
   --timeout-sec 60
 ```
@@ -91,13 +91,16 @@ uv run python .github/scripts/ci_driver.py wait \
 
 This is the **canonical guide** for testing production BMT CI locally using the real VM and GCS (no mocks). Follow it when you want to validate the full handoff path before pushing to production.
 
+**Production source.** BMT uses Terraform-managed VM(s). `BMT_LIVE_VM` is set from Terraform via `just terraform-export-vars-apply` or from the **BMT VM Provision** workflow after apply. Console-created VMs are not required; Terraform is the single source.
+
 **Prerequisites**
 
-- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, and the Terraform-exported vars (`just terraform-export-vars-apply`), including `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
+- **BMT VM:** Terraform-managed; create or update the VM and repo vars with `just terraform-export-vars-apply` or the **BMT VM Provision** workflow (Actions). Console-created VMs are not required.
+- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, and the Terraform-exported vars (`just terraform-export-vars-apply`), including `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
 - **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
 - **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
 
-Confirm env: `gh variable list` or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME` as needed.
+Confirm env: `gh variable list` or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM` as needed.
 
 **Strict prerequisite: sync the mirror**
 
@@ -116,10 +119,10 @@ After prerequisites and sync, trigger the real CI (push to your branch or use **
 **Option B: Manual sequence**
 
 1. Sync mirror: `just deploy`.
-2. **Matrix** — `export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-matrix.out"`, `mkdir -p .local`, `BMT_CONFIG_ROOT=gcp/code UV_PROJECT=.github/bmt uv run bmt matrix`.
-3. **Trigger** — Pick `RUN_ID="local-$(date +%s)"`, set `GITHUB_RUN_ID`, `GITHUB_OUTPUT`, `FILTERED_MATRIX_JSON`, `RUN_CONTEXT`, `GITHUB_REPOSITORY`; run `UV_PROJECT=.github/bmt uv run bmt write-run-trigger`.
-4. **Sync VM metadata** — `UV_PROJECT=.github/bmt uv run bmt sync-vm-metadata` (or the equivalent CI step).
-5. **Start the VM** — `UV_PROJECT=.github/bmt uv run bmt start-vm` (debug/maintenance only; routine starts come from the workflow).
+2. **Matrix** — `export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-matrix.out"`, `mkdir -p .local`, `BMT_CONFIG_ROOT=gcp/image uv run bmt matrix`.
+3. **Trigger** — Pick `RUN_ID="local-$(date +%s)"`, set `GITHUB_RUN_ID`, `GITHUB_OUTPUT`, `FILTERED_MATRIX_JSON`, `RUN_CONTEXT`, `GITHUB_REPOSITORY`; run `uv run bmt write-run-trigger`.
+4. **Sync VM metadata** — `uv run bmt sync-vm-metadata` (or the equivalent CI step).
+5. **Start the VM** — `uv run bmt start-vm` (debug/maintenance only; routine starts come from the workflow).
 6. **Wait for handshake** — Use the workflow or poll `runtime/triggers/acks/<run_id>.json`.
 7. **Verify** — `just monitor`, `just vm-check <run_id>`, GitHub PR Checks, GCS `current.json` and `snapshots/<run_id>/`.
 
@@ -141,12 +144,12 @@ All of the following are run by **`just test`** (pytest, ruff check, ruff format
 ruff check .
 ruff format --check .
 basedpyright
-shellcheck --severity=warning gcp/code/vm/*.sh .github/bmt/cli/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
+shellcheck --severity=warning gcp/image/vm/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
 ```
 
 - **ruff:** Line length 120, Python 3.12 target.
 - **basedpyright:** Type checking across `.github/scripts`, `gcp/`, `tools/`.
-- **shellcheck:** VM and startup scripts under `gcp/code/vm/`, `.github/bmt/cli/resources/startup_entrypoint.sh`, and `tools/scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
+- **shellcheck:** VM and startup scripts under `gcp/image/vm/`, `.github/bmt/ci/resources/startup_entrypoint.sh`, and `tools/scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
 
 ---
 
@@ -170,7 +173,7 @@ Other operations (sync, upload, validate, repo vars, bmt matrix/trigger, etc.) a
 
 There is **no formal build step** for the BMT pipeline. Deployment is:
 
-1. **Manual sync `gcp/code` to `<code-root>`** so VM boot and orchestrator fetches match local source:
+1. **Manual sync `gcp/image` to `<code-root>`** so VM boot and orchestrator fetches match local source:
 
    ```bash
    GCS_BUCKET="<bucket>" just deploy
@@ -178,11 +181,11 @@ There is **no formal build step** for the BMT pipeline. Deployment is:
    ```
 
    Notes:
-   - `gcp/code/_tools/uv/linux-x86_64/uv.sha256` is the pinned UV checksum.
+   - `gcp/image/_tools/uv/linux-x86_64/uv.sha256` is the pinned UV checksum.
    - `bucket_sync_deploy.py` uploads the local `uv` binary to `<code-root>/_tools/uv/linux-x86_64/uv` and validates it against that checksum.
    - Override local UV path during sync with `BMT_UV_TOOL_PATH=/path/to/uv`.
 
-2. **Manual sync `gcp/runtime` seed to `<runtime-root>`** when seed artifacts change:
+2. **Manual sync `gcp/remote` seed to `<runtime-root>`** when seed artifacts change:
 
    ```bash
    GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_sync_runtime_seed
@@ -196,27 +199,34 @@ There is **no formal build step** for the BMT pipeline. Deployment is:
    GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_upload_wavs
    ```
 
-Dataset policy:
+Dataset policy: `data/` is the local authoritative source for large WAV corpora; `gcp/remote/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
 
-- `data/` is the local authoritative source for large WAV corpora.
-- `gcp/runtime/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
-
-1. **Validate bucket contract:**
+4. **Validate bucket contract:**
 
    ```bash
    GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_validate_contract
    ```
 
-CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `gcp/code` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../gcp/code/vm/README.md](../gcp/code/vm/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
+5. **Read-only mount for local inspection (optional):** To browse or play bucket dataset WAVs locally without downloading, use the FUSE script (requires `gcsfuse` and `gcloud` auth):
+
+   ```bash
+   GCS_BUCKET="<bucket>" tools/local/mount_remote_data.sh
+   # Default mount: ./mnt/audio_data. Override with BMT_MOUNT_POINT=<path>.
+   # Unmount: fusermount -u ./mnt/audio_data
+   ```
+
+   The mount is read-only (`-o ro`) so you cannot accidentally modify or delete bucket objects.
+
+CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `gcp/image` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../gcp/image/vm/README.md](../gcp/image/vm/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
 
 ### VM image: rebuild when needed
 
-The **BMT Image Build** workflow (`.github/workflows/bmt-image-build.yml`) builds the VM image with Packer. To keep the image up to date:
+The **BMT Image Build** workflow (`.github/workflows/bmt-vm-image-build.yml`) builds the VM image with Packer. To keep the image up to date:
 
-- **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/code/vm/**` trigger the image build. The new image is published to the same family; Terraform and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
+- **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/image/vm/**` trigger the image build. The new image is published to the same family; Terraform and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
 - **Manual:** Run the workflow from the Actions tab (**BMT Image Build** → Run workflow) to rebuild with default inputs.
 - **Image-up-to-date check:** The BMT workflow runs a **Check image up to date** job first. If image-affecting paths changed on your branch/commit but no successful BMT Image Build run exists for that ref, the job fails with a clear message; run BMT Image Build for the branch and re-run BMT.
-- **Pre-commit:** When you commit under `infra/packer/` or `gcp/code/vm/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/code/vm/README.md](../gcp/code/vm/README.md).
+- **Pre-commit:** When you commit under `infra/packer/` or `gcp/image/vm/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/image/vm/README.md](../gcp/image/vm/README.md).
 - **Using the new image:** New VMs get the latest image automatically. For an existing VM, run the **BMT VM Provision** workflow (with the same image family) and recreate the instance if you need the new disk image (e.g. after cloud-init or bootstrap changes).
 
 ### Cleaning GCS and VM of Python/uv bloat
@@ -284,7 +294,7 @@ Use `just monitor --run-id <id>` to confirm `run_outcome` / `cancel_reason` / `s
 ## VM start policy
 
 - Manual VM starts are allowed only for **debugging**, **maintenance**, or **testing**.
-- Routine starts should come from workflow control-plane (`bmt.yml`).
+- Routine starts should come from workflow control-plane (`bmt-handoff.yml`).
 - Local/manual `start-vm` requires explicit override:
   - `--allow-manual-start`, or
   - `BMT_ALLOW_MANUAL_VM_START=1`

@@ -9,8 +9,9 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
+
+from whenever import Instant
 
 from tools.repo.paths import DEFAULT_RUNTIME_ROOT
 from tools.shared.bucket_env import bucket_from_env, runtime_bucket_root_uri, truthy
@@ -49,7 +50,7 @@ def _local_manifest(src: Path, allow_generated_artifacts: bool) -> dict[str, obj
     digest = hashlib.sha256(digest_input).hexdigest()
     return {
         "schema_version": 1,
-        "synced_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "synced_at": Instant.now().format_iso(unit="second"),
         "source_dir": str(src),
         "source_dir_name": src.name,
         "source_file_count": len(files),

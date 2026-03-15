@@ -3,8 +3,7 @@
 
 Hybrid: infra-derived vars from Terraform (terraform output -raw <name>);
 behavioral vars from repo_vars_contract defaults. Run from repo root.
-Secrets (GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID, BMT_DISPATCH_APP_PRIVATE_KEY)
-are not set here; set them manually. See infra/README.md.
+Secrets (GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID) are not set here; set them manually. See infra/README.md.
 """
 
 from __future__ import annotations
@@ -38,11 +37,16 @@ def _terraform_output_raw(name: str) -> str:
         text=True,
         check=False,
     )
+    out = (proc.stdout or "").strip()
+    err = (proc.stderr or "").strip()
     if proc.returncode != 0:
+        raise RuntimeError(f"terraform output -raw {name} failed: {err or out or 'no output'}")
+    # Terraform can print "No outputs found" to stdout when state is empty; treat as failure
+    if not out or "No outputs found" in out or "Warning:" in out:
         raise RuntimeError(
-            f"terraform output -raw {name} failed: {(proc.stderr or proc.stdout or '').strip()}"
+            "Terraform state has no outputs (or output is a warning). Run `just terraform` first."
         )
-    return (proc.stdout or "").strip()
+    return out
 
 
 def get_expected_repo_vars_from_terraform() -> dict[str, str]:

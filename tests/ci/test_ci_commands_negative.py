@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+
 from tests._support.testutils import decode_output_json, read_github_output
 
 

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/manager_summary.schema.json",
+  "title": "BMT manager summary",
+  "description": "Per-leg manager output written as manager_summary.json. Runtime artifact; consumed by root_orchestrator.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "timestamp": { "type": "string", "description": "ISO8601 UTC timestamp" },
+    "project_id": { "type": "string" },
+    "bmt_id": { "type": "string" },
+    "run_context": { "type": "string" },
+    "run_id": { "type": "string" },
+    "status": { "type": "string", "description": "pass or fail" },
+    "reason_code": { "type": "string" },
+    "demo_force_pass": { "type": "boolean" },
+    "passed": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "aggregate_score": { "type": "number" },
+    "raw_aggregate_score": { "type": "number" },
+    "last_score": { "type": ["number", "null"] },
+    "gate": { "type": "object", "additionalProperties": true },
+    "delta_from_previous": { "type": ["number", "null"] },
+    "failed_count": { "type": "integer" },
+    "latest_json": { "type": "string", "description": "Local path to latest.json" },
+    "ci_verdict_uri": { "type": "string", "description": "GCS URI of ci_verdict.json" },
+    "cache_stats": { "type": "object", "additionalProperties": true },
+    "sync_stats": { "type": "object", "additionalProperties": true },
+    "artifact_upload_stats": { "type": "object", "additionalProperties": true },
+    "orchestration_timing": {
+      "type": "object",
+      "properties": {
+        "started_at": { "type": "string" },
+        "completed_at": { "type": "string" },
+        "duration_sec": { "type": "integer" },
+        "stages": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    }
+  }
+}

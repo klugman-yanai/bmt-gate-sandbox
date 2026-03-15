@@ -10,7 +10,7 @@ You have **full permissions** on **bmt-gate-sandbox** (klugman-yanai) but **not 
 
 **How to manage drift**
 
-1. **Compare `.github` between core-main and bmt-gcloud** — See [Drift: core-main vs bmt-gcloud](#drift-core-main-vs-bmt-gcloud) for the file map. From bmt-gcloud repo root, diff the paths listed there (e.g. `diff -r "$CORE_MAIN/.github/workflows/bmt.yml" .github/workflows/bmt.yml` and the actions/bmt* and `.github/bmt/` trees). Exit code 1 if any differ.
+1. **Compare `.github` between core-main and bmt-gcloud** — See [Drift: core-main vs bmt-gcloud](#drift-core-main-vs-bmt-gcloud) for the file map. From bmt-gcloud repo root, diff the paths listed there (e.g. `diff -r "$CORE_MAIN/.github/workflows/bmt-handoff.yml" .github/workflows/bmt-handoff.yml` and the actions/bmt* and `.github/bmt/` trees). Exit code 1 if any differ.
 
 2. **Use the diff to decide direction** — Only in bmt-gcloud → propose adding to core-main via PR or treat as dev-only. Only in core-main → add to bmt-gcloud if you want to mirror, or accept as prod-only. Different content → either open a PR to core-main with bmt-gcloud's version, or update bmt-gcloud from core-main.
 
@@ -60,12 +60,12 @@ The **bmt-gate-sandbox** repo (klugman-yanai/bmt-gate-sandbox) should mirror **p
 | **Triggers** | push: `dev` only; pull_request: `dev`, `ci/check-bmt-gate`, `test/check-bmt-gate-*`, etc. | Same triggers. |
 | **Concurrency** | `group: ci-${{ github.repository }}-...`, `cancel-in-progress: true` | Same. |
 | **BMT handoff condition** | Runs when branch is `dev` or `ci/check-bmt-gate` | Same condition. |
-| **bmt.yml** | Reusable workflow; same inputs | Same; use same `.github/workflows/bmt.yml` and `.github/actions/*`. |
+| **bmt-handoff.yml** | Reusable workflow; same inputs | Same; use same `.github/workflows/bmt-handoff.yml` and `.github/actions/*`. |
 
 **Deploying to the sandbox repo**
 
 1. **Workflow filename** — In bmt-gcloud the CI workflow may be `build-and-test.yml` (minimal dummy builds). For the sandbox repo, use the **same filename** `build-and-test.yml` so branch protection and tooling behave the same.
-2. **Copy from bmt-gcloud to sandbox** — Copy `.github/workflows/build-and-test.yml`, `.github/workflows/bmt.yml`, and `.github/actions/*` from bmt-gcloud. Ensure sandbox has the same structure for BMT (`.github/bmt` as used by the workflow).
+2. **Copy from bmt-gcloud to sandbox** — Copy `.github/workflows/build-and-test.yml`, `.github/workflows/bmt-handoff.yml`, and `.github/actions/*` from bmt-gcloud. Ensure sandbox has the same structure for BMT (`.github/bmt` as used by the workflow).
 3. **Repo variables and secrets** — Use **sandbox** GCP/GitHub App configuration. Only **workflow shape and conditions** mirror production; credentials and resources stay sandbox-specific.
 
 **Acceptable differences**
@@ -74,7 +74,7 @@ The **bmt-gate-sandbox** repo (klugman-yanai/bmt-gate-sandbox) should mirror **p
 - **resolve-context job:** Sandbox can keep a `resolve-context` job; BMT handoff still uses the same condition.
 - **Branch list:** Production may add branches over time; keep sandbox trigger list in sync when you want identical behavior.
 
-**Reference:** Production CI is in **Kardome-org/core-main**: `.github/workflows/build-and-test.yml`, `.github/workflows/bmt.yml`. When in doubt, compare sandbox `build-and-test.yml` triggers, concurrency, and **bmt** job `if` condition with core-main's.
+**Reference:** Production CI is in **Kardome-org/core-main**: `.github/workflows/build-and-test.yml`, `.github/workflows/bmt-handoff.yml`. When in doubt, compare sandbox `build-and-test.yml` triggers, concurrency, and **bmt** job `if` condition with core-main's.
 
 ---
 
@@ -88,14 +88,14 @@ This section defines **what to compare** between Kardome-org/core-main and bmt-g
 | --- | --- | --- | --- |
 | **Workflows** | | | |
 | `workflows/build-and-test.yml` | ✅ Main CI (real build) | ✅ Sandbox CI (dummy builds) | Same triggers/concurrency/BMT condition; bmt-gcloud uses minimal dummy build steps. |
-| `workflows/bmt.yml` | ✅ | ✅ | **Must stay in sync.** |
+| `workflows/bmt-handoff.yml` | ✅ | ✅ | **Must stay in sync.** |
 | **Actions (BMT)** | | | |
-| `actions/bmt-prepare/action.yml` | ✅ | ✅ | **Must stay in sync.** |
-| `actions/bmt-classify-handoff/action.yml` | ✅ | ✅ | **Must stay in sync.** |
+| `actions/bmt-prepare-context/action.yml` | ✅ | ✅ | **Must stay in sync.** |
+| `actions/bmt-filter-handoff-matrix/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | `actions/bmt-handoff-run/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | `actions/bmt-write-summary/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | `actions/bmt-failure-fallback/action.yml` | ✅ | ✅ | **Must stay in sync.** |
-| `actions/bmt-job-setup/action.yml` | ✅ | ✅ | **Must stay in sync.** Checkout + restore snapshot + uv + load-env. |
+| `actions/bmt-runner-env/action.yml` | ✅ | ✅ | **Must stay in sync.** Checkout + restore snapshot + uv + load-env. |
 | **Actions (GCP / shared)** | | | |
 | `actions/setup-gcp-uv/action.yml` | ✅ | ✅ | **Must stay in sync.** |
 | **BMT CLI / config** | | | |
@@ -103,8 +103,8 @@ This section defines **what to compare** between Kardome-org/core-main and bmt-g
 
 **Files you must diff**
 
-- `.github/workflows/bmt.yml`
-- `.github/actions/bmt-prepare/action.yml`, `bmt-classify-handoff/action.yml`, `bmt-handoff-run/action.yml`, `bmt-write-summary/action.yml`, `bmt-failure-fallback/action.yml`
+- `.github/workflows/bmt-handoff.yml`
+- `.github/actions/bmt-prepare-context/action.yml`, `bmt-filter-handoff-matrix/action.yml`, `bmt-handoff-run/action.yml`, `bmt-write-summary/action.yml`, `bmt-failure-fallback/action.yml`
 - `.github/actions/setup-gcp-uv/action.yml`
 - `.github/bmt/` (entire tree; exclude secrets and `__pycache__`)
 
@@ -118,8 +118,8 @@ From **bmt-gcloud** repo root, with core-main checked out locally (e.g. `../core
 
 ```bash
 CORE_MAIN="${CORE_MAIN:-$(realpath ../core-main 2>/dev/null || realpath ../kardome/core-main 2>/dev/null)}"
-diff -r "$CORE_MAIN/.github/workflows/bmt.yml" .github/workflows/bmt.yml
-diff -r "$CORE_MAIN/.github/actions/bmt-prepare" .github/actions/bmt-prepare
+diff -r "$CORE_MAIN/.github/workflows/bmt-handoff.yml" .github/workflows/bmt-handoff.yml
+diff -r "$CORE_MAIN/.github/actions/bmt-prepare-context" .github/actions/bmt-prepare-context
 # ... and the other paths in the table
 ```
 
@@ -133,4 +133,4 @@ diff -r "$CORE_MAIN/.github/actions/bmt-prepare" .github/actions/bmt-prepare
 **Intentional differences to keep documented**
 
 - **Main CI file name:** Production = `build-and-test.yml`; bmt-gcloud may use same name for sandbox copy.
-- **Build steps:** core-main may have real build steps in the build job; bmt-gcloud uses a dummy build. Both use `bmt-job-setup` in the BMT workflow (checkout + restore snapshot + uv + load-env).
+- **Build steps:** core-main may have real build steps in the build job; bmt-gcloud uses a dummy build. Both use `bmt-runner-env` in the BMT workflow (checkout + restore snapshot + uv + load-env).

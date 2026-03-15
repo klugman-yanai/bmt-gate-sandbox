@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 """Local SK batch runner (config-first).
 
-Reads BMT behavior from gcp/code/sk/config/bmt_jobs.json and runs
+Reads BMT behavior from gcp/image/projects/sk/bmt_jobs.json and runs
 kardome_runner once per wav by creating a transient JSON from the configured
 template. CLI flags act as explicit overrides.
 """
@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.repo.paths import DEFAULT_CONFIG_ROOT, DEFAULT_RUNTIME_ROOT
+from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 from tools.shared.bucket_env import truthy
 from tools.shared.time_utils import now_iso, now_stamp
 
@@ -63,8 +64,8 @@ class ResolvedConfig:
 
 @dataclass
 class RunOptions:
-    jobs_config: Path | str = "gcp/code/sk/config/bmt_jobs.json"
-    bmt_id: str = "false_reject_namuh"
+    jobs_config: Path | str = "gcp/image/projects/sk/bmt_jobs.json"
+    bmt_id: str = SK_BMT_FALSE_REJECT_NAMUH
     project_id: str = "sk"
     run_context: str = "manual"
     code_root: Path | str = DEFAULT_CONFIG_ROOT
@@ -199,7 +200,7 @@ def resolve_config(opts: RunOptions) -> ResolvedConfig:
         return default
 
     runner_raw = opts.runner.strip() or runner_contract or "sk/runners/kardome_runner"
-    template_raw = opts.template.strip() or get_path(bmt_cfg, "template_uri") or "sk/config/input_template.json"
+    template_raw = opts.template.strip() or get_path(bmt_cfg, "template_uri") or "projects/shared/input_template.json"
     dataset_raw = (
         opts.dataset_root.strip() or get_path(paths_cfg, "dataset_prefix") or f"sk/inputs/{opts.results_subdir}"
     )
@@ -622,8 +623,8 @@ class BmtRunLocal:
     def run(
         self,
         *,
-        jobs_config: Path | str = "gcp/code/sk/config/bmt_jobs.json",
-        bmt_id: str = "false_reject_namuh",
+        jobs_config: Path | str = "gcp/image/projects/sk/bmt_jobs.json",
+        bmt_id: str = SK_BMT_FALSE_REJECT_NAMUH,
         project_id: str = "sk",
         run_context: str = "manual",
         code_root: Path | str = DEFAULT_CONFIG_ROOT,
@@ -672,19 +673,21 @@ class BmtRunLocal:
 
 if __name__ == "__main__":
     e = os.environ.get
+
     def s(key: str, default: str = "") -> str:
         return (e(key) or "").strip() or default
+
     run_ctx = s("BMT_RUN_CONTEXT") or "manual"
     if run_ctx not in ("manual", "dev", "pr"):
         run_ctx = "manual"
     num_src = e("BMT_NUM_SOURCE_TEST")
     code_root: str | Path = (e("BMT_CODE_ROOT") or "").strip() or DEFAULT_CONFIG_ROOT
     runtime_root: str | Path = (e("BMT_RUNTIME_ROOT") or "").strip() or DEFAULT_RUNTIME_ROOT
-    jobs_config_val: str | Path = (e("BMT_JOBS_CONFIG") or "").strip() or "gcp/code/sk/config/bmt_jobs.json"
+    jobs_config_val: str | Path = (e("BMT_JOBS_CONFIG") or "").strip() or "gcp/image/projects/sk/bmt_jobs.json"
     raise SystemExit(
         BmtRunLocal().run(
             jobs_config=jobs_config_val,
-            bmt_id=s("BMT_ID", "false_reject_namuh"),
+            bmt_id=s("BMT_ID", SK_BMT_FALSE_REJECT_NAMUH),
             project_id=s("BMT_PROJECT_ID", "sk"),
             run_context=run_ctx,
             code_root=code_root,

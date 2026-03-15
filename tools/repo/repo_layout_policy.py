@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.repo.paths import DEFAULT_CONFIG_ROOT, DEFAULT_RUNTIME_ROOT
+from tools.repo.paths import DEFAULT_CONFIG_ROOT
 
 ALLOWED_TRACKED_TOP_LEVEL = {
     ".cursorignore",
@@ -46,12 +46,12 @@ FORBIDDEN_EXISTING_TOP_LEVEL = {
 }
 
 REQUIRED_PATHS = (
-    ".github/workflows/bmt.yml",
+    ".github/workflows/bmt-handoff.yml",
     ".github/workflows/build-and-test.yml",
     DEFAULT_CONFIG_ROOT,
-    DEFAULT_RUNTIME_ROOT,
     "tools/scripts/hooks/pre-commit-sync-gcp.sh",
 )
+# gcp/remote (DEFAULT_RUNTIME_ROOT) is optional: populated by sync; not required to exist for policy pass.
 
 
 def _tracked_paths() -> list[str]:

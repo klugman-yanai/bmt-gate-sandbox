@@ -1,0 +1,140 @@
+name: Auto Format C/C++
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - dev
+      - main
+      - master
+    paths:
+      - '**/*.c'
+      - '**/*.cc'
+      - '**/*.cpp'
+      - '**/*.cxx'
+      - '**/*.h'
+      - '**/*.hh'
+      - '**/*.hpp'
+      - '**/*.hxx'
+      - '**/*.ipp'
+      - '.clang-format'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clang-format-auto-fix-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  auto-format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format-17
+        run: |
+          set -euo pipefail
+
+          if command -v clang-format-17 >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          sudo apt-get update
+          if sudo apt-get install -y --no-install-recommends clang-format-17; then
+            exit 0
+          fi
+
+          codename="$(lsb_release -cs)"
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          printf '%s\n' \
+            "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-17 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm17.list >/dev/null
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-format-17
+
+      - name: Collect changed C/C++ files
+        id: changed-files
+        run: |
+          set -euo pipefail
+
+          before_sha="${{ github.event.before }}"
+          current_sha="${{ github.sha }}"
+          default_branch="${{ github.event.repository.default_branch }}"
+          tmp_file="$(mktemp)"
+
+          if [[ -n "${before_sha}" && "${before_sha}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --name-only --diff-filter=ACMR -z "${before_sha}" "${current_sha}" >"${tmp_file}"
+          else
+            merge_base="$(git merge-base "origin/${default_branch}" "${current_sha}")"
+            git diff --name-only --diff-filter=ACMR -z "${merge_base}" "${current_sha}" >"${tmp_file}"
+          fi
+
+          files_to_format=()
+          while IFS= read -r -d '' file; do
+            [[ "${file}" == third-party/* ]] && continue
+            [[ ! -f "${file}" ]] && continue
+
+            case "${file}" in
+              *.c|*.cc|*.cpp|*.cxx|*.h|*.hh|*.hpp|*.hxx|*.ipp)
+                files_to_format+=("${file}")
+                ;;
+            esac
+          done <"${tmp_file}"
+
+          rm -f "${tmp_file}"
+
+          if [[ "${#files_to_format[@]}" -eq 0 ]]; then
+            echo "has_changes=false" >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          {
+            echo "has_changes=true"
+            echo "files<<EOF"
+            printf '%s\n' "${files_to_format[@]}"
+            echo "EOF"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Run clang-format-17
+        if: steps.changed-files.outputs.has_changes == 'true'
+        run: |
+          set -euo pipefail
+
+          mapfile -t files_to_format <<'EOF'
+          ${{ steps.changed-files.outputs.files }}
+          EOF
+
+          clang-format-17 -i "${files_to_format[@]}"
+
+      - name: Commit and push formatting changes
+        if: steps.changed-files.outputs.has_changes == 'true'
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet --; then
+            echo "No formatting changes were needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          mapfile -t files_to_format <<'EOF'
+          ${{ steps.changed-files.outputs.files }}
+          EOF
+
+          git add -- "${files_to_format[@]}"
+          git commit -m "style: auto-format changed C/C++ files [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -27,11 +27,6 @@ def truthy(val: str | None) -> bool:
     return (val or "").strip().lower() in ("1", "true", "yes")
 
 
-def code_bucket_root_uri(bucket: str) -> str:
-    """Code bucket root: gs://<bucket>/code."""
-    return f"gs://{bucket}/code"
-
-
-def runtime_bucket_root_uri(bucket: str) -> str:
-    """Runtime bucket root: gs://<bucket>/runtime."""
-    return f"gs://{bucket}/runtime"
+def bucket_root_uri(bucket: str) -> str:
+    """Bucket root: gs://<bucket>. No code/ or runtime/ prefix."""
+    return f"gs://{bucket}"

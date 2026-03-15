@@ -53,9 +53,7 @@ def download_manifest(uri: str, required: bool = False) -> dict[str, object] | N
     )
     if proc.returncode != 0:
         if required:
-            raise RuntimeError(
-                f"Failed to read manifest {uri}: {(proc.stderr or proc.stdout or '').strip()}"
-            )
+            raise RuntimeError(f"Failed to read manifest {uri}: {(proc.stderr or proc.stdout or '').strip()}")
         return None
     try:
         out = json.loads(proc.stdout)

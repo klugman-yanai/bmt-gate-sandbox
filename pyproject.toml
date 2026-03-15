@@ -7,9 +7,11 @@ name = "bmt-gcloud"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "archivefile>=1.0.0",
     "bmt",
     "orjson>=3.10",
-    "prek>=0.3.3",
+    "prek>=0.3.5",
+    "pydantic>=2.12.5",
     "requests>=2.31.0",
     "rich>=13.0",
     "whenever>=0.9.5",
@@ -17,30 +19,42 @@ dependencies = [
 
 [tool.uv.sources]
 bmt = { workspace = true }
+# So that member .github/bmt can depend on bmt-gcloud without listing it (keeps that pyproject portable).
+bmt-gcloud = { workspace = true }
+
+# Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
+[tool.uv.workspace]
+members = [".github/bmt", "gcp/image"]
+# exclude = []   # Optional: globs to exclude from members (e.g. a dir with pyproject you don't want as member)
 
 [tool.uv]
-# Root installable package exposing gcp and tools for CLI/tests. No PYTHONPATH/sys.path.
 package = true
 
-[tool.uv.workspace]
-members = [".github/bmt", "gcp/code"]
-
 [project.optional-dependencies]
+# Runtime extras: install with pip install -e ".[vm]" or ".[monitor]" when using root env for VM/monitor.
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
 vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 # For live BMT monitor TUI (install with: pip install -e ".[monitor]")
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# Root package exposes gcp + tools. gcp/code is a workspace member for VM install.
-
+# Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-vm-runtime).
+# Run a member with: uv run --package bmt … or uv run --package bmt-vm-runtime …
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gcp*", "tools*"]
 
 [tool.basedpyright]
 include = ["."]
-exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime", "local_batch", "secrets"]
+exclude = [
+    "**/.venv",
+    "**/node_modules",
+    "**/__pycache__",
+    "data",
+    "sk_runtime",
+    "local_batch",
+    "secrets",
+]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
@@ -53,12 +67,14 @@ reportUnknownMemberType = false
 reportUnknownVariableType = false
 reportUnknownArgumentType = false
 
+# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Install with: uv sync --group dev
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
     "google-auth-stubs>=0.3.0",
     "httpx>=0.28.1",
-    "prek>=0.3.3",
+    "jsonschema>=4.21",
+    "prek>=0.3.5",
     "pyjwt>=2.11.0",
     "pytest>=9.0.2",
     "pytest-github-actions-annotate-failures>=0.4.0",
@@ -69,6 +85,7 @@ dev = [
     "pytest-subprocess>=1.5.3",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
+    "ruff>=0.15.0",
     "whenever>=0.9.5",
 ]
 

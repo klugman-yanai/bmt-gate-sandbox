@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify local gcp/code matches the manifest uploaded to code/_meta/remote_manifest.json."""
+"""Verify local gcp/image matches the manifest uploaded to code/_meta/remote_manifest.json."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ import sys
 from pathlib import Path
 
 from tools.repo.paths import DEFAULT_CONFIG_ROOT
-from tools.shared.bucket_env import bucket_from_env, code_bucket_root_uri, truthy
+from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
 from tools.shared.bucket_sync import download_manifest, local_digest
 from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
 
 
 class BucketVerifyGcpSync:
-    """Verify local gcp/code matches the manifest uploaded to code/_meta/remote_manifest.json."""
+    """Verify local gcp/image matches the manifest uploaded to code/_meta/remote_manifest.json."""
 
     def run(
         self,
@@ -32,7 +32,7 @@ class BucketVerifyGcpSync:
             print(f"::error::Missing source directory: {src}", file=sys.stderr)
             return 1
 
-        code_root = code_bucket_root_uri(bucket)
+        code_root = bucket_root_uri(bucket)
         manifest_uri = f"{code_root}/_meta/remote_manifest.json"
         local_d, local_count = local_digest(src, include_runtime_artifacts, DEFAULT_CODE_EXCLUDES)
         manifest = download_manifest(manifest_uri, required=True)
@@ -44,7 +44,7 @@ class BucketVerifyGcpSync:
             return 1
 
         if local_d != remote_digest or local_count != remote_count:
-            print(f"::error::gcp/code is not in sync with {manifest_uri}", file=sys.stderr)
+            print(f"::error::gcp/image is not in sync with {manifest_uri}", file=sys.stderr)
             print(
                 f"Local digest={local_d} count={local_count}; manifest digest={remote_digest} count={remote_count}",
                 file=sys.stderr,

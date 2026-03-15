@@ -1,6 +1,6 @@
 """Shared time helpers: UTC wall-clock only.
 
-Use datetime.now(timezone.utc) for timestamps; use time.monotonic() for durations.
+Use whenever Instant.now() for timestamps; use time.monotonic() for durations.
 See CLAUDE.md § Time and clocks.
 """
 

@@ -28,10 +28,10 @@ repo/staging/
 bmt_root_results.json
 
 # VM/BMT runtime artifacts (bucket sync + handshake staging)
-gcp/bmt/runtime/triggers/
-gcp/bmt/runtime/**/inputs/**/*.wav
-gcp/bmt/runtime/**/outputs/
-gcp/bmt/runtime/**/results/
+gcp/local/runtime/triggers/
+gcp/local/runtime/**/inputs/**/*.wav
+gcp/local/runtime/**/outputs/
+gcp/local/runtime/**/results/
 
 # Tooling/editor
 compile_commands.json

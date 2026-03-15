@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Remove Python/uv bloat objects from GCS code (and optionally runtime) namespace.
+"""Remove Python/uv bloat objects from GCS bucket.
 
-Lists objects under the chosen prefix(es), filters by the same bloat patterns used
-by bucket_sync_gcp and bucket_sync_runtime_seed, and deletes them. Default is dry-run (no deletions).
+Lists objects under bucket root, filters by bloat patterns, deletes. Default dry-run.
 Use BMT_EXECUTE=1 to perform deletions. Run from repo root with GCS_BUCKET set.
 """
 
@@ -14,12 +13,11 @@ import sys
 
 from tools.shared.bucket_env import (
     bucket_from_env,
-    code_bucket_root_uri,
-    runtime_bucket_root_uri,
+    bucket_root_uri,
     truthy,
 )
 from tools.shared.bucket_sync import matches
-from tools.shared.layout_patterns import BLOAT_PATTERNS, CODE_CLEAN_PATTERNS
+from tools.shared.layout_patterns import BLOAT_PATTERNS
 
 BATCH_SIZE = 500  # URIs per gcloud storage rm call to avoid argv length limits
 
@@ -69,41 +67,28 @@ def _delete_uris(uris: list[str], dry_run: bool) -> None:
 
 
 class BucketCleanBloat:
-    """Remove Python/uv bloat from GCS code and/or runtime namespace."""
+    """Remove Python/uv bloat from GCS bucket."""
 
     def run(
         self,
         *,
         bucket: str,
-        scope: str = "code",
         dry_run: bool = True,
     ) -> int:
         if not bucket:
             print("::error::Set GCS_BUCKET (or pass --bucket)", file=sys.stderr)
             return 1
 
-        if scope not in ("code", "runtime", "both"):
-            print("::error::BMT_CLEAN_SCOPE must be code, runtime, or both", file=sys.stderr)
-            return 1
-
-        to_clean: list[tuple[str, tuple[str, ...]]] = []
-        if scope in ("code", "both"):
-            to_clean.append((code_bucket_root_uri(bucket), CODE_CLEAN_PATTERNS))
-        if scope in ("runtime", "both"):
-            to_clean.append((runtime_bucket_root_uri(bucket), BLOAT_PATTERNS))
-
-        total_removed = 0
-        for prefix_uri, patterns in to_clean:
-            label = "code" if "code" in prefix_uri else "runtime"
-            print(f"Listing {label} namespace: {prefix_uri}")
-            uris = _list_uris(prefix_uri)
-            bloat = _filter_bloat(uris, prefix_uri, patterns)
-            if not bloat:
-                print(f"  No bloat objects under {prefix_uri}")
-                continue
+        prefix_uri = bucket_root_uri(bucket)
+        print(f"Listing bucket: {prefix_uri}")
+        uris = _list_uris(prefix_uri)
+        bloat = _filter_bloat(uris, prefix_uri, BLOAT_PATTERNS)
+        if not bloat:
+            print("  No bloat objects found.")
+        else:
             print(f"  Found {len(bloat)} bloat object(s) to remove.")
             _delete_uris(bloat, dry_run=dry_run)
-            total_removed += len(bloat)
+        total_removed = len(bloat)
 
         if dry_run:
             if total_removed:
@@ -117,6 +102,5 @@ class BucketCleanBloat:
 
 if __name__ == "__main__":
     bucket = bucket_from_env()
-    scope = (os.environ.get("BMT_CLEAN_SCOPE") or "").strip() or "code"
     dry_run = not truthy(os.environ.get("BMT_EXECUTE"))
-    raise SystemExit(BucketCleanBloat().run(bucket=bucket, scope=scope, dry_run=dry_run))
+    raise SystemExit(BucketCleanBloat().run(bucket=bucket, dry_run=dry_run))

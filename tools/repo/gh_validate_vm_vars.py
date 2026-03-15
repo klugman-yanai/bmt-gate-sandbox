@@ -7,9 +7,31 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from tools.shared.env_contract import list_repo_vs_vm_metadata_vars, load_env_contract
 from tools.shared.gh import cmd_exists
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _terraform_bmt_vm_name() -> str | None:
+    """Return Terraform primary VM name if state is available; else None."""
+    tf_dir = _repo_root() / "infra" / "terraform"
+    if not tf_dir.is_dir():
+        return None
+    proc = subprocess.run(
+        ["terraform", "output", "-raw", "bmt_vm_name"],
+        cwd=tf_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    return (proc.stdout or "").strip() or None
 
 
 def _run_text(cmd: list[str]) -> tuple[int, str, str]:
@@ -75,7 +97,7 @@ class GhValidateVmVars:
             return 2
 
         try:
-            resolved_vm = _resolve_required("BMT_VM_NAME", vm_name, "--vm-name")
+            resolved_vm = _resolve_required("BMT_LIVE_VM", vm_name, "--vm-name")
             resolved_zone = _resolve_required("GCP_ZONE", zone, "--zone")
             resolved_project = _resolve_required("GCP_PROJECT", project, "--project")
         except RuntimeError as exc:
@@ -110,6 +132,15 @@ class GhValidateVmVars:
             if repo_norm != vm_norm:
                 mismatches.append(key)
 
+        tf_primary = _terraform_bmt_vm_name()
+        if tf_primary is not None and _normalize("BMT_LIVE_VM", resolved_vm) != _normalize("BMT_LIVE_VM", tf_primary):
+            print()
+            print(
+                f"::warning::BMT_LIVE_VM ({_render(resolved_vm)}) differs from Terraform primary VM ({_render(tf_primary)}). "
+                "Repo var may have been set manually or by cutover; ensure this is intended.",
+                file=sys.stderr,
+            )
+
         if mismatches:
             print()
             print(f"::error::Mismatch detected for: {', '.join(mismatches)}", file=sys.stderr)
@@ -127,10 +158,8 @@ class GhValidateVmVars:
 if __name__ == "__main__":
     import os
 
-    vm_name = (os.environ.get("BMT_VM_NAME") or "").strip() or None
+    vm_name = (os.environ.get("BMT_LIVE_VM") or "").strip() or None
     zone = (os.environ.get("GCP_ZONE") or "").strip() or None
     project = (os.environ.get("GCP_PROJECT") or "").strip() or None
     contract = (os.environ.get("BMT_ENV_CONTRACT") or "").strip() or None
-    raise SystemExit(
-        GhValidateVmVars().run(vm_name=vm_name, zone=zone, project=project, contract=contract)
-    )
+    raise SystemExit(GhValidateVmVars().run(vm_name=vm_name, zone=zone, project=project, contract=contract))

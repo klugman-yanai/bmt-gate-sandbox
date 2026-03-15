@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bmt-vm-runtime"
+version = "0.1.0"
+# Match workspace root so uv lock intersection stays >=3.12,<3.13 (see root pyproject).
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "google-cloud-pubsub>=2.21",
+  "google-cloud-storage>=2.16",
+  "httpx>=0.27",
+  "orjson>=3.10",
+  "pydantic>=2.12.5",
+  "whenever>=0.9.5",
+]
+
+[project.optional-dependencies]
+# VM watcher GitHub App JWT (install on VM or when running VM scripts from root with pip install -e ".[vm]")
+vm = [
+    "PyJWT>=2.0",
+    "cryptography>=41.0",
+]
+
+[tool.uv]
+package = true
+
+# Workspace member: locked with root; run with uv run --package bmt-vm-runtime from repo root.
+# Dev tooling (tests, lint) runs from workspace root; no dev group needed here unless this package is developed in isolation.
+[dependency-groups]
+dev = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lib*"]

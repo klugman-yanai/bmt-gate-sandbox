@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-import gcp.code.vm_watcher as watcher  # type: ignore[import-not-found]
+import gcp.image.vm_watcher as watcher  # type: ignore[import-not-found]
 
 
 class _StatusStore:

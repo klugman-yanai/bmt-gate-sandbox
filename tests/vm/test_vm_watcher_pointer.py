@@ -6,7 +6,8 @@ import importlib
 import json
 from pathlib import Path
 
-import gcp.code.vm_watcher as watcher  # type: ignore[import-not-found]
+import gcp.image.vm_watcher as watcher  # type: ignore[import-not-found]
+from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 
 def test_results_prefix_from_ci_verdict_uri_basic():
@@ -132,7 +133,7 @@ def test_cleanup_workflow_artifacts_targets_prefixed_and_base_status(monkeypatch
 
 def test_keep_recent_workflow_files_from_env(monkeypatch):
     # keep_recent is now a constant (TRIGGER_METADATA_KEEP_RECENT) in bmt_config; env no longer overrides.
-    from gcp.code.config import bmt_config
+    from gcp.image.config import bmt_config
 
     reloaded = importlib.reload(watcher)
     assert reloaded._KEEP_RECENT_WORKFLOW_FILES == bmt_config.TRIGGER_METADATA_KEEP_RECENT
@@ -173,7 +174,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
             "bucket": "bucket",
             "status_context": "BMT Gate",
             "runtime_status_context": "BMT Runtime",
-            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+            "legs": [{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "run-1"}],
         },
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda *_args, **_kwargs: True)
@@ -201,7 +202,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
             {
                 "index": 0,
                 "project": "sk",
-                "bmt_id": "false_reject_namuh",
+                "bmt_id": SK_BMT_FALSE_REJECT_NAMUH,
                 "run_id": "run-1",
                 "decision": "accepted",
                 "reason": None,
@@ -214,7 +215,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
         lambda _run_root: {
             "status": "pass",
             "project_id": "sk",
-            "bmt_id": "false_reject_namuh",
+            "bmt_id": SK_BMT_FALSE_REJECT_NAMUH,
             "run_id": "run-1",
             "passed": True,
             "ci_verdict_uri": "gs://bucket/runtime/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",
@@ -306,7 +307,7 @@ def test_process_run_trigger_rejects_missing_repository(monkeypatch, tmp_path: P
         "_gcloud_download_json",
         lambda _uri: {
             "workflow_run_id": "123",
-            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+            "legs": [{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "run-1"}],
         },
     )
     monkeypatch.setattr(
@@ -334,7 +335,7 @@ def test_process_run_trigger_rejects_when_auth_unavailable(monkeypatch, tmp_path
         lambda _uri: {
             "workflow_run_id": "123",
             "repository": "owner/repo",
-            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+            "legs": [{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "run-1"}],
         },
     )
     monkeypatch.setattr(
@@ -406,7 +407,7 @@ def test_process_run_trigger_closed_pr_skips_pointer_promotion(monkeypatch, tmp_
             "run_context": "pr",
             "pull_request_number": 9,
             "bucket": "bucket",
-            "legs": [{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"}],
+            "legs": [{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "run-1"}],
         },
     )
     monkeypatch.setattr(
@@ -478,8 +479,8 @@ def test_process_run_trigger_superseded_mid_run_skips_pointer_promotion(monkeypa
             "pull_request_number": 9,
             "bucket": "bucket",
             "legs": [
-                {"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-1"},
-                {"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "run-2"},
+                {"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "run-1"},
+                {"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "run-2"},
             ],
         },
     )
@@ -500,7 +501,7 @@ def test_process_run_trigger_superseded_mid_run_skips_pointer_promotion(monkeypa
         lambda _run_root: {
             "status": "pass",
             "project_id": "sk",
-            "bmt_id": "false_reject_namuh",
+            "bmt_id": SK_BMT_FALSE_REJECT_NAMUH,
             "run_id": "run-1",
             "passed": True,
             "ci_verdict_uri": "gs://bucket/runtime/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",

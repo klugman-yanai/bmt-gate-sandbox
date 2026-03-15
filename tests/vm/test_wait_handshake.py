@@ -1,11 +1,15 @@
-"""Tests for .github/bmt/cli/commands/wait_handshake."""
+"""Tests for .github/bmt/ci/handshake.py HandshakeManager.wait()."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-from cli.commands import vm as wait_handshake
+from ci import gcs as gcs_module
+from ci import vm as vm_module
+from ci.handshake import HandshakeManager
+
+from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +18,7 @@ def _required_bmt_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
     monkeypatch.setenv("GCP_PROJECT", "proj")
     monkeypatch.setenv("GCP_ZONE", "zone")
-    monkeypatch.setenv("BMT_VM_NAME", "vm")
+    monkeypatch.setenv("BMT_LIVE_VM", "vm")
 
 
 def test_wait_handshake_success_uses_runtime_paths(
@@ -26,9 +30,9 @@ def test_wait_handshake_success_uses_runtime_paths(
 
     bucket = "bucket-a"
     run_id = "123456"
-    runtime_root = f"gs://{bucket}/runtime"
+    runtime_root = f"gs://{bucket}"
     trigger_uri = f"{runtime_root}/triggers/runs/{run_id}.json"
-    runtime_status_uri = f"{runtime_root}/triggers/status/{run_id}.json"
+    ack_uri = f"{runtime_root}/triggers/acks/{run_id}.json"
 
     monkeypatch.setenv("GCS_BUCKET", bucket)
     monkeypatch.setenv("GITHUB_RUN_ID", run_id)
@@ -38,32 +42,28 @@ def test_wait_handshake_success_uses_runtime_paths(
     def fake_exists(uri: str) -> bool:
         return uri == trigger_uri
 
-    monkeypatch.setattr(wait_handshake.shared, "gcs_exists", fake_exists)
+    monkeypatch.setattr(gcs_module, "object_exists", fake_exists)
     monkeypatch.setattr(
-        wait_handshake.shared,
+        gcs_module,
         "download_json",
         lambda _uri: (
             {
                 "requested_leg_count": 2,
                 "accepted_leg_count": 2,
-                "accepted_legs": [{"project": "sk", "bmt_id": "false_reject_namuh"}],
+                "accepted_legs": [{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH}],
             },
             None,
         ),
     )
-    monkeypatch.setattr(
-        wait_handshake.shared,
-        "vm_describe",
-        lambda *_args, **_kwargs: {"status": "RUNNING"},
-    )
+    monkeypatch.setattr(vm_module, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
 
-    wait_handshake.run_wait_handshake(timeout_sec=5)
+    HandshakeManager.from_env().wait(timeout_sec=5)
 
     captured = capsys.readouterr()
-    assert f"Expected runtime status path: {runtime_status_uri}" in captured.out
-    assert "Handshake confirms VM pickup only" in captured.out
+    assert "Waiting for VM handshake ack" in captured.out
+    assert "VM handshake received" in captured.out
     content = output_file.read_text(encoding="utf-8")
-    assert f"handshake_uri={runtime_root}/triggers/acks/{run_id}.json" in content
+    assert f"handshake_uri={ack_uri}" in content
     assert "handshake_support_resolution_version=v1" in content
     assert "handshake_run_disposition=accepted" in content
     assert "handshake_requested_legs=" in content
@@ -79,7 +79,7 @@ def test_wait_handshake_fails_fast_on_status_path_mismatch(
 
     bucket = "bucket-a"
     run_id = "123456"
-    runtime_root = f"gs://{bucket}/runtime"
+    runtime_root = f"gs://{bucket}"
     trigger_uri = f"{runtime_root}/triggers/runs/{run_id}.json"
 
     monkeypatch.setenv("GCS_BUCKET", bucket)
@@ -90,12 +90,12 @@ def test_wait_handshake_fails_fast_on_status_path_mismatch(
     def fake_exists(uri: str) -> bool:
         return uri == trigger_uri
 
-    monkeypatch.setattr(wait_handshake.shared, "gcs_exists", fake_exists)
-    monkeypatch.setattr(wait_handshake.shared, "download_json", lambda _uri: (None, None))
-    monkeypatch.setattr(wait_handshake.shared, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
+    monkeypatch.setattr(gcs_module, "object_exists", fake_exists)
+    monkeypatch.setattr(gcs_module, "download_json", lambda _uri: (None, None))
+    monkeypatch.setattr(vm_module, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
 
-    with pytest.raises(RuntimeError, match="Timed out waiting for VM handshake ack"):
-        wait_handshake.run_wait_handshake(timeout_sec=2)
+    with pytest.raises(RuntimeError, match="Timed out waiting for VM handshake"):
+        HandshakeManager.from_env().wait(timeout_sec=2)
 
 
 def test_wait_handshake_preserves_v2_support_fields(
@@ -106,7 +106,7 @@ def test_wait_handshake_preserves_v2_support_fields(
 
     bucket = "bucket-a"
     run_id = "123456"
-    runtime_root = f"gs://{bucket}/runtime"
+    runtime_root = f"gs://{bucket}"
     trigger_uri = f"{runtime_root}/triggers/runs/{run_id}.json"
 
     monkeypatch.setenv("GCS_BUCKET", bucket)
@@ -114,9 +114,9 @@ def test_wait_handshake_preserves_v2_support_fields(
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
     monkeypatch.setenv("BMT_HANDSHAKE_TIMEOUT_SEC", "5")
 
-    monkeypatch.setattr(wait_handshake.shared, "gcs_exists", lambda uri: uri == trigger_uri)
+    monkeypatch.setattr(gcs_module, "object_exists", lambda uri: uri == trigger_uri)
     monkeypatch.setattr(
-        wait_handshake.shared,
+        gcs_module,
         "download_json",
         lambda _uri: (
             {
@@ -148,9 +148,9 @@ def test_wait_handshake_preserves_v2_support_fields(
             None,
         ),
     )
-    monkeypatch.setattr(wait_handshake.shared, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
+    monkeypatch.setattr(vm_module, "vm_describe", lambda *_args, **_kwargs: {"status": "RUNNING"})
 
-    wait_handshake.run_wait_handshake(timeout_sec=5)
+    HandshakeManager.from_env().wait(timeout_sec=5)
 
     content = output_file.read_text(encoding="utf-8")
     assert "handshake_support_resolution_version=v2" in content

@@ -58,7 +58,7 @@ def _build_contract_from_python() -> dict[str, Any]:
             "github_repo_vars": {"required": required, "optional": optional},
             "vm_metadata": {"required": ["GCS_BUCKET"], "optional": ["BMT_REPO_ROOT"]},
             "vm_runtime_env": {"optional": []},
-            "local_dev_env": {"optional": ["GCS_BUCKET", "GCP_PROJECT", "GCP_ZONE", "BMT_VM_NAME"]},
+            "local_dev_env": {"optional": ["GCS_BUCKET", "GCP_PROJECT", "GCP_ZONE", "BMT_LIVE_VM"]},
         },
         "consistency_checks": consistency_checks,
         "defaults": defaults,

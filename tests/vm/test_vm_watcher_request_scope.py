@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import gcp.code.vm_watcher as watcher  # type: ignore[import-not-found]
+import gcp.image.vm_watcher as watcher  # type: ignore[import-not-found]
+from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 
 def test_resolve_requested_legs_expands_project_wide_requests(monkeypatch):
@@ -13,7 +14,7 @@ def test_resolve_requested_legs_expands_project_wide_requests(monkeypatch):
         lambda *_args, **_kwargs: (
             {
                 "bmts": {
-                    "false_reject_namuh": {"enabled": True},
+                    SK_BMT_FALSE_REJECT_NAMUH: {"enabled": True},
                     "legacy_disabled": {"enabled": False},
                 }
             },
@@ -29,8 +30,8 @@ def test_resolve_requested_legs_expands_project_wide_requests(monkeypatch):
     assert len(resolved) == 2
     by_id = {row["bmt_id"]: row for row in resolved}
 
-    assert by_id["false_reject_namuh"]["decision"] == "accepted"
-    assert by_id["false_reject_namuh"]["reason"] is None
+    assert by_id[SK_BMT_FALSE_REJECT_NAMUH]["decision"] == "accepted"
+    assert by_id[SK_BMT_FALSE_REJECT_NAMUH]["reason"] is None
 
     assert by_id["legacy_disabled"]["decision"] == "rejected"
     assert by_id["legacy_disabled"]["reason"] == "bmt_disabled"
@@ -47,7 +48,7 @@ def test_resolve_requested_legs_keeps_explicit_bmt_mode(monkeypatch):
         lambda *_args, **_kwargs: (
             {
                 "bmts": {
-                    "false_reject_namuh": {"enabled": True},
+                    SK_BMT_FALSE_REJECT_NAMUH: {"enabled": True},
                 }
             },
             None,
@@ -55,12 +56,12 @@ def test_resolve_requested_legs_keeps_explicit_bmt_mode(monkeypatch):
     )
 
     resolved = watcher._resolve_requested_legs(
-        legs_raw=[{"project": "sk", "bmt_id": "false_reject_namuh", "run_id": "gh-1"}],
+        legs_raw=[{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "gh-1"}],
         code_bucket_root="gs://bucket/code",
     )
 
     assert len(resolved) == 1
     assert resolved[0]["project"] == "sk"
-    assert resolved[0]["bmt_id"] == "false_reject_namuh"
+    assert resolved[0]["bmt_id"] == SK_BMT_FALSE_REJECT_NAMUH
     assert resolved[0]["decision"] == "accepted"
     assert resolved[0]["reason"] is None

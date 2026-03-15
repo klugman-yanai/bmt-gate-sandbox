@@ -1,8 +1,8 @@
-"""Tests for gcp/code/status/status_file.py."""
+"""Tests for gcp/image/status/status_file.py."""
 
 from __future__ import annotations
 
-from gcp.code.github import status_file
+from gcp.image.github import status_file
 
 
 def test_status_uri_with_runtime_prefix() -> None:

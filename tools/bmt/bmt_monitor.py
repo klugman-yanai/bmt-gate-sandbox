@@ -134,7 +134,7 @@ def run_text_cmd(cmd: list[str]) -> str | None:
 
 
 def _runtime_root(state: MonitorState) -> str:
-    return f"gs://{state.bucket}/runtime"
+    return f"gs://{state.bucket}"
 
 
 def poll_workflow(run_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -753,8 +753,7 @@ class BmtMonitor:
     ) -> None:
         if not bucket or not vm_name or not zone:
             print(
-                "Error: GCS_BUCKET, BMT_VM_NAME, and GCP_ZONE are required. "
-                "Set env vars or pass to run().",
+                "Error: GCS_BUCKET, BMT_LIVE_VM, and GCP_ZONE are required. Set env vars or pass to run().",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -803,7 +802,7 @@ class BmtMonitor:
 
 if __name__ == "__main__":
     bucket = bucket_from_env()
-    vm_name = (os.environ.get("BMT_VM_NAME") or "").strip()
+    vm_name = (os.environ.get("BMT_LIVE_VM") or "").strip()
     zone = (os.environ.get("GCP_ZONE") or "").strip()
     run_id = (os.environ.get("BMT_RUN_ID") or "").strip() or None
     auto = truthy(os.environ.get("BMT_AUTO"))

@@ -27,10 +27,23 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: terraform-apply-${{ inputs.bmt_vm_name }}
+  cancel-in-progress: false
+
 jobs:
   terraform:
     name: Terraform ${{ inputs.action }}
     runs-on: ubuntu-latest
+    env:
+      TF_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
+      TF_VAR_gcp_zone: ${{ vars.GCP_ZONE }}
+      TF_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
+      TF_VAR_bmt_vm_name: ${{ inputs.bmt_vm_name }}
+      TF_VAR_image_family: ${{ inputs.image_family }}
+      TF_VAR_image_name: ${{ inputs.image_name }}
+      TF_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
+      TF_VAR_startup_wrapper_script_path: ../../.github/bmt/ci/resources/startup_entrypoint.sh
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -77,36 +90,33 @@ jobs:
             -backend-config="prefix=terraform/${{ inputs.bmt_vm_name }}"
 
       - name: Terraform plan
+        if: inputs.action != 'destroy'
         working-directory: infra/terraform
-        env:
-          TF_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
-          TF_VAR_gcp_zone: ${{ vars.GCP_ZONE }}
-          TF_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
-          TF_VAR_bmt_vm_name: ${{ inputs.bmt_vm_name }}
-          TF_VAR_image_family: ${{ inputs.image_family }}
-          TF_VAR_image_name: ${{ inputs.image_name }}
-          TF_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
-          TF_VAR_startup_wrapper_script_path: ../../.github/bmt/cli/resources/startup_entrypoint.sh
         run: terraform plan -out=tfplan
+
+      - name: Terraform plan (destroy)
+        if: inputs.action == 'destroy'
+        working-directory: infra/terraform
+        run: terraform plan -destroy -out=tfplan
 
       - name: Terraform apply
         if: inputs.action == 'apply'
         working-directory: infra/terraform
         run: terraform apply -auto-approve tfplan
 
-      - name: Update BMT_VM_NAME repo variable after apply
+      - name: Update BMT_LIVE_VM repo variable after apply
         if: inputs.action == 'apply'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh variable set BMT_VM_NAME \
+          gh variable set BMT_LIVE_VM \
             --repo "${{ github.repository }}" \
             --body "${{ inputs.bmt_vm_name }}"
-          echo "Updated BMT_VM_NAME=${{ inputs.bmt_vm_name }}"
+          echo "Updated BMT_LIVE_VM=${{ inputs.bmt_vm_name }}"
 
       - name: Terraform destroy (requires explicit action=destroy)
         if: inputs.action == 'destroy'
         working-directory: infra/terraform
         run: |
           echo "::warning::Destroying VM ${{ inputs.bmt_vm_name }}"
-          terraform apply -destroy -auto-approve tfplan
+          terraform apply -auto-approve tfplan

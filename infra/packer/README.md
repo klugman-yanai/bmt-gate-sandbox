@@ -1,6 +1,6 @@
 # BMT runtime image (Packer)
 
-Build the BMT VM image with Packer. CI uses [bmt-image-build.yml](../../.github/workflows/bmt-image-build.yml).
+Build the BMT VM image with Packer. CI uses [bmt-vm-image-build.yml](../../.github/workflows/bmt-vm-image-build.yml).
 
 ## Dry run (validate only)
 

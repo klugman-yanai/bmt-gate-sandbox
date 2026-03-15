@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify local gcp/runtime matches runtime seed manifest in bucket."""
+"""Verify local gcp/remote matches runtime seed manifest in bucket."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from tools.repo.paths import DEFAULT_RUNTIME_ROOT
-from tools.shared.bucket_env import bucket_from_env, runtime_bucket_root_uri, truthy
+from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
 from tools.shared.bucket_sync import download_manifest, local_digest
 from tools.shared.layout_patterns import FORBIDDEN_RUNTIME_SEED
 
@@ -16,7 +16,7 @@ RUNTIME_SEED_MANIFEST = "_meta/runtime_seed_manifest.json"
 
 
 class BucketVerifyRuntimeSeedSync:
-    """Verify local gcp/runtime matches runtime seed manifest in bucket."""
+    """Verify local gcp/remote matches runtime seed manifest in bucket."""
 
     def run(
         self,
@@ -34,7 +34,7 @@ class BucketVerifyRuntimeSeedSync:
             print(f"::error::Missing source directory: {src}", file=sys.stderr)
             return 1
 
-        runtime_root = runtime_bucket_root_uri(bucket)
+        runtime_root = bucket_root_uri(bucket)
         manifest_uri = f"{runtime_root}/{RUNTIME_SEED_MANIFEST}"
         local_d, local_count = local_digest(src, allow_generated_artifacts, FORBIDDEN_RUNTIME_SEED)
 
@@ -51,7 +51,7 @@ class BucketVerifyRuntimeSeedSync:
             return 1
 
         if local_d != remote_digest or local_count != remote_count:
-            print(f"::error::gcp/runtime is not in sync with {manifest_uri}", file=sys.stderr)
+            print(f"::error::gcp/remote is not in sync with {manifest_uri}", file=sys.stderr)
             print(
                 f"Local digest={local_d} count={local_count}; manifest digest={remote_digest} count={remote_count}",
                 file=sys.stderr,

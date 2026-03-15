@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/latest_result.schema.json",
+  "title": "Latest result (latest.json)",
+  "description": "Full BMT outcome for a run, written under snapshots/<run_id>/latest.json. Runtime artifact.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "timestamp": { "type": "string" },
+    "project_id": { "type": "string" },
+    "bmt_id": { "type": "string" },
+    "status": { "type": "string" },
+    "reason_code": { "type": "string" },
+    "demo_force_pass": { "type": "boolean" },
+    "aggregate_score": { "type": "number" },
+    "raw_aggregate_score": { "type": "number" },
+    "delta_from_previous": { "type": ["number", "null"] },
+    "failed_count": { "type": "integer" },
+    "gate": { "type": "object", "additionalProperties": true },
+    "file_results": {
+      "type": "array",
+      "description": "Per-file run results",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "previous_latest": { "type": ["string", "null"], "description": "Previous run_id for baseline" },
+    "artifacts": { "type": "object", "additionalProperties": true },
+    "cache_stats": { "type": "object", "additionalProperties": true },
+    "sync_stats": { "type": "object", "additionalProperties": true }
+  }
+}

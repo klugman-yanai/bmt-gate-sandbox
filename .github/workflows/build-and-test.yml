@@ -32,7 +32,8 @@ concurrency:
   cancel-in-progress: true
 
 # Pass rule:
-# - prepare-builds + dummy-build-release + dummy-build-non-release remain build topology checks.
+# - prepare-builds + dummy-build-release + dummy-build-non-release are topology checks only;
+#   dummy jobs echo "dummy runner for <project>" (no artifact, no compile).
 jobs:
   prepare-builds:
     runs-on: ubuntu-latest
@@ -75,24 +76,6 @@ jobs:
           echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
           echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
 
-      - name: Create repo snapshot
-        run: |
-          tar --exclude='.git' \
-              --exclude='.ruff_cache' \
-              --exclude='.venv' --exclude='venv' --exclude='.uv' \
-              --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.tox' --exclude='*.egg-info' \
-              --exclude='.cursor' --exclude='.vscode' \
-              --exclude='node_modules' \
-              -czf /tmp/repo-snapshot.tar.gz .
-          mv /tmp/repo-snapshot.tar.gz repo-snapshot.tar.gz
-
-      - name: Upload repo-snapshot
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: repo-snapshot
-          path: repo-snapshot.tar.gz
-          retention-days: 5
-
   dummy-build-release:
     needs: [prepare-builds]
     runs-on: ubuntu-latest
@@ -107,15 +90,9 @@ jobs:
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
-      - name: Download repo-snapshot
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
-        with:
-          name: repo-snapshot
-      - name: Extract repo snapshot
-        run: tar -xzf repo-snapshot.tar.gz -C .
       - name: Dummy build ( ${{ matrix.short }} )
         run: |
-          echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
+          echo "Dummy build for ${{ matrix.short }} — dummy runner for relevant projects (no compile)."
 
   dummy-build-non-release:
     needs: [prepare-builds]
@@ -131,31 +108,36 @@ jobs:
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
-      - name: Download repo-snapshot
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
-        with:
-          name: repo-snapshot
-      - name: Extract repo snapshot
-        run: tar -xzf repo-snapshot.tar.gz -C .
       - name: Dummy build ( ${{ matrix.short }} )
         run: |
-          echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
+          echo "Dummy build for ${{ matrix.short }} — dummy runner for relevant projects (no compile)."
+
+  decide-bmt:
+    needs: [dummy-build-release]
+    runs-on: ubuntu-latest
+    outputs:
+      run_bmt: ${{ steps.out.outputs.run_bmt }}
+    steps:
+      - id: out
+        run: |
+          r="${{ needs.dummy-build-release.result }}"
+          same_repo="${{ github.event.pull_request.head.repo.full_name == github.repository }}"
+          base_ref="${{ github.base_ref || github.ref_name }}"
+          if [[ "$r" != "success" && "$r" != "skipped" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ "$same_repo" != "true" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ "$base_ref" != "dev" && "$base_ref" != "ci/check-bmt-gate" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "run_bmt=true" >> "$GITHUB_OUTPUT"
 
   bmt:
-    needs: [dummy-build-release]
-    # Run BMT if dummy builds finished (or skipped) and we are on a supported branch.
-    # Exclude forks (secrets/WIF won't be available).
-    if: >-
-      always() &&
-      (needs.dummy-build-release.result == 'success' || needs.dummy-build-release.result == 'skipped') &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(fromJson('["dev", "ci/check-bmt-gate"]'), (github.base_ref || github.ref_name))
+    needs: [decide-bmt]
+    # Run only when decide-bmt set run_bmt=true (dummy ok, same repo, base dev or ci/check-bmt-gate).
+    if: needs.decide-bmt.outputs.run_bmt == 'true'
     permissions:
       contents: read
       actions: read
       id-token: write
       statuses: write
-    uses: ./.github/workflows/bmt.yml
+    uses: ./.github/workflows/bmt-handoff.yml
     with:
       ci_run_id: ${{ github.run_id }}
       head_sha: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.sha || github.sha }}

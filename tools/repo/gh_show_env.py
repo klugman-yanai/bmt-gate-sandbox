@@ -31,7 +31,8 @@ class SecretHint:
 
 
 APP_TRIGGER_VAR_NAMES: tuple[str, ...] = ("BMT_DISPATCH_APP_ID",)
-APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (SecretHint("BMT_DISPATCH_APP_PRIVATE_KEY", "*** (repo secret)"),)
+# Private key may live in bucket; not in repo vars contract when not used at repo level.
+APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = ()
 
 
 def cmd_exists(name: str) -> bool:
@@ -159,14 +160,13 @@ def print_github_section(contract: dict[str, object]) -> None:
 
     required_vars = list_context_vars(contract, "github_repo_vars", "required")
     if not required_vars:
-        required_vars = ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_PROJECT", "GCP_ZONE", "BMT_VM_NAME"]
+        required_vars = ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_PROJECT", "GCP_ZONE", "BMT_LIVE_VM"]
 
     defaults = _contract_defaults(contract)
     optional_vars = list_context_vars(contract, "github_repo_vars", "optional")
     if not optional_vars:
         optional_vars = [
             "BMT_STATUS_CONTEXT",
-            "BMT_HANDSHAKE_TIMEOUT_SEC",
         ]
     rows: list[tuple[str, Text]] = []
     for name in required_vars:
@@ -224,7 +224,9 @@ def print_github_section(contract: dict[str, object]) -> None:
 
 
 def print_gcloud_section() -> None:
-    description = "Used by: audit_vm_and_bucket, ssh_install, set_startup_script_url. Tools require explicit canonical vars."
+    description = (
+        "Used by: audit_vm_and_bucket, ssh_install, set_startup_script_url. Tools require explicit canonical vars."
+    )
     if not cmd_exists("gcloud"):
         console.print(Panel(Text("(gcloud not available)", style="dim"), title="[bold]gcloud[/]", subtitle=description))
         return
@@ -254,12 +256,12 @@ def print_vm_section() -> None:
 
     vm_project = get_vm_project()
     vm_zone = gh_var("GCP_ZONE")
-    vm_name = gh_var("BMT_VM_NAME")
+    vm_name = gh_var("BMT_LIVE_VM")
 
     if not vm_project or not vm_zone or not vm_name:
         console.print(
             Panel(
-                Text("(need GCP_PROJECT, GCP_ZONE, BMT_VM_NAME from gh to connect)", style="dim"),
+                Text("(need GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM from gh to connect)", style="dim"),
                 title="[bold]VM env[/]",
                 subtitle=description,
             )

@@ -92,6 +92,8 @@ resource "google_compute_instance" "bmt_vm" {
 # ---------------------------------------------------------------------------
 # Pub/Sub trigger delivery
 # ---------------------------------------------------------------------------
+# Topic name: canonical value in gcp/image/config/constants.py PUBSUB_TOPIC_NAME.
+# Keep this literal in sync; tests/infra/test_terraform_bmt_config_parity.py enforces.
 
 resource "google_pubsub_topic" "bmt_triggers" {
   name    = "bmt-triggers"

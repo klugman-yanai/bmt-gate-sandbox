@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync local gcp/code mirror into bucket code namespace."""
+"""Sync local gcp/image mirror into bucket code namespace."""
 
 from __future__ import annotations
 
@@ -8,11 +8,12 @@ import json
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 
+from whenever import Instant
+
 from tools.repo.paths import DEFAULT_CONFIG_ROOT
-from tools.shared.bucket_env import bucket_from_env, code_bucket_root_uri, truthy
+from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
 from tools.shared.bucket_sync import download_manifest, local_digest, matches
 from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
 
@@ -54,7 +55,7 @@ def _local_manifest(src: Path, include_runtime_artifacts: bool) -> dict[str, obj
     digest = hashlib.sha256(digest_input).hexdigest()
     return {
         "schema_version": 1,
-        "synced_at": datetime.now(UTC).isoformat(),
+        "synced_at": Instant.now().format_iso(unit="second"),
         "source_dir": str(src),
         "source_dir_name": src.name,
         "source_file_count": len(files),
@@ -78,7 +79,7 @@ def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
 
 
 class BucketSyncGcp:
-    """Sync local gcp/code mirror into bucket code namespace."""
+    """Sync local gcp/image mirror into bucket code namespace."""
 
     def run(
         self,
@@ -98,7 +99,7 @@ class BucketSyncGcp:
             print(f"::error::Missing source directory: {src}", file=sys.stderr)
             return 1
 
-        dest = code_bucket_root_uri(bucket)
+        dest = bucket_root_uri(bucket)
         manifest_uri = f"{dest}/_meta/remote_manifest.json"
 
         if not force:

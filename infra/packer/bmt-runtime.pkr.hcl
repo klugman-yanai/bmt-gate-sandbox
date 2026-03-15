@@ -117,6 +117,7 @@ source "googlecompute" "bmt_runtime" {
 # Build contract: (1) Sync code from GCS to bmt_repo_root, (2) record glibc for manifest,
 # (3) install Google Cloud Ops Agent, (4) install Python 3.12 and deps from vm/vm_deps.txt,
 # (5) write image manifest, (6) upload manifest to GCS, (7) cloud-init clean. Any provisioner failure fails the build.
+# (1b) Install ffmpeg and gcsfuse; (1c) create /mnt/audio_data for FUSE mount.
 # ---------------------------------------------------------------------------
 
 build {
@@ -143,6 +144,24 @@ build {
     ]
   }
 
+  # 1b. Install ffmpeg and gcsfuse (for hybrid storage / FUSE dataset mount)
+  provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
+    inline = [
+      "set -euo pipefail",
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get update -qq",
+      "sudo apt-get install -y -qq ffmpeg curl gnupg",
+      "export GCSFUSE_REPO=gcsfuse-$(lsb_release -c -s)",
+      "echo \"deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt $GCSFUSE_REPO main\" | sudo tee /etc/apt/sources.list.d/gcsfuse.list",
+      "curl -sSf https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg",
+      "sudo apt-get update -qq",
+      "sudo apt-get install -y -qq gcsfuse",
+      "sudo mkdir -p /mnt/audio_data",
+      "sudo chown -R ubuntu:ubuntu /mnt/audio_data",
+    ]
+  }
+
   # 2. Record glibc version for manifest.
   provisioner "shell" {
     execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
@@ -165,7 +184,7 @@ build {
   }
 
   # 4. Install Python 3.12 and VM dependencies into a pre-baked venv.
-  #    Deps from vm/vm_deps.txt (single source of truth; sync code already in place).
+  #    Deps from scripts/vm_deps.txt (single source of truth; sync code already in place).
   provisioner "shell" {
     execute_command  = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     environment_vars = ["DEBIAN_FRONTEND=noninteractive"]
@@ -178,7 +197,7 @@ build {
       # Create the pre-baked venv.
       "sudo python3.12 -m venv ${var.bmt_repo_root}/.venv",
       "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet --upgrade pip",
-      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet -r ${var.bmt_repo_root}/vm/vm_deps.txt",
+      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet -r ${var.bmt_repo_root}/scripts/vm_deps.txt",
       # Verify imports.
       "sudo ${var.bmt_repo_root}/.venv/bin/python -c \"import jwt, cryptography, httpx, google.cloud.storage, google.cloud.pubsub_v1; print('OK')\"",
     ]

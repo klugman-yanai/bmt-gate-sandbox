@@ -1,6 +1,6 @@
 # Documentation index
 
-Start here for structure and day-to-day use. Plans and archived docs are in their own sections.
+Start here for structure and day-to-day use.
 
 ## Start here
 
@@ -10,7 +10,8 @@ Start here for structure and day-to-day use. Plans and archived docs are in thei
 | **Set up config / repo vars** | [configuration.md](configuration.md), [../infra/README.md](../infra/README.md) |
 | **Understand the pipeline** (trigger, handoff, results) | [architecture.md](architecture.md), [github-and-ci.md](github-and-ci.md) |
 | **Develop and run tests** | [development.md](development.md) |
-| **Add a new BMT project** | [adding-a-new-project.md](adding-a-new-project.md) |
+| **Add a new BMT project** (full: bmt-gcloud + app repo) | [adding-a-new-project.md](adding-a-new-project.md) |
+| **Add project / BMT data / manager / JSONs** (quick steps, bmt-gcloud only) | [adding-new-project-and-bmt.md](adding-new-project-and-bmt.md) |
 | **Keep sandbox and production in sync** | [sandbox-and-production.md](sandbox-and-production.md) |
 
 ---
@@ -22,8 +23,10 @@ Start here for structure and day-to-day use. Plans and archived docs are in thei
 | [architecture.md](architecture.md) | Trigger-and-stop flow, GCS contract, script map, production surface, implementation/data flow, repository structure. |
 | [configuration.md](configuration.md) | Env contract, repo vars, VM metadata, secrets, bucket layout. |
 | [development.md](development.md) | Setup, testing (unit, local BMT, pointer/snapshot, **testing prod CI locally**), lint/typecheck, Justfile, deploy. |
-| [adding-a-new-project.md](adding-a-new-project.md) | How to add a new BMT project (e.g. Skyworth): gcp/code layout, manager script, bmt_jobs.json, app-repo matrix and runner upload, .github/bmt. |
+| [adding-a-new-project.md](adding-a-new-project.md) | How to add a new BMT project (e.g. Skyworth): gcp/image layout, manager script, bmt_jobs.json, app-repo matrix and runner upload, .github/bmt. |
+| [adding-new-project-and-bmt.md](adding-new-project-and-bmt.md) | Concise steps: new project (scaffold, bmt_jobs), new BMT .wav data (upload), new manager logic (base class), JSON config. |
 | [github-and-ci.md](github-and-ci.md) | Communication flow, GitHub App permissions, Actions/CLI tools, workflow output (intended UX). |
+| [preflight-bucket-remote.md](preflight-bucket-remote.md) | Before making gcp/remote a mount: check bucket contents, diff code/ vs gcp/image, and next steps for wipe/mount. |
 
 ## Sandbox and production
 
@@ -39,15 +42,7 @@ Start here for structure and day-to-day use. Plans and archived docs are in thei
 
 ## Plans
 
-Plans under `docs/plans/` (only existing files listed):
-
-| Doc | Description |
-| --- | --- |
-| [plans/future-architecture.md](plans/future-architecture.md) | Planned changes (SDK, Pydantic, bmt_lib, PR comments). |
-| [plans/high-level-design-improvements.md](plans/high-level-design-improvements.md) | Purpose-driven design improvements. |
-| [plans/migration-to-production.md](plans/migration-to-production.md) | Enabling BMT in production repo. |
-| [plans/2025-03-11-centralized-bmt-config.md](plans/2025-03-11-centralized-bmt-config.md) | Centralized BMT config implementation plan. |
-| [plans/2025-03-11-vm-idle-then-terminate-and-reuse-running.md](plans/2025-03-11-vm-idle-then-terminate-and-reuse-running.md) | VM idle-then-terminate and RUNNING reuse. |
+See [docs/plans/](plans/) for architecture, migration, and design plans. Dated filenames reflect when they were written.
 
 ## Archive
 

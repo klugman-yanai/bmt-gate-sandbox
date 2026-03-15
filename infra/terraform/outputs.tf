@@ -17,7 +17,7 @@ output "gcp_zone" {
 }
 
 output "bmt_vm_name" {
-  description = "BMT VM instance name (BMT_VM_NAME)"
+  description = "BMT VM instance name (BMT_LIVE_VM); set from Terraform only—do not set manually"
   value       = var.bmt_vm_name
 }
 

@@ -2,17 +2,23 @@
 
 Source of truth for which vars exist, required vs optional, secrets, and default
 values for behavioral vars. Infra-derived values come from Terraform outputs;
-behavioral defaults come from gcp/code/lib/bmt_config.BmtConfig (single source of truth).
+behavioral defaults come from gcp.image.config.bmt_config.BmtConfig (single source of truth).
+
+Repo vars are only for values that vary per repo or must be set by the user (e.g. bucket,
+project, VM name, status context for branch protection, WIF, GitHub App ID). Constants
+that users should not override (e.g. handshake timeout, repo root path) are not repo vars;
+code uses BmtConfig defaults. Optional vars (e.g. BMT_REPO_ROOT) have defaults so
+repo-vars-check does not require them. Secrets like BMT_DISPATCH_APP_PRIVATE_KEY are not
+in the contract when the key is stored in the bucket and CI does not need a repo-level secret.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from gcp.code.config.bmt_config import BmtConfig
+from gcp.image.config.constants import DEFAULT_REPO_ROOT
 
-# Defaults for repo-vars check/apply: from BmtConfig model (single source of truth).
-_BMT_DEFAULTS = BmtConfig()
+# Defaults for repo-vars check/apply (behavioral vars that remain in contract).
 
 
 @dataclass(frozen=True)
@@ -44,11 +50,9 @@ TERRAFORM_OUTPUT_TO_VAR: dict[str, str] = {
     "gcs_bucket": "GCS_BUCKET",
     "gcp_project": "GCP_PROJECT",
     "gcp_zone": "GCP_ZONE",
-    "bmt_vm_name": "BMT_VM_NAME",
+    "bmt_vm_name": "BMT_LIVE_VM",
     "bmt_repo_root": "BMT_REPO_ROOT",
     "service_account": "GCP_SA_EMAIL",
-    "pubsub_subscription": "BMT_PUBSUB_SUBSCRIPTION",
-    "pubsub_topic": "BMT_PUBSUB_TOPIC",
 }
 
 REPO_VARS_CONTRACT = RepoVarsContract(
@@ -56,23 +60,13 @@ REPO_VARS_CONTRACT = RepoVarsContract(
         "GCS_BUCKET",
         "GCP_PROJECT",
         "GCP_ZONE",
-        "BMT_VM_NAME",
-        "BMT_REPO_ROOT",
+        "BMT_LIVE_VM",
         "GCP_SA_EMAIL",
-        "BMT_PUBSUB_SUBSCRIPTION",
-        "BMT_STATUS_CONTEXT",
-        "BMT_HANDSHAKE_TIMEOUT_SEC",
     ),
-    optional=(
-        "BMT_PUBSUB_TOPIC",
-    ),
+    optional=("BMT_REPO_ROOT",),
     secrets_not_in_terraform=(
         "GCP_WIF_PROVIDER",
         "BMT_DISPATCH_APP_ID",
-        "BMT_DISPATCH_APP_PRIVATE_KEY",
     ),
-    defaults=(
-        ("BMT_STATUS_CONTEXT", _BMT_DEFAULTS.bmt_status_context),
-        ("BMT_HANDSHAKE_TIMEOUT_SEC", str(_BMT_DEFAULTS.bmt_handshake_timeout_sec)),
-    ),
+    defaults=(("BMT_REPO_ROOT", DEFAULT_REPO_ROOT),),
 )

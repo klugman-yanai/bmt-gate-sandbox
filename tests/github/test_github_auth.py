@@ -11,7 +11,7 @@ from unittest import mock
 
 import pytest
 
-from gcp.code.github import github_auth  # type: ignore[import-not-found]
+from gcp.image.github import github_auth  # type: ignore[import-not-found]
 
 
 @pytest.fixture
@@ -162,7 +162,7 @@ class TestResolveAuthForRepository:
         token = github_auth.resolve_auth_for_repository("", config_path=test_config)
         assert token is None
 
-    @mock.patch("gcp.code.github.github_auth.get_installation_token_from_app")
+    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
     def test_successful_app_auth(self, mock_get_token: mock.Mock, test_config: str) -> None:
         mock_get_token.return_value = "test-app-token"
         with mock.patch.dict(
@@ -181,7 +181,7 @@ class TestResolveAuthForRepository:
             assert token == "test-app-token"
             mock_get_token.assert_called_once()
 
-    @mock.patch("gcp.code.github.github_auth.get_installation_token_from_app")
+    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
     def test_alias_app_auth_fallback(self, mock_get_token: mock.Mock, test_config: str) -> None:
         mock_get_token.return_value = "test-app-token"
         with mock.patch.dict(
@@ -204,7 +204,7 @@ class TestResolveAuthForRepository:
                 "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
             )
 
-    @mock.patch("gcp.code.github.github_auth.get_installation_token_from_app")
+    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
     def test_canonical_env_precedence_over_alias(self, mock_get_token: mock.Mock, test_config: str) -> None:
         mock_get_token.return_value = "test-app-token"
         with mock.patch.dict(
@@ -226,7 +226,7 @@ class TestResolveAuthForRepository:
             assert token == "test-app-token"
             mock_get_token.assert_called_once_with("canonical-id", "canonical-installation", "canonical-key")
 
-    @mock.patch("gcp.code.github.github_auth.get_installation_token_from_app")
+    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
     def test_app_auth_failure_returns_none(self, mock_get_token: mock.Mock, test_config: str) -> None:
         mock_get_token.return_value = None
         with mock.patch.dict(
@@ -266,7 +266,7 @@ class TestGetInstallationTokenFromApp:
     """Tests for get_installation_token_from_app()."""
 
     def test_missing_pyjwt_returns_none(self) -> None:
-        with mock.patch("gcp.code.github.github_auth.HAS_JWT", new=False):
+        with mock.patch("gcp.image.github.github_auth.HAS_JWT", new=False):
             token = github_auth.get_installation_token_from_app(
                 "12345",
                 "67890",
@@ -279,9 +279,9 @@ class TestGetInstallationTokenFromApp:
         assert github_auth.get_installation_token_from_app("12345", "", "key") is None
         assert github_auth.get_installation_token_from_app("12345", "67890", "") is None
 
-    @mock.patch("gcp.code.github.github_auth.HAS_JWT", new=True)
-    @mock.patch("gcp.code.github.github_auth.jwt")
-    @mock.patch("gcp.code.github.github_auth.urllib.request.urlopen")
+    @mock.patch("gcp.image.github.github_auth.HAS_JWT", new=True)
+    @mock.patch("gcp.image.github.github_auth.jwt")
+    @mock.patch("gcp.image.github.github_auth.urllib.request.urlopen")
     def test_successful_token_exchange(self, mock_urlopen: mock.Mock, mock_jwt: mock.Mock) -> None:
         mock_jwt.encode.return_value = "mock-jwt-token"
         mock_response = mock.MagicMock()
@@ -298,9 +298,9 @@ class TestGetInstallationTokenFromApp:
         assert token == "test-installation-token"
         mock_jwt.encode.assert_called_once()
 
-    @mock.patch("gcp.code.github.github_auth.HAS_JWT", new=True)
-    @mock.patch("gcp.code.github.github_auth.jwt")
-    @mock.patch("gcp.code.github.github_auth.urllib.request.urlopen")
+    @mock.patch("gcp.image.github.github_auth.HAS_JWT", new=True)
+    @mock.patch("gcp.image.github.github_auth.jwt")
+    @mock.patch("gcp.image.github.github_auth.urllib.request.urlopen")
     def test_api_error_returns_none(self, mock_urlopen: mock.Mock, mock_jwt: mock.Mock) -> None:
         mock_jwt.encode.return_value = "mock-jwt-token"
         from urllib.error import HTTPError

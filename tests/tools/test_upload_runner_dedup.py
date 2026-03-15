@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
-from cli import gcs as gcs_module
-from cli.commands import upload_runner
+from ci import gcs as gcs_module
+from ci.runner import RunnerManager
+from ci.runner import _sha256_file
 
 
 def _write(path: Path, content: bytes) -> None:
@@ -26,7 +27,7 @@ def _set_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Pat
     monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
     monkeypatch.setenv("GCP_PROJECT", "proj")
     monkeypatch.setenv("GCP_ZONE", "zone")
-    monkeypatch.setenv("BMT_VM_NAME", "vm")
+    monkeypatch.setenv("BMT_LIVE_VM", "vm")
     monkeypatch.setenv("PROJECT", "sk")
     monkeypatch.setenv("PRESET", "sk_gcc_release")
     monkeypatch.setenv("SOURCE_REF", "abc123")
@@ -36,7 +37,7 @@ def _set_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Pat
 
 
 def _sha(path: Path) -> str:
-    return upload_runner._sha256_file(path)
+    return _sha256_file(path)
 
 
 def test_upload_runner_uploads_all_when_remote_meta_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -47,7 +48,7 @@ def test_upload_runner_uploads_all_when_remote_meta_missing(monkeypatch: pytest.
     monkeypatch.setattr(gcs_module, "write_object", lambda uri, _data: write_calls.append(uri))
     monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: write_calls.append(uri))
 
-    upload_runner.run()
+    RunnerManager.from_env().upload()
 
     assert len(write_calls) >= 2
     assert any("kardome_runner" in u or "runner_meta.json" in u for u in write_calls)
@@ -69,7 +70,7 @@ def test_upload_runner_skips_when_remote_hashes_match(monkeypatch: pytest.Monkey
     monkeypatch.setattr(gcs_module, "write_object", lambda uri, _data: write_calls.append(uri))
     monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: write_calls.append(uri))
 
-    upload_runner.run()
+    RunnerManager.from_env().upload()
 
     assert len(write_calls) >= 1
     assert any("runner.slsa.json" in u for u in write_calls)
@@ -91,7 +92,7 @@ def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(gcs_module, "write_object", lambda uri, _data: write_calls.append(uri))
     monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: write_calls.append(uri))
 
-    upload_runner.run()
+    RunnerManager.from_env().upload()
 
     joined = write_calls
     assert any("kardome_runner" in u for u in joined)

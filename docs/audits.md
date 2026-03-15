@@ -32,7 +32,7 @@ Used by repo-vars export (`tools/terraform_repo_vars.py`). `TERRAFORM_OUTPUT_TO_
 | `gcs_bucket` | GCS_BUCKET |
 | `gcp_project` | GCP_PROJECT |
 | `gcp_zone` | GCP_ZONE |
-| `bmt_vm_name` | BMT_VM_NAME |
+| `bmt_vm_name` | BMT_LIVE_VM |
 | `bmt_repo_root` | BMT_REPO_ROOT |
 | `service_account` | GCP_SA_EMAIL |
 | `pubsub_subscription` | BMT_PUBSUB_SUBSCRIPTION |
@@ -54,7 +54,7 @@ All used and deployment-specific: `gcs_bucket`, `gcp_project`, `gcp_zone`, `gcp_
 
 **Behavioral fields — audit**
 
-- **bmt_status_context** — Necessary. Must match GitHub branch protection status check name. Add `BMT_STATUS_CONTEXT` to `_RUNTIME_KEYS` in `gcp/code/lib/bmt_config.py` so repo/Terraform value is used.
+- **bmt_status_context** — Necessary. Must match GitHub branch protection status check name. Add `BMT_STATUS_CONTEXT` to `_RUNTIME_KEYS` in `gcp/image/lib/bmt_config.py` so repo/Terraform value is used.
 - **bmt_handshake_timeout_sec** — Necessary. Add `BMT_HANDSHAKE_TIMEOUT_SEC` to `_RUNTIME_KEYS` so it is configurable.
 - **bmt_trigger_stale_sec** — Could be constant (single use, 900). Optional: move to constant `TRIGGER_STALE_SEC = 900` and remove from BmtConfig.
 - **bmt_vm_start_timeout_sec** — Dead (no code reads from config). Remove from BmtConfig or use constant in `vm.py`.
@@ -83,13 +83,13 @@ All used and deployment-specific: `gcs_bucket`, `gcp_project`, `gcp_zone`, `gcp_
 
 **Source of truth**
 
-- **Config:** `gcp/code/bmt_projects.json` → project's `jobs_config` (e.g. `sk/config/bmt_jobs.json`) → `bmts.<bmt_id>.paths.results_prefix`
+- **Config:** `gcp/image/bmt_projects.json` → project's `jobs_config` (e.g. `projects/sk/bmt_jobs.json`) → `bmts.<bmt_id>.paths.results_prefix`
 - **Resolver:** `tools/results_prefix.resolve_results_prefix(config_root, project, bmt_id)` reads config and returns the prefix, or falls back to `{project}/results/{bmt_id}` if missing.
 
 **Current config**
 
-- **sk/false_reject_namuh:** `paths.results_prefix` = `sk/results/false_rejects` in `gcp/code/sk/config/bmt_jobs.json`. BMT id is `false_reject_namuh`; path segment is `false_rejects` by design.
+- **sk (false_reject_namuh):** `paths.results_prefix` = `sk/results/false_rejects` in `gcp/image/projects/sk/bmt_jobs.json`. BMT id is the UUID `4a5b6e82-a048-5c96-8734-2f64d2288378` (see `tools/repo/sk_bmt_ids.py`); path segment is `false_rejects` by design.
 
 **Verdict**
 
-- **Prefix values are correct.** Single improvement: `tools/bucket_validate_contract.py` should derive the prefix via `resolve_results_prefix(config_root, "sk", "false_reject_namuh")` instead of hardcoding `sk/results/false_rejects` so it stays in sync with `bmt_jobs.json`.
+- **Prefix values are correct.** `tools/remote/bucket_validate_contract.py` derives the prefix via `resolve_results_prefix(config_root, "sk", SK_BMT_FALSE_REJECT_NAMUH)`.

@@ -1,0 +1,6 @@
+{
+  "timestamp": "2026-03-12T12:48:21Z",
+  "generation": "1",
+  "size": 0,
+  "template_uri": "gs://dummy-bucket/code/sk/config/input_template.json"
+}

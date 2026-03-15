@@ -10,13 +10,13 @@ repo root when needed: (repo_root / DEFAULT_CONFIG_ROOT).resolve().
 
 from pathlib import Path
 
-# Default roots for code mirror and runtime seed (relative to repo root).
-DEFAULT_CONFIG_ROOT = Path("gcp/code")
-DEFAULT_RUNTIME_ROOT = Path("gcp/runtime")
+# Default roots for VM mirror and runtime seed (relative to repo root).
+DEFAULT_CONFIG_ROOT = Path("gcp/image")
+DEFAULT_RUNTIME_ROOT = Path("gcp/remote")
 
 # BMT local layout (runner libs + shared native deps). Relative to repo root.
-# Override with BMT_ROOT env (e.g. "gcp/bmt" or absolute path).
-DEFAULT_BMT_ROOT = Path("gcp/bmt")
+# Override with BMT_ROOT env (e.g. "gcp/local" or absolute path).
+DEFAULT_BMT_ROOT = Path("gcp/local")
 BMT_DEPS_SUBDIR = Path("dependencies")
 BMT_PROJECT_LIB_SUBDIR = Path("lib")
 

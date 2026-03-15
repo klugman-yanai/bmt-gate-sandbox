@@ -8,13 +8,14 @@ import os
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from pathlib import Path
+
+from whenever import Instant
 from typing import Any
 
 from tools.repo.paths import DEFAULT_CONFIG_ROOT
 from tools.repo.results_prefix import resolve_results_prefix
-from tools.shared.bucket_env import runtime_bucket_root_uri
+from tools.shared.bucket_env import bucket_root_uri
 from tools.shared.verdict import (
     current_pointer_uri,
     download_json as gcs_download_json,
@@ -228,7 +229,7 @@ def _write_aggregate_step_summary(
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return Instant.now().format_iso(unit="second")
 
 
 def _unknown_runner() -> RunnerIdentity:
@@ -462,7 +463,7 @@ def run(args: argparse.Namespace) -> None:
     config_root = Path(os.environ.get("BMT_CONFIG_ROOT", DEFAULT_CONFIG_ROOT))
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
 
-    bucket_root = runtime_bucket_root_uri(bucket)
+    bucket_root = bucket_root_uri(bucket)
     legs = _parse_manifest(args.manifest, config_root, bucket_root)
     if not legs:
         raise RuntimeError("Empty manifest — nothing to wait for")

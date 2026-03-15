@@ -5,13 +5,17 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from cli.commands import workflow
+
+from ci import config
+from ci.handoff import HandoffManager
+from ci import github as github_api_module
 
 
 @pytest.fixture
 def mock_github_api(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = MagicMock()
-    monkeypatch.setattr(workflow, "github_api", mock)
+    monkeypatch.setattr(github_api_module, "should_post_failure_status", mock.should_post_failure_status)
+    monkeypatch.setattr(github_api_module, "post_commit_status", mock.post_commit_status)
     return mock
 
 
@@ -20,7 +24,7 @@ def mock_config(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = MagicMock()
     mock.bmt_status_context = "BMT Gate"
     mock.bmt_failure_status_description = "BMT failed to complete handshake."
-    monkeypatch.setattr(workflow, "get_config", lambda: mock)
+    monkeypatch.setattr(config, "get_config", lambda: mock)
     return mock
 
 
@@ -33,11 +37,9 @@ def test_post_handoff_timeout_status_posts_when_not_terminal(
     monkeypatch.setenv("HEAD_SHA", "abc123")
     mock_github_api.should_post_failure_status.return_value = True
 
-    workflow.run_post_handoff_timeout_status()
+    HandoffManager.from_env().post_handoff_timeout_status()
 
-    mock_github_api.should_post_failure_status.assert_called_once_with(
-        "owner/repo", "abc123", "BMT Gate"
-    )
+    mock_github_api.should_post_failure_status.assert_called_once_with("owner/repo", "abc123", "BMT Gate")
     mock_github_api.post_commit_status.assert_called_once_with(
         "owner/repo", "abc123", "error", "BMT Gate", "BMT failed to complete handshake."
     )
@@ -52,7 +54,7 @@ def test_post_handoff_timeout_status_skips_when_terminal(
     monkeypatch.setenv("HEAD_SHA", "abc123")
     mock_github_api.should_post_failure_status.return_value = False
 
-    workflow.run_post_handoff_timeout_status()
+    HandoffManager.from_env().post_handoff_timeout_status()
 
     mock_github_api.should_post_failure_status.assert_called_once()
     mock_github_api.post_commit_status.assert_not_called()
@@ -67,7 +69,7 @@ def test_post_handoff_timeout_status_missing_env_skips(
     monkeypatch.delenv("HEAD_SHA", raising=False)
     monkeypatch.delenv("REPOSITORY", raising=False)
 
-    workflow.run_post_handoff_timeout_status()
+    HandoffManager.from_env().post_handoff_timeout_status()
 
     mock_github_api.should_post_failure_status.assert_not_called()
     mock_github_api.post_commit_status.assert_not_called()

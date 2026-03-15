@@ -15,13 +15,14 @@ variable "gcs_bucket" {
 
 variable "bmt_vm_name" {
   type        = string
-  description = "Name of the BMT VM instance"
+  default     = "bmt-gate-blue"
+  description = "Name of the BMT VM instance — blue in blue/green (exported as BMT_LIVE_VM); green is <base>-green. Override in terraform.tfvars if needed."
 }
 
 variable "image_family" {
   type        = string
   default     = "bmt-runtime"
-  description = "Compute image family to resolve latest image from"
+  description = "Compute image family to resolve latest image from (default must match gcp/image/config/constants.py DEFAULT_IMAGE_FAMILY)"
 }
 
 variable "image_name" {
@@ -77,27 +78,30 @@ variable "disk_type" {
   description = "Boot disk type"
 }
 
+# Path on VM where BMT runtime is installed. Default must match gcp/image/config/bmt_config.py DEFAULT_REPO_ROOT.
 variable "bmt_repo_root" {
   type        = string
   default     = "/opt/bmt"
-  description = "Path on the VM where the BMT runtime is installed"
+  description = "Path on the VM where the BMT runtime is installed (BMT_REPO_ROOT)"
 }
 
 variable "startup_wrapper_script_path" {
   type        = string
-  description = "Local path to the startup_entrypoint.sh to inline as instance metadata"
+  default     = "../../.github/bmt/ci/resources/startup_entrypoint.sh"
+  description = "Local path to the startup_entrypoint.sh to inline as instance metadata (relative to infra/terraform)"
 }
 
-# Optional BMT behavior (defaults also in tools/repo_vars_contract.py)
+# Default must match gcp/image/config/bmt_config.py BmtConfig.bmt_status_context.
 variable "bmt_status_context" {
   type        = string
   default     = "BMT Gate"
   description = "GitHub status check context name (BMT_STATUS_CONTEXT)"
 }
 
+# Default must match gcp/image/config/bmt_config.py BmtConfig.bmt_handshake_timeout_sec (not exported to repo vars; constant in code).
 variable "bmt_handshake_timeout_sec" {
   type        = number
-  default     = 420  # keep in sync with .github/bmt/cli/shared/defaults.py DEFAULT_HANDSHAKE_TIMEOUT_SEC
+  default     = 420
   description = "Handshake timeout in seconds (BMT_HANDSHAKE_TIMEOUT_SEC)"
 }
 
@@ -116,11 +120,11 @@ variable "bmt_projects" {
 variable "bmt_runtime_context" {
   type        = string
   default     = "BMT Runtime"
-  description = "Runtime context label (BMT_RUNTIME_CONTEXT); keep in sync with gcp/code/lib/bmt_config.py DEFAULT_RUNTIME_CONTEXT"
+  description = "Runtime context label (BMT_RUNTIME_CONTEXT); keep in sync with gcp/image/config/bmt_config.py DEFAULT_RUNTIME_CONTEXT"
 }
 
 variable "bmt_trigger_metadata_keep_recent" {
   type        = number
   default     = 2
-  description = "Number of recent trigger metadata entries to keep (BMT_TRIGGER_METADATA_KEEP_RECENT); keep in sync with gcp/code/lib/bmt_config.py TRIGGER_METADATA_KEEP_RECENT"
+  description = "Number of recent trigger metadata entries to keep (BMT_TRIGGER_METADATA_KEEP_RECENT); keep in sync with gcp/image/config/bmt_config.py TRIGGER_METADATA_KEEP_RECENT"
 }

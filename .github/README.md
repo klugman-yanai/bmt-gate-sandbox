@@ -2,8 +2,8 @@
 
 This repository keeps GitHub Actions logic in the native locations that GitHub executes:
 
-- **workflows/** — `build-and-test.yml` (CI + BMT call), `bmt.yml` (BMT handoff), `bmt-image-build.yml`, `bmt-vm-provision.yml`
-- **actions/** — Local composite actions: `bmt-job-setup`, `bmt-prepare`, `bmt-classify-handoff`, `bmt-handoff-run`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
+- **workflows/** — `build-and-test.yml` (CI + BMT call), `bmt-handoff.yml` (BMT handoff), `bmt-vm-image-build.yml`, `bmt-vm-provision.yml`
+- **actions/** — Local composite actions: `bmt-runner-env`, `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-handoff-run`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
 - **bmt/** — BMT CLI (`uv run bmt …`) and config used by workflows
 - **docs/** — Notes and references: `action-versions.md`, `dry-and-organization.md`
 

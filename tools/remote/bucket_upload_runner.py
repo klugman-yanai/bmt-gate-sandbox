@@ -12,10 +12,11 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 
-from tools.shared.bucket_env import bucket_from_env, runtime_bucket_root_uri, truthy
+from whenever import Instant
+
+from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
 
 
 def _run_cmd(cmd: list[str], capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -48,7 +49,7 @@ class BucketUploadRunner:
             proc = _run_cmd(["git", "rev-parse", "--short", "HEAD"], capture=True)
             source_ref = proc.stdout.strip() if proc.returncode == 0 else "unknown"
 
-        bucket_root = runtime_bucket_root_uri(bucket)
+        bucket_root = bucket_root_uri(bucket)
         runner_uri_clean = runner_uri.lstrip("/")
         canonical_uri = f"{bucket_root}/{runner_uri_clean}"
         previous_uri = f"{canonical_uri}.previous"
@@ -83,7 +84,7 @@ class BucketUploadRunner:
             return cp_new.returncode
 
         meta = {
-            "uploaded_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "uploaded_at_utc": Instant.now().format_iso(unit="second"),
             "source": source,
             "source_ref": source_ref,
             "size_bytes": local_size,
@@ -108,7 +109,9 @@ class BucketUploadRunner:
 
 if __name__ == "__main__":
     bucket = bucket_from_env()
-    runner_path = (os.environ.get("BMT_RUNNER_PATH") or "").strip() or "repo/staging/runners/sk_gcc_release/kardome_runner"
+    runner_path = (
+        os.environ.get("BMT_RUNNER_PATH") or ""
+    ).strip() or "repo/staging/runners/sk_gcc_release/kardome_runner"
     runner_uri = (os.environ.get("BMT_RUNNER_URI") or "").strip() or "sk/runners/sk_gcc_release/kardome_runner"
     source = (os.environ.get("BMT_SOURCE") or "").strip() or "sandbox_manual"
     source_ref = (os.environ.get("SOURCE_REF") or "").strip()

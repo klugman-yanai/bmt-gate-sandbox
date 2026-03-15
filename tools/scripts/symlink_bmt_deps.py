@@ -42,11 +42,7 @@ def _find_project_lib_dirs(bmt_root: Path) -> list[Path]:
     if not bmt_root.is_dir():
         return lib_dirs
     for project_dir in bmt_root.iterdir():
-        if (
-            not project_dir.is_dir()
-            or project_dir.name.startswith(".")
-            or project_dir.name == BMT_DEPS_SUBDIR.name
-        ):
+        if not project_dir.is_dir() or project_dir.name.startswith(".") or project_dir.name == BMT_DEPS_SUBDIR.name:
             continue
         lib_dir = project_dir / BMT_PROJECT_LIB_SUBDIR
         if lib_dir.is_dir():

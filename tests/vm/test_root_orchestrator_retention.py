@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import gcp.code.root_orchestrator as orchestrator
+import gcp.image.root_orchestrator as orchestrator
+from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 
 def _make_run(parent: Path, name: str, mtime: int) -> Path:
@@ -21,7 +22,7 @@ def _make_run(parent: Path, name: str, mtime: int) -> Path:
 
 
 def test_prune_run_dirs_keeps_two_newest(tmp_path: Path) -> None:
-    bmt_root = tmp_path / "sk" / "false_reject_namuh"
+    bmt_root = tmp_path / "sk" / SK_BMT_FALSE_REJECT_NAMUH
     bmt_root.mkdir(parents=True, exist_ok=True)
 
     old = _make_run(bmt_root, "run_20260220T010101Z_1", 1000)
@@ -38,7 +39,7 @@ def test_prune_run_dirs_keeps_two_newest(tmp_path: Path) -> None:
 
 
 def test_prune_workspace_keeps_two_per_bmt(tmp_path: Path) -> None:
-    bmt_a = tmp_path / "sk" / "false_reject_namuh"
+    bmt_a = tmp_path / "sk" / SK_BMT_FALSE_REJECT_NAMUH
     bmt_b = tmp_path / "foo" / "wakeword"
     bmt_a.mkdir(parents=True, exist_ok=True)
     bmt_b.mkdir(parents=True, exist_ok=True)
@@ -59,8 +60,8 @@ def test_prune_workspace_keeps_two_per_bmt(tmp_path: Path) -> None:
 
 
 def test_convention_paths_use_project_layout() -> None:
-    assert orchestrator._manager_rel_path("sk") == "sk/bmt_manager.py"
-    assert orchestrator._jobs_rel_path("sk") == "sk/config/bmt_jobs.json"
+    assert orchestrator._manager_rel_path("sk") == "projects/sk/bmt_manager.py"
+    assert orchestrator._jobs_rel_path("sk") == "projects/sk/bmt_jobs.json"
 
 
 def test_validate_jobs_config_requires_defined_enabled_bmt(tmp_path: Path) -> None:

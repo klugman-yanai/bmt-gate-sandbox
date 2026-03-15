@@ -15,9 +15,7 @@ def _repo_root() -> Path:
 
 
 def test_bmt_image_build_enforces_family_policy() -> None:
-    workflow = (_repo_root() / ".github" / "workflows" / "bmt-image-build.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (_repo_root() / ".github" / "workflows" / "bmt-vm-image-build.yml").read_text(encoding="utf-8")
     assert "Enforce image family policy" in workflow
     assert "BMT_EXPECTED_IMAGE_FAMILY" in workflow
     assert "BMT_EXPECTED_BASE_IMAGE_FAMILY" in workflow
@@ -26,9 +24,7 @@ def test_bmt_image_build_enforces_family_policy() -> None:
 
 
 def test_bmt_vm_provision_enforces_runtime_family_policy() -> None:
-    workflow = (_repo_root() / ".github" / "workflows" / "bmt-vm-provision.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (_repo_root() / ".github" / "workflows" / "bmt-vm-provision.yml").read_text(encoding="utf-8")
     assert "Enforce runtime image policy" in workflow
     assert "BMT_EXPECTED_IMAGE_FAMILY" in workflow
     assert "gcloud compute images describe" in workflow
