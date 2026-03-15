@@ -2,7 +2,10 @@
 """Upload a WAV dataset (zip or folder) to the canonical project inputs path.
 
 GCS destination:  gs://<bucket>/projects/<project>/inputs/<dataset>/
-Local mirror:     gcp/remote/projects/<project>/inputs/<dataset>/
+Local mirror:     gcp/remote/projects/<project>/inputs/<dataset>/  (opt-in only)
+
+Datasets can be 30-40 GB — local mirroring is disabled by default. Enable with
+``--local`` (CLI) or ``BMT_LOCAL_MIRROR=1`` (env).
 
 Dataset name is auto-detected from the source filename/directory when not
 supplied: ``sk_false_rejects.zip`` → ``false_rejects`` (project prefix
@@ -231,7 +234,8 @@ if __name__ == "__main__":
 
     from tools.repo.paths import repo_root
 
-    local_mirror = repo_root() / "gcp" / "remote"
+    local_str = (os.environ.get("BMT_LOCAL_MIRROR") or "").strip()
+    local_mirror = repo_root() / "gcp" / "remote" if truthy(local_str) else None
     raise SystemExit(
         BucketUploadDataset().run(
             bucket=bucket,

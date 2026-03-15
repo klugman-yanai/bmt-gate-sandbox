@@ -172,22 +172,22 @@ def upload_dataset(
         bool,
         typer.Option("--force", help="Re-upload even if GCS already matches"),
     ] = False,
-    no_local: Annotated[
+    local: Annotated[
         bool,
-        typer.Option("--no-local", help="Skip syncing to gcp/remote/"),
+        typer.Option("--local", help="Also mirror files into gcp/remote/ (off by default; datasets can be 30-40 GB)"),
     ] = False,
 ) -> None:
     """Upload a WAV dataset (zip or folder) to projects/<project>/inputs/<dataset>/.
 
-    Also mirrors the files into gcp/remote/ so the local bucket mirror stays
-    current (pass --no-local to skip). Dataset name is auto-detected from the
-    source filename when not given: sk_false_rejects.zip → false_rejects.
+    Uploads to GCS only by default — datasets can be 30-40 GB. Pass --local to
+    also mirror into gcp/remote/. Dataset name is auto-detected from the source
+    filename when not given: sk_false_rejects.zip → false_rejects.
     """
     from tools.remote.bucket_upload_dataset import BucketUploadDataset
     from tools.repo.paths import repo_root
 
     bucket = bucket_from_env()
-    local_mirror = None if no_local else repo_root() / "gcp" / "remote"
+    local_mirror = repo_root() / "gcp" / "remote" if local else None
     rc = BucketUploadDataset().run(
         bucket=bucket,
         project=project,

@@ -26,9 +26,9 @@ deploy:
 preflight:
     uv run python -m tools bucket preflight
 
-# Upload WAV dataset to projects/<project>/inputs/<dataset>/ in GCS and gcp/remote/.
+# Upload WAV dataset to projects/<project>/inputs/<dataset>/ in GCS only (datasets can be 30-40 GB).
 # Source can be a .zip archive or a folder. Dataset name is auto-detected from the filename.
-# Example: just upload-data sk audio/sk_false_rejects.zip
+# Pass --local to also mirror into gcp/remote/. Example: just upload-data sk audio/sk_false_rejects.zip
 [group('bucket')]
 upload-data project source *args:
     uv run python -m tools bucket upload-dataset "{{ project }}" "{{ source }}" {{ args }}

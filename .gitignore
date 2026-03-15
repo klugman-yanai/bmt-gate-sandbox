@@ -40,8 +40,9 @@ gcp/local/runtime/**/inputs/**/*.wav
 gcp/local/runtime/**/outputs/
 gcp/local/runtime/**/results/
 
-# WAV datasets in the local bucket mirror — large runtime assets, not tracked in git.
-# Upload with: just upload-data <project> <zip-or-folder>
+# WAV datasets in the local bucket mirror — large runtime assets (up to 30-40 GB), not tracked in git.
+# Upload to GCS with: just upload-data <project> <zip-or-folder>
+# Pass --local to also mirror locally: just upload-data <project> <source> --local
 gcp/remote/**/inputs/**/*.wav
 
 # Tooling/editor
