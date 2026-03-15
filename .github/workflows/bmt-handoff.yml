@@ -278,7 +278,9 @@ jobs:
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
-          sparse-checkout: .github
+          sparse-checkout: |
+            .github
+            gcp
 
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
