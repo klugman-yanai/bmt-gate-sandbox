@@ -88,7 +88,7 @@ class BucketValidateContract:
             missing = True
 
         if require_runner:
-            runner_uri = f"{bucket_root}/sk/runners/sk_gcc_release/kardome_runner"
+            runner_uri = f"{bucket_root}/projects/sk/kardome_runner"
             if exists(runner_uri):
                 print(f"FOUND {runner_uri}")
             else:

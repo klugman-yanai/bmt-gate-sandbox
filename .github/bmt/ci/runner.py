@@ -25,6 +25,20 @@ def _ctx_str(w: Any, attr: str, env_var: str, default: str = "") -> str:
     return (os.environ.get(env_var) or default).strip()
 
 
+def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any] | None:
+    """Return runner meta dict if found in GCS; else None.
+
+    Actual path (VM bmt_jobs, stage sync): projects/{project}/ with runner at
+    projects/sk/kardome_runner and meta at projects/sk/runner_meta.json or
+    projects/sk/runner_latest_meta.json.
+    """
+    for name in ("runner_meta.json", "runner_latest_meta.json"):
+        payload, _ = gcs.download_json(f"{root}/projects/{project}/{name}")
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -159,11 +173,7 @@ class RunnerManager:
             preset = str(entry.get("preset", "")).strip()
             if not project or not preset:
                 continue
-            meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
-            payload, _ = gcs.download_json(meta_uri)
-            if payload is None:
-                latest_uri = f"{root}/{project}/runners/{preset}/runner_latest_meta.json"
-                payload, _ = gcs.download_json(latest_uri)
+            payload = _runner_meta_in_gcs(root, project, preset)
             if payload is not None:
                 if preseeded:
                     if project not in projects_written:
@@ -220,7 +230,8 @@ class RunnerManager:
         if lib_dir is not None and not lib_dir.is_dir():
             lib_dir = None
         root = core.bucket_root_uri(bucket)
-        dest_prefix = f"{project}/runners/{preset}"
+        # Match VM bmt_jobs: runner at projects/sk/kardome_runner, meta at projects/sk/
+        dest_prefix = f"projects/{project}"
         meta_dest = f"{root}/{dest_prefix}/runner_meta.json"
         runner_binary = runner_dir / "kardome_runner"
         if not runner_binary.is_file():
@@ -335,13 +346,7 @@ class RunnerManager:
                         preset = str(entry.get("preset", "")).strip()
                         if not project or not preset:
                             continue
-                        # CI uploads write runner_meta.json; tools bucket upload-runner writes runner_latest_meta.json
-                        meta_uri = f"{root}/{project}/runners/{preset}/runner_meta.json"
-                        payload, _ = gcs.download_json(meta_uri)
-                        if not isinstance(payload, dict):
-                            latest_uri = f"{root}/{project}/runners/{preset}/runner_latest_meta.json"
-                            payload, _ = gcs.download_json(latest_uri)
-                        if isinstance(payload, dict):
+                        if _runner_meta_in_gcs(root, project, preset) is not None:
                             uploaded_projects.add(project)
             except json.JSONDecodeError as exc:
                 gh_warning(f"Invalid RUNNER_MATRIX JSON; skipping GCS runner pre-scan: {exc}")

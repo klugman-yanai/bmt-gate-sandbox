@@ -52,7 +52,8 @@ def test_resolve_uploaded_projects_accepts_preseeded_bucket_runner(monkeypatch, 
     monkeypatch.setattr(gcs, "list_prefix", lambda _prefix: [])
 
     def fake_download_json(uri: str):
-        if uri.endswith("/sk/runners/sk_gcc_release/runner_meta.json"):
+        # Actual path: projects/{project}/runner_meta.json or runner_latest_meta.json (VM bmt_jobs)
+        if "projects/sk/runner_meta.json" in uri or "projects/sk/runner_latest_meta.json" in uri:
             return ({"project": "sk", "preset": "sk_gcc_release"}, None)
         return (None, "404")
 
