@@ -57,6 +57,13 @@ variable "bmt_repo_root" {
   default = "/opt/bmt"
 }
 
+# Path to the gcp/image/ checkout directory on the build machine.
+# Set PKR_VAR_bmt_repo_source to the gcp/image/ dir from the CI checkout.
+variable "bmt_repo_source" {
+  type    = string
+  default = ""
+}
+
 variable "keep_builder" {
   type    = bool
   default = false
@@ -77,7 +84,7 @@ source "googlecompute" "bmt_runtime" {
 
   image_name        = local.image_name
   image_family      = var.image_family
-  image_description = "BMT runtime image baked from gs://${var.gcs_bucket}/code"
+  image_description = "BMT runtime image — code baked from repo checkout (gcp/image/)"
   image_labels = {
     bmt-image-family   = replace(lower(var.image_family), "_", "-")
     bmt-image-version  = replace(lower(local.image_name), "_", "-")
@@ -103,7 +110,7 @@ build {
   name    = "bmt-runtime"
   sources = ["source.googlecompute.bmt_runtime"]
 
-  # 1. Install gcloud CLI (if missing) and sync code snapshot from GCS
+  # 1. Install gcloud CLI (if missing) and prepare bmt_repo_root for code upload.
   provisioner "shell" {
     execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
@@ -117,10 +124,20 @@ build {
       "  sudo apt-get update -qq && sudo apt-get install -y -qq google-cloud-cli",
       "fi",
       "sudo apt-get install -y -q google-cloud-cli-gke-gcloud-auth-plugin 2>/dev/null || true",
+      # Remove any prior installation; create the target directory owned by the SSH user so
+      # the subsequent file provisioner can write directly without sudo.
       "sudo rm -rf ${var.bmt_repo_root}",
       "sudo mkdir -p ${var.bmt_repo_root}",
-      "sudo gcloud storage rsync gs://${var.gcs_bucket}/code ${var.bmt_repo_root} --recursive",
+      "sudo chown ubuntu:ubuntu ${var.bmt_repo_root}",
     ]
+  }
+
+  # 1b. Upload gcp/image/ from the CI checkout directly into the baked image.
+  #     This replaces the old gs://bucket/code sync; code is now part of the image,
+  #     not fetched from GCS at runtime or during bake.
+  provisioner "file" {
+    source      = "${var.bmt_repo_source}/"
+    destination = "${var.bmt_repo_root}"
   }
 
   # 1b. Install ffmpeg and gcsfuse (for hybrid storage / FUSE dataset mount)
@@ -207,7 +224,7 @@ build {
       "    'image_family': '${var.image_family}',",
       "    'base_image_family': '${var.base_image_family}',",
       "    'base_image_project': '${var.base_image_project}',",
-      "    'image_source': {'bucket': '${var.gcs_bucket}', 'code_prefix': 'code/'},",
+      "    'image_source': {'type': 'repo_checkout', 'path': 'gcp/image/'},",
       "    'deps_fingerprint': digest(repo/'pyproject.toml'),",
       "    'pyproject_sha256': digest(repo/'pyproject.toml'),",
       "    'glibc_version': build_meta.get('GLIBC_VERSION', ''),",

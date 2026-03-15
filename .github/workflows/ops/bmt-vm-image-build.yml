@@ -64,6 +64,8 @@ jobs:
       PKR_VAR_base_image_family: ${{ inputs.base_image_family || 'ubuntu-2204-lts' }}
       PKR_VAR_base_image_project: ${{ inputs.base_image_project || 'ubuntu-os-cloud' }}
       PKR_VAR_machine_type: ${{ inputs.machine_type || 'e2-standard-4' }}
+      # Code is baked from the repo checkout (gcp/image/), not from gs://bucket/code.
+      PKR_VAR_bmt_repo_source: ${{ github.workspace }}/gcp/image
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6

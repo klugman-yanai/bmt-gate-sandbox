@@ -69,6 +69,8 @@ def _run_packer_validate() -> int:
             "gcp_zone=europe-west4-a",
             "-var",
             "gcs_bucket=dry-run",
+            "-var",
+            "bmt_repo_source=.",  # dummy path; not used during validation
             PACKER_TEMPLATE,
         ],
         check=False,
