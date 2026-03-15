@@ -508,6 +508,9 @@ def _process_run_trigger(
     bucket = str(run_payload.get("bucket", "")).strip()
     runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
     runtime_prefix = ""  # bucket root; no runtime/ prefix
+    # Resolve canonical bucket name from runtime_bucket_root when trigger omits it
+    if not bucket:
+        bucket = runtime_bucket_root.removeprefix("gs://").split("/")[0]
 
     run_id = str(workflow_run_id)
     workflow_run_id_str = str(workflow_run_id)
