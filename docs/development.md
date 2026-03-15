@@ -2,7 +2,7 @@
 
 This document covers the **current** development workflow: setup, testing, lint/typecheck, Justfile recipes, and deploy (sync to bucket). For configuration and env vars see [configuration.md](configuration.md).
 
-**Unified CLI:** Run `uv run python -m tools --help` for the single Typer entry point (bucket, terraform, repo, build, bmt). Just recipes are thin wrappers around these commands; `just` remains the recommended interface.
+**Unified CLI:** Run `uv run python -m tools --help` for the single Typer entry point (bucket, pulumi, repo, build, bmt). Just recipes are thin wrappers around these commands; `just` remains the recommended interface.
 
 ---
 
@@ -46,7 +46,7 @@ Covers: pointer resolution and path construction in the manager (`tests/sk/test_
 Runs the **local** batch runner (different code path from the VM manager). Useful for runner/config/score logic without cloud:
 
 ```bash
-uv run python tools/bmt_run_local.py \
+uv run python -m tools.bmt.bmt_run_local \
   --bmt-id 4a5b6e82-a048-5c96-8734-2f64d2288378 \
   --jobs-config gcp/image/projects/sk/bmt_jobs.json \
   --runner gcp/remote/sk/runners/kardome_runner \
@@ -80,7 +80,7 @@ Then inspect GCS: `gs://<bucket>/runtime/<results_prefix>/snapshots/<run_id>/` s
 **3. Wait command (pointer-based polling)** — After the VM has processed a trigger, you can confirm verdict read from pointer/snapshot:
 
 ```bash
-uv run python .github/scripts/ci_driver.py wait \
+uv run bmt wait \
   --manifest '<json with legs: project, bmt_id, run_id, triggered_at>' \
   --config-root gcp/image \
   --bucket "<bucket>" \
@@ -93,12 +93,12 @@ uv run python .github/scripts/ci_driver.py wait \
 
 This is the **canonical guide** for testing production BMT CI locally using the real VM and GCS (no mocks). Follow it when you want to validate the full handoff path before pushing to production.
 
-**Production source.** BMT uses Terraform-managed VM(s). `BMT_LIVE_VM` is set from Terraform via `just terraform` or from the **BMT VM Provision** workflow after apply. Console-created VMs are not required; Terraform is the single source.
+**Production source.** BMT uses Pulumi-managed VM(s). `BMT_LIVE_VM` is set from Pulumi via `just pulumi` or from the **BMT VM Provision** workflow after up. Console-created VMs are not required; Pulumi is the single source.
 
 **Prerequisites**
 
-- **BMT VM:** Terraform-managed; create or update the VM and repo vars with `just terraform` or the **BMT VM Provision** workflow (Actions). Console-created VMs are not required.
-- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, and Terraform-exported vars (`just terraform`). Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
+- **BMT VM:** Pulumi-managed; create or update the VM and repo vars with `just pulumi` or the **BMT VM Provision** workflow (Actions). Console-created VMs are not required.
+- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, and Pulumi-exported vars (`just pulumi`). Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
 - **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
 - **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
 
@@ -208,12 +208,12 @@ All of the following are run by **`just test`** (pytest, ruff check, ruff format
 ruff check .
 ruff format --check .
 basedpyright
-shellcheck --severity=warning gcp/image/vm/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
+shellcheck --severity=warning gcp/image/scripts/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
 ```
 
 - **ruff:** Line length 120, Python 3.12 target.
-- **basedpyright:** Type checking across `.github/scripts`, `gcp/`, `tools/`.
-- **shellcheck:** VM and startup scripts under `gcp/image/vm/`, `.github/bmt/ci/resources/startup_entrypoint.sh`, and `tools/scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
+- **basedpyright:** Type checking across `.github/bmt`, `gcp/`, `tools/`.
+- **shellcheck:** VM and startup scripts under `gcp/image/scripts/`, `.github/bmt/ci/resources/startup_entrypoint.sh`, and `tools/scripts/hooks/`. Install shellcheck (e.g. `apt install shellcheck`) if not present.
 
 ---
 
@@ -227,9 +227,9 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just deploy` | Sync `gcp/` to bucket and verify (sync code + runtime seed, then verify). Requires `GCS_BUCKET`. Run after changing gcp/ code. |
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --run-id <id>`). |
 | `just vm-check <run_id>` | Show trigger, ack, and VM serial tail for a run. Read-only; does not start the VM. |
-| `just build` | Validate Packer, dispatch image build, wait. Add `--infra` to run terraform after. |
-| `just build --no-wait` | Dispatch image build only (no wait, no terraform). |
-| `just build --skip-image` | Skip image build; run terraform only. |
+| `just build` | Validate Packer, dispatch image build, wait. Add `--infra` to run Pulumi after. |
+| `just build --no-wait` | Dispatch image build only (no wait, no Pulumi). |
+| `just build --skip-image` | Skip image build; run Pulumi only. |
 | `just act` | Run build-and-test workflow locally. Uses .env if present. |
 | `just act handoff` | Run BMT handoff workflow with current HEAD. |
 | `just act trigger` | Run trigger-ci with pull_request event. |
@@ -287,16 +287,16 @@ Dataset policy: `data/` is the local authoritative source for large WAV corpora;
 
    The mount is read-only (`-o ro`) so you cannot accidentally modify or delete bucket objects.
 
-CI workflows are in `.github/workflows/`. They use the same `ci_driver.py` and `gcp/image` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [../gcp/image/vm/README.md](../gcp/image/vm/README.md). Full reseed (destructive): see [../CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
+CI workflows are in `.github/workflows/`. They use **`uv run bmt <cmd>`** and `gcp/image` content; production typically copies or mirrors these workflows. VM bootstrap and auth: [gcp/image/scripts/README.md](../gcp/image/scripts/README.md). Full reseed (destructive): see [CLAUDE.md](../CLAUDE.md#full-reseed-destructive).
 
 ### VM image: rebuild when needed
 
 The **BMT Image Build** workflow (`.github/workflows/bmt-vm-image-build.yml`) builds the VM image with Packer. To keep the image up to date:
 
-- **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/image/vm/**` trigger the image build. The new image is published to the same family; Terraform and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
+- **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/image/scripts/**` trigger the image build. The new image is published to the same family; Pulumi and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
 - **Manual:** Run the workflow from the Actions tab (**BMT Image Build** → Run workflow) to rebuild with default inputs.
 - **Image-up-to-date check:** The BMT workflow runs a **Check image up to date** job first. If image-affecting paths changed on your branch/commit but no successful BMT Image Build run exists for that ref, the job fails with a clear message; run BMT Image Build for the branch and re-run BMT.
-- **Pre-commit:** When you commit under `infra/packer/` or `gcp/image/vm/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/image/vm/README.md](../gcp/image/vm/README.md).
+- **Pre-commit:** When you commit under `infra/packer/` or `gcp/image/scripts/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/image/scripts/README.md](../gcp/image/scripts/README.md).
 - **Using the new image:** New VMs get the latest image automatically. For an existing VM, run the **BMT VM Provision** workflow (with the same image family) and recreate the instance if you need the new disk image (e.g. after cloud-init or bootstrap changes).
 
 ### Cleaning GCS and VM of Python/uv bloat
@@ -338,9 +338,9 @@ Bootstrap runbook: "just deploy" (or `uv run python -m tools.remote.bucket_sync_
 3. **Resync VM metadata and run controlled live check**
 
    ```bash
-   uv run python .github/scripts/ci_driver.py sync-vm-metadata
-   uv run python .github/scripts/ci_driver.py start-vm --allow-manual-start
-   # write trigger + wait-handshake via ci_driver.py trigger / wait-handshake
+   uv run bmt sync-vm-metadata
+   uv run bmt start-vm --allow-manual-start
+   # write trigger + wait-handshake via uv run bmt write-run-trigger / uv run bmt wait-handshake
    ```
 
 4. **Temporary mitigation**

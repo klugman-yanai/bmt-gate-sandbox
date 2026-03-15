@@ -8,6 +8,7 @@ bmt_jobs.json; override _evaluate_gate if you need custom gate logic.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import subprocess
@@ -65,10 +66,8 @@ class SkyworthBmtManager(BmtManagerBase):
         inputs_dir = staging / "inputs"
         inputs_dir.mkdir(parents=True, exist_ok=True)
         dataset_uri = _bucket_uri(runtime_root, f"{self._dataset_prefix}/")
-        try:
+        with contextlib.suppress(Exception):
             _gcloud_rsync(dataset_uri, inputs_dir)
-        except Exception:
-            pass
         self._inputs_root = inputs_dir
         runner_dir = self.run_root / "runner"
         runner_dir.mkdir(parents=True, exist_ok=True)
@@ -90,7 +89,9 @@ class SkyworthBmtManager(BmtManagerBase):
             encoding="utf-8",
         )
         cmd = [str(self._runner_path), str(input_file), str(cfg_path)]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=str(self.run_root))
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300, cwd=str(self.run_root), check=False
+        )
         stdout = proc.stdout or ""
         match = self._counter_pattern.search(stdout)
         counter = int(match.group(1)) if match else 0
@@ -105,9 +106,7 @@ class SkyworthBmtManager(BmtManagerBase):
     def compute_score(self, file_results: list[dict[str, Any]]) -> float:
         if not file_results:
             return 0.0
-        total = sum(
-            int(r.get("counter", 0)) for r in file_results if int(r.get("exit_code", 1)) == 0
-        )
+        total = sum(int(r.get("counter", 0)) for r in file_results if int(r.get("exit_code", 1)) == 0)
         return total / len(file_results)
 
     def get_runner_identity(self) -> dict[str, Any]:
@@ -124,9 +123,7 @@ class SkyworthBmtManager(BmtManagerBase):
         gate_cfg = self.bmt_cfg.get("gate", {}) or {}
         comparison = _normalize_comparison(str(gate_cfg.get("comparison", "gte")))
         tolerance_abs = float(gate_cfg.get("tolerance_abs", 0.0) or 0.0)
-        return _gate_result(
-            comparison, aggregate_score, last_score, failed_count, self.run_context, tolerance_abs
-        )
+        return _gate_result(comparison, aggregate_score, last_score, failed_count, self.run_context, tolerance_abs)
 
 
 def parse_args() -> argparse.Namespace:

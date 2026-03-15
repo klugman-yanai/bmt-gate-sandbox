@@ -15,12 +15,12 @@ on:
         description: "VM name to create/update"
         required: true
       action:
-        description: "Terraform action"
+        description: "Pulumi action"
         required: true
         type: choice
         options:
-          - plan
-          - apply
+          - preview
+          - up
           - destroy
 
 permissions:
@@ -28,22 +28,19 @@ permissions:
   id-token: write
 
 concurrency:
-  group: terraform-apply-${{ inputs.bmt_vm_name }}
+  group: pulumi-apply-${{ inputs.bmt_vm_name }}
   cancel-in-progress: false
 
 jobs:
-  terraform:
-    name: Terraform ${{ inputs.action }}
+  pulumi:
+    name: Pulumi ${{ inputs.action }}
     runs-on: ubuntu-latest
     env:
-      TF_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
-      TF_VAR_gcp_zone: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
-      TF_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
-      TF_VAR_bmt_vm_name: ${{ inputs.bmt_vm_name }}
-      TF_VAR_image_family: ${{ inputs.image_family }}
-      TF_VAR_image_name: ${{ inputs.image_name }}
-      TF_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
-      TF_VAR_startup_wrapper_script_path: ../../.github/bmt/ci/resources/startup_entrypoint.sh
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+      PULUMI_CONFIG_PASSPHRASE: ""
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -55,14 +52,12 @@ jobs:
           service_account: ${{ vars.GCP_SA_EMAIL }}
           install_uv: "false"
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v5
         with:
-          terraform_version: "~> 1.7"
+          command: install-pulumi-cli
 
       - name: Enforce runtime image policy
-        env:
-          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
         run: |
           set -euo pipefail
           expected_family="${BMT_EXPECTED_IMAGE_FAMILY:-bmt-runtime}"
@@ -82,30 +77,52 @@ jobs:
             fi
           fi
 
-      - name: Terraform init
-        working-directory: infra/terraform
+      - name: Write bmt.tfvars.json
+        working-directory: infra/pulumi
+        env:
+          BMT_VM_NAME: ${{ inputs.bmt_vm_name }}
+          IMAGE_FAMILY: ${{ inputs.image_family }}
+          IMAGE_NAME: ${{ inputs.image_name }}
         run: |
-          terraform init \
-            -backend-config="bucket=${{ vars.GCS_BUCKET }}" \
-            -backend-config="prefix=terraform/${{ inputs.bmt_vm_name }}"
+          python3 -c "
+          import json, os
+          with open('bmt.tfvars.json', 'w') as f:
+              json.dump({
+                  'gcp_project': os.environ['GCP_PROJECT'],
+                  'gcp_zone': os.environ['GCP_ZONE'],
+                  'gcs_bucket': os.environ['GCS_BUCKET'],
+                  'service_account': os.environ['GCP_SA_EMAIL'],
+                  'bmt_vm_name': os.environ['BMT_VM_NAME'],
+                  'image_family': os.environ.get('IMAGE_FAMILY', 'bmt-runtime'),
+                  'image_name': os.environ.get('IMAGE_NAME', ''),
+                  'startup_wrapper_script_path': '../../.github/bmt/ci/resources/startup_entrypoint.sh',
+              }, f, indent=2)
+          "
 
-      - name: Terraform plan
+      - name: Pulumi login
+        working-directory: infra/pulumi
+        run: pulumi login "gs://${{ env.GCS_BUCKET }}/pulumi/bmt-vm"
+
+      - name: Pulumi stack select
+        working-directory: infra/pulumi
+        run: pulumi stack select prod --create
+
+      - name: Pulumi install (Python deps)
+        working-directory: infra/pulumi
+        run: pulumi install
+
+      - name: Pulumi preview
         if: inputs.action != 'destroy'
-        working-directory: infra/terraform
-        run: terraform plan -out=tfplan
+        working-directory: infra/pulumi
+        run: pulumi preview
 
-      - name: Terraform plan (destroy)
-        if: inputs.action == 'destroy'
-        working-directory: infra/terraform
-        run: terraform plan -destroy -out=tfplan
+      - name: Pulumi up
+        if: inputs.action == 'up'
+        working-directory: infra/pulumi
+        run: pulumi up --yes
 
-      - name: Terraform apply
-        if: inputs.action == 'apply'
-        working-directory: infra/terraform
-        run: terraform apply -auto-approve tfplan
-
-      - name: Update BMT_LIVE_VM repo variable after apply
-        if: inputs.action == 'apply'
+      - name: Update BMT_LIVE_VM repo variable after up
+        if: inputs.action == 'up'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -114,9 +131,9 @@ jobs:
             --body "${{ inputs.bmt_vm_name }}"
           echo "Updated BMT_LIVE_VM=${{ inputs.bmt_vm_name }}"
 
-      - name: Terraform destroy (requires explicit action=destroy)
+      - name: Pulumi destroy
         if: inputs.action == 'destroy'
-        working-directory: infra/terraform
+        working-directory: infra/pulumi
         run: |
           echo "::warning::Destroying VM ${{ inputs.bmt_vm_name }}"
-          terraform apply -auto-approve tfplan
+          pulumi destroy --yes

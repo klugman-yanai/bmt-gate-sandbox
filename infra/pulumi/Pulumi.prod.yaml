@@ -1,0 +1,4 @@
+config:
+  gcp:project: train-kws-202311
+secretsprovider: gcpkms://projects/train-kws-202311/locations/europe-west4/keyRings/pulumi/cryptoKeys/bmt-vm
+encryptedkey: CiQAjv1+ylhuXvAK4InHTbvdfmsp9qQ608s8Ed491wgdn0OYLJUSSQA0NydW2e+neBPTWoasjbaPIvyJnAFbIQM3212jAqN7HSs0+F1FEhy+czEUudzOFeCaYIaiNvXh/Urr+Xr7ox1M4fZ2hHZEGSk=

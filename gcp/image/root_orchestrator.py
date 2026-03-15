@@ -20,6 +20,7 @@ from typing import Any
 from google.api_core import exceptions as gcs_exceptions
 from google.cloud import storage as gcs_storage
 
+from gcp.image import log_config
 from gcp.image.config.constants import EXECUTABLE_MODE
 from gcp.image.utils import _bucket_uri, _code_bucket_root, _now_iso, _now_stamp, _runtime_bucket_root
 
@@ -98,14 +99,13 @@ def _parse_gcs_uri(uri: str) -> tuple[str, str]:
     return parts[0], (parts[1] if len(parts) > 1 else "")
 
 
-_gcs_client: gcs_storage.Client | None = None
+_gcs_client_holder: list[gcs_storage.Client | None] = [None]
 
 
 def _get_gcs_client() -> gcs_storage.Client:
-    global _gcs_client
-    if _gcs_client is None:
-        _gcs_client = gcs_storage.Client()
-    return _gcs_client
+    if _gcs_client_holder[0] is None:
+        _gcs_client_holder[0] = gcs_storage.Client()
+    return _gcs_client_holder[0]
 
 
 def _gcloud_cp(src: str, dst: Path) -> None:
@@ -118,7 +118,7 @@ def _gcloud_cp(src: str, dst: Path) -> None:
     except gcs_exceptions.NotFound:
         raise OrchestratorError(f"GCS object not found: {src}") from None
     except (gcs_exceptions.GoogleAPICallError, OSError):
-        logging.getLogger(__name__).exception("Failed to download %s", src)
+        logging.getLogger(log_config.ORCHESTRATOR_LOGGER_NAME).exception("Failed to download %s", src)
         raise
 
 
@@ -129,7 +129,7 @@ def _gcloud_upload(src: Path, dst: str) -> None:
     try:
         _get_gcs_client().bucket(bucket_name).blob(blob_name).upload_from_filename(str(src), content_type=ct)
     except (gcs_exceptions.GoogleAPICallError, OSError):
-        logging.getLogger(__name__).exception("Failed to upload %s -> %s", src, dst)
+        logging.getLogger(log_config.ORCHESTRATOR_LOGGER_NAME).exception("Failed to upload %s -> %s", src, dst)
         raise
 
 
@@ -162,6 +162,94 @@ def _validate_jobs_config(jobs_payload: dict[str, Any], *, project: str, bmt_id:
         raise OrchestratorError(f"BMT id '{bmt_id}' is disabled for project '{project}' in {jobs_path}")
 
 
+def _run_one_leg(
+    args: argparse.Namespace,
+    run_root: Path,
+    code_bucket_root: str,
+    runtime_bucket_root: str,
+    run_id: str,
+) -> int:
+    manager_rel = _manager_rel_path(args.project)
+    jobs_rel = _jobs_rel_path(args.project)
+    local_manager = run_root / manager_rel
+    local_jobs = run_root / jobs_rel
+    _gcloud_cp(_bucket_uri(code_bucket_root, manager_rel), local_manager)
+    _gcloud_cp(_bucket_uri(code_bucket_root, jobs_rel), local_jobs)
+    try:
+        jobs_payload = _load_json(local_jobs)
+    except json.JSONDecodeError as exc:
+        raise OrchestratorError(f"Invalid JSON in {local_jobs}: {exc}") from exc
+    _validate_jobs_config(jobs_payload, project=args.project, bmt_id=args.bmt_id, jobs_path=local_jobs)
+    local_manager.chmod(local_manager.stat().st_mode | EXECUTABLE_MODE)
+    manager_summary_path = run_root / "manager_summary.json"
+    command = [
+        sys.executable,
+        str(local_manager),
+        "--bucket",
+        args.bucket,
+        "--project-id",
+        args.project,
+        "--bmt-id",
+        args.bmt_id,
+        "--jobs-config",
+        str(local_jobs),
+        "--workspace-root",
+        str(run_root),
+        "--run-context",
+        args.run_context,
+        "--run-id",
+        run_id,
+        "--summary-out",
+        str(manager_summary_path),
+    ]
+    if args.human:
+        command.append("--human")
+    env = os.environ.copy()
+    if args.leg_index is not None and args.workflow_run_id:
+        env["BMT_STATUS_BUCKET"] = args.bucket
+        env["BMT_STATUS_RUNTIME_PREFIX"] = "runtime"
+        env["BMT_STATUS_RUN_ID"] = str(args.workflow_run_id)
+        env["BMT_STATUS_LEG_INDEX"] = str(args.leg_index)
+    orch_log = logging.getLogger(log_config.ORCHESTRATOR_LOGGER_NAME)
+    orch_log.info(
+        "Leg start project=%s bmt_id=%s run_id=%s",
+        args.project,
+        args.bmt_id,
+        run_id,
+    )
+    proc = subprocess.run(command, check=False, env=env)
+    manager_exit_code = proc.returncode
+    orch_log.info(
+        "Leg end project=%s bmt_id=%s run_id=%s exit_code=%s",
+        args.project,
+        args.bmt_id,
+        run_id,
+        manager_exit_code,
+    )
+    manager_summary: dict[str, Any] | None = None
+    if manager_summary_path.is_file():
+        manager_summary = _load_json(manager_summary_path)
+    root_summary = {
+        "timestamp": _now_iso(),
+        "bucket": args.bucket,
+        "project": args.project,
+        "bmt_id": args.bmt_id,
+        "run_context": args.run_context,
+        "run_id": run_id,
+        "workspace": str(run_root),
+        "manager_exit_code": manager_exit_code,
+        "passed": manager_exit_code == 0,
+        "manager_status": manager_summary.get("status") if isinstance(manager_summary, dict) else None,
+        "manager_reason_code": manager_summary.get("reason_code") if isinstance(manager_summary, dict) else None,
+        "manager_verdict_uri": manager_summary.get("ci_verdict_uri") if isinstance(manager_summary, dict) else None,
+        "manager_summary": manager_summary,
+    }
+    summary_local = run_root / args.summary_out
+    summary_local.write_text(json.dumps(root_summary, indent=2) + "\n", encoding="utf-8")
+    _gcloud_upload(summary_local, _bucket_uri(runtime_bucket_root, "bmt_root_results.json"))
+    return manager_exit_code
+
+
 def main() -> int:
     args = parse_args()
     run_id = args.run_id.strip()
@@ -169,97 +257,14 @@ def main() -> int:
         raise OrchestratorError("--run-id is required for dev/pr runs")
     code_bucket_root = _code_bucket_root(args.bucket)
     runtime_bucket_root = _runtime_bucket_root(args.bucket)
-
     workspace_root = _resolve_workspace_root(args.workspace_root)
     workspace_root.mkdir(parents=True, exist_ok=True)
+    log_config.configure_orchestrator_logging(workspace_root)
     _prune_workspace(workspace_root, keep_recent_per_bmt=KEEP_RECENT_DEFAULT)
-
     run_root = workspace_root / args.project / args.bmt_id / f"run_{_now_stamp()}_{os.getpid()}"
     run_root.mkdir(parents=True, exist_ok=True)
     try:
-        manager_rel = _manager_rel_path(args.project)
-        jobs_rel = _jobs_rel_path(args.project)
-
-        local_manager = run_root / manager_rel
-        local_jobs = run_root / jobs_rel
-        _gcloud_cp(_bucket_uri(code_bucket_root, manager_rel), local_manager)
-        _gcloud_cp(_bucket_uri(code_bucket_root, jobs_rel), local_jobs)
-        try:
-            jobs_payload = _load_json(local_jobs)
-        except json.JSONDecodeError as exc:
-            raise OrchestratorError(f"Invalid JSON in {local_jobs}: {exc}") from exc
-        _validate_jobs_config(jobs_payload, project=args.project, bmt_id=args.bmt_id, jobs_path=local_jobs)
-
-        local_manager.chmod(local_manager.stat().st_mode | EXECUTABLE_MODE)
-
-        manager_summary_path = run_root / "manager_summary.json"
-        command = [
-            sys.executable,
-            str(local_manager),
-            "--bucket",
-            args.bucket,
-            "--project-id",
-            args.project,
-            "--bmt-id",
-            args.bmt_id,
-            "--jobs-config",
-            str(local_jobs),
-            "--workspace-root",
-            str(run_root),
-            "--run-context",
-            args.run_context,
-            "--run-id",
-            run_id,
-            "--summary-out",
-            str(manager_summary_path),
-        ]
-        if args.human:
-            command.append("--human")
-
-        # Set up env vars for manager progress tracking
-        env = os.environ.copy()
-        if args.leg_index is not None and args.workflow_run_id:
-            env["BMT_STATUS_BUCKET"] = args.bucket
-            env["BMT_STATUS_RUNTIME_PREFIX"] = "runtime"
-            env["BMT_STATUS_RUN_ID"] = str(args.workflow_run_id)
-            env["BMT_STATUS_LEG_INDEX"] = str(args.leg_index)
-
-        proc = subprocess.run(command, check=False, env=env)
-        manager_exit_code = proc.returncode
-
-        manager_summary: dict[str, Any] | None = None
-        if manager_summary_path.is_file():
-            manager_summary = _load_json(manager_summary_path)
-        manager_status = manager_summary.get("status") if isinstance(manager_summary, dict) else None
-        manager_reason_code = manager_summary.get("reason_code") if isinstance(manager_summary, dict) else None
-        manager_verdict_uri = manager_summary.get("ci_verdict_uri") if isinstance(manager_summary, dict) else None
-
-        root_summary = {
-            "timestamp": _now_iso(),
-            "bucket": args.bucket,
-            "project": args.project,
-            "bmt_id": args.bmt_id,
-            "run_context": args.run_context,
-            "run_id": run_id,
-            "workspace": str(run_root),
-            "manager_exit_code": manager_exit_code,
-            "passed": manager_exit_code == 0,
-            "manager_status": manager_status,
-            "manager_reason_code": manager_reason_code,
-            "manager_verdict_uri": manager_verdict_uri,
-            "manager_summary": manager_summary,
-        }
-
-        summary_local = run_root / args.summary_out
-        summary_local.write_text(json.dumps(root_summary, indent=2) + "\n", encoding="utf-8")
-        _gcloud_upload(summary_local, _bucket_uri(runtime_bucket_root, "bmt_root_results.json"))
-
-        if args.human:
-            pass
-        else:
-            pass
-
-        return manager_exit_code
+        return _run_one_leg(args, run_root, code_bucket_root, runtime_bucket_root, run_id)
     finally:
         _prune_run_dirs(run_root.parent, keep_recent=KEEP_RECENT_DEFAULT)
 

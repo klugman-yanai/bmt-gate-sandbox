@@ -7,21 +7,19 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
-from tools.repo.paths import repo_root, INFRA_TERRAFORM
+from tools.repo.paths import pulumi_dir
 from tools.shared.env_contract import list_repo_vs_vm_metadata_vars, load_env_contract
 from tools.shared.gh import cmd_exists
 
 
-def _terraform_bmt_vm_name() -> str | None:
-    """Return Terraform primary VM name if state is available; else None."""
-    tf_dir = repo_root() / INFRA_TERRAFORM
-    if not tf_dir.is_dir():
+def _pulumi_bmt_vm_name() -> str | None:
+    """Return primary VM name from Pulumi stack output if available; else None."""
+    pdir = pulumi_dir()
+    if not pdir.is_dir():
         return None
     proc = subprocess.run(
-        ["terraform", "output", "-raw", "bmt_vm_name"],
-        cwd=tf_dir,
+        ["pulumi", "stack", "output", "bmt_vm_name", "--cwd", str(pdir)],
         capture_output=True,
         text=True,
         check=False,
@@ -129,11 +127,13 @@ class GhValidateVmVars:
             if repo_norm != vm_norm:
                 mismatches.append(key)
 
-        tf_primary = _terraform_bmt_vm_name()
-        if tf_primary is not None and _normalize("BMT_LIVE_VM", resolved_vm) != _normalize("BMT_LIVE_VM", tf_primary):
+        pulumi_primary = _pulumi_bmt_vm_name()
+        if pulumi_primary is not None and _normalize("BMT_LIVE_VM", resolved_vm) != _normalize(
+            "BMT_LIVE_VM", pulumi_primary
+        ):
             print()
             print(
-                f"::warning::BMT_LIVE_VM ({_render(resolved_vm)}) differs from Terraform primary VM ({_render(tf_primary)}). "
+                f"::warning::BMT_LIVE_VM ({_render(resolved_vm)}) differs from Pulumi primary VM ({_render(pulumi_primary)}). "
                 "Repo var may have been set manually or by cutover; ensure this is intended.",
                 file=sys.stderr,
             )

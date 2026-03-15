@@ -63,14 +63,16 @@ RuntimeEnvKey = Literal[
     "GCP_WIF_PROVIDER",
 ]
 
-_RUNTIME_KEYS: Final[frozenset[RuntimeEnvKey]] = frozenset({
-    "GCS_BUCKET",
-    "GCP_PROJECT",
-    "GCP_SA_EMAIL",
-    "BMT_LIVE_VM",
-    "BMT_REPO_ROOT",
-    "GCP_WIF_PROVIDER",
-})
+_RUNTIME_KEYS: Final[frozenset[RuntimeEnvKey]] = frozenset(
+    {
+        "GCS_BUCKET",
+        "GCP_PROJECT",
+        "GCP_SA_EMAIL",
+        "BMT_LIVE_VM",
+        "BMT_REPO_ROOT",
+        "GCP_WIF_PROVIDER",
+    }
+)
 
 # Type aliases for constrained numeric config (self-documenting and validated)
 TimeoutSec = Annotated[int, Field(ge=0, le=86400, description="Timeout in seconds (0-86400)")]
@@ -111,7 +113,9 @@ class BmtConfig(BaseModel):
         default=constants.PUBSUB_TOPIC_NAME,
         description="Pub/Sub topic for trigger notifications",
     )
-    bmt_pubsub_subscription: str = Field(default="", description="Pub/Sub subscription (empty => derived from bmt_vm_name)")
+    bmt_pubsub_subscription: str = Field(
+        default="", description="Pub/Sub subscription (empty => derived from bmt_vm_name)"
+    )
     # Defaults (code only; no JSON, no env overlay)
     bmt_status_context: str = Field(
         default=constants.STATUS_CONTEXT,
@@ -123,11 +127,11 @@ class BmtConfig(BaseModel):
         description="VM handshake wait when reusing a RUNNING VM (s)",
     )
     bmt_progress_description: str = Field(
-        default="BMT in progress…",
+        default="Tests in progress…",
         description="Commit status description while BMT is in progress",
     )
     bmt_failure_status_description: str = Field(
-        default="BMT cancelled: VM handshake timeout before pickup.",
+        default="Tests cancelled: runner did not respond in time.",
         description="Commit status description on handshake timeout failure",
     )
 

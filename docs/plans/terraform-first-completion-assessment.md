@@ -3,9 +3,11 @@
 **Date:** 2026-03-15  
 **Plan reference:** [.cursor/plans/terraform_vm_migration_plan_0c69b647.plan.md](../.cursor/plans/terraform_vm_migration_plan_0c69b647.plan.md)
 
+**Note:** Superseded by Pulumi migration. Infra is now **infra/pulumi**, applied via `just pulumi`. The bmt-vm-provision workflow uses Pulumi CLI (preview / up / destroy). This document is kept for historical context.
+
 ## Verdict: **docs complete; ops pending**
 
-The **code and workflow** for a Terraform-first BMT VM are in place. **Documentation** tasks (3.4, 4.1, 4.2, 5.2, 5.3) and the infra/README path fix are implemented. **Operational steps** (Phases 1–3) must still be run in a real project to reach fully complete.
+The **code and workflow** for a Terraform-first BMT VM were in place; infra has since been migrated to Pulumi. **Documentation** tasks (3.4, 4.1, 4.2, 5.2, 5.3) and the infra/README path fix are implemented. **Operational steps** (Phases 1–3) must still be run in a real project to reach fully complete.
 
 ---
 
@@ -13,11 +15,11 @@ The **code and workflow** for a Terraform-first BMT VM are in place. **Documenta
 
 | Item | Status | Notes |
 |------|--------|------|
-| **Terraform** | Done | [infra/terraform/main.tf](infra/terraform/main.tf): `google_compute_instance.bmt_vm`, `desired_status = "TERMINATED"`, lifecycle prevent_destroy, Pub/Sub topic/subscription, outputs including `bmt_vm_name`. |
+| **Terraform** | Done | [infra/terraform/main.tf](infra/terraform/main.tf): `google_compute_instance.bmt_vm`, `desired_status = "TERMINATED"`, lifecycle ignore_changes (startup-script), Pub/Sub topic/subscription, outputs including `bmt_vm_name`. |
 | **Provision workflow** | Done | [.github/workflows/bmt-vm-provision.yml](.github/workflows/bmt-vm-provision.yml): separate plan vs plan-destroy; apply uses `tfplan`; destroy step runs `terraform apply -auto-approve tfplan` (correct for destroy plan). Concurrency `terraform-apply-${{ inputs.bmt_vm_name }}`. Post-apply updates `BMT_LIVE_VM` repo variable. |
 | **Export script** | Done | [tools/terraform/terraform_repo_vars.py](tools/terraform/terraform_repo_vars.py); `just terraform-export-vars` / `just terraform-export-vars-apply`. |
 | **Handoff** | Done | Handoff workflow reads `vars.BMT_LIVE_VM` (and pool/label); select-available-vm, start-vm, sync-vm-metadata use it. |
-| **Task 5.1 (legacy image script)** | Done | [infra/scripts/build_bmt_image.py](infra/scripts/build_bmt_image.py) has legacy comment; [gcp/image/scripts/README.md](gcp/image/scripts/README.md) points to infra and says “legacy; prefer Packer”. |
+| **Task 5.1 (legacy image script)** | Done | Legacy `infra/scripts/build_bmt_image.py` removed; Packer is the sole image builder. |
 
 ---
 

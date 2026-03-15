@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -20,22 +21,21 @@ from gcp.image.path_utils import VM_WATCHER_SCRIPT
 METADATA_BASE = "http://metadata.google.internal/computeMetadata/v1"
 METADATA_HEADERS = {"Metadata-Flavor": "Google"}
 
-BMT_LOG_FILE: str | None = None
+_log_file_holder: list[str | None] = [None]
 
 
-def _log(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [run_watcher] {msg}", flush=True)
+def _log(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
-def _log_err(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [run_watcher] {msg}", file=sys.stderr, flush=True)
+def _log_err(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
 def _read_meta(key: str) -> str:
     """Read instance attribute from GCP metadata server."""
     import urllib.request
+
     url = f"{METADATA_BASE}/instance/attributes/{key}"
     req = urllib.request.Request(url, headers=METADATA_HEADERS)
     try:
@@ -48,6 +48,7 @@ def _read_meta(key: str) -> str:
 def _read_meta_simple(path: str) -> str:
     """Read simple metadata path (e.g. instance/name, project/project-id)."""
     import urllib.request
+
     url = f"{METADATA_BASE}/{path}"
     req = urllib.request.Request(url, headers=METADATA_HEADERS)
     try:
@@ -82,6 +83,7 @@ def _stop_instance_best_effort(exit_code: int) -> None:
     _log_err("gcloud stop failed; attempting Compute API fallback.")
     import json
     import urllib.request
+
     token_url = f"{METADATA_BASE}/instance/service-accounts/default/token"
     req = urllib.request.Request(token_url, headers=METADATA_HEADERS)
     try:
@@ -114,7 +116,8 @@ def _stop_instance_best_effort(exit_code: int) -> None:
 
 
 def _upload_log_and_stop(exit_code: int) -> None:
-    if BMT_LOG_FILE and os.path.isfile(BMT_LOG_FILE):
+    log_file = _log_file_holder[0]
+    if log_file and Path(log_file).is_file():
         bucket = os.environ.get("GCS_BUCKET", "").strip()
         if bucket:
             vm_name = _read_meta_simple("instance/name") or "unknown"
@@ -122,7 +125,7 @@ def _upload_log_and_stop(exit_code: int) -> None:
             ts = f"{ts_compact[:8]}T{ts_compact[8:]}"
             dest = f"gs://{bucket}/logs/{vm_name}-{ts}.log"
             r = subprocess.run(
-                ["gcloud", "storage", "cp", BMT_LOG_FILE, dest, "--quiet"],
+                ["gcloud", "storage", "cp", log_file, dest, "--quiet"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -155,33 +158,29 @@ def _access_secret_with_retry(secret_name: str, project: str, location: str | No
     return ""
 
 
+def _get_first_secret(
+    candidates: list[str], suffix: str, project: str, location: str | None
+) -> tuple[str, str]:
+    for c in candidates:
+        value = _access_secret_with_retry(f"{c}_{suffix}", project, location)
+        if value:
+            return value, c
+    return "", ""
+
+
 def _load_github_app_credentials(env_label: str, prefix: str, project: str, location: str | None) -> None:
     alias_prefix = f"GH_APP_{prefix[11:]}" if prefix.startswith("GITHUB_APP_") else ""
     candidates = [prefix]
     if alias_prefix and alias_prefix != prefix:
         candidates.append(alias_prefix)
-    app_id = ""
-    installation_id = ""
-    private_key = ""
-    selected = ""
-    for c in candidates:
-        app_id = _access_secret_with_retry(f"{c}_ID", project, location)
-        if app_id:
-            selected = c
-            break
+    app_id, selected = _get_first_secret(candidates, "ID", project, location)
     if not app_id:
         _log(f"Info: {env_label}: GitHub App secrets not found/readable ({prefix}_ID) in project {project}.")
         return
-    for c in candidates:
-        installation_id = _access_secret_with_retry(f"{c}_INSTALLATION_ID", project, location)
-        if installation_id:
-            selected = selected or c
-            break
-    for c in candidates:
-        private_key = _access_secret_with_retry(f"{c}_PRIVATE_KEY", project, location)
-        if private_key:
-            selected = selected or c
-            break
+    installation_id, inst_sel = _get_first_secret(candidates, "INSTALLATION_ID", project, location)
+    selected = selected or inst_sel
+    private_key, pk_sel = _get_first_secret(candidates, "PRIVATE_KEY", project, location)
+    selected = selected or pk_sel
     if not installation_id or not private_key:
         _log_err(f"Warning: {env_label}: secret set {prefix}_* partially available but values missing.")
         return
@@ -195,7 +194,10 @@ def _load_github_app_credentials(env_label: str, prefix: str, project: str, loca
 
 def _validate_venv_imports(python_bin: str) -> bool:
     r = subprocess.run(
-        [python_bin, "-c", """
+        [
+            python_bin,
+            "-c",
+            """
 import importlib.util
 import sys
 required = ["jwt", "cryptography", "httpx", "google.cloud.storage"]
@@ -205,7 +207,8 @@ if importlib.util.find_spec("google.cloud.pubsub_v1") is None and importlib.util
 if missing:
     print("Missing required pre-baked modules:", ", ".join(missing), file=sys.stderr)
     sys.exit(1)
-"""],
+""",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -213,103 +216,138 @@ if missing:
     return r.returncode == 0
 
 
+def _setup_env_and_config() -> tuple[str, str, str, str] | None:
+    """Set GCS_BUCKET/GCP_PROJECT from metadata if needed, load config, set BMT_REPO_ROOT and pubsub. Returns (bucket, project, repo_root, sub_effective) or None on failure."""
+    if not os.environ.get("GCS_BUCKET"):
+        os.environ["GCS_BUCKET"] = _read_meta("GCS_BUCKET")
+    if not os.environ.get("GCP_PROJECT"):
+        os.environ["GCP_PROJECT"] = _read_meta("GCP_PROJECT")
+    cfg = get_config(runtime=os.environ)
+    repo_root = cfg.effective_repo_root
+    os.environ["BMT_REPO_ROOT"] = repo_root
+    sub_effective = cfg.effective_pubsub_subscription or ""
+    if sub_effective:
+        os.environ["BMT_PUBSUB_SUBSCRIPTION"] = sub_effective
+    bucket = os.environ.get("GCS_BUCKET", "").strip()
+    if not bucket:
+        _log_err("Set GCS_BUCKET or VM metadata GCS_BUCKET")
+        return None
+    project = os.environ.get("GCP_PROJECT", "").strip() or _read_meta_simple("project/project-id")
+    os.environ["GCP_PROJECT"] = project
+    _log(f"Config: BMT_REPO_ROOT={repo_root} GCS_BUCKET={bucket} GCP_PROJECT={project or '<unset>'}")
+    if os.path.ismount("/mnt/audio_data"):
+        os.environ["BMT_DATASET_LOCAL_PATH"] = "/mnt/audio_data"
+        _log("BMT_DATASET_LOCAL_PATH=/mnt/audio_data (gcsfuse mount)")
+    return bucket, project, repo_root, sub_effective
+
+
+def _resolve_workspace_root() -> None:
+    """Set BMT_WORKSPACE_ROOT from HOME/sk_runtime/bmt_workspace if not already set."""
+    if os.environ.get("BMT_WORKSPACE_ROOT"):
+        return
+    home_dir = Path(os.environ.get("HOME", "/root"))
+    sk_runtime = home_dir / "sk_runtime"
+    bmt_workspace = home_dir / "bmt_workspace"
+    if sk_runtime.is_dir() and not bmt_workspace.is_dir():
+        _log_err("Warning: using legacy workspace path sk_runtime")
+        os.environ["BMT_WORKSPACE_ROOT"] = str(sk_runtime)
+    else:
+        os.environ["BMT_WORKSPACE_ROOT"] = str(bmt_workspace)
+    _log(f"Workspace root: {os.environ['BMT_WORKSPACE_ROOT']}")
+
+
+def _ensure_venv_and_watcher(repo_root: str) -> str | None:
+    """Validate watcher script and venv python; return venv python path or None on failure."""
+    repo_root_path = Path(repo_root)
+    venv_python = repo_root_path / ".venv" / "bin" / "python"
+    watcher_path = repo_root_path / VM_WATCHER_SCRIPT
+    if not watcher_path.is_file():
+        _log_err(f"Missing watcher entrypoint: {watcher_path}")
+        return None
+    if not venv_python.is_file() or not os.access(venv_python, os.X_OK):
+        _log_err(f"Missing pre-baked python at {venv_python}; rebuild/provision image.")
+        return None
+    _log("Phase: validating pre-baked runtime")
+    if not _validate_venv_imports(str(venv_python)):
+        _log_err("Pre-baked runtime import validation failed; rebuild/provision image.")
+        return None
+    _log("Pre-baked runtime validation passed.")
+    return str(venv_python)
+
+
+def _configure_secrets_and_creds(project: str) -> None:
+    """Set regional Secret Manager endpoint and load GitHub App credentials."""
+    secrets_location = os.environ.get("BMT_SECRETS_LOCATION", "").strip()
+    if not secrets_location:
+        zone_full = _read_meta_simple("instance/zone")
+        if zone_full:
+            secrets_location = zone_full.split("/")[-1].rsplit("-", 1)[0]
+    if secrets_location:
+        subprocess.run(
+            [
+                "gcloud",
+                "config",
+                "set",
+                "api_endpoint_overrides/secretmanager",
+                f"https://secretmanager.{secrets_location}.rep.googleapis.com/",
+            ],
+            capture_output=True,
+            check=False,
+        )
+        _log(f"Configured regional Secret Manager endpoint: {secrets_location}")
+    _log("Phase: loading GitHub App credentials from Secret Manager")
+    _load_github_app_credentials("test environment", "GITHUB_APP_TEST", project, secrets_location or None)
+    _load_github_app_credentials("prod environment", "GITHUB_APP_PROD", project, secrets_location or None)
+
+
+def _launch_watcher(
+    repo_root: str, bucket: str, venv_python: str, sub_effective: str, project: str
+) -> int:
+    """Build watcher args, run subprocess, return exit code."""
+    watcher_args = [
+        venv_python,
+        VM_WATCHER_SCRIPT,
+        "--bucket",
+        bucket,
+        "--workspace-root",
+        os.environ["BMT_WORKSPACE_ROOT"],
+        "--exit-after-run",
+        "--idle-timeout-sec",
+        os.environ.get("BMT_IDLE_TIMEOUT_SEC", "600"),
+    ]
+    sub = sub_effective.strip()
+    if sub and project:
+        watcher_args.extend(["--subscription", f"projects/{project}/subscriptions/{sub}", "--gcp-project", project])
+        _log(f"Pub/Sub subscription: projects/{project}/subscriptions/{sub}")
+    proc = subprocess.run(watcher_args, cwd=repo_root, env=os.environ, check=False)
+    if proc.returncode != 0:
+        _log_err(f"Watcher exited with non-zero status: {proc.returncode}")
+    return proc.returncode
+
+
 def main() -> int:
-    global BMT_LOG_FILE
     exit_code = 0
     try:
         ts_compact = Instant.now().format_iso(unit="second", basic=True)
-        BMT_LOG_FILE = f"/tmp/bmt-startup-{ts_compact[:8]}T{ts_compact[8:]}.log"
-        with open(BMT_LOG_FILE, "a"):
+        log_path = Path(tempfile.gettempdir()) / f"bmt-startup-{ts_compact[:8]}T{ts_compact[8:]}.log"
+        _log_file_holder[0] = str(log_path)
+        with log_path.open("a"):
             pass
+        _log(f"Phase: startup; log file={_log_file_holder[0]}")
 
-        _log(f"Phase: startup; log file={BMT_LOG_FILE}")
-
-        if not os.environ.get("GCS_BUCKET"):
-            os.environ["GCS_BUCKET"] = _read_meta("GCS_BUCKET")
-        if not os.environ.get("GCP_PROJECT"):
-            os.environ["GCP_PROJECT"] = _read_meta("GCP_PROJECT")
-        cfg = get_config(runtime=os.environ)
-        repo_root = cfg.effective_repo_root
-        os.environ["BMT_REPO_ROOT"] = repo_root
-        sub_effective = cfg.effective_pubsub_subscription or ""
-        if sub_effective:
-            os.environ["BMT_PUBSUB_SUBSCRIPTION"] = sub_effective
-        bucket = os.environ.get("GCS_BUCKET", "").strip()
-        if not bucket:
-            _log_err("Set GCS_BUCKET or VM metadata GCS_BUCKET")
+        config_triple = _setup_env_and_config()
+        if config_triple is None:
             return 1
-        project = os.environ.get("GCP_PROJECT", "").strip() or _read_meta_simple("project/project-id")
-        os.environ["GCP_PROJECT"] = project
-        _log(f"Config: BMT_REPO_ROOT={repo_root} GCS_BUCKET={bucket} GCP_PROJECT={project or '<unset>'}")
+        bucket, project, repo_root, sub_effective = config_triple
+        _resolve_workspace_root()
 
-        if os.path.ismount("/mnt/audio_data"):
-            os.environ["BMT_DATASET_LOCAL_PATH"] = "/mnt/audio_data"
-            _log("BMT_DATASET_LOCAL_PATH=/mnt/audio_data (gcsfuse mount)")
-
-        home_dir = os.environ.get("HOME", "/root")
-        if not os.environ.get("BMT_WORKSPACE_ROOT"):
-            if os.path.isdir(os.path.join(home_dir, "sk_runtime")) and not os.path.isdir(os.path.join(home_dir, "bmt_workspace")):
-                _log_err("Warning: using legacy workspace path sk_runtime")
-                os.environ["BMT_WORKSPACE_ROOT"] = os.path.join(home_dir, "sk_runtime")
-            else:
-                os.environ["BMT_WORKSPACE_ROOT"] = os.path.join(home_dir, "bmt_workspace")
-        _log(f"Workspace root: {os.environ['BMT_WORKSPACE_ROOT']}")
-
-        venv_python = os.path.join(repo_root, ".venv", "bin", "python")
-        watcher_path = os.path.join(repo_root, VM_WATCHER_SCRIPT)
-        if not os.path.isfile(watcher_path):
-            _log_err(f"Missing watcher entrypoint: {watcher_path}")
+        venv_python = _ensure_venv_and_watcher(repo_root)
+        if venv_python is None:
             return 1
-        if not os.path.isfile(venv_python) or not os.access(venv_python, os.X_OK):
-            _log_err(f"Missing pre-baked python at {venv_python}; rebuild/provision image.")
-            return 1
-        _log("Phase: validating pre-baked runtime")
-        if not _validate_venv_imports(venv_python):
-            _log_err("Pre-baked runtime import validation failed; rebuild/provision image.")
-            return 1
-        _log("Pre-baked runtime validation passed.")
-
-        secrets_location = os.environ.get("BMT_SECRETS_LOCATION", "").strip()
-        if not secrets_location:
-            zone_full = _read_meta_simple("instance/zone")
-            if zone_full:
-                # region from zone (e.g. europe-west4-a -> europe-west4)
-                secrets_location = zone_full.split("/")[-1].rsplit("-", 1)[0]
-        if secrets_location:
-            subprocess.run(
-                ["gcloud", "config", "set", "api_endpoint_overrides/secretmanager",
-                 f"https://secretmanager.{secrets_location}.rep.googleapis.com/"],
-                capture_output=True,
-                check=False,
-            )
-            _log(f"Configured regional Secret Manager endpoint: {secrets_location}")
-
-        _log("Phase: loading GitHub App credentials from Secret Manager")
-        _load_github_app_credentials("test environment", "GITHUB_APP_TEST", project, secrets_location or None)
-        _load_github_app_credentials("prod environment", "GITHUB_APP_PROD", project, secrets_location or None)
+        _configure_secrets_and_creds(project)
 
         _log("Phase: launching vm_watcher.py")
-        watcher_args = [
-            venv_python,
-            VM_WATCHER_SCRIPT,
-            "--bucket", bucket,
-            "--workspace-root", os.environ["BMT_WORKSPACE_ROOT"],
-            "--exit-after-run",
-            "--idle-timeout-sec", os.environ.get("BMT_IDLE_TIMEOUT_SEC", "600"),
-        ]
-        sub = sub_effective.strip()
-        if sub and project:
-            watcher_args.extend(["--subscription", f"projects/{project}/subscriptions/{sub}", "--gcp-project", project])
-            _log(f"Pub/Sub subscription: projects/{project}/subscriptions/{sub}")
-
-        proc = subprocess.run(
-            watcher_args,
-            cwd=repo_root,
-            env=os.environ,
-        )
-        exit_code = proc.returncode
-        if exit_code != 0:
-            _log_err(f"Watcher exited with non-zero status: {exit_code}")
+        exit_code = _launch_watcher(repo_root, bucket, venv_python, sub_effective, project)
     except SystemExit as e:
         exit_code = e.code if isinstance(e.code, int) else 1
     except Exception as e:

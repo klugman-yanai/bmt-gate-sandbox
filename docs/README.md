@@ -16,6 +16,8 @@ Start here for structure and day-to-day use.
 
 ---
 
+**Path map (old → new):** CI entrypoint: `uv run bmt <cmd>` / `.github/bmt/ci/` (not `.github/scripts/ci_driver.py`). Bucket tools: `tools/remote/bucket_*.py` (invoke via `tools bucket` or `uv run python -m tools.remote.bucket_*`). BMT run/monitor/wait: `tools/bmt/` only (not under `tools/remote/`). VM scripts: `gcp/image/scripts/` (not `gcp/image/vm/`).
+
 ## Active reference
 
 | Doc | Description |

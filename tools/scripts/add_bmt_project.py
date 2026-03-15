@@ -18,7 +18,6 @@ import argparse
 import re
 import sys
 import uuid
-from pathlib import Path
 
 from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 
@@ -226,33 +225,30 @@ def _validate_project_name(name: str) -> None:
         raise SystemExit("Project name must be non-empty, start with a letter, and use only [a-z0-9_].")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Scaffold a new BMT project under gcp/image/<project>/ (generic template)."
-    )
-    parser.add_argument("project", help="Project name (e.g. skyworth, myproject)")
-    parser.add_argument("--dry-run", action="store_true", help="Print paths only, do not write")
-    args = parser.parse_args()
+def add_project(project: str, dry_run: bool = False) -> int:
+    """Scaffold a new BMT project under gcp/image/projects/<project>/.
 
-    _validate_project_name(args.project)
+    Returns 0 on success, exits with non-zero on validation error (caller may catch SystemExit).
+    """
+    _validate_project_name(project)
     bmt_id = str(uuid.uuid4())
 
     root = repo_root()
     code_root = root / DEFAULT_CONFIG_ROOT
-    project_dir = code_root / "projects" / args.project
+    project_dir = code_root / "projects" / project
 
     if project_dir.exists() and any(project_dir.iterdir()):
         print(f"::error::Project directory already exists and is non-empty: {project_dir}", file=sys.stderr)
-        raise SystemExit(1)
+        return 1
 
-    project_class = "".join(w.capitalize() for w in args.project.split("_")) + "BmtManager"
+    project_class = "".join(w.capitalize() for w in project.split("_")) + "BmtManager"
 
     files = {
-        project_dir / "bmt_manager.py": _template_manager(args.project, project_class),
-        project_dir / "bmt_jobs.json": _template_bmt_jobs(args.project, bmt_id),
+        project_dir / "bmt_manager.py": _template_manager(project, project_class),
+        project_dir / "bmt_jobs.json": _template_bmt_jobs(project, bmt_id),
     }
 
-    if args.dry_run:
+    if dry_run:
         for p in sorted(files):
             print(p.relative_to(root))
         return 0
@@ -262,12 +258,37 @@ def main() -> int:
         path.write_text(content, encoding="utf-8")
         print(f"Wrote {path.relative_to(root)}")
 
-    print("\nNext steps:")
-    print(f"  1. Edit gcp/image/projects/{args.project}/bmt_jobs.json (paths, gate, runner URI).")
-    print("  2. Run: just sync-gcp  (with GCS_BUCKET set) to push to the bucket.")
-    print(f"  3. In the app repo: add CMake preset and runner upload for project={args.project}.")
-    print("  4. See docs/adding-a-new-project.md for the full checklist.")
+    next_steps = (
+        f"1. Edit gcp/image/projects/{project}/bmt_jobs.json (paths, gate, runner URI).",
+        "2. Run: just deploy  (with GCS_BUCKET set) to push to the bucket.",
+        f"3. In the app repo: add CMake preset and runner upload for project={project}.",
+        "4. See docs/adding-new-project-and-bmt.md for the full checklist.",
+    )
+    if sys.stdout.isatty():
+        try:
+            from rich.console import Console
+            from rich.panel import Panel
+
+            Console().print(Panel("\n".join(next_steps), title="Next steps", border_style="blue"))
+        except ImportError:
+            print("\nNext steps:")
+            for step in next_steps:
+                print(f"  {step}")
+    else:
+        print("\nNext steps:")
+        for step in next_steps:
+            print(f"  {step}")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Scaffold a new BMT project under gcp/image/<project>/ (generic template)."
+    )
+    parser.add_argument("project", help="Project name (e.g. skyworth, myproject)")
+    parser.add_argument("--dry-run", action="store_true", help="Print paths only, do not write")
+    args = parser.parse_args()
+    return add_project(args.project, args.dry_run)
 
 
 if __name__ == "__main__":

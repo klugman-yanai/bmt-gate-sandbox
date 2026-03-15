@@ -15,11 +15,11 @@
     ".venv",
     "node_modules"
   ],
-  "extraPaths": [".github/scripts"],
+  "extraPaths": [".github/bmt"],
   "executionEnvironments": [
     {
       "root": ".",
-      "extraPaths": [".github/scripts"]
+      "extraPaths": [".github/bmt"]
     }
   ],
   "venvPath": ".",

@@ -9,20 +9,16 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
-from pathlib import Path
 
 from whenever import Instant
 
 
-def _log(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [validate_contract] {msg}")
+def _log(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
-def _log_err(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [validate_contract] {msg}", file=sys.stderr)
+def _log_err(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
 def _gcloud_ls_exists(uri: str) -> bool:

@@ -221,7 +221,7 @@ def test_closed_mid_run_cancels_remaining_and_no_pointer_updates(
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -335,7 +335,7 @@ def test_superseded_mid_run_cancels_between_legs_and_upserts_commit_comment(
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -428,7 +428,7 @@ def test_closed_mid_run_posts_terminal_error_when_first_status_post_fails(
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -499,7 +499,7 @@ def test_final_check_run_is_created_at_completion_if_startup_creation_fails(
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -574,7 +574,7 @@ def test_pr_state_api_failure_fails_open_and_completes(
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -650,7 +650,7 @@ def test_non_pr_run_does_not_check_pr_state(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -713,7 +713,7 @@ def test_completed_status_wins_against_late_heartbeat_write(monkeypatch: pytest.
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
@@ -778,7 +778,7 @@ def test_orchestrator_download_failure_marks_status_failed(monkeypatch: pytest.M
     monkeypatch.setattr(
         watcher,
         "_resolve_requested_legs",
-        lambda *, legs_raw, code_bucket_root: _accepted_requested_legs(legs_raw),
+        lambda *, legs_raw, _code_bucket_root=None, **_kwargs: _accepted_requested_legs(legs_raw),
     )
     monkeypatch.setattr(watcher, "_gcloud_upload_json", lambda _uri, _payload: True)
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)

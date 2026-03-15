@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 import orjson
-
 from google.api_core import exceptions as gcs_exceptions
 from google.cloud import storage as gcs_storage
 
@@ -50,14 +49,13 @@ except ImportError:
 # Module-level helpers (GCS / cache)
 # ---------------------------------------------------------------------------
 
-_gcs_client: gcs_storage.Client | None = None
+_gcs_client_holder: list[gcs_storage.Client | None] = [None]
 
 
 def _get_gcs_client() -> gcs_storage.Client:
-    global _gcs_client
-    if _gcs_client is None:
-        _gcs_client = gcs_storage.Client()
-    return _gcs_client
+    if _gcs_client_holder[0] is None:
+        _gcs_client_holder[0] = gcs_storage.Client()
+    return _gcs_client_holder[0]
 
 
 def _run_gcloud_capture_stderr(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -252,6 +250,7 @@ def _mark_cache(cache_stats: dict[str, Any], key: str, *, hit: bool) -> None:
 # Gate helpers
 # ---------------------------------------------------------------------------
 
+
 def _normalize_comparison(comparison: str) -> str:
     """Normalize and validate comparison for baseline gte/lte.
 
@@ -389,6 +388,7 @@ def _read_result_file(
 # Common arg parser
 # ---------------------------------------------------------------------------
 
+
 def parse_args(parser: argparse.ArgumentParser | None = None) -> argparse.Namespace:
     """Parse the common BMT manager arguments.
 
@@ -418,6 +418,7 @@ def parse_args(parser: argparse.ArgumentParser | None = None) -> argparse.Namesp
 # ---------------------------------------------------------------------------
 # Abstract base class
 # ---------------------------------------------------------------------------
+
 
 class BmtManagerBase(ABC):
     """Abstract orchestrator for a single BMT run.
@@ -560,67 +561,36 @@ class BmtManagerBase(ABC):
     # Main orchestration loop
     # ------------------------------------------------------------------
 
-    def run(self) -> int:
-        """Execute the full BMT orchestration. Returns exit code (0 = pass/warn, 1 = fail)."""
-        started_at = _now_iso()
-        start_timestamp = time.monotonic()
-        runtime_prefix = ""  # bucket root; no runtime/ prefix
-
-        # Progress tracking
-        enable_progress = (
-            os.environ.get("BMT_STATUS_BUCKET")
-            and os.environ.get("BMT_STATUS_RUN_ID")
-            and os.environ.get("BMT_STATUS_LEG_INDEX") is not None
-        )
-        status_file = None
-        progress_bucket = None
-        progress_runtime_prefix = None
-        progress_run_id = None
-        progress_leg_index = None
-        if enable_progress:
-            try:
-                try:
-                    from status import status_file as _sf  # type: ignore[import]
-                except ImportError:
-                    from gcp.image.github import status_file as _sf  # type: ignore[import]
-                status_file = _sf
-                progress_bucket = os.environ["BMT_STATUS_BUCKET"]
-                progress_runtime_prefix = os.environ.get("BMT_STATUS_RUNTIME_PREFIX", runtime_prefix)
-                progress_run_id = os.environ["BMT_STATUS_RUN_ID"]
-                progress_leg_index = int(os.environ["BMT_STATUS_LEG_INDEX"])
-            except (ImportError, ValueError, KeyError):
-                enable_progress = False
-
-        self._setup_dirs()
-        self.cache_stats: dict[str, Any] = {"cache_hits": [], "cache_misses": [], "states": {}}
-        self.sync_durations_sec: dict[str, float] = {}
-
-        self.setup_assets()
-        inputs_root = self.get_inputs_root()
-
-        input_files = self.collect_input_files(inputs_root)
-        if not input_files:
-            raise RuntimeError(f"No input files found under: {inputs_root}")
-
-        total = len(input_files)
-        if self.human:
-            pass
-
-        setup_end_timestamp = time.monotonic()
-
+    def _run_worker_pool(
+        self,
+        input_files: list[Path],
+        inputs_root: Path,
+        total: int,
+        *,
+        enable_progress: bool,
+        status_file: Any,
+        progress_bucket: str | None,
+        progress_runtime_prefix: str | None,
+        progress_run_id: str | None,
+        progress_leg_index: int | None,
+        runtime_prefix: str,
+    ) -> tuple[list[dict[str, Any]], float]:
+        """Run the file loop in a thread pool; return (file_results, execution_end_timestamp)."""
         file_results: list[dict[str, Any]] = []
         with ThreadPoolExecutor(max_workers=self.max_jobs) as pool:
-            futures = {
-                pool.submit(self.run_file, f, inputs_root): f
-                for f in input_files
-            }
+            futures = {pool.submit(self.run_file, f, inputs_root): f for f in input_files}
             for idx, future in enumerate(as_completed(futures), start=1):
                 result = future.result()
                 file_results.append(result)
                 if self.human:
                     pass
-
-                if enable_progress and status_file and progress_bucket is not None and progress_run_id is not None and progress_leg_index is not None:
+                if (
+                    enable_progress
+                    and status_file
+                    and progress_bucket is not None
+                    and progress_run_id is not None
+                    and progress_leg_index is not None
+                ):
                     with suppress(Exception):
                         status_file.update_leg_progress(
                             progress_bucket,
@@ -630,31 +600,29 @@ class BmtManagerBase(ABC):
                             files_completed=idx,
                             files_total=total,
                         )
+        return file_results, time.monotonic()
 
-        execution_end_timestamp = time.monotonic()
-        file_results.sort(key=lambda item: item["file"])
-        failed_count = sum(1 for item in file_results if int(item["exit_code"]) != 0)
-        aggregate_score = self.compute_score(file_results)
-        raw_score = aggregate_score  # subclass may differentiate; kept for summary symmetry
-
-        # Gate evaluation (subclass may override _evaluate_gate for custom logic)
+    def _run_gate_phase(
+        self,
+        file_results: list[dict[str, Any]],
+        results_prefix: str,
+        outputs_prefix: str,
+    ) -> tuple[str, str, dict[str, Any], float, float, float | None, int, dict[str, Any] | None, bool]:
+        """Evaluate gate and resolve status. Returns status, reason_code, gate, aggregate_score, raw_score, delta_from_previous, failed_count, previous_latest, demo_force_pass."""
+        file_results_sorted = sorted(file_results, key=lambda item: item["file"])
+        failed_count = sum(1 for item in file_results_sorted if int(item["exit_code"]) != 0)
+        aggregate_score = self.compute_score(file_results_sorted)
+        raw_score = aggregate_score
         warning_policy = (
-            self.bmt_cfg.get("warning_policy", {})
-            if isinstance(self.bmt_cfg.get("warning_policy"), dict)
-            else {}
+            self.bmt_cfg.get("warning_policy", {}) if isinstance(self.bmt_cfg.get("warning_policy"), dict) else {}
         )
         demo_cfg = self.bmt_cfg.get("demo", {}) if isinstance(self.bmt_cfg.get("demo"), dict) else {}
         demo_force_pass = bool(demo_cfg.get("force_pass", False))
 
-        paths_cfg = self.bmt_cfg.get("paths", {})
-        results_prefix = str(paths_cfg.get("results_prefix", "")).rstrip("/")
-        outputs_prefix = str(paths_cfg.get("outputs_prefix", "")).rstrip("/")
-        str(paths_cfg.get("logs_prefix", f"{results_prefix}/logs")).rstrip("/")
-
         last_passing_run_id = _resolve_last_passing_run_id(self.runtime_bucket_root, results_prefix)
         if last_passing_run_id is None:
             last_score: float | None = None
-            previous_latest: dict[str, Any] | None = None
+            previous_latest = None
         else:
             last_score, previous_latest = _read_result_file(
                 self.runtime_bucket_root,
@@ -662,51 +630,44 @@ class BmtManagerBase(ABC):
                 "latest.json",
             )
         delta_from_previous = (aggregate_score - last_score) if last_score is not None else None
-        gate = self._evaluate_gate(aggregate_score, last_score, failed_count, file_results)
+        gate = self._evaluate_gate(aggregate_score, last_score, failed_count, file_results_sorted)
         status, reason_code = _resolve_status(gate, warning_policy)
-
-        if reason_code == "runner_failures" and failed_count > 0 and _all_failures_are_timeouts(file_results):
+        if reason_code == "runner_failures" and failed_count > 0 and _all_failures_are_timeouts(file_results_sorted):
             reason_code = "runner_timeout"
             gate = {**gate, "reason": "runner_timeout"}
         if demo_force_pass and status == "fail":
             status = "pass"
             reason_code = "demo_force_pass"
+        return status, reason_code, gate, aggregate_score, raw_score, delta_from_previous, failed_count, previous_latest, demo_force_pass
 
-        ts_iso = _now_iso()
-        ts_compact = _now_stamp()
-        snapshot_id = self.run_id or f"local_{ts_compact}"
-        snapshot_prefix = f"{results_prefix}/snapshots/{snapshot_id}"
-        latest_local = self.results_dir / "latest.json"
-
-        result_payload: dict[str, Any] = {
-            "timestamp": ts_iso,
-            "project_id": self.project_id,
-            "bmt_id": self.bmt_id,
-            "status": status,
-            "reason_code": reason_code,
-            "demo_force_pass": demo_force_pass,
-            "aggregate_score": aggregate_score,
-            "raw_aggregate_score": raw_score,
-            "delta_from_previous": delta_from_previous,
-            "failed_count": failed_count,
-            "gate": gate,
-            "file_results": file_results,
-            "previous_latest": previous_latest,
-            "artifacts": self._artifact_uris(),
-            "cache_stats": self.cache_stats,
-            "sync_stats": {"sync_durations_sec": self.sync_durations_sec},
-        }
-
+    def _write_run_outputs(
+        self,
+        result_payload: dict[str, Any],
+        latest_local: Path,
+        snapshot_prefix: str,
+        status: str,
+        reason_code: str,
+        gate: dict[str, Any],
+        aggregate_score: float,
+        raw_score: float,
+        delta_from_previous: float | None,
+        failed_count: int,
+        *,
+        demo_force_pass: bool,
+        started_at: str,
+        start_timestamp: float,
+        setup_end_timestamp: float,
+        execution_end_timestamp: float,
+        outputs_prefix: str,
+    ) -> int:
+        """Write latest.json, upload artifacts, write manager summary. Returns 0 or 1."""
         _write_json(latest_local, result_payload)
-
-        # Artifact uploads
         artifact_upload_stats: dict[str, Any] = {
             "uploaded_results": [],
             "logs_uploaded": False,
             "outputs_uploaded": False,
             "durations_sec": {},
         }
-
         t0 = time.monotonic()
         _gcloud_upload(
             latest_local,
@@ -714,7 +675,6 @@ class BmtManagerBase(ABC):
         )
         artifact_upload_stats["durations_sec"]["results_latest_upload"] = round(time.monotonic() - t0, 3)
         artifact_upload_stats["uploaded_results"].append("latest.json")
-
         ci_verdict_uri = ""
         if self.run_id:
             finished_at = _now_iso()
@@ -728,17 +688,10 @@ class BmtManagerBase(ABC):
                 "aggregate_score": aggregate_score,
                 "runner": runner_identity,
                 "gate": gate,
-                "timestamps": {
-                    "started_at": started_at,
-                    "finished_at": finished_at,
-                },
+                "timestamps": {"started_at": started_at, "finished_at": finished_at},
                 "artifacts": {
-                    "latest_json_uri": _bucket_uri(
-                        self.runtime_bucket_root, f"{snapshot_prefix}/latest.json"
-                    ),
-                    "logs_uri": _bucket_uri(
-                        self.runtime_bucket_root, f"{snapshot_prefix}/logs"
-                    ),
+                    "latest_json_uri": _bucket_uri(self.runtime_bucket_root, f"{snapshot_prefix}/latest.json"),
+                    "logs_uri": _bucket_uri(self.runtime_bucket_root, f"{snapshot_prefix}/logs"),
                 },
             }
             verdict_local = self.results_dir / "ci_verdicts" / f"{self.run_id}.json"
@@ -748,7 +701,6 @@ class BmtManagerBase(ABC):
             _gcloud_upload(verdict_local, ci_verdict_uri)
             artifact_upload_stats["durations_sec"]["ci_verdict_upload"] = round(time.monotonic() - t0, 3)
             artifact_upload_stats["uploaded_results"].append("ci_verdict.json")
-
         t0 = time.monotonic()
         _gcloud_rsync_to_gcs(
             self.logs_dir,
@@ -757,26 +709,19 @@ class BmtManagerBase(ABC):
         )
         artifact_upload_stats["durations_sec"]["logs_upload"] = round(time.monotonic() - t0, 3)
         artifact_upload_stats["logs_uploaded"] = True
-
-        artifacts_cfg = (
-            self.bmt_cfg.get("artifacts", {}) if isinstance(self.bmt_cfg.get("artifacts"), dict) else {}
-        )
+        artifacts_cfg = self.bmt_cfg.get("artifacts", {}) if isinstance(self.bmt_cfg.get("artifacts"), dict) else {}
         upload_outputs_enabled = bool(artifacts_cfg.get("upload_outputs", False))
         upload_outputs_contexts_raw = artifacts_cfg.get("upload_outputs_contexts", ["manual"])
         upload_outputs_contexts = {
             str(item).strip()
-            for item in (
-                upload_outputs_contexts_raw if isinstance(upload_outputs_contexts_raw, list) else []
-            )
+            for item in (upload_outputs_contexts_raw if isinstance(upload_outputs_contexts_raw, list) else [])
             if str(item).strip()
         }
         context_allowed = not upload_outputs_contexts or self.run_context in upload_outputs_contexts
         should_upload_outputs = upload_outputs_enabled and context_allowed
-
         artifact_upload_stats["upload_outputs_enabled"] = upload_outputs_enabled
         artifact_upload_stats["upload_outputs_contexts"] = sorted(upload_outputs_contexts)
         artifact_upload_stats["run_context"] = self.run_context
-
         if should_upload_outputs:
             t0 = time.monotonic()
             _gcloud_rsync_to_gcs(
@@ -786,16 +731,13 @@ class BmtManagerBase(ABC):
             )
             artifact_upload_stats["durations_sec"]["outputs_upload"] = round(time.monotonic() - t0, 3)
             artifact_upload_stats["outputs_uploaded"] = True
-
-        # Summary
         completed_at = _now_iso()
         total_duration_sec = int(time.monotonic() - start_timestamp)
         setup_sec = int(setup_end_timestamp - start_timestamp)
         execution_sec = int(execution_end_timestamp - setup_end_timestamp)
         upload_sec = total_duration_sec - setup_sec - execution_sec
-
-        manager_summary: dict[str, Any] = {
-            "timestamp": ts_iso,
+        manager_summary = {
+            "timestamp": result_payload["timestamp"],
             "project_id": self.project_id,
             "bmt_id": self.bmt_id,
             "run_context": self.run_context,
@@ -820,18 +762,126 @@ class BmtManagerBase(ABC):
                 "started_at": started_at,
                 "completed_at": completed_at,
                 "duration_sec": total_duration_sec,
-                "stages": {
-                    "setup_sec": setup_sec,
-                    "execution_sec": execution_sec,
-                    "upload_sec": upload_sec,
-                },
+                "stages": {"setup_sec": setup_sec, "execution_sec": execution_sec, "upload_sec": upload_sec},
             },
         }
         _write_json(self.summary_out, manager_summary)
-
         self._print_result_line(status, aggregate_score, raw_score)
-
         return 1 if status == "fail" else 0
+
+    def run(self) -> int:
+        """Execute the full BMT orchestration. Returns exit code (0 = pass/warn, 1 = fail)."""
+        started_at = _now_iso()
+        start_timestamp = time.monotonic()
+        runtime_prefix = ""
+
+        enable_progress = (
+            bool(os.environ.get("BMT_STATUS_BUCKET"))
+            and bool(os.environ.get("BMT_STATUS_RUN_ID"))
+            and os.environ.get("BMT_STATUS_LEG_INDEX") is not None
+        )
+        status_file = None
+        progress_bucket = None
+        progress_runtime_prefix = None
+        progress_run_id = None
+        progress_leg_index = None
+        if enable_progress:
+            try:
+                try:
+                    from status import status_file as _sf  # type: ignore[import]
+                except ImportError:
+                    from gcp.image.github import status_file as _sf  # type: ignore[import]
+                status_file = _sf
+                progress_bucket = os.environ["BMT_STATUS_BUCKET"]
+                progress_runtime_prefix = os.environ.get("BMT_STATUS_RUNTIME_PREFIX", runtime_prefix)
+                progress_run_id = os.environ["BMT_STATUS_RUN_ID"]
+                progress_leg_index = int(os.environ["BMT_STATUS_LEG_INDEX"])
+            except (ImportError, ValueError, KeyError):
+                enable_progress = False
+
+        self._setup_dirs()
+        self.cache_stats = {"cache_hits": [], "cache_misses": [], "states": {}}
+        self.sync_durations_sec = {}
+
+        self.setup_assets()
+        inputs_root = self.get_inputs_root()
+        input_files = self.collect_input_files(inputs_root)
+        if not input_files:
+            raise RuntimeError(f"No input files found under: {inputs_root}")
+        total = len(input_files)
+        setup_end_timestamp = time.monotonic()
+
+        file_results, execution_end_timestamp = self._run_worker_pool(
+            input_files,
+            inputs_root,
+            total,
+            enable_progress=enable_progress,
+            status_file=status_file,
+            progress_bucket=progress_bucket,
+            progress_runtime_prefix=progress_runtime_prefix,
+            progress_run_id=progress_run_id,
+            progress_leg_index=progress_leg_index,
+            runtime_prefix=runtime_prefix,
+        )
+        file_results.sort(key=lambda item: item["file"])
+        paths_cfg = self.bmt_cfg.get("paths", {}) or {}
+        results_prefix = str(paths_cfg.get("results_prefix", "")).rstrip("/")
+        outputs_prefix = str(paths_cfg.get("outputs_prefix", "")).rstrip("/")
+
+        (
+            status,
+            reason_code,
+            gate,
+            aggregate_score,
+            raw_score,
+            delta_from_previous,
+            failed_count,
+            previous_latest,
+            demo_force_pass,
+        ) = self._run_gate_phase(file_results, results_prefix, outputs_prefix)
+
+        ts_iso = _now_iso()
+        ts_compact = _now_stamp()
+        snapshot_id = self.run_id or f"local_{ts_compact}"
+        snapshot_prefix = f"{results_prefix}/snapshots/{snapshot_id}"
+        latest_local = self.results_dir / "latest.json"
+
+        result_payload = {
+            "timestamp": ts_iso,
+            "project_id": self.project_id,
+            "bmt_id": self.bmt_id,
+            "status": status,
+            "reason_code": reason_code,
+            "demo_force_pass": demo_force_pass,
+            "aggregate_score": aggregate_score,
+            "raw_aggregate_score": raw_score,
+            "delta_from_previous": delta_from_previous,
+            "failed_count": failed_count,
+            "gate": gate,
+            "file_results": file_results,
+            "previous_latest": previous_latest,
+            "artifacts": self._artifact_uris(),
+            "cache_stats": self.cache_stats,
+            "sync_stats": {"sync_durations_sec": self.sync_durations_sec},
+        }
+        return self._write_run_outputs(
+            result_payload,
+            latest_local,
+            snapshot_prefix,
+            status,
+            reason_code,
+            gate,
+            aggregate_score,
+            raw_score,
+            delta_from_previous,
+            failed_count,
+            demo_force_pass=demo_force_pass,
+            started_at=started_at,
+            start_timestamp=start_timestamp,
+            setup_end_timestamp=setup_end_timestamp,
+            execution_end_timestamp=execution_end_timestamp,
+            outputs_prefix=outputs_prefix,
+        )
 
     def _print_result_line(self, status: str, aggregate_score: float, raw_score: float) -> None:
         """Print a one-line result summary.  Subclasses may override."""

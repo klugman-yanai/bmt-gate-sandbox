@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import sys
-from typing import Callable
+from collections.abc import Callable
 
 from ci import config
+from ci.actions import gh_error
 from ci.handoff import HandoffManager
 from ci.handshake import HandshakeManager
 from ci.matrix import MatrixManager
@@ -14,7 +15,6 @@ from ci.preset import PresetManager
 from ci.runner import RunnerManager
 from ci.trigger import TriggerManager
 from ci.vm import VmManager
-from ci.actions import gh_error
 
 
 def _load_env() -> None:
@@ -44,7 +44,9 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "handshake-timeout-diagnostics": lambda: HandshakeManager.from_env().timeout_diagnostics(),
     "post-pending-status": lambda: HandoffManager.from_env().post_pending_status(),
     "post-handoff-timeout-status": lambda: HandoffManager.from_env().post_handoff_timeout_status(),
-    "cleanup-failed-trigger-artifacts": lambda: HandoffManager.from_env().cleanup_failed_trigger_artifacts(),
+    "cleanup-failed-trigger-artifacts": lambda: (
+        HandoffManager.from_env().cleanup_failed_trigger_artifacts()
+    ),
     "write-handoff-summary": lambda: HandoffManager.from_env().write_summary(),
     "stage-release-runner": lambda: PresetManager.from_env().stage_release_runner(),
     "compute-preset-info": lambda: PresetManager.from_env().compute_preset_info(),

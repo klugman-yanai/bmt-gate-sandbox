@@ -132,10 +132,12 @@ max-complexity = 10
     "PT018",   # compound assertions OK in tests
     "SLF001",  # private member access OK in tests
 ]
+# tools: PLC0415 — lazy imports (CLI subcommands, Rich when TTY); top-level would load deps on every run
 "tools/**" = [
     "ERA001",  # commented code OK during development
     "T20",     # print OK in tools CLI scripts
     "E402",    # module import not at top (path/setup before imports)
+    "PLC0415", # see comment above
     "PLR0911", # many returns OK (e.g. generators)
     "PLR0912", # many branches OK
     "PLR0915", # many statements OK in scripts

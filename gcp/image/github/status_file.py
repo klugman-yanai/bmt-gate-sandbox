@@ -13,14 +13,13 @@ from whenever import Instant
 _TERMINAL_RUN_OUTCOMES = {"completed", "cancelled", "skipped", "failed", "error"}
 _status_lock = threading.Lock()
 
-_gcs_client: storage.Client | None = None
+_gcs_client_holder: list[storage.Client | None] = [None]
 
 
 def _get_client() -> storage.Client:
-    global _gcs_client
-    if _gcs_client is None:
-        _gcs_client = storage.Client()
-    return _gcs_client
+    if _gcs_client_holder[0] is None:
+        _gcs_client_holder[0] = storage.Client()
+    return _gcs_client_holder[0]
 
 
 def _now_iso() -> str:
@@ -39,7 +38,7 @@ def _bucket_root(bucket: str, runtime_prefix: str) -> str:
 def _parse_gcs_uri(uri: str) -> tuple[str, str]:
     if not uri.startswith("gs://"):
         raise ValueError(f"Not a GCS URI: {uri!r}")
-    parts = uri[len("gs://"):].split("/", 1)
+    parts = uri[len("gs://") :].split("/", 1)
     return parts[0], (parts[1] if len(parts) > 1 else "")
 
 
@@ -58,9 +57,7 @@ def _upload_json(uri: str, payload: dict[str, Any]) -> None:
     bucket_name, blob_name = _parse_gcs_uri(uri)
     data = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
     try:
-        _get_client().bucket(bucket_name).blob(blob_name).upload_from_string(
-            data, content_type="application/json"
-        )
+        _get_client().bucket(bucket_name).blob(blob_name).upload_from_string(data, content_type="application/json")
     except Exception as exc:
         raise RuntimeError(f"Failed to upload {uri}: {exc}") from exc
 

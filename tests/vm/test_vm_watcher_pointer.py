@@ -91,9 +91,12 @@ def test_trim_trigger_family_keeps_recent_and_explicit(monkeypatch):
     ]
     deleted: list[str] = []
 
-    monkeypatch.setattr(watcher, "_gcloud_ls", lambda *_args, **_kwargs: listed)
+    # _trim_trigger_family lives in trigger_cleanup and uses gcs_helpers; patch at use site
+    from gcp.image import trigger_cleanup
+
+    monkeypatch.setattr(trigger_cleanup, "_gcloud_ls", lambda *_args, **_kwargs: listed)
     monkeypatch.setattr(
-        watcher,
+        trigger_cleanup,
         "_gcloud_rm",
         lambda uri, recursive=False: deleted.append(f"{uri}|{recursive}") or True,
     )
@@ -146,7 +149,9 @@ def test_cleanup_legacy_result_history_deletes_archive_and_logs(monkeypatch):
         removed.append((uri, recursive))
         return True
 
-    monkeypatch.setattr(watcher, "_gcloud_rm", _capture)
+    from gcp.image import pointer_update
+
+    monkeypatch.setattr(pointer_update, "_gcloud_rm", _capture)
 
     watcher._cleanup_legacy_result_history("gs://b/p", "sk/results/false_rejects")
 

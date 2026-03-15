@@ -32,7 +32,6 @@ from gcp.image.projects.shared.bmt_manager_base import (
     _manifest_digest,
     _mark_cache,
     _normalize_comparison,
-    _resolve_last_passing_run_id,
     _write_json,
     _write_runner_config,
     parse_args as _base_parse_args,
@@ -102,7 +101,7 @@ def _walk_and_rewrite_paths(node: Any, wav_value: str, protected: set[str]) -> N
         if key in protected or not isinstance(value, str) or not key.endswith("_PATH"):
             continue
         stripped = value.strip()
-        if not stripped or stripped.startswith("/tmp/dummy"):
+        if not stripped or stripped.startswith((Path(tempfile.gettempdir()) / "dummy").as_posix()):
             node[key] = wav_value
 
 
@@ -187,8 +186,8 @@ class SKBmtManager(BmtManagerBase):
     # Abstract method implementations
     # ------------------------------------------------------------------
 
-    def setup_assets(self) -> None:
-        """Download/cache runner bundle, template, and dataset."""
+    def _setup_runner_assets(self) -> None:
+        """Download/cache runner bundle and set runner_build_id."""
         runner_uri = self.runner_uri
         runner_deps_prefix = self.runner_deps_prefix
         runner_bundle_uri = runner_uri.rsplit("/", 1)[0].rstrip("/")
@@ -198,14 +197,12 @@ class SKBmtManager(BmtManagerBase):
             deps_uri = _bucket_uri(self.runtime_bucket_root, runner_deps_prefix).rstrip("/") + "/"
             runner_manifest_entries.extend(_gcloud_ls_json(deps_uri, recursive=True))
         runner_digest = _manifest_digest(runner_manifest_entries)
-
         runner_hit = False
         runner_rel_name = Path(runner_uri).name
         runner_path = self.runner_path
         if self.cache_enabled and runner_manifest_path.is_file() and runner_path.is_file():
             manifest = _load_json(runner_manifest_path)
             runner_hit = str(manifest.get("digest", "")) == runner_digest
-
         if not runner_hit:
             t0 = time.monotonic()
             _gcloud_rsync(f"{runner_bundle_uri}/", self.cache_runner_dir)
@@ -225,10 +222,7 @@ class SKBmtManager(BmtManagerBase):
                     "deps_prefix": runner_deps_prefix,
                 },
             )
-
         _mark_cache(self.cache_stats, "runner_bundle", hit=runner_hit)
-
-        # Extract runner binary generation for verdict runner identity.
         for _entry in runner_manifest_entries:
             _entry_name = str(_entry.get("name") or "")
             if Path(_entry_name).name == runner_rel_name:
@@ -237,19 +231,19 @@ class SKBmtManager(BmtManagerBase):
                     self.runner_build_id = _gen
                 break
 
-        # Template cache
+    def _setup_template_assets(self) -> None:
+        """Download/cache template JSON."""
         template_meta_path = self.cache_meta_dir / "template_meta.json"
         template_remote_meta = _gcs_object_meta(self.template_uri)
         if template_remote_meta is None:
             raise SKManagerError(f"Template object missing: {self.template_uri}")
-
         template_hit = False
         if self.cache_enabled and template_meta_path.is_file() and self.cache_template_path.is_file():
             cached_meta = _load_json(template_meta_path)
-            template_hit = str(cached_meta.get("generation", "")) == str(
-                template_remote_meta.get("generation", "")
-            ) and int(cached_meta.get("size", -1)) == int(template_remote_meta.get("size", -2))
-
+            template_hit = (
+                str(cached_meta.get("generation", "")) == str(template_remote_meta.get("generation", ""))
+                and int(cached_meta.get("size", -1)) == int(template_remote_meta.get("size", -2))
+            )
         if not template_hit:
             t0 = time.monotonic()
             _gcloud_cp(self.template_uri, self.cache_template_path)
@@ -263,10 +257,10 @@ class SKBmtManager(BmtManagerBase):
                     "template_uri": self.template_uri,
                 },
             )
-
         _mark_cache(self.cache_stats, "template", hit=template_hit)
 
-        # Dataset: use pre-mounted path (e.g. gcsfuse) if set, else sync from GCS
+    def _setup_dataset_assets(self) -> None:
+        """Set _inputs_root from BMT_DATASET_LOCAL_PATH or sync dataset from GCS."""
         dataset_local = os.environ.get("BMT_DATASET_LOCAL_PATH")
         if dataset_local:
             local_path = Path(dataset_local).resolve()
@@ -274,54 +268,52 @@ class SKBmtManager(BmtManagerBase):
                 raise SKManagerError(f"BMT_DATASET_LOCAL_PATH is not a directory: {local_path}")
             self._inputs_root = local_path
             _mark_cache(self.cache_stats, "dataset", hit=True)
-        else:
-            # Dataset cache (TTL based)
-            dataset_meta_path = self.cache_meta_dir / "dataset_meta.json"
-            dataset_hit = False
-            if self.cache_enabled and dataset_meta_path.is_file() and self.cache_dataset_dir.is_dir():
-                dataset_meta = _load_json(dataset_meta_path)
-                last_sync_epoch = float(dataset_meta.get("last_sync_epoch", 0.0) or 0.0)
-                age = Instant.now().timestamp() - last_sync_epoch
-                dataset_hit = str(dataset_meta.get("source_uri", "")) == self.dataset_uri and age <= float(
-                    self.dataset_ttl_sec
-                )
-
-            dataset_uri = self.dataset_uri
-            if self.cache_enabled:
-                if not dataset_hit:
-                    t0 = time.monotonic()
-                    _gcloud_rsync(dataset_uri.rstrip("/") + "/", self.cache_dataset_dir)
-                    self.sync_durations_sec["dataset_sync"] = round(time.monotonic() - t0, 3)
-                    _write_json(
-                        dataset_meta_path,
-                        {
-                            "timestamp": _now_iso(),
-                            "source_uri": dataset_uri,
-                            "last_sync_epoch": Instant.now().timestamp(),
-                            "dataset_ttl_sec": self.dataset_ttl_sec,
-                        },
-                    )
-                self._inputs_root = self.cache_dataset_dir
-            else:
-                # No persistent dataset cache: always sync into run workspace.
-                inputs_root = self.staging_dir / "inputs"
+            return
+        dataset_meta_path = self.cache_meta_dir / "dataset_meta.json"
+        dataset_hit = False
+        if self.cache_enabled and dataset_meta_path.is_file() and self.cache_dataset_dir.is_dir():
+            dataset_meta = _load_json(dataset_meta_path)
+            last_sync_epoch = float(dataset_meta.get("last_sync_epoch", 0.0) or 0.0)
+            age = Instant.now().timestamp() - last_sync_epoch
+            dataset_hit = (
+                str(dataset_meta.get("source_uri", "")) == self.dataset_uri
+                and age <= float(self.dataset_ttl_sec)
+            )
+        dataset_uri = self.dataset_uri
+        if self.cache_enabled:
+            if not dataset_hit:
                 t0 = time.monotonic()
-                _gcloud_rsync(dataset_uri.rstrip("/") + "/", inputs_root)
+                _gcloud_rsync(dataset_uri.rstrip("/") + "/", self.cache_dataset_dir)
                 self.sync_durations_sec["dataset_sync"] = round(time.monotonic() - t0, 3)
-                self._inputs_root = inputs_root
+                _write_json(
+                    dataset_meta_path,
+                    {
+                        "timestamp": _now_iso(),
+                        "source_uri": dataset_uri,
+                        "last_sync_epoch": Instant.now().timestamp(),
+                        "dataset_ttl_sec": self.dataset_ttl_sec,
+                    },
+                )
+            self._inputs_root = self.cache_dataset_dir
+        else:
+            inputs_root = self.staging_dir / "inputs"
+            t0 = time.monotonic()
+            _gcloud_rsync(dataset_uri.rstrip("/") + "/", inputs_root)
+            self.sync_durations_sec["dataset_sync"] = round(time.monotonic() - t0, 3)
+            self._inputs_root = inputs_root
+        _mark_cache(self.cache_stats, "dataset", hit=dataset_hit)
 
-            _mark_cache(self.cache_stats, "dataset", hit=dataset_hit)
-
+    def _finalize_assets(self) -> None:
+        """Validate runner/template exist, chmod, set _runner_env and _template_cfg."""
+        runner_path = self.runner_path
         if not runner_path.is_file():
             raise SKManagerError(f"Runner binary missing after sync: {runner_path}")
         if not self.cache_template_path.is_file():
             raise SKManagerError(f"Template missing after sync: {self.cache_template_path}")
-
         runner_path.chmod(runner_path.stat().st_mode | EXECUTABLE_MODE)
         custom_loader = runner_path.parent / "ld-linux-x86-64.so.2"
         if custom_loader.is_file():
             custom_loader.chmod(custom_loader.stat().st_mode | EXECUTABLE_MODE)
-
         runtime_env = dict(os.environ)
         env_overrides = (
             self.runtime_cfg.get("env_overrides", {}) if isinstance(self.runtime_cfg.get("env_overrides"), dict) else {}
@@ -334,8 +326,14 @@ class SKBmtManager(BmtManagerBase):
         existing_ld = str(runtime_env.get("LD_LIBRARY_PATH", "")).strip()
         runtime_env["LD_LIBRARY_PATH"] = f"{staged_lib_path}:{existing_ld}" if existing_ld else staged_lib_path
         self._runner_env = runtime_env
-
         self._template_cfg = _load_json(self.cache_template_path)
+
+    def setup_assets(self) -> None:
+        """Download/cache runner bundle, template, and dataset."""
+        self._setup_runner_assets()
+        self._setup_template_assets()
+        self._setup_dataset_assets()
+        self._finalize_assets()
 
     def collect_input_files(self, inputs_root: Path) -> list[Path]:
         wav_files = sorted(inputs_root.rglob("*.wav"))
@@ -367,7 +365,9 @@ class SKBmtManager(BmtManagerBase):
             _set_dotted(cfg, dotted_key, value)
 
         runner_path = self.runner_path
-        temp_path = Path(tempfile.mktemp(suffix=".json", dir=self.runtime_dir))
+        fd, temp_path_str = tempfile.mkstemp(suffix=".json", dir=self.runtime_dir)
+        os.close(fd)
+        temp_path = Path(temp_path_str)
         try:
             _write_runner_config(temp_path, cfg)
             exit_code = 1
@@ -429,9 +429,7 @@ class SKBmtManager(BmtManagerBase):
         gate_cfg = self.bmt_cfg.get("gate", {}) or {}
         comparison = _normalize_comparison(str(gate_cfg.get("comparison", "gte")))
         tolerance_abs = float(gate_cfg.get("tolerance_abs", 0.0) or 0.0)
-        return _gate_result(
-            comparison, aggregate_score, last_score, failed_count, self.run_context, tolerance_abs
-        )
+        return _gate_result(comparison, aggregate_score, last_score, failed_count, self.run_context, tolerance_abs)
 
     def _artifact_uris(self) -> dict[str, str]:
         return {

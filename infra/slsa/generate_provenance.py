@@ -126,8 +126,8 @@ def cmd_image(args: argparse.Namespace) -> None:
     try:
         raw = subprocess.check_output(["gcloud", "storage", "cat", manifest_uri], text=True)
         manifest = json.loads(raw)
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-        print(f"Warning: could not read image manifest from {manifest_uri}: {exc}", file=sys.stderr)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        pass
 
     subject_digest = {
         "sha256": _sha256_str(args.image_name),  # GCE images have no content hash; use name digest
@@ -157,11 +157,9 @@ def cmd_image(args: argparse.Namespace) -> None:
 
     out_path = Path(args.out)
     out_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote image provenance: {out_path}")
 
     dest_uri = f"gs://{args.gcs_bucket}/provenance/images/{args.image_name}.slsa.json"
     subprocess.check_call(["gcloud", "storage", "cp", str(out_path), dest_uri])
-    print(f"Uploaded image provenance: {dest_uri}")
 
 
 def cmd_runner(args: argparse.Namespace) -> None:
@@ -171,7 +169,6 @@ def cmd_runner(args: argparse.Namespace) -> None:
         artifact_sha256 = _sha256_file(Path(args.artifact_local_path))
 
     if not artifact_sha256:
-        print("Provide --artifact-sha256 or --artifact-local-path", file=sys.stderr)
         sys.exit(1)
 
     # Derive bucket from artifact URI  gs://bucket/...
@@ -198,12 +195,10 @@ def cmd_runner(args: argparse.Namespace) -> None:
 
     out_path = Path(args.out)
     out_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote runner provenance: {out_path}")
 
     if bucket and args.run_id:
         dest_uri = f"gs://{bucket}/provenance/runners/{args.run_id}.slsa.json"
         subprocess.check_call(["gcloud", "storage", "cp", str(out_path), dest_uri])
-        print(f"Uploaded runner provenance: {dest_uri}")
 
 
 # ---------------------------------------------------------------------------

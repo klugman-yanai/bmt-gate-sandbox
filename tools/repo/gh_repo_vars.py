@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check/apply declarative GitHub repository variables.
 
-Terraform is the source of truth. Expected values come from terraform output;
+Pulumi is the source of truth. Expected values come from Pulumi stack output;
 optional config file can override. Secrets are not set by this tool.
 """
 
@@ -14,12 +14,13 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.pulumi.pulumi_repo_vars import get_expected_repo_vars_from_pulumi as get_expected_repo_vars_from_terraform
 from tools.shared.bucket_env import truthy
 from tools.shared.env_contract import default_contract_path, load_env_contract
-from tools.terraform.terraform_repo_vars import get_expected_repo_vars_from_terraform
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -84,10 +85,10 @@ def _load_config(path: Path) -> dict[str, str]:
     return out
 
 
-def _get_expected_from_terraform() -> tuple[dict[str, str], str | None]:
-    """Return (Terraform-sourced desired repo vars, error message if Terraform failed)."""
+def _get_expected_from_pulumi() -> tuple[dict[str, str], str | None]:
+    """Return (Pulumi-sourced desired repo vars, error message if Pulumi failed)."""
     try:
-        return get_expected_repo_vars_from_terraform(), None
+        return get_expected_repo_vars_from_terraform(), None  # alias for get_expected_repo_vars_from_pulumi
     except Exception as e:
         return {}, str(e)
 
@@ -371,10 +372,78 @@ def _validate_wif_provider_consistency(desired: dict[str, str]) -> list[str]:
 def _render(value: str) -> str:
     if not value:
         return "<empty>"
-    # Avoid showing Terraform errors or ANSI garbage as "desired"
+    # Avoid showing Pulumi errors or ANSI garbage as "desired"
     if "\n" in value or "No outputs found" in value or "Warning:" in value or "\x1b[" in value:
-        return "<run just terraform first>"
+        return "<run just pulumi first>"
     return value
+
+
+def _print_branch_rule_plain(
+    branch_rule_checks: list,
+    branch_rule_available: dict,
+    branch_rule_values: dict,
+    render_fn: Callable[[str], str],
+) -> None:
+    print("Branch-rule sourced vars:")
+    for check in branch_rule_checks:
+        available = ", ".join(branch_rule_available.get(check.repo_var, [])) or "<none>"
+        resolved = branch_rule_values.get(check.repo_var, "<unresolved>")
+        selector_suffix = (
+            f", context_substring={check.context_substring!r}" if check.context_substring is not None else ""
+        )
+        print(
+            f"- {check.repo_var}: branch={check.branch}{selector_suffix} "
+            f"resolved={render_fn(resolved)} from [{available}]"
+        )
+
+
+def _print_repo_vars_status_plain(
+    ordered_names: list[str],
+    missing_required: list[str],
+    desired_absent: set[str],
+    should_delete: list[str],
+    missing: list[str],
+    changed: list[str],
+    desired_origin: dict,
+    declared: dict,
+    current: dict,
+    desired: dict,
+    render_fn: Callable[[str], str],
+) -> None:
+    print("Repo vars status:")
+    for name in ordered_names:
+        if name in missing_required:
+            state = "MISSING_REQUIRED"
+            current_value = "<missing>"
+        elif name in desired_absent and name not in current:
+            state = "OK (ABSENT)"
+            current_value = "<missing>"
+        elif name in should_delete:
+            state = "DRIFT (SHOULD_BE_ABSENT)"
+            current_value = render_fn(current[name])
+        elif name in missing:
+            state = "MISSING"
+            current_value = "<missing>"
+        elif name in changed:
+            state = "DRIFT"
+            current_value = render_fn(current[name])
+        elif desired_origin.get(name) == "default" and name not in current:
+            state = "OK (DEFAULT)"
+            current_value = "<missing>"
+        else:
+            state = "OK"
+            current_value = render_fn(current[name])
+            if desired_origin.get(name) == "branch_rule":
+                state = "OK (BRANCH_RULE)"
+            elif desired_origin.get(name) == "current" and name not in declared:
+                state = "OK (INHERITED_CURRENT)"
+            elif desired_origin.get(name) == "default" and name not in declared:
+                state = "OK (DEFAULT)"
+        print(f"- {name}: {state}")
+        if not state.startswith("OK"):
+            desired_value = "<required>" if name in missing_required else render_fn(desired[name])
+            print(f"  current: {current_value}")
+            print(f"  desired: {desired_value}")
 
 
 class GhRepoVars:
@@ -396,7 +465,7 @@ class GhRepoVars:
             return 2
 
         try:
-            declared, tf_error = _get_expected_from_terraform()
+            declared, pulumi_error = _get_expected_from_pulumi()
             if config_path.is_file():
                 overrides = _load_config(config_path)
                 for k, v in overrides.items():
@@ -483,68 +552,126 @@ class GhRepoVars:
             print(f"::error::{exc}", file=sys.stderr)
             return 2
 
+        use_rich = sys.stdout.isatty() and not os.environ.get("GITHUB_ACTIONS")
+
         if config_path.is_file():
             print(f"Config: {config_path}")
         else:
-            print("Config: (Terraform + optional overrides; no override file)")
+            print("Config: (Pulumi + optional overrides; no override file)")
         print(f"Contract: {contract_path}")
-        if tf_error:
+        if pulumi_error:
             print()
-            print(f"::warning::Terraform state unavailable: {tf_error}")
-            print("::warning::Desired values for infra-derived vars come from current/default only. Run `just terraform` to populate from Terraform.")
+            print(f"::warning::Pulumi state unavailable: {pulumi_error}")
+            print(
+                "::warning::Desired values for infra-derived vars come from current/default only. Run `just pulumi` to populate from Pulumi."
+            )
         print()
         if branch_rule_checks:
-            print("Branch-rule sourced vars:")
-            for check in branch_rule_checks:
-                available = ", ".join(branch_rule_available.get(check.repo_var, [])) or "<none>"
-                resolved = branch_rule_values.get(check.repo_var, "<unresolved>")
-                selector_suffix = (
-                    f", context_substring={check.context_substring!r}" if check.context_substring is not None else ""
-                )
-                print(
-                    f"- {check.repo_var}: branch={check.branch}{selector_suffix} "
-                    f"resolved={_render(resolved)} from [{available}]"
-                )
+            if use_rich:
+                try:
+                    from rich.console import Console
+                    from rich.table import Table
+
+                    t = Table(title="Branch-rule sourced vars")
+                    t.add_column("Var", style="cyan")
+                    t.add_column("Branch", style="dim")
+                    t.add_column("Resolved", style="green")
+                    t.add_column("Available", style="dim")
+                    for check in branch_rule_checks:
+                        available = ", ".join(branch_rule_available.get(check.repo_var, [])) or "<none>"
+                        resolved = branch_rule_values.get(check.repo_var, "<unresolved>")
+                        selector = f"{check.branch}" + (
+                            f" {check.context_substring!r}" if check.context_substring else ""
+                        )
+                        t.add_row(check.repo_var, selector, _render(resolved), available)
+                    Console().print(t)
+                except ImportError:
+                    _print_branch_rule_plain(branch_rule_checks, branch_rule_available, branch_rule_values, _render)
+            else:
+                _print_branch_rule_plain(branch_rule_checks, branch_rule_available, branch_rule_values, _render)
             print()
         for warning in wif_warnings:
             print(f"::warning::{warning}")
         if wif_warnings:
             print()
 
-        print("Repo vars status:")
-        for name in ordered_names:
-            if name in missing_required:
-                state = "MISSING_REQUIRED"
-                current_value = "<missing>"
-            elif name in desired_absent and name not in current:
-                state = "OK (ABSENT)"
-                current_value = "<missing>"
-            elif name in should_delete:
-                state = "DRIFT (SHOULD_BE_ABSENT)"
-                current_value = _render(current[name])
-            elif name in missing:
-                state = "MISSING"
-                current_value = "<missing>"
-            elif name in changed:
-                state = "DRIFT"
-                current_value = _render(current[name])
-            elif desired_origin.get(name) == "default" and name not in current:
-                state = "OK (DEFAULT)"
-                current_value = "<missing>"
-            else:
-                state = "OK"
-                current_value = _render(current[name])
-                if desired_origin.get(name) == "branch_rule":
-                    state = "OK (BRANCH_RULE)"
-                elif desired_origin.get(name) == "current" and name not in declared:
-                    state = "OK (INHERITED_CURRENT)"
-                elif desired_origin.get(name) == "default" and name not in declared:
-                    state = "OK (DEFAULT)"
-            print(f"- {name}: {state}")
-            if not state.startswith("OK"):
-                desired_value = "<required>" if name in missing_required else _render(desired[name])
-                print(f"  current: {current_value}")
-                print(f"  desired: {desired_value}")
+        if use_rich:
+            try:
+                from rich.console import Console
+                from rich.table import Table
+
+                t = Table(title="Repo vars status")
+                t.add_column("Var", style="cyan")
+                t.add_column("State", style="bold")
+                t.add_column("Current", style="dim")
+                t.add_column("Desired", style="dim")
+                for name in ordered_names:
+                    if name in missing_required:
+                        state = "MISSING_REQUIRED"
+                        current_value = "<missing>"
+                        desired_value = "<required>"
+                    elif name in desired_absent and name not in current:
+                        state = "OK (ABSENT)"
+                        current_value = "<missing>"
+                        desired_value = "-"
+                    elif name in should_delete:
+                        state = "DRIFT (SHOULD_BE_ABSENT)"
+                        current_value = _render(current[name])
+                        desired_value = "<absent>"
+                    elif name in missing:
+                        state = "MISSING"
+                        current_value = "<missing>"
+                        desired_value = _render(desired[name])
+                    elif name in changed:
+                        state = "DRIFT"
+                        current_value = _render(current[name])
+                        desired_value = _render(desired[name])
+                    elif desired_origin.get(name) == "default" and name not in current:
+                        state = "OK (DEFAULT)"
+                        current_value = "<missing>"
+                        desired_value = "-"
+                    else:
+                        current_value = _render(current.get(name, ""))
+                        if desired_origin.get(name) == "branch_rule":
+                            state = "OK (BRANCH_RULE)"
+                        elif desired_origin.get(name) == "current" and name not in declared:
+                            state = "OK (INHERITED_CURRENT)"
+                        elif desired_origin.get(name) == "default" and name not in declared:
+                            state = "OK (DEFAULT)"
+                        else:
+                            state = "OK"
+                        desired_value = _render(desired[name]) if desired.get(name) else "-"
+                    style = "red" if state.startswith(("MISSING", "DRIFT")) else "green"
+                    t.add_row(name, state, current_value, desired_value, style=style)
+                Console().print(t)
+            except ImportError:
+                _print_repo_vars_status_plain(
+                    ordered_names,
+                    missing_required,
+                    desired_absent,
+                    should_delete,
+                    missing,
+                    changed,
+                    desired_origin,
+                    declared,
+                    current,
+                    desired,
+                    _render,
+                )
+        else:
+            _print_repo_vars_status_plain(
+                ordered_names,
+                missing_required,
+                desired_absent,
+                should_delete,
+                missing,
+                changed,
+                desired_origin,
+                declared,
+                current,
+                desired,
+                _render,
+            )
 
         if extra:
             print()
@@ -555,7 +682,7 @@ class GhRepoVars:
         if missing_required:
             print(file=sys.stderr)
             print("::error::Missing required repo vars with no current value or contract default.", file=sys.stderr)
-            print("::error::Run: just terraform-export-vars (or set in GitHub vars / infra).", file=sys.stderr)
+            print("::error::Run: just pulumi (or set in GitHub vars / infra).", file=sys.stderr)
             for name in sorted(missing_required):
                 print(f"::error::- {name}", file=sys.stderr)
             return 1
@@ -567,7 +694,18 @@ class GhRepoVars:
                 print("::error::Run: just repo-vars-apply (with BMT_PRUNE_EXTRA=1 to prune)", file=sys.stderr)
                 return 1
             print()
-            print("::notice::Repo vars match contract/default-backed desired state.")
+            if use_rich:
+                try:
+                    from rich.console import Console
+                    from rich.panel import Panel
+
+                    Console().print(
+                        Panel("Repo vars match contract/default-backed desired state.", border_style="green")
+                    )
+                except ImportError:
+                    print("::notice::Repo vars match contract/default-backed desired state.")
+            else:
+                print("::notice::Repo vars match contract/default-backed desired state.")
             return 0
 
         if not (missing or changed) and not force:
@@ -610,9 +748,19 @@ class GhRepoVars:
 
         print()
         if extra and not prune_extra:
-            print("::notice::Managed vars synced; undeclared vars still exist.")
+            msg = "Managed vars synced; undeclared vars still exist."
         else:
-            print("::notice::Repo vars synced to contract/default-backed desired state.")
+            msg = "Repo vars synced to contract/default-backed desired state."
+        if use_rich:
+            try:
+                from rich.console import Console
+                from rich.panel import Panel
+
+                Console().print(Panel(msg, border_style="green"))
+            except ImportError:
+                print(f"::notice::{msg}")
+        else:
+            print(f"::notice::{msg}")
         return 0
 
 

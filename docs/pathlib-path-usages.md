@@ -27,12 +27,10 @@ rg -n '"gcp/|'"'"'gcp/' --type py
 | File | Parameter(s) | Status |
 |------|--------------|--------|
 | `tools/bmt/bmt_run_local.py` | `code_root`, `runtime_root`, `jobs_config` | ✅ `Path \| str` |
-| `tools/remote/bmt_run_local.py` | same | ✅ `Path \| str` |
 | `tools/remote/bucket_verify_runtime_seed_sync.py` | `src_dir` | ✅ `Path \| str` |
 | `tools/remote/bucket_sync_runtime_seed.py` | `src_dir` | ✅ `Path \| str` |
 | `tools/remote/bucket_verify_gcp_sync.py` | `src_dir` | ✅ `Path \| str` |
 | `tools/remote/bucket_sync_gcp.py` | `src_dir` | ✅ `Path \| str` |
-| `tools/remote/bmt_monitor.py` | `config_root` | ✅ `Path \| str` |
 | `tools/bmt/bmt_monitor.py` | `config_root` | ✅ `Path \| str` |
 | `tools/remote/bucket_upload_runner.py` | `runner_path` | ✅ `Path \| str` |
 | `tools/remote/bucket_validate_contract.py` | `runtime_root` | GCS URI — kept as `str` |

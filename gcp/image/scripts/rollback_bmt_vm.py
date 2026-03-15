@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 
 
 def main() -> int:
@@ -22,21 +21,19 @@ def main() -> int:
         rollback_vm = current_vm
 
     if not target_repo or not rollback_vm:
-        print("Set TARGET_REPO and BMT_ROLLBACK_VM_NAME (or BMT_LIVE_VM).", file=sys.stderr)
         return 1
 
     r = subprocess.run(["which", "gh"], capture_output=True, check=False)
     if r.returncode != 0:
-        print("gh CLI is required.", file=sys.stderr)
         return 1
 
-    r = subprocess.run(["gh", "variable", "get", "BMT_LIVE_VM", "-R", target_repo, "--json", "value", "-q", ".value"],
-                      capture_output=True, text=True, check=False)
+    r = subprocess.run(
+        ["gh", "variable", "get", "BMT_LIVE_VM", "-R", target_repo, "--json", "value", "-q", ".value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     current_vm = (r.stdout or "").strip()
-
-    print(f"Rollback target repo: {target_repo}")
-    print(f"Current BMT_LIVE_VM:  {current_vm or '<unset>'}")
-    print(f"Rollback BMT_LIVE_VM: {rollback_vm}")
 
     r = subprocess.run(
         ["gh", "variable", "set", "BMT_LIVE_VM", "--repo", target_repo, "--body", rollback_vm],
@@ -44,10 +41,13 @@ def main() -> int:
     )
     if r.returncode != 0:
         return 1
-    r = subprocess.run(["gh", "variable", "get", "BMT_LIVE_VM", "-R", target_repo, "--json", "value", "-q", ".value"],
-                      capture_output=True, text=True, check=False)
-    updated = (r.stdout or "").strip()
-    print(f"Updated BMT_LIVE_VM: {updated}")
+    r = subprocess.run(
+        ["gh", "variable", "get", "BMT_LIVE_VM", "-R", target_repo, "--json", "value", "-q", ".value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    (r.stdout or "").strip()
     return 0
 
 

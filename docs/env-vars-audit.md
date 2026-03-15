@@ -10,14 +10,14 @@ The **minimum** required to run BMT CI and the VM:
 
 | Where | Minimum |
 |-------|--------|
-| **Declarative (bmt.tfvars.json)** | **Required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account` (Terraform has no default for these). **Optional:** `bmt_vm_name` (default `bmt-gate-blue`), `startup_wrapper_script_path` (default relative to `infra/terraform`). Zone is required in tfvars; at runtime it is not overridable via env (workflows default `vars.GCP_ZONE` to `europe-west4-a`). |
+| **Declarative (bmt.tfvars.json)** | **Required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account` (Pulumi has no default for these). **Optional:** `bmt_vm_name` (default `bmt-gate-blue`), `startup_wrapper_script_path` (default relative to `infra/pulumi`). Zone is required in tfvars; at runtime it is not overridable via env (workflows default `vars.GCP_ZONE` to `europe-west4-a`). |
 | **GitHub (manual)** | `GCP_WIF_PROVIDER` (so Actions can auth to GCP). For handoff: `BMT_DISPATCH_APP_ID` (and `BMT_DISPATCH_APP_PRIVATE_KEY` secret when this repo mints the token). |
 | **GCP Secret Manager** | Per-repo GitHub App credentials (`GITHUB_APP_TEST_*`, `GITHUB_APP_PROD_*`) for each repo in `github_repos.json`. |
 | **GitHub branch protection** | Require the status check named by the constant `STATUS_CONTEXT` in code. |
 
-**Zone is in the minimum:** Terraform has no default for `gcp_zone`, so you must set it in `bmt.tfvars.json` (e.g. `europe-west4-a`). At runtime we do not allow overriding zone via env; the value is fixed from config/code.
+**Zone is in the minimum:** Pulumi has no default for `gcp_zone`, so you must set it in `bmt.tfvars.json` (e.g. `europe-west4-a`). At runtime we do not allow overriding zone via env; the value is fixed from config/code.
 
-**VM name is not in the minimum.** Terraform has a default `bmt_vm_name = "bmt-gate-blue"`. You only set it in `bmt.tfvars.json` when you want a different instance name (e.g. another region, or a different naming convention). If omitted, Terraform and export use `bmt-gate-blue`; pool is then derived as `bmt-gate-blue` + `bmt-gate-green`.
+**VM name is not in the minimum.** Pulumi has a default `bmt_vm_name = "bmt-gate-blue"`. You only set it in `bmt.tfvars.json` when you want a different instance name (e.g. another region, or a different naming convention). If omitted, Pulumi and export use `bmt-gate-blue`; pool is then derived as `bmt-gate-blue` + `bmt-gate-green`.
 
 ### Why is the VM name “configurable” at all?
 
@@ -35,8 +35,8 @@ So: VM name is **optional** in the minimum; it’s there so deployments can over
 
 | Category | What user sets | Where |
 |----------|----------------|-------|
-| **GCP** | Project, bucket, service account, WIF provider | Declarative: `infra/terraform/bmt.tfvars.json` → Terraform → exported to GitHub as `GCP_PROJECT`, `GCS_BUCKET`, `GCP_SA_EMAIL`; **manually in GitHub**: `GCP_WIF_PROVIDER` |
-| **VM name** | Primary VM (e.g. blue in blue/green) | Same: `bmt.tfvars.json` → Terraform → `BMT_LIVE_VM` |
+| **GCP** | Project, bucket, service account, WIF provider | Declarative: `infra/pulumi/bmt.tfvars.json` → Pulumi → exported to GitHub as `GCP_PROJECT`, `GCS_BUCKET`, `GCP_SA_EMAIL`; **manually in GitHub**: `GCP_WIF_PROVIDER` |
+| **VM name** | Primary VM (e.g. blue in blue/green) | Same: `bmt.tfvars.json` → Pulumi → `BMT_LIVE_VM` |
 | **GitHub – dispatch** | App ID for workflow_dispatch | **GitHub repo variable**: `BMT_DISPATCH_APP_ID` |
 | **GitHub – dispatch secret** | App private key (when this repo mints the token) | **GitHub repo secret**: `BMT_DISPATCH_APP_PRIVATE_KEY` |
 | **GitHub – VM-side** | Per-repo App: ID, installation ID, private key | **GCP Secret Manager** (keys like `GITHUB_APP_TEST_ID`, `GITHUB_APP_TEST_INSTALLATION_ID`, `GITHUB_APP_TEST_PRIVATE_KEY`, and `GITHUB_APP_PROD_*`). Repo mapping in `gcp/image/config/github_repos.json`. |
@@ -44,7 +44,7 @@ So: VM name is **optional** in the minimum; it’s there so deployments can over
 
 So in practice:
 
-- **Declarative (bmt.tfvars.json):** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account` (all required); `bmt_vm_name` optional (default `bmt-gate-blue`); `startup_wrapper_script_path` optional. Terraform apply + export (via `just terraform`) → four repo vars (GCS_BUCKET, GCP_PROJECT, GCP_SA_EMAIL, BMT_LIVE_VM). Zone is in Terraform (required in tfvars) and output but **not** in the export contract; workflows use `vars.GCP_ZONE || 'europe-west4-a'`. At runtime zone is fixed in code (not overridable via env).
+- **Declarative (bmt.tfvars.json):** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account` (all required); `bmt_vm_name` optional (default `bmt-gate-blue`); `startup_wrapper_script_path` optional. Pulumi apply + export (via `just pulumi`) → four repo vars (GCS_BUCKET, GCP_PROJECT, GCP_SA_EMAIL, BMT_LIVE_VM). Zone is in Pulumi (required in tfvars) and output but **not** in the export contract; workflows use `vars.GCP_ZONE || 'europe-west4-a'`. At runtime zone is fixed in code (not overridable via env).
 - **Manual in GitHub:** `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID` (variable), `BMT_DISPATCH_APP_PRIVATE_KEY` (secret when needed).
 - **GCP Secret Manager:** GitHub App credentials per `github_repos.json` (`GITHUB_APP_TEST_*`, `GITHUB_APP_PROD_*`).
 - **Branch protection:** Configure the required status check name in GitHub; the same name is hard-coded as `STATUS_CONTEXT` in the repo.
@@ -61,11 +61,11 @@ Only these five can affect config when running CI/VM code; all others are defaul
 
 | Var | Needed? | Notes |
 |-----|---------|--------|
-| `GCS_BUCKET` | Yes | From Terraform export. User sets in bmt.tfvars.json. |
-| `GCP_PROJECT` | Yes | From Terraform export. |
-| `GCP_SA_EMAIL` | Yes | From Terraform export. |
-| `BMT_LIVE_VM` | Yes | From Terraform export. |
-| `GCP_WIF_PROVIDER` | Yes | Set by user in GitHub (not in Terraform). |
+| `GCS_BUCKET` | Yes | From Pulumi export. User sets in bmt.tfvars.json. |
+| `GCP_PROJECT` | Yes | From Pulumi export. |
+| `GCP_SA_EMAIL` | Yes | From Pulumi export. |
+| `BMT_LIVE_VM` | Yes | From Pulumi export. |
+| `GCP_WIF_PROVIDER` | Yes | Set by user in GitHub (not in Pulumi). |
 
 **Not in whitelist (cannot be overridden via env):** `GCP_ZONE`, `BMT_REPO_ROOT`, `BMT_PUBSUB_*`, `BMT_STATUS_CONTEXT`, handshake/description constants. They are fixed or derived in code to avoid drift and misconfiguration.
 
@@ -75,10 +75,10 @@ Only these five can affect config when running CI/VM code; all others are defaul
 
 | Var | Needed? | Auto-managed? | Notes |
 |-----|---------|----------------|-------|
-| `GCS_BUCKET` | Yes | Terraform export | — |
-| `GCP_PROJECT` | Yes | Terraform export | — |
-| `GCP_SA_EMAIL` | Yes | Terraform export | — |
-| `BMT_LIVE_VM` | Yes | Terraform export | — |
+| `GCS_BUCKET` | Yes | Pulumi export | — |
+| `GCP_PROJECT` | Yes | Pulumi export | — |
+| `GCP_SA_EMAIL` | Yes | Pulumi export | — |
+| `BMT_LIVE_VM` | Yes | Pulumi export | — |
 | `GCP_WIF_PROVIDER` | Yes | No (user) | WIF provider for CI. |
 | `BMT_DISPATCH_APP_ID` | Yes | No (user) | App ID for workflow_dispatch. |
 | `BMT_VM_POOL_LABEL` | Optional | No | Label-based VM pool discovery; most setups use derived blue/green from `BMT_LIVE_VM`. |
@@ -87,7 +87,7 @@ Only these five can affect config when running CI/VM code; all others are defaul
 | `BMT_EXPECTED_BASE_IMAGE_FAMILY` | Optional | Default in workflow | Default `ubuntu-2204-lts`. |
 | `BMT_EXPECTED_BASE_IMAGE_PROJECT` | Optional | Default in workflow | Default `ubuntu-os-cloud`. |
 
-**Optional / workflow-defaulted:** `GCP_ZONE` — workflows use `vars.GCP_ZONE || 'europe-west4-a'`; not in Terraform export contract. For act, add to `.env` from Terraform if needed: `GCP_ZONE=$(cd infra/terraform && terraform output -raw gcp_zone)`. `BMT_VM_POOL` — Terraform outputs it (derived blue/green); not used as a workflow var (pool is derived in CI from `BMT_LIVE_VM` or `BMT_VM_POOL_LABEL`).
+**Optional / workflow-defaulted:** `GCP_ZONE` — workflows use `vars.GCP_ZONE || 'europe-west4-a'`; not in Pulumi export contract. For act, add to `.env` from Pulumi if needed: `GCP_ZONE=$(cd infra/pulumi && pulumi stack output gcp_zone)`. `BMT_VM_POOL` — Pulumi outputs it (derived blue/green); not used as a workflow var (pool is derived in CI from `BMT_LIVE_VM` or `BMT_VM_POOL_LABEL`).
 
 **Removed / not repo vars:** `BMT_PUBSUB_*`, `BMT_REPO_ROOT`, `BMT_STATUS_CONTEXT`, handshake timeouts — all derived or constants.
 
@@ -131,7 +131,7 @@ Examples: `VM_REUSED_RUNNING`, `SELECTED_VM`, `TRIGGER_WRITTEN`, `HANDSHAKE_OK`,
 | `GCP_PROJECT` | Yes | For VM scripts, validate. |
 | `BMT_LIVE_VM` | Yes | For VM scripts, monitor. |
 | `BMT_ENV_CONTRACT` | Optional | Path to contract JSON for gh_validate_vm_vars. |
-| `BMT_RUN_ID`, `BMT_AUTO`, `BMT_PROD`, `BMT_REPO`, `BMT_CONFIG_ROOT`, `BMT_INTERVAL` | Optional | bmt_monitor.py only; defaults or CLI. |
+| `BMT_RUN_ID`, `BMT_AUTO`, `BMT_PROD`, `BMT_REPO`, `BMT_CONFIG_ROOT`, `BMT_INTERVAL` | Optional | `tools/bmt/bmt_monitor.py` (bmt monitor command) only; defaults or CLI. |
 
 **Zone:** Tools use fixed zone `europe-west4-a`; no `GCP_ZONE` override.
 
@@ -145,7 +145,6 @@ Examples: `VM_REUSED_RUNNING`, `SELECTED_VM`, `TRIGGER_WRITTEN`, `HANDSHAKE_OK`,
 | `BMT_ALLOW_MANUAL_VM_START` | Optional | Allow start-vm when not in GITHUB_ACTIONS (local/dev). |
 | `BMT_FORCE_SYNC` | Optional | Force sync in CI even when objects exist. |
 | `BMT_VM_START_TIMEOUT_SEC` | Optional | Override for tests; normally constant in code. |
-| `BMT_TERRAFORM_ALLOW_DESTROY` | Optional | Set to `1` to allow destroy in terraform_apply. |
 | `BMT_CONTEXT_FILE` | Optional | Override path for `.bmt/context.json`. |
 | `BMT_GREEN_VM_NAME`, `BMT_IMAGE_FAMILY`, `BMT_IMAGE_NAME`, `BMT_GREEN_ALLOW_RECREATE` | Optional | create_bmt_green_vm.py. |
 | `BMT_EXPORT_DIR` | Optional | export_vm_spec.py output dir. |
@@ -172,11 +171,11 @@ These are either **dev/test overrides** or **advanced ops**; they do not need to
 
 | What | How |
 |------|-----|
-| **GCS_BUCKET, GCP_PROJECT, GCP_SA_EMAIL, BMT_LIVE_VM** | User edits `infra/terraform/bmt.tfvars.json` → `just terraform` (apply + export) → GitHub repo vars updated. User does not set these four in the GitHub UI. |
+| **GCS_BUCKET, GCP_PROJECT, GCP_SA_EMAIL, BMT_LIVE_VM** | User edits `infra/pulumi/bmt.tfvars.json` → `just pulumi` (apply + export) → GitHub repo vars updated. User does not set these four in the GitHub UI. |
 | **Pub/Sub subscription** | Derived in code: `bmt-vm-` + `bmt_vm_name`. |
 | **VM pool (blue/green)** | Derived in code from `BMT_LIVE_VM` when name ends with `-blue` or `-green`. |
 | **Repo root** | Default `/opt/bmt` in code; no env. |
-| **Zone** | Terraform has `gcp_zone` (required in tfvars); outputs it. Not in repo-vars export; workflows default `vars.GCP_ZONE` to `europe-west4-a`. Fixed in runtime code (not overridable via env). |
+| **Zone** | Pulumi has `gcp_zone` (required in tfvars); outputs it. Not in repo-vars export; workflows default `vars.GCP_ZONE` to `europe-west4-a`. Fixed in runtime code (not overridable via env). |
 | **Status context** | Constant in `gcp/image/config/constants.py`; branch protection configured to match. |
 | **VM metadata (GCS_BUCKET, etc.)** | Workflow `sync-vm-metadata` pushes from repo vars to VM metadata so VM sees same bucket/config. |
 
@@ -186,7 +185,7 @@ These are either **dev/test overrides** or **advanced ops**; they do not need to
 
 **User actually configures:**
 
-1. **Declarative:** `infra/terraform/bmt.tfvars.json` — **required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`. **Optional:** `bmt_vm_name` (default `bmt-gate-blue`), `startup_wrapper_script_path` (see `bmt.tfvars.example.json`).
+1. **Declarative:** `infra/pulumi/bmt.tfvars.json` — **required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`. **Optional:** `bmt_vm_name` (default `bmt-gate-blue`), `startup_wrapper_script_path` (see `bmt.tfvars.example.json`).
 2. **GitHub Variables:** `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`.
 3. **GitHub Secret:** `BMT_DISPATCH_APP_PRIVATE_KEY` (when this repo mints the dispatch token).
 4. **GCP Secret Manager:** Per-repo GitHub App credentials (`GITHUB_APP_TEST_*`, `GITHUB_APP_PROD_*`) — keyed by `github_repos.json`.
@@ -211,9 +210,8 @@ These are **optional overrides** for deployment or ops; safe to let the user set
 | **BMT_SELF_STOP** | Env on VM | Debug: set to `0` to leave VM running. Default `1` (self-stop). |
 | **BMT_WORKSPACE_ROOT** | Set by run_watcher default; override only if needed | Default `~/bmt_workspace`; override only for special layouts. |
 | **BMT_CONTEXT_FILE** | Local/tool env | Override path for `.bmt/context.json`; useful for tests or multiple configs. |
-| **Local/dev tool opts** | Env when running tools | e.g. `BMT_RUN_ID`, `BMT_AUTO`, `BMT_REPO`, `BMT_CONFIG_ROOT`, `BMT_INTERVAL` for bmt_monitor; `BMT_ENV_CONTRACT` for gh_validate_vm_vars; green-VM script opts (`BMT_GREEN_VM_NAME`, `BMT_IMAGE_FAMILY`, etc.). Not part of CI/VM contract. |
+| **Local/dev tool opts** | Env when running tools | e.g. `BMT_RUN_ID`, `BMT_AUTO`, `BMT_REPO`, `BMT_CONFIG_ROOT`, `BMT_INTERVAL` for `tools/bmt/bmt_monitor` (just monitor); `BMT_ENV_CONTRACT` for gh_validate_vm_vars; green-VM script opts (`BMT_GREEN_VM_NAME`, `BMT_IMAGE_FAMILY`, etc.). Not part of CI/VM contract. |
 | **BMT_ALLOW_MANUAL_VM_START** | Env when running start-vm locally | Allow starting VM outside GitHub Actions; dev/safety only. |
-| **BMT_TERRAFORM_ALLOW_DESTROY** | Env when running terraform apply | Safety: set to `1` to allow destroy; prevents accidental teardown otherwise. |
 
 Rule of thumb: **overrideable** = “different deployments or one-off ops might legitimately need a different value,” and changing it doesn’t break the contract between repo, VM, and branch protection.
 
@@ -225,10 +223,10 @@ These **must not** be set by the user via env (or repo vars). They are either de
 
 | Do not override | Why |
 |-----------------|-----|
-| **GCP_ZONE** | Terraform has `gcp_zone` (required in tfvars); workflows default `vars.GCP_ZONE` to `europe-west4-a`. At runtime (BmtConfig) zone is not in the env whitelist; code uses fixed default. Do not make it overridable via env. |
+| **GCP_ZONE** | Pulumi has `gcp_zone` (required in tfvars); workflows default `vars.GCP_ZONE` to `europe-west4-a`. At runtime (BmtConfig) zone is not in the env whitelist; code uses fixed default. Do not make it overridable via env. |
 | **BMT_REPO_ROOT** | Path on VM is fixed (`/opt/bmt`); code and startup assume it. Override would break watcher and scripts. |
 | **BMT_PUBSUB_TOPIC** | Single topic name in code; subscription is derived from VM name. |
-| **BMT_PUBSUB_SUBSCRIPTION** | Derived from `bmt_vm_name` (`bmt-vm-<name>`). Must stay in sync with VM and Terraform. |
+| **BMT_PUBSUB_SUBSCRIPTION** | Derived from `bmt_vm_name` (`bmt-vm-<name>`). Must stay in sync with VM and Pulumi. |
 | **BMT_VM_POOL** | Derived from `BMT_LIVE_VM` (blue/green) or from `BMT_VM_POOL_LABEL`. Comma-list override was removed to avoid drift. |
 | **BMT_STATUS_CONTEXT** | Must match branch protection and what the VM posts. Constant in code; no repo var. Override would desync branch rules and status checks. |
 | **Handshake timeouts** (e.g. **BMT_HANDSHAKE_TIMEOUT_SEC**, **BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING**) | Sensible defaults in BmtConfig; used for workflow↔VM coordination. Env override removed to avoid flaky or stuck runs. |

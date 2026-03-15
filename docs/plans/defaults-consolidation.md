@@ -15,7 +15,6 @@ Many default values are repeated across Python, Terraform, workflow YAML, and sh
 | .github/bmt/cli/resources/startup_entrypoint.sh | same literal |
 | create_bmt_green_vm.py | `meta_items.get("BMT_REPO_ROOT", "/opt/bmt")` |
 | run_watcher.py, ssh_install.py, audit_vm_and_bucket.py, set_startup_script_url.py | `os.environ.get("BMT_REPO_ROOT", "") or DEFAULT_BMT_REPO_ROOT` (script-level constant) |
-| infra/scripts/build_bmt_image.py (inline) | hardcoded `/opt/bmt` in script body |
 
 **Consolidation:** Constants + Terraform + vars_contract are already aligned via parity tests. Scripts under `gcp/image/` should use `constants.DEFAULT_REPO_ROOT` (or a shared `DEFAULT_BMT_REPO_ROOT` imported from config). Shell entrypoints cannot import Python; keep literal with a comment that it must match `constants.DEFAULT_REPO_ROOT` (or generate from Python at build time if we ever want to remove the literal).
 
@@ -39,11 +38,11 @@ Many default values are repeated across Python, Terraform, workflow YAML, and sh
 
 | Value | Locations (all literals) |
 |-------|---------------------------|
-| **bmt-runtime** | Terraform `image_family` default; workflow `inputs.image_family` default and all `\|\| 'bmt-runtime'`; infra/scripts/build_bmt_image.py (BMT_IMAGE_FAMILY, BMT_EXPECTED_IMAGE_FAMILY); create_bmt_green_vm.py; enforce-image-family-policy.sh; bmt-vm-provision.yml |
-| **ubuntu-2204-lts** | Workflow inputs + vars fallbacks; infra/scripts/build_bmt_image.py (BMT_BASE_IMAGE_FAMILY, BMT_EXPECTED_BASE_IMAGE_FAMILY); enforce-image-family-policy.sh |
+| **bmt-runtime** | Terraform `image_family` default; workflow `inputs.image_family` default and all `\|\| 'bmt-runtime'`; create_bmt_green_vm.py; enforce-image-family-policy.sh; bmt-vm-provision.yml |
+| **ubuntu-2204-lts** | Workflow inputs + vars fallbacks; enforce-image-family-policy.sh |
 | **ubuntu-os-cloud** | Same pattern as ubuntu-2204-lts |
 
-**Consolidation:** Add `DEFAULT_IMAGE_FAMILY`, `DEFAULT_BASE_IMAGE_FAMILY`, `DEFAULT_BASE_IMAGE_PROJECT` to `gcp/image/config/constants.py`. Use them in Python scripts (infra/scripts/build_bmt_image.py, create_bmt_green_vm.py). Add parity test for Terraform `image_family` default. Workflow can either (a) run a step that sets env from Python (single source) or (b) keep input/vars fallback literals and add a test that they match constants.
+**Consolidation:** Add `DEFAULT_IMAGE_FAMILY`, `DEFAULT_BASE_IMAGE_FAMILY`, `DEFAULT_BASE_IMAGE_PROJECT` to `gcp/image/config/constants.py`. Use them in Python scripts (create_bmt_green_vm.py). Add parity test for Terraform `image_family` default. Workflow can either (a) run a step that sets env from Python (single source) or (b) keep input/vars fallback literals and add a test that they match constants.
 
 ---
 
@@ -73,7 +72,7 @@ These live only in Terraform and are not duplicated in code: `machine_type`, `sc
 | Topic name: constants + main.tf + parity | Done |
 | Handshake 420 / 600: BmtConfig + Terraform parity for 420 | Done |
 | Image family/base defaults in constants | Done |
-| infra/scripts/build_bmt_image.py / create_bmt_green_vm.py use constants | Done |
+| create_bmt_green_vm.py uses constants | Done |
 | Terraform image_family parity test | Done |
 | Workflow image defaults from Python or parity test | Optional |
 | Shell script literals (startup_entrypoint, enforce-image-family-policy) | Comment-only or generate at build; low priority |

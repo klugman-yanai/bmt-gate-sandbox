@@ -11,6 +11,27 @@ from gcp.image.config.constants import GITHUB_API_VERSION
 from gcp.image.utils import _now_iso
 
 
+def _parse_pr_payload(payload: dict, checked_at: str) -> dict[str, str | bool | None]:
+    raw_state = str(payload.get("state", "")).strip().lower()
+    if raw_state not in {"open", "closed"}:
+        raw_state = "unknown"
+    merged_raw = payload.get("merged")
+    merged = merged_raw if isinstance(merged_raw, bool) else None
+    head_sha: str | None = None
+    head_raw = payload.get("head")
+    if isinstance(head_raw, dict):
+        head_sha_raw = head_raw.get("sha")
+        if isinstance(head_sha_raw, str):
+            head_sha = head_sha_raw.strip() or None
+    return {
+        "state": raw_state,
+        "merged": merged,
+        "head_sha": head_sha,
+        "checked_at": checked_at,
+        "error": None,
+    }
+
+
 def get_pr_state(
     token: str,
     repository: str,
@@ -65,24 +86,7 @@ def get_pr_state(
         try:
             with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
-                raw_state = str(payload.get("state", "")).strip().lower()
-                if raw_state not in {"open", "closed"}:
-                    raw_state = "unknown"
-                merged_raw = payload.get("merged")
-                merged = merged_raw if isinstance(merged_raw, bool) else None
-                head_raw = payload.get("head")
-                head_sha: str | None = None
-                if isinstance(head_raw, dict):
-                    head_sha_raw = head_raw.get("sha")
-                    if isinstance(head_sha_raw, str):
-                        head_sha = head_sha_raw.strip() or None
-                return {
-                    "state": raw_state,
-                    "merged": merged,
-                    "head_sha": head_sha,
-                    "checked_at": checked_at,
-                    "error": None,
-                }
+                return _parse_pr_payload(payload, checked_at)
         except urllib.error.HTTPError as exc:
             last_error = f"http_{exc.code}"
             # Retry only transient/rate-limited responses.

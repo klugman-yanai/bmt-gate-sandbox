@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from ci import gcs as gcs_module
-from ci import vm as vm_module
+from ci import gcs as gcs_module, vm as vm_module
 from ci.handshake import HandshakeManager
 
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH

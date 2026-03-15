@@ -7,8 +7,14 @@ import os
 from gcp.image.config.bmt_config import (
     BmtConfig,
     BmtContext,
+)
+from gcp.image.config.bmt_config import (
     get_config as _get_config_lib,
+)
+from gcp.image.config.bmt_config import (
     get_context_path as _get_context_path_lib,
+)
+from gcp.image.config.bmt_config import (
     load_context_from_file as _load_context_from_file_lib,
 )
 

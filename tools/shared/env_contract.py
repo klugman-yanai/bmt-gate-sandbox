@@ -13,6 +13,7 @@ from typing import Any
 
 from tools.repo.paths import repo_root
 
+
 def _contract_module_path() -> Path:
     return repo_root() / "tools" / "repo" / "vars_contract.py"
 
@@ -32,7 +33,7 @@ def _build_contract_from_python() -> dict[str, Any]:
 
     required = list(REPO_VARS_CONTRACT.required)
     optional = list(REPO_VARS_CONTRACT.optional)
-    secrets = list(REPO_VARS_CONTRACT.secrets_not_in_terraform)
+    secrets = list(REPO_VARS_CONTRACT.manual_vars)
     optional = [s for s in optional if s not in required]
     optional.extend(s for s in secrets if s not in optional)
 

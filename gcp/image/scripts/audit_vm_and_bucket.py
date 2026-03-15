@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
-from pathlib import Path
 
 from whenever import Instant
 
@@ -18,9 +16,8 @@ from gcp.image.config.constants import DEFAULT_GCP_ZONE
 from gcp.image.path_utils import DEFAULT_BMT_REPO_ROOT
 
 
-def _log(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [audit] {msg}")
+def _log(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
 def main() -> int:
@@ -31,7 +28,6 @@ def main() -> int:
     repo_root = os.environ.get("BMT_REPO_ROOT", "").strip() or DEFAULT_BMT_REPO_ROOT
 
     if not all([project, vm_name, bucket]):
-        print("::error::Set GCP_PROJECT, BMT_LIVE_VM, and GCS_BUCKET Zone is fixed (europe-west4-a).", file=sys.stderr)
         return 1
 
     _log("=== VM filesystem audit (gcloud compute ssh) ===")
@@ -52,22 +48,17 @@ def main() -> int:
         check=False,
     )
 
-    print()
     bucket_root = f"gs://{bucket}"
     _log("=== Bucket layout (bucket root only; no code/ or runtime/ prefix) ===")
     subprocess.run(["gcloud", "storage", "ls", f"gs://{bucket}/"], check=False)
-    print("--- triggers/runs ---")
     r = subprocess.run(["gcloud", "storage", "ls", f"{bucket_root}/triggers/runs/"], capture_output=True, check=False)
     if r.returncode != 0:
-        print("None or missing")
-    print("--- sk/results ---")
+        pass
     r = subprocess.run(["gcloud", "storage", "ls", f"{bucket_root}/sk/results/"], capture_output=True, check=False)
     if r.returncode != 0:
-        print("N/A")
+        pass
 
-    print()
     _log("=== Bloat: consider removing old run triggers ===")
-    print(f"Example: gcloud storage rm {bucket_root}/triggers/runs/*.json  # or delete by age in a script")
     return 0
 
 

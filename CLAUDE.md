@@ -38,24 +38,24 @@ Scripts organized by category prefix:
 | Prefix | Category | Description |
 | ------ | -------- | ----------- |
 | `tools/shared/` | Shared libraries | Not executed directly; imported by other tools |
-| `tools/remote/` | GCS / bucket | Sync, upload, verify, validate bucket; `bucket_*`, `bmt_monitor`, `bmt_run_local`, `bmt_wait_verdicts` |
+| `tools/remote/` | GCS / bucket | Sync, upload, verify, validate bucket; `bucket_*` only |
 | `tools/bmt/` | BMT execution | Local batch runner, live monitor, wait verdicts |
 | `tools/repo/` | Repo / GitHub | Layout policies, gh_* (env, app perms, repo vars, validate VM vars), paths, vars_contract, results_prefix |
-| `tools/terraform/` | Terraform | Export Terraform outputs to GitHub repo vars |
+| `tools/pulumi/` | Pulumi | Export Pulumi outputs to GitHub repo vars |
 
-**Unified CLI:** `uv run python -m tools --help` is the single entry point (Typer). All dev commands are under `tools bucket`, `tools terraform`, `tools repo`, `tools build`, `tools bmt`. **Just recipes** are thin wrappers (e.g. `just deploy` → `tools bucket deploy`); use `just` for the recommended interface.
+**Unified CLI:** `uv run python -m tools --help` is the single entry point (Typer). All dev commands are under `tools bucket`, `tools pulumi`, `tools repo`, `tools build`, `tools bmt`. **Just recipes** are thin wrappers (e.g. `just deploy` → `tools bucket deploy`); use `just` for the recommended interface.
 
 **Run tools** via `uv run python -m tools.<folder>.<module>` (e.g. `uv run python -m tools.remote.bucket_sync_gcp`) or `just` recipes. Key modules:
 
 - **shared/** — `bucket_env.py`, `bucket_sync.py`, `layout_patterns.py`, `gh.py`, `verdict.py`, `time_utils.py`, `env_contract.py`
-- **remote/** — `bucket_sync_gcp.py`, `bucket_verify_gcp_sync.py`, `bucket_verify_runtime_seed_sync.py`, `bucket_sync_runtime_seed.py`, `bucket_upload_runner.py`, `bucket_upload_wavs.py`, `bucket_validate_contract.py`, `bucket_clean_bloat.py`, `bmt_monitor.py`, `bmt_run_local.py`, `bmt_wait_verdicts.py`
-- **bmt/** — `bmt_run_local.py`, `bmt_monitor.py`, `bmt_wait_verdicts.py` (also in remote; use bmt for `just monitor`)
+- **remote/** — `bucket_sync_gcp.py`, `bucket_verify_gcp_sync.py`, `bucket_verify_runtime_seed_sync.py`, `bucket_sync_runtime_seed.py`, `bucket_upload_runner.py`, `bucket_upload_wavs.py`, `bucket_validate_contract.py`, `bucket_clean_bloat.py`
+- **bmt/** — `bmt_run_local.py`, `bmt_monitor.py`, `bmt_wait_verdicts.py`, `vm_check.py` (use for `just monitor`, local batch, wait, `just vm-check`)
 - **repo/** — `gcp_layout_policy.py`, `repo_layout_policy.py`, `gh_show_env.py`, `gh_app_perms.py`, `gh_repo_vars.py`, `gh_validate_vm_vars.py`, `paths.py`, `vars_contract.py`, `results_prefix.py`
-- **terraform/** — `terraform_repo_vars.py`
+- **pulumi/** — `pulumi_repo_vars.py`, `pulumi_preflight.py`, `pulumi_apply.py`
 
 **Layout validators:** Run **`just test`** to run both layout policies (gcp + repo). Or run `uv run python -m tools.repo.gcp_layout_policy` and `uv run python -m tools.repo.repo_layout_policy` separately when changing layout or adding root-level entries.
 
-**Config vs repo vars:** **Terraform** (infra/terraform) is the source of truth for all non-secret configuration. Run **`just terraform`** to apply and push GitHub repo variables. **infra/bootstrap/** holds shell bootstrap (`.env.example`, `bootstrap_gh_vars.sh`) for secrets and one-off `gh variable set` / `gh secret set`. Use **`just validate`** to check repo vars vs Terraform/contract and VM metadata. See [infra/README.md](infra/README.md).
+**Config vs repo vars:** **Pulumi** (infra/pulumi) is the source of truth for all non-secret configuration. Run **`just pulumi`** to apply and push GitHub repo variables. **infra/bootstrap/** holds shell bootstrap (`.env.example`, `bootstrap_gh_vars.sh`) for secrets and one-off `gh variable set` / `gh secret set`. Use **`just validate`** to check repo vars vs Pulumi/contract and VM metadata. See [infra/README.md](infra/README.md).
 
 Tools are **Python classes** with a `run()` method (and optional attributes). When run as scripts they read configuration from **environment variables only** (no CLI flags). Use `just` to see and run recipes.
 
@@ -73,9 +73,11 @@ ruff check .
 # Format check
 ruff format --check .
 
-# Type check (basedpyright — covers whole repo: .github/scripts, gcp/, tools/)
+# Type check (basedpyright — covers whole repo: .github/bmt, gcp/, tools/)
 basedpyright
 ```
+
+**Path map (doc/code):** CI entrypoint: `uv run bmt <cmd>` / `.github/bmt/ci/`. Bucket tools: `tools/remote/bucket_*.py` (invoke via `tools bucket` or `uv run python -m tools.remote.bucket_*`). BMT run/monitor/wait: `tools/bmt/` only. VM scripts: `gcp/image/scripts/` (not `gcp/image/vm/`).
 
 ## Testing
 
@@ -128,7 +130,7 @@ To exercise the **manager** (snapshot writes, pointer read for baseline) and opt
 3. **Wait command (pointer-based polling)** — With a trigger that has already been processed by the VM, the `wait` subcommand can be used to confirm it reads from the pointer and snapshot verdict path:
 
    ```bash
-   uv run python .github/scripts/ci_driver.py wait \
+   uv run bmt wait \
      --manifest '<json with legs: project, bmt_id, run_id, triggered_at>' \
      --config-root gcp/image \
      --bucket "<bucket>" \
@@ -142,7 +144,7 @@ To exercise the **manager** (snapshot writes, pointer read for baseline) and opt
 ### Run a local BMT batch (config-driven, no cloud VM needed)
 
 ```bash
-python3 tools/bmt_run_local.py \
+uv run python -m tools.bmt.bmt_run_local \
   --bmt-id 4a5b6e82-a048-5c96-8734-2f64d2288378 \
   --jobs-config gcp/image/sk/config/bmt_jobs.json \
   --runner gcp/remote/sk/runners/kardome_runner \
@@ -157,20 +159,19 @@ Bucket is read from canonical `GCS_BUCKET`; shared helpers live in `tools/shared
 **Pre-commit:** The workflow does not sync `gcp/` to GCS. The pre-commit hook (`verify-gcp-bucket-sync`) **blocks** commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`). Run `just deploy` before committing gcp changes so the VM has the same code.
 
 ```bash
-GCS_BUCKET="<bucket>" python3 tools/bucket_sync_gcp.py
-GCS_BUCKET="<bucket>" python3 tools/bucket_upload_runner.py --runner-path <path>
-GCS_BUCKET="<bucket>" python3 tools/bucket_upload_wavs.py --source-dir <dir>
-GCS_BUCKET="<bucket>" python3 tools/bucket_validate_contract.py [--require-runner]
+just deploy
+# or: GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_sync_gcp
+# GCS_BUCKET="<bucket>" uv run python -m tools bucket upload-runner --runner-path <path>
+# GCS_BUCKET="<bucket>" uv run python -m tools bucket upload-wavs --source-dir <dir>
+# GCS_BUCKET="<bucket>" uv run python -m tools bucket validate-contract [--require-runner]
 ```
 
 ### Full reseed (destructive)
 
 ```bash
 gcloud storage rm --recursive "gs://<bucket>/**"
-GCS_BUCKET="<bucket>" python3 tools/bucket_sync_gcp.py --delete
-GCS_BUCKET="<bucket>" python3 tools/bucket_upload_runner.py --runner-path <binary>
-GCS_BUCKET="<bucket>" python3 tools/bucket_upload_wavs.py --source-dir <wav_root>
-GCS_BUCKET="<bucket>" python3 tools/bucket_validate_contract.py --require-runner
+GCS_BUCKET="<bucket>" uv run python -m tools bucket deploy
+# Or run sync then verify-code and verify-runtime-seed separately via `tools bucket sync`, etc.
 ```
 
 ## Architecture
@@ -179,18 +180,18 @@ GCS_BUCKET="<bucket>" python3 tools/bucket_validate_contract.py --require-runner
 
 The workflow uses **uv-managed Python**: `astral-sh/setup-uv`, then `uv sync` and `uv run bmt <cmd>`. The VM runs the watcher with `uv run python gcp/image/vm_watcher.py` from the repo root (same uv-managed venv).
 
-The workflow has two jobs; it does not block for the full BMT run. All CI logic is in **`.github/scripts/ci_driver.py`**:
+The workflow has two jobs; it does not block for the full BMT run. All CI logic is in **`.github/bmt/`**; workflows run **`uv run bmt <cmd>`** from repo root.
 
 | Stage | Job name | Command |
 | ----- | -------- | ------- |
-| 01 | Discover Matrix | `ci_driver.py matrix --config-root gcp/image` |
-| 02 | Trigger | `ci_driver.py trigger` (writes **one** run trigger to GCS), **starts the BMT VM**, then posts "pending" commit status; workflow ends |
+| 01 | Discover Matrix | `uv run bmt matrix --config-root gcp/image` |
+| 02 | Trigger | `uv run bmt write-run-trigger` (and related steps: writes **one** run trigger to GCS), **starts the BMT VM**, then posts "pending" commit status; workflow ends |
 
 **Stage 02** writes one run trigger to `runtime/triggers/runs/<workflow_run_id>.json` containing all legs plus repository and sha, then starts the VM. The VM boots, syncs `code/` via startup wrapper, polls runtime triggers, runs `root_orchestrator.py` for each leg, aggregates verdicts, posts commit status (success/failure) to GitHub, then **stops itself**. The next PR or push to dev starts the VM again. Branch protection requires the "BMT Gate" status to pass. The `wait` and `gate` subcommands remain available for local or manual use but are not used by the workflow.
 
-### CI Package (`.github/scripts/ci/`)
+### CI Package (`.github/bmt/ci/`)
 
-Python package co-located with `ci_driver.py` at `.github/scripts/`. `ci_driver.py` is a thin `click` group that registers commands from this package.
+Python package under `.github/bmt/`; entrypoint is the **`bmt`** CLI (`uv run bmt <cmd>`).
 
 | File | Purpose |
 | ---- | ------- |
@@ -255,9 +256,9 @@ gh variable set GCP_ZONE "<zone>"
 gh variable set BMT_VM_NAME "<vm-name>"
 ```
 
-**BMT VM is Terraform-managed.** `BMT_VM_NAME` is set from Terraform outputs via `just terraform` (or by the bmt-vm-provision workflow after apply). Console-created VMs are not required.
+**BMT VM is Pulumi-managed.** `BMT_VM_NAME` is set from Pulumi outputs via `just pulumi` (or by the bmt-vm-provision workflow after up). Console-created VMs are not required.
 
-**Required (from Terraform):** `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Terraform (variables in `infra/terraform/variables.tf`) and export to GitHub with `just terraform`. Do not set them manually as optional overrides.
+**Required (from Pulumi):** `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Pulumi config and export to GitHub with `just pulumi`. Do not set them manually as optional overrides.
 
 | Variable | Purpose |
 | -------- | ------- |
@@ -266,9 +267,9 @@ gh variable set BMT_VM_NAME "<vm-name>"
 | `GCP_SA_EMAIL` | Service account email for WIF auth |
 | `GCP_PROJECT` | GCP project ID for VM operations |
 | `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
-| `BMT_VM_NAME` | VM instance name (set from Terraform via terraform-export-vars-apply or bmt-vm-provision; workflow starts it; VM stops itself after one run) |
-| `BMT_STATUS_CONTEXT` | Commit status name (from Terraform; must match branch protection) |
-| `BMT_HANDSHAKE_TIMEOUT_SEC` | Handshake timeout seconds (from Terraform) |
+| `BMT_VM_NAME` | VM instance name (set from Pulumi via just pulumi or bmt-vm-provision; workflow starts it; VM stops itself after one run) |
+| `BMT_STATUS_CONTEXT` | Commit status name (from Pulumi; must match branch protection) |
+| `BMT_HANDSHAKE_TIMEOUT_SEC` | Handshake timeout seconds (from Pulumi) |
 
 **Optional** (leave unset for defaults): **Sandbox/testing:** `BMT_RUNNERS_PRESEEDED_IN_GCS` — when set to `true`, the workflow does not download runner artifacts; it verifies runners already exist in GCS and skips the upload-runners job (avoids "artifact not found" in bmt-gate-sandbox).
 

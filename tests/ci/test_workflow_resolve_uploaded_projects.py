@@ -17,12 +17,12 @@ def test_resolve_uploaded_projects_uses_uploaded_markers(monkeypatch, tmp_path: 
     monkeypatch.setattr(
         gcs,
         "list_prefix",
-        lambda prefix: [
+        lambda _prefix: [
             "gs://bucket-a/_workflow/uploaded/12345/sk.json",
             "gs://bucket-a/_workflow/uploaded/12345/qa.json",
         ],
     )
-    monkeypatch.setattr(gcs, "download_json", lambda uri: (None, "not found"))
+    monkeypatch.setattr(gcs, "download_json", lambda _uri: (None, "not found"))
 
     RunnerManager.from_env().resolve_uploaded_projects()
 
@@ -49,7 +49,7 @@ def test_resolve_uploaded_projects_accepts_preseeded_bucket_runner(monkeypatch, 
         ),
     )
 
-    monkeypatch.setattr(gcs, "list_prefix", lambda prefix: [])
+    monkeypatch.setattr(gcs, "list_prefix", lambda _prefix: [])
 
     def fake_download_json(uri: str):
         if uri.endswith("/sk/runners/sk_gcc_release/runner_meta.json"):

@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.repo.paths import GITHUB_BMT_ROOT, IMAGE_SCRIPTS, INFRA_SCRIPTS, repo_root
+from tools.repo.paths import GITHUB_BMT_ROOT, IMAGE_SCRIPTS, repo_root
 
 
 def _vm_path(rel: str) -> Path:
@@ -28,11 +28,6 @@ def _metadata_entrypoint_path() -> Path:
 
 def _packer_template_path() -> Path:
     return repo_root() / "infra" / "packer" / "bmt-runtime.pkr.hcl"
-
-
-def _infra_script_path(rel: str) -> Path:
-    """Scripts under infra/scripts/ (e.g. build_bmt_image.py)."""
-    return repo_root() / INFRA_SCRIPTS / rel
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -280,12 +275,7 @@ def test_startup_entrypoint_uses_baked_runtime_only() -> None:
     assert "run_watcher.py" in bootstrap_content
 
 
-def test_build_image_scripts_have_manifest_fields() -> None:
-    build_script = _infra_script_path("build_bmt_image.py").read_text(encoding="utf-8")
-    assert "GLIBC_VERSION" in build_script
-    assert "glibc_version" in build_script
-    assert "cloud-init clean --logs --machine-id" in build_script
-
+def test_packer_template_has_manifest_fields() -> None:
     packer_template = _packer_template_path().read_text(encoding="utf-8")
     assert "GLIBC_VERSION" in packer_template
     assert "'glibc_version'" in packer_template

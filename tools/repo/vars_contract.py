@@ -1,16 +1,15 @@
 """GitHub Actions repo vars contract and behavioral defaults.
 
 Minimum user config (declarative):
-- **bmt.tfvars.json** must set four required variables (no Terraform default):
+- **bmt.tfvars.json** must set four required variables (no Pulumi default):
   gcp_project, gcp_zone, gcs_bucket, service_account.
-- **Optional** in tfvars: bmt_vm_name (default bmt-gate-blue). Terraform exports
+- **Optional** in tfvars: bmt_vm_name (default bmt-gate-blue). Pulumi exports
   gcs_bucket, gcp_project, bmt_vm_name, service_account to GitHub as
   GCS_BUCKET, GCP_PROJECT, BMT_LIVE_VM, GCP_SA_EMAIL. Zone is not exported;
   at runtime zone is fixed in code (not overridable via env).
 
-Manual in GitHub: GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID (and BMT_DISPATCH_APP_PRIVATE_KEY
-when this repo mints the dispatch token). Subscription, topic, repo root, VM pool
-are derived in code from BMT_LIVE_VM and constants.
+Manual in GitHub (variables, not secrets): GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID.
+Subscription, topic, repo root, VM pool are derived in code from BMT_LIVE_VM and constants.
 """
 
 from __future__ import annotations
@@ -23,11 +22,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RepoVarsContract:
-    """Contract for GitHub repo variables: required, optional, secrets, defaults."""
+    """Contract for GitHub repo variables: required, optional, manual, defaults."""
 
     required: tuple[str, ...]
     optional: tuple[str, ...]
-    secrets_not_in_terraform: tuple[str, ...]
+    manual_vars: tuple[str, ...]  # set directly via gh variable set, not exported by Pulumi
     defaults: tuple[tuple[str, str], ...]  # (name, value) for behavioral vars
 
     def all_var_names(self) -> list[str]:
@@ -44,10 +43,10 @@ class RepoVarsContract:
         return dict(self.defaults)
 
 
-# Terraform output name (outputs.tf) -> GitHub Actions variable name.
+# Infra output name (Pulumi stack exports) -> GitHub Actions variable name.
 # YAGNI: only vars users or deployments need to set. Subscription, topic, repo_root, pool
 # are derived in code from BMT_LIVE_VM and constants (see bmt_config, vm.py).
-TERRAFORM_OUTPUT_TO_VAR: dict[str, str] = {
+INFRA_OUTPUT_TO_VAR: dict[str, str] = {
     "gcs_bucket": "GCS_BUCKET",
     "gcp_project": "GCP_PROJECT",
     "bmt_vm_name": "BMT_LIVE_VM",
@@ -62,7 +61,7 @@ REPO_VARS_CONTRACT = RepoVarsContract(
         "GCP_SA_EMAIL",
     ),
     optional=(),
-    secrets_not_in_terraform=(
+    manual_vars=(
         "GCP_WIF_PROVIDER",
         "BMT_DISPATCH_APP_ID",
     ),

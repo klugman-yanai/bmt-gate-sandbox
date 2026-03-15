@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Any
 import json
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from gcp.image.config.bmt_config import (
     DEFAULT_RUNTIME_CONTEXT,
     PREEMPT_ON_PR_STALE_QUEUE,
     TRIGGER_METADATA_KEEP_RECENT,
     TRIGGER_STALE_SEC,
+    BmtConfig,
 )
 from whenever import Instant
-
-from gcp.image.config.bmt_config import BmtConfig
 
 from ci import config, core, gcs
 from ci.actions import gh_error, write_github_output
@@ -117,7 +116,10 @@ def _trigger_payload_is_valid(uri: str) -> bool:
     payload, err = gcs.download_json(uri)
     if not payload or err:
         return False
-    if not (isinstance(payload.get("workflow_run_id"), (str, int)) and str(payload.get("workflow_run_id", ""))):
+    if not (
+        isinstance(payload.get("workflow_run_id"), (str, int))
+        and str(payload.get("workflow_run_id", ""))
+    ):
         return False
     repo = payload.get("repository")
     if not (isinstance(repo, str) and "/" in repo):
@@ -177,7 +179,14 @@ def _trim_trigger_family_keep_recent(prefix_uri: str, keep_recent: int) -> int:
     uris = [u for u in gcs.list_prefix(prefix_uri) if u.endswith(".json")]
     if not uris:
         return 0
-    run_ids = sorted((u.split("/")[-1].replace(".json", "") for u in uris if u.split("/")[-1].replace(".json", "")), reverse=True)
+    run_ids = sorted(
+        (
+            u.split("/")[-1].replace(".json", "")
+            for u in uris
+            if u.split("/")[-1].replace(".json", "")
+        ),
+        reverse=True,
+    )
     keep_set = set(run_ids[:keep_recent])
     removed = 0
     for u in uris:
@@ -216,12 +225,16 @@ class TriggerManager:
         if not projects:
             raise RuntimeError("Matrix has no valid project rows — nothing to trigger")
 
-        ctx = self._cfg.bmt_status_context or _default_context_from_contract("BMT_STATUS_CONTEXT", DEFAULT_STATUS_CONTEXT)
+        ctx = self._cfg.bmt_status_context or _default_context_from_contract(
+            "BMT_STATUS_CONTEXT", DEFAULT_STATUS_CONTEXT
+        )
         runtime_bucket_root = core.bucket_root_uri(bucket)
         triggered_at = Instant.now().format_iso(unit="second")
         sha = _resolve_source_sha()
         if not _is_full_sha(sha):
-            raise RuntimeError("Unable to resolve a valid 40-char source SHA (HEAD_SHA or GITHUB_SHA).")
+            raise RuntimeError(
+                "Unable to resolve a valid 40-char source SHA (HEAD_SHA or GITHUB_SHA)."
+            )
         ref = _resolve_source_ref()
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         workflow_run_id = os.environ.get("GITHUB_RUN_ID", "local")
@@ -229,15 +242,27 @@ class TriggerManager:
         legs = []
         for project in projects:
             run_id = _default_run_id(project, PROJECT_WIDE_BMT_ID)
-            legs.append({
-                "project": project, "bmt_id": PROJECT_WIDE_BMT_ID, "run_id": run_id,
-                "request_scope": "project_wide", "triggered_at": triggered_at,
-            })
+            legs.append(
+                {
+                    "project": project,
+                    "bmt_id": PROJECT_WIDE_BMT_ID,
+                    "run_id": run_id,
+                    "request_scope": "project_wide",
+                    "triggered_at": triggered_at,
+                }
+            )
 
         run_payload: dict = {
-            "workflow_run_id": workflow_run_id, "repository": repository, "sha": sha, "ref": ref,
-            "run_context": run_context, "triggered_at": triggered_at, "bucket": bucket, "legs": legs,
-            "status_context": ctx, "runtime_status_context": DEFAULT_RUNTIME_CONTEXT,
+            "workflow_run_id": workflow_run_id,
+            "repository": repository,
+            "sha": sha,
+            "ref": ref,
+            "run_context": run_context,
+            "triggered_at": triggered_at,
+            "bucket": bucket,
+            "legs": legs,
+            "status_context": ctx,
+            "runtime_status_context": DEFAULT_RUNTIME_CONTEXT,
             "description_pending": DEFAULT_DESCRIPTION_PENDING,
         }
         if pr_number is not None:
@@ -268,11 +293,17 @@ class TriggerManager:
             future.result(timeout=_PUBSUB_PUBLISH_TIMEOUT_SEC)
             print(f"Published trigger to Pub/Sub topic {self._cfg.bmt_pubsub_topic!r}")
 
-        write_github_output(github_output, "manifest", json.dumps({"legs": legs}, separators=(",", ":")))
+        write_github_output(
+            github_output, "manifest", json.dumps({"legs": legs}, separators=(",", ":"))
+        )
         write_github_output(github_output, "run_trigger_uri", run_trigger_uri_str)
         write_github_output(github_output, "requested_leg_count", str(len(legs)))
-        write_github_output(github_output, "requested_legs", json.dumps(legs, separators=(",", ":")))
-        print(f"Triggered run {workflow_run_id} with {len(legs)} project request(s); VM will report status to GitHub")
+        write_github_output(
+            github_output, "requested_legs", json.dumps(legs, separators=(",", ":"))
+        )
+        print(
+            f"Triggered run {workflow_run_id} with {len(legs)} project request(s); VM will report status to GitHub"
+        )
 
     def preflight_queue(self) -> None:
         run_id = core.workflow_run_id()
@@ -299,16 +330,12 @@ class TriggerManager:
                 invalid.append(uri)
 
         for uri in invalid:
-            try:
+            with contextlib.suppress(gcs.GcsError):
                 gcs.delete_object(uri)
-            except gcs.GcsError:
-                pass
             rid = uri.split("/")[-1].replace(".json", "")
             for sub in ("acks", "status"):
-                try:
+                with contextlib.suppress(gcs.GcsError):
                     gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
-                except gcs.GcsError:
-                    pass
 
         if not blocking:
             pass
@@ -316,9 +343,13 @@ class TriggerManager:
             current_pr = os.environ.get("PR_NUMBER", "").strip()
             current_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
             if not current_pr or not current_repo:
-                raise RuntimeError("RUN_CONTEXT=pr requires PR_NUMBER and GITHUB_REPOSITORY for same-PR stale cleanup.")
-            same_pr = [u for u in blocking if _trigger_identity(u) == (current_repo, "pr", current_pr)]
-            preserved = [u for u in blocking if u not in same_pr]
+                raise RuntimeError(
+                    "RUN_CONTEXT=pr requires PR_NUMBER and GITHUB_REPOSITORY for same-PR stale cleanup."
+                )
+            same_pr = [
+                u for u in blocking if _trigger_identity(u) == (current_repo, "pr", current_pr)
+            ]
+            [u for u in blocking if u not in same_pr]
             removed = 0
             for uri in same_pr:
                 try:
@@ -328,10 +359,8 @@ class TriggerManager:
                     pass
                 rid = uri.split("/")[-1].replace(".json", "")
                 for sub in ("acks", "status"):
-                    try:
+                    with contextlib.suppress(gcs.GcsError):
                         gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
-                    except gcs.GcsError:
-                        pass
             with out.open("a", encoding="utf-8") as f:
                 f.write(f"stale_cleanup_count={removed}\n")
                 if removed > 0:
@@ -340,8 +369,10 @@ class TriggerManager:
             if run_context == "pr" and not PREEMPT_ON_PR_STALE_QUEUE:
                 return
             now = Instant.now()
-            stale = [u for u in blocking if (_trigger_age_seconds(u, now=now) or 0) >= TRIGGER_STALE_SEC]
-            preserved_count = len(blocking) - len(stale)
+            stale = [
+                u for u in blocking if (_trigger_age_seconds(u, now=now) or 0) >= TRIGGER_STALE_SEC
+            ]
+            len(blocking) - len(stale)
             removed = 0
             for uri in stale:
                 try:
@@ -351,18 +382,22 @@ class TriggerManager:
                     pass
                 rid = uri.split("/")[-1].replace(".json", "")
                 for sub in ("acks", "status"):
-                    try:
+                    with contextlib.suppress(gcs.GcsError):
                         gcs.delete_object(f"{root}/triggers/{sub}/{rid}.json")
-                    except gcs.GcsError:
-                        pass
             with out.open("a", encoding="utf-8") as f:
                 f.write(f"stale_cleanup_count={removed}\n")
                 if removed > 0:
                     f.write("restart_vm=true\n")
 
         remaining = [u for u in gcs.list_prefix(runs_prefix) if u.endswith(".json")]
-        trim_runs = 0 if remaining else _trim_trigger_family_keep_recent(f"{root}/triggers/runs/", keep_recent)
+        trim_runs = (
+            0
+            if remaining
+            else _trim_trigger_family_keep_recent(f"{root}/triggers/runs/", keep_recent)
+        )
         trim_acks = _trim_trigger_family_keep_recent(f"{root}/triggers/acks/", keep_recent)
         trim_status = _trim_trigger_family_keep_recent(f"{root}/triggers/status/", keep_recent)
         if trim_runs + trim_acks + trim_status > 0:
-            print(f"::notice::Metadata trim: runs={trim_runs} acks={trim_acks} status={trim_status}")
+            print(
+                f"::notice::Metadata trim: runs={trim_runs} acks={trim_acks} status={trim_status}"
+            )

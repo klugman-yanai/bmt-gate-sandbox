@@ -1,22 +1,52 @@
 # Configuration
 
-This document describes **current** configuration: Terraform for infra-derived repo vars and a Python contract ([tools/repo/vars_contract.py](../tools/repo/vars_contract.py)) for required/optional/secrets and defaults.
-
-**Behavioral defaults** live in [gcp/image/config/bmt_config.py](../gcp/image/config/bmt_config.py). Only values that vary per repo or deployment are repo vars; see [What must be an env var vs constant](#what-must-be-an-env-var-vs-constant). Terraform, vars_contract, and other code reference bmt_config (parity test: [tests/infra/test_terraform_bmt_config_parity.py](../tests/infra/test_terraform_bmt_config_parity.py)). Secrets: [infra/README.md](../infra/README.md). Quick start: [README.md](../README.md).
+This document describes **current** configuration: Pulumi for infra-derived repo vars and a Python contract ([tools/repo/vars_contract.py](../tools/repo/vars_contract.py)) for required/optional/secrets and defaults.
 
 ---
 
-## Terraform as source of truth
+## Where to set what (at a glance)
 
-**infra/terraform** defines GCP resources and outputs infra-derived values (bucket, project, zone, VM name, Pub/Sub, etc.). **tools/repo/vars_contract.py** defines the repo vars contract (required, optional, secrets) and default values for vars that have a default. Export combines both: Terraform for infra vars, contract defaults for the rest.
+One place to answer **"where do I set X?"** — three tiers.
+
+### Tier 1 — You set these
+
+| Setting | Where | How |
+|--------|--------|-----|
+| **Infra (required)** | `infra/pulumi/bmt.tfvars.json` | `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account` (four required). Optional: `bmt_vm_name` (default `bmt-gate-blue`). See [infra/README.md](../infra/README.md). |
+| **CI vars (optional in file)** | `infra/pulumi/bmt.tfvars.json` → `github_vars` | Optional block `github_vars` with `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`. Synced to GitHub when you run `just pulumi`. If omitted, set them manually in GitHub. |
+| **Secrets** | GitHub (Variables / Secrets) or GCP | **GCP_WIF_PROVIDER**, **BMT_DISPATCH_APP_ID** — set in GitHub if not in `github_vars`. **BMT_DISPATCH_APP_PRIVATE_KEY** — GitHub Secret when this repo mints the dispatch token. VM-side App credentials in GCP Secret Manager. |
+
+Run **`just pulumi`** to apply infra and push all Tier 1 repo vars (from Pulumi + optional `github_vars`) to GitHub.
+
+### Tier 2 — Set by Tier 1 (do not edit by hand)
+
+| Setting | Source |
+|--------|--------|
+| **GCS_BUCKET**, **GCP_PROJECT**, **GCP_SA_EMAIL**, **BMT_LIVE_VM** | Pulumi stack output → synced to GitHub Variables by `just pulumi`. |
+| **GCP_WIF_PROVIDER**, **BMT_DISPATCH_APP_ID** | If present in `bmt.tfvars.json` → `github_vars`, synced by `just pulumi`. Else set once in GitHub. |
+| **VM metadata** (GCS_BUCKET, BMT_REPO_ROOT, BMT_IDLE_TIMEOUT_SEC, startup-script) | Workflow `sync-vm-metadata` from repo config. |
+
+### Tier 3 — Derived or in code (do not set as vars)
+
+| Setting | Source |
+|--------|--------|
+| **BMT_PUBSUB_SUBSCRIPTION**, **BMT_PUBSUB_TOPIC**, **BMT_VM_POOL**, **BMT_STATUS_CONTEXT**, **GCP_ZONE** | Derived from BMT_LIVE_VM and constants in code. |
+| **Handshake timeouts**, **IDLE_TIMEOUT_SEC**, **TRIGGER_STALE_SEC**, **VM_STABILIZATION_SEC**, etc. | Constants in [gcp/image/config/bmt_config.py](../gcp/image/config/bmt_config.py). No repo var or env. |
+
+**Useful commands:** `just pulumi` (apply + push vars), `just validate` (check repo vars vs Pulumi/contract and VM metadata), `just show-env` (print env var names).
+
+---
+
+## Pulumi as source of truth
+
+**infra/pulumi** defines GCP resources and exports infra-derived values (bucket, project, zone, VM name, Pub/Sub, etc.). **tools/repo/vars_contract.py** defines the repo vars contract (required, optional, secrets) and default values for vars that have a default. Export combines both: Pulumi for infra vars, contract defaults for the rest.
 
 ```bash
-just terraform                      # Preflight, apply infra, push repo vars to GitHub
-just terraform --verbose            # Same with full output
-just terraform-import-topics        # Import Pub/Sub topics into state (fix 409), then apply
+just pulumi                         # Preflight, apply infra, push repo vars to GitHub
+just pulumi --verbose              # Same with full output
 ```
 
-Infra-derived vars come from Terraform outputs ([outputs.tf](../infra/terraform/outputs.tf)); the mapping to GitHub var names and the full list are in **tools/repo/vars_contract.py**. **Secrets** (`GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`) are set manually and never in Terraform. The GitHub App private key may live in the bucket; it is not a repo var when not used at repo level.
+Infra-derived vars come from Pulumi stack outputs; the mapping to GitHub var names and the full list are in **tools/repo/vars_contract.py**. **Secrets** (`GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`) are set manually and never in Pulumi. The GitHub App private key may live in the bucket; it is not a repo var when not used at repo level.
 
 ---
 
@@ -24,7 +54,7 @@ Infra-derived vars come from Terraform outputs ([outputs.tf](../infra/terraform/
 
 The "contract" is built from **tools/repo/vars_contract.py** (Python) and **infra/branch-status-context.json**:
 
-- **required** / **optional** / **secrets_not_in_terraform** — Defined in `REPO_VARS_CONTRACT` in repo_vars_contract.py.
+- **required** / **optional** / **secrets_not_in_infra** — Defined in `REPO_VARS_CONTRACT` in repo_vars_contract.py.
 - **defaults** — Var defaults (e.g. BMT_STATUS_CONTEXT, BMT_REPO_ROOT) in the same module.
 - **repo_var_vs_branch_required_status_context** (in branch-status-context.json) — Ensures `BMT_STATUS_CONTEXT` matches branch protection.
 
@@ -43,20 +73,20 @@ Realistically you only change:
 | Where | What |
 |-------|------|
 | **Repo** | Which GitHub repo (clone/origin). |
-| **Declarative config** (`infra/terraform/bmt.tfvars.json`) | **Four required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`. **Optional:** `bmt_vm_name` (default `bmt-gate-blue`). Run `just terraform` to apply and push to GitHub as `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. Zone is not exported; it is fixed in code at runtime. See [infra/terraform/README.md](../../infra/terraform/README.md). |
-| **GitHub (vars/secrets)** | **GCP_WIF_PROVIDER** (WIF for CI). **BMT_DISPATCH_APP_ID** and **BMT_DISPATCH_APP_PRIVATE_KEY** (GitHub App for workflow_dispatch). Set these by hand; they are not in Terraform. |
+| **Declarative config** (`infra/pulumi/bmt.tfvars.json`) | **Four required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`. **Optional:** `bmt_vm_name` (default `bmt-gate-blue`). Run `just pulumi` to apply and push to GitHub as `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. Zone is not exported; it is fixed in code at runtime. See [infra/README.md](../../infra/README.md). |
+| **GitHub (vars/secrets)** | **GCP_WIF_PROVIDER**, **BMT_DISPATCH_APP_ID** — optional in `bmt.tfvars.json` under `github_vars` (synced by `just pulumi`), or set by hand in GitHub. **BMT_DISPATCH_APP_PRIVATE_KEY** — GitHub Secret when this repo mints the dispatch token. |
 
-So: project, zone, bucket, and SA are the required four in `bmt.tfvars.json`; VM name is optional (default). WIF and GitHub App credentials are the only things you set directly in GitHub.
+So: project, zone, bucket, and SA are the required four in `bmt.tfvars.json`; VM name is optional. You can add `github_vars` to the same file to sync GCP_WIF_PROVIDER and BMT_DISPATCH_APP_ID to GitHub, or set them once in GitHub.
 
 ### Not repo vars — derived or declarative (YAGNI)
 
-These are derived in code or come from Terraform/constants; do not set as GitHub variables:
+These are derived in code or come from Pulumi/constants; do not set as GitHub variables:
 
 | Name | Source |
 |------|--------|
 | **BMT_PUBSUB_SUBSCRIPTION** | Derived: `bmt-vm-` + **BMT_LIVE_VM** (BmtConfig.effective_pubsub_subscription). |
 | **BMT_PUBSUB_TOPIC** | Constant: `bmt-triggers` (constants.PUBSUB_TOPIC_NAME). |
-| **BMT_REPO_ROOT** | Default in code: `/opt/bmt` (DEFAULT_REPO_ROOT). Terraform can override VM metadata only. |
+| **BMT_REPO_ROOT** | Default in code: `/opt/bmt` (DEFAULT_REPO_ROOT). Pulumi can override VM metadata only. |
 | **BMT_VM_POOL** | Derived when **BMT_LIVE_VM** ends with `-blue` or `-green`: `<base>-blue,<base>-green`. Else single-VM from BMT_LIVE_VM. |
 | **BMT_STATUS_CONTEXT** | Constant in code: `BMT Gate` (constants.STATUS_CONTEXT). Branch protection must match. |
 | **GCP_ZONE** | Constant: `europe-west4-a` (europe-west4 only; not a repo var). |
@@ -89,7 +119,7 @@ Handoff workflow **env** does not set `BMT_HANDSHAKE_TIMEOUT_SEC`; the CLI uses 
 Used by jobs or local tools; not part of the canonical repo vars list:
 
 - **BMT_VM_POOL_LABEL** — Optional. Label filter to discover VM pool from GCP (overrides derived blue/green pool). **BMT_VM_POOL** is no longer a repo var; pool is derived from **BMT_LIVE_VM** when name ends with `-blue`/`-green`.
-- **BMT_CONFIG**, **BMT_FORCE**, **BMT_CONTRACT**, **BMT_PRUNE_EXTRA** — Tool flags for repo-vars (paths/behavior). Use `--apply` with `gh_repo_vars` or `terraform_repo_vars` to write vars; Terraform recipe passes `--apply` automatically.
+- **BMT_CONFIG**, **BMT_FORCE**, **BMT_CONTRACT**, **BMT_PRUNE_EXTRA** — Tool flags for repo-vars (paths/behavior). Use `--apply` with `gh_repo_vars` or Pulumi repo vars to write vars; `just pulumi` passes `--apply` automatically.
 - **BMT_SRC_DIR**, **BMT_DELETE**, **BMT_FORCE**, **GCS_BUCKET** — Bucket sync/verify tools.
 - **GITHUB_TOKEN**, **GITHUB_RUN_ID**, **GITHUB_REPOSITORY**, etc. — Set by Actions; not repo vars.
 
@@ -99,28 +129,28 @@ Used by jobs or local tools; not part of the canonical repo vars list:
 
 Set in **Settings → Secrets and variables → Actions → Variables** (or via `gh variable set`). Canonical names only; no aliases (e.g. no `VM_NAME` or `BUCKET`). Set `GCP_PROJECT` explicitly; do not rely on a derived project fallback.
 
-### Repo variables: from Terraform vs set by hand
+### Repo variables: from Pulumi vs set by hand
 
 | Variable | Set by | Purpose |
 | --- | --- | --- |
-| `GCS_BUCKET` | **Terraform export** (from `bmt.tfvars.json` → `gcs_bucket`) | GCS bucket name. |
-| `GCP_PROJECT` | **Terraform export** (from `gcp_project`) | GCP project ID. |
-| `GCP_SA_EMAIL` | **Terraform export** (from `service_account`) | Service account for WIF and VM. |
-| `BMT_LIVE_VM` | **Terraform export** (from `bmt_vm_name`) | VM instance name. Declared in declarative config, not in GitHub UI. |
+| `GCS_BUCKET` | **Pulumi export** (from `bmt.tfvars.json` → `gcs_bucket`) | GCS bucket name. |
+| `GCP_PROJECT` | **Pulumi export** (from `gcp_project`) | GCP project ID. |
+| `GCP_SA_EMAIL` | **Pulumi export** (from `service_account`) | Service account for WIF and VM. |
+| `BMT_LIVE_VM` | **Pulumi export** (from `bmt_vm_name`) | VM instance name. Declared in declarative config, not in GitHub UI. |
 | `GCP_WIF_PROVIDER` | **You set in GitHub** | Workload Identity Federation provider for CI. |
 | `BMT_DISPATCH_APP_ID` | **You set in GitHub** | GitHub App ID for workflow_dispatch. (Private key as repo secret when needed.) |
 
-Run `just terraform` (with `bmt.tfvars.json` filled in) to apply infra and push the first four to GitHub. Set `GCP_WIF_PROVIDER` and the App credentials manually in GitHub.
+Run `just pulumi` (with `bmt.tfvars.json` filled in) to apply infra and push the first four to GitHub. Set `GCP_WIF_PROVIDER` and the App credentials manually in GitHub.
 
-**Set by Terraform (do not configure by hand):** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. They are overwritten when you run `just terraform`.
+**Set by Pulumi (do not configure by hand):** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. They are overwritten when you run `just pulumi`.
 
-**Set by you (not in Terraform):** `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`.
+**Set by you (or from `github_vars` in bmt.tfvars.json):** `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`. If present in `bmt.tfvars.json` under `github_vars`, `just pulumi` syncs them to GitHub; otherwise set them once in GitHub.
 
-**Remove from GitHub (obsolete / derived in code):** `BMT_PUBSUB_SUBSCRIPTION`, `BMT_PUBSUB_TOPIC`. Subscription and topic are derived from `BMT_LIVE_VM` and constants; keeping them as repo vars causes drift. Run `just clean-bloat` to remove them (and clean GCS bloat); or delete manually with `gh variable delete BMT_PUBSUB_SUBSCRIPTION` and `gh variable delete BMT_PUBSUB_TOPIC`.
+**Remove from GitHub (obsolete / derived in code):** `BMT_PUBSUB_SUBSCRIPTION`, `BMT_PUBSUB_TOPIC`. Subscription and topic are derived from `BMT_LIVE_VM` and constants; keeping them as repo vars causes drift. Remove with `gh variable delete BMT_PUBSUB_SUBSCRIPTION` and `gh variable delete BMT_PUBSUB_TOPIC`.
 
-**Optional / not from Terraform export:** `GCP_ZONE` — workflows may default it (e.g. `europe-west4-a`). You can set it from Terraform manually if needed: `gh variable set GCP_ZONE "$(cd infra/terraform && terraform output -raw gcp_zone)"`. `BMT_STATUS_CONTEXT` is a constant in code; branch protection must match it; no need to set as a repo var.
+**Optional / not from Pulumi export:** `GCP_ZONE` — workflows may default it (e.g. `europe-west4-a`). You can set it from Pulumi manually if needed: `gh variable set GCP_ZONE "$(cd infra/pulumi && pulumi stack output gcp_zone)"`. `BMT_STATUS_CONTEXT` is a constant in code; branch protection must match it; no need to set as a repo var.
 
-### Optional / workflow-only (not in Terraform export)
+### Optional / workflow-only (not in Pulumi export)
 
 | Variable | Purpose |
 | --- | --- |
@@ -130,9 +160,9 @@ Run `just terraform` (with `bmt.tfvars.json` filled in) to apply infra and push 
 | `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
 | `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
 
-**Behavioral constants (not repo vars):** Handshake timeouts, runtime context label, trigger metadata keep-recent count, VM stabilization/recovery values, preempt-on-PR-stale, and stale trigger age in hours are fixed in **gcp/image/config/bmt_config.py** (e.g. `DEFAULT_RUNTIME_CONTEXT`, `TRIGGER_METADATA_KEEP_RECENT`, `VM_STABILIZATION_SEC`). They are not configurable via environment or Terraform.
+**Behavioral constants (not repo vars):** Handshake timeouts, runtime context label, trigger metadata keep-recent count, VM stabilization/recovery values, preempt-on-PR-stale, and stale trigger age in hours are fixed in **gcp/image/config/bmt_config.py** (e.g. `DEFAULT_RUNTIME_CONTEXT`, `TRIGGER_METADATA_KEEP_RECENT`, `VM_STABILIZATION_SEC`). They are not configurable via environment or Pulumi.
 
-Omitted vars inherit from current GitHub repo context first, then from Terraform outputs (when you run `just terraform`) or contract defaults.
+Omitted vars inherit from current GitHub repo context first, then from Pulumi outputs (when you run `just pulumi`) or contract defaults.
 
 **VM pool (concurrent runs):** When using blue/green VM names (e.g. **BMT_LIVE_VM** = `bmt-gate-blue`), the VM pool is derived in code (no `BMT_VM_POOL` repo var) so you don’t set it manually. For other schemes, use **`BMT_VM_POOL_LABEL`** to discover VMs by GCP instance label.
 
@@ -141,8 +171,8 @@ Omitted vars inherit from current GitHub repo context first, then from Terraform
 ### Useful commands
 
 ```bash
-just terraform                  # Preflight, apply, and push repo vars to GitHub
-just validate                   # Check repo vars vs Terraform/contract and VM metadata
+just pulumi                     # Preflight, apply, and push repo vars to GitHub
+just validate                   # Check repo vars vs Pulumi/contract and VM metadata
 just show-env                   # Print env var names used by CI, VM, tools
 just sync-vm-metadata           # Sync startup-critical VM metadata from repo
 ```
@@ -162,7 +192,7 @@ The workflow syncs **VM metadata** from repo config so the VM uses the same buck
 `sync-vm-metadata` also validates that required VM code objects exist in `<code-root>` before starting the VM.
 This includes pinned UV tool artifacts under `<code-root>/_tools/uv/linux-x86_64/`.
 
-Defined under `vm_metadata` in the Terraform-backed contract. Consistency check `repo_vs_vm_metadata` ensures `GCS_BUCKET` matches between repo vars and VM metadata.
+Defined under `vm_metadata` in the Pulumi-backed contract. Consistency check `repo_vs_vm_metadata` ensures `GCS_BUCKET` matches between repo vars and VM metadata.
 
 ---
 
@@ -247,7 +277,7 @@ The repo has three `pyproject.toml` files:
 
 ## Branch protection
 
-Require the **commit status** named by `BMT_STATUS_CONTEXT` (value from Terraform) to pass before merge.
+Require the **commit status** named by `BMT_STATUS_CONTEXT` (value from Pulumi) to pass before merge.
 The runtime context label (e.g. "BMT Runtime") is a non-gating constant in **gcp/image/lib/bmt_config.py** (`DEFAULT_RUNTIME_CONTEXT`) and must not be used as a protected merge gate.
 
 GitHub branch rules are the source of truth for that context. Keep branch rules and repo vars aligned via:

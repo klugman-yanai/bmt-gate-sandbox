@@ -7,8 +7,8 @@ import time
 from typing import Any
 
 from ci import config, core, gcs
-from ci.actions import gh_group, gh_notice, gh_endgroup, write_github_output
-from ci.vm import vm_describe, vm_stop, _vm_status, vm_serial_tail, _as_int
+from ci.actions import gh_endgroup, gh_group, gh_notice, write_github_output
+from ci.vm import _as_int, _vm_status, vm_describe, vm_serial_tail, vm_stop
 
 
 def _ctx_str(w: Any, attr: str, env_var: str, default: str = "") -> str:
@@ -36,15 +36,25 @@ class HandshakeManager:
         github_output = core.require_env("GITHUB_OUTPUT")
         if timeout_sec is None:
             w = self._ctx.workflow if self._ctx else None
-            vm_reused = _ctx_str(w, "vm_reused_running", "VM_REUSED_RUNNING", "false").lower() in ("true", "1", "yes")
-            restart_vm = _ctx_str(w, "restart_vm", "RESTART_VM", "false").lower() in ("true", "1", "yes")
+            vm_reused = _ctx_str(w, "vm_reused_running", "VM_REUSED_RUNNING", "false").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+            restart_vm = _ctx_str(w, "restart_vm", "RESTART_VM", "false").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
             if vm_reused:
                 timeout_sec = self._cfg.bmt_handshake_timeout_sec_reuse_running
                 gh_notice(f"Handshake branch=reuse-running timeout={timeout_sec}s")
             elif restart_vm:
                 stale = _ctx_str(w, "stale_cleanup_count", "STALE_CLEANUP_COUNT", "0")
                 timeout_sec = self._cfg.bmt_handshake_timeout_sec + 60
-                print(f"::notice::Handshake branch=post-cleanup-restart stale_cleanup_count={stale} timeout={timeout_sec}s")
+                print(
+                    f"::notice::Handshake branch=post-cleanup-restart stale_cleanup_count={stale} timeout={timeout_sec}s"
+                )
             else:
                 timeout_sec = self._cfg.bmt_handshake_timeout_sec
                 gh_notice(f"Handshake branch=standard timeout={timeout_sec}s")
@@ -64,7 +74,9 @@ class HandshakeManager:
         print(f"Waiting for VM handshake ack at {ack_uri} (timeout={timeout_sec}s)")
         print(f"Trigger file: {trigger_uri}")
         if timeout_sec < 300:
-            print(f"::notice::Handshake timeout={timeout_sec}s; consider BMT_HANDSHAKE_TIMEOUT_SEC=300 for cold-start")
+            print(
+                f"::notice::Handshake timeout={timeout_sec}s; consider BMT_HANDSHAKE_TIMEOUT_SEC=300 for cold-start"
+            )
 
         if not gcs.object_exists(trigger_uri):
             raise RuntimeError(f"Trigger file missing before handshake wait: {trigger_uri}")
@@ -102,7 +114,15 @@ class HandshakeManager:
             last_vm_status = _vm_status(project, zone, instance_name)
             trigger_exists = gcs.object_exists(trigger_uri)
             runtime_exists = gcs.object_exists(runtime_status_uri)
-            reason = "trigger_missing" if not trigger_exists else ("vm_not_running" if last_vm_status != "RUNNING" else ("ack_unreadable" if last_error else "ack_not_written"))
+            reason = (
+                "trigger_missing"
+                if not trigger_exists
+                else (
+                    "vm_not_running"
+                    if last_vm_status != "RUNNING"
+                    else ("ack_unreadable" if last_error else "ack_not_written")
+                )
+            )
             serial = vm_serial_tail(project, zone, instance_name, lines=40)
             details = f"; last_error={last_error}" if last_error else ""
             raise RuntimeError(
@@ -127,39 +147,68 @@ class HandshakeManager:
             for idx, leg in enumerate(accepted_legs):
                 if not isinstance(leg, dict):
                     continue
-                requested_legs.append({
-                    "index": idx, "project": str(leg.get("project", "?")),
-                    "bmt_id": str(leg.get("bmt_id", "?")), "run_id": str(leg.get("run_id", "?")),
-                    "decision": "accepted", "reason": None,
-                })
+                requested_legs.append(
+                    {
+                        "index": idx,
+                        "project": str(leg.get("project", "?")),
+                        "bmt_id": str(leg.get("bmt_id", "?")),
+                        "run_id": str(leg.get("run_id", "?")),
+                        "decision": "accepted",
+                        "reason": None,
+                    }
+                )
             for rej in rejected_legs:
                 if not isinstance(rej, dict):
                     continue
-                requested_legs.append({
-                    "index": _as_int(rej.get("index"), len(requested_legs)),
-                    "project": str(rej.get("project", "?")), "bmt_id": str(rej.get("bmt_id", "?")),
-                    "run_id": str(rej.get("run_id", "?")), "decision": "rejected",
-                    "reason": str(rej.get("reason") or "invalid_leg_type"),
-                })
+                requested_legs.append(
+                    {
+                        "index": _as_int(rej.get("index"), len(requested_legs)),
+                        "project": str(rej.get("project", "?")),
+                        "bmt_id": str(rej.get("bmt_id", "?")),
+                        "run_id": str(rej.get("run_id", "?")),
+                        "decision": "rejected",
+                        "reason": str(rej.get("reason") or "invalid_leg_type"),
+                    }
+                )
         support_resolution_version = str(
-            payload.get("support_resolution_version") or ("v2" if isinstance(requested_legs_raw, list) else "v1")
+            payload.get("support_resolution_version")
+            or ("v2" if isinstance(requested_legs_raw, list) else "v1")
         )
         run_disposition = str(
-            payload.get("run_disposition") or ("accepted" if accepted_count > 0 else "accepted_but_empty")
+            payload.get("run_disposition")
+            or ("accepted" if accepted_count > 0 else "accepted_but_empty")
         )
 
         write_github_output(github_output, "handshake_uri", ack_uri)
-        write_github_output(github_output, "handshake_payload", json.dumps(payload, separators=(",", ":")))
+        write_github_output(
+            github_output, "handshake_payload", json.dumps(payload, separators=(",", ":"))
+        )
         write_github_output(github_output, "handshake_requested_leg_count", str(requested_count))
         write_github_output(github_output, "handshake_accepted_leg_count", str(accepted_count))
-        write_github_output(github_output, "handshake_accepted_legs", json.dumps(accepted_legs, separators=(",", ":")))
-        write_github_output(github_output, "handshake_support_resolution_version", support_resolution_version)
-        write_github_output(github_output, "handshake_requested_legs", json.dumps(requested_legs, separators=(",", ":")))
-        write_github_output(github_output, "handshake_rejected_legs", json.dumps(rejected_legs, separators=(",", ":")))
+        write_github_output(
+            github_output,
+            "handshake_accepted_legs",
+            json.dumps(accepted_legs, separators=(",", ":")),
+        )
+        write_github_output(
+            github_output, "handshake_support_resolution_version", support_resolution_version
+        )
+        write_github_output(
+            github_output,
+            "handshake_requested_legs",
+            json.dumps(requested_legs, separators=(",", ":")),
+        )
+        write_github_output(
+            github_output,
+            "handshake_rejected_legs",
+            json.dumps(rejected_legs, separators=(",", ":")),
+        )
         write_github_output(github_output, "handshake_run_disposition", run_disposition)
         elapsed_sec = max(0, int(time.monotonic() - wait_start))
         write_github_output(github_output, "handshake_elapsed_sec", str(elapsed_sec))
-        print(f"VM handshake received in {elapsed_sec}s: requested={requested_count} accepted={accepted_count} vm_status={last_vm_status}")
+        print(
+            f"VM handshake received in {elapsed_sec}s: requested={requested_count} accepted={accepted_count} vm_status={last_vm_status}"
+        )
 
     def timeout_diagnostics(self) -> None:
         """Print GCS trigger/ack and VM diagnostics for handshake timeout debugging."""
@@ -203,7 +252,6 @@ class HandshakeManager:
 
     def force_clean_vm_restart(self) -> None:
         """Stop VM and wait for TERMINATED so the next start step gets a clean state."""
-        import os
 
         self._cfg.require_gcp()
         ctx = self._ctx

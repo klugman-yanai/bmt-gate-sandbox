@@ -107,7 +107,6 @@ def test_dataset_local_path_used_when_set(tmp_path, monkeypatch):
         patch("gcp.image.projects.sk.bmt_manager._gcs_object_meta", return_value={"generation": "1", "size": 0}),
     ):
         from gcp.image.projects.sk import bmt_manager as sk_mgr
-
         from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 
         root = repo_root()

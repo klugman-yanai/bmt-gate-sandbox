@@ -14,8 +14,7 @@ test:
     basedpyright
     command -v shellcheck >/dev/null 2>&1 || (echo "Install shellcheck (e.g. apt install shellcheck)" >&2; exit 1)
     shellcheck --severity=warning gcp/image/scripts/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
-    uv run python -m tools.repo.gcp_layout_policy
-    uv run python -m tools.repo.repo_layout_policy
+    uv run python -m tools repo validate-layout
 
 # -- Bucket ------------------------------------------------------------------
 
@@ -27,22 +26,21 @@ deploy:
 preflight:
     uv run python -m tools bucket preflight
 
-# GCS bloat + remove obsolete GitHub repo vars (BMT_PUBSUB_*)
+# Remove Python/uv bloat from GCS bucket; pass e.g. --execute to actually delete (default dry-run)
 [group('bucket')]
 clean-bloat *args:
-    -gh variable delete BMT_PUBSUB_SUBSCRIPTION 2>/dev/null || true
-    -gh variable delete BMT_PUBSUB_TOPIC 2>/dev/null || true
     uv run python -m tools bucket clean-bloat {{ args }}
+
+# Set GCS_BUCKET GitHub repo var from Pulumi output (e.g. after it was removed)
+[group('bucket')]
+set-bucket-var:
+    gh variable set GCS_BUCKET --body "$(cd infra/pulumi && pulumi stack output gcs_bucket)"
 
 # -- Infrastructure ----------------------------------------------------------
 
 [group('infra')]
-terraform *args:
-    uv run python -m tools terraform apply {{ args }}
-
-[group('infra')]
-terraform-import-topics *args:
-    uv run python -m tools terraform import-topics {{ args }}
+pulumi *args:
+    uv run python -m tools pulumi apply {{ args }}
 
 # Build VM image (dispatch trigger-image-build.yml). Pass --repo owner/name after 'build' if origin differs (e.g. just build --repo klugman-yanai/bmt-gcloud).
 [group('infra')]
@@ -59,6 +57,11 @@ packer-validate:
 validate:
     uv run python -m tools repo validate
 
+# Apply repo vars from Pulumi/contract to GitHub (set BMT_PRUNE_EXTRA=1 to remove extra vars)
+[group('validate')]
+repo-vars-apply:
+    uv run python -m tools.repo.gh_repo_vars --apply
+
 [group('validate')]
 show-env:
     uv run python -m tools repo show-env
@@ -66,6 +69,11 @@ show-env:
 [group('validate')]
 monitor:
     uv run python -m tools bmt monitor
+
+# Fetch trigger and ack JSON from GCS for a run (requires GCS_BUCKET; see just show-env)
+[group('validate')]
+vm-check run_id:
+    uv run python -m tools bmt vm-check {{ run_id }}
 
 # -- Scaffolding & release ---------------------------------------------------
 

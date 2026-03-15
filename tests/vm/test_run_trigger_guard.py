@@ -8,8 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from ci import gcs as gcs_module
-from ci.trigger import TriggerManager
-from ci.trigger import DEFAULT_DESCRIPTION_PENDING, DEFAULT_RUNTIME_CONTEXT, PROJECT_WIDE_BMT_ID
+from ci.trigger import DEFAULT_DESCRIPTION_PENDING, DEFAULT_RUNTIME_CONTEXT, PROJECT_WIDE_BMT_ID, TriggerManager
 
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 

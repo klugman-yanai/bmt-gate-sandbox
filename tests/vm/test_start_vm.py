@@ -2,12 +2,11 @@
 
 import time
 
-import pytest
 import ci
-from ci.core import require_env as _required_env
-from ci.vm import VmManager
-from ci.vm import _is_truthy
+import pytest
 from ci import core as core_module
+from ci.core import require_env as _required_env
+from ci.vm import VmManager, _is_truthy
 
 
 @pytest.fixture(autouse=True)

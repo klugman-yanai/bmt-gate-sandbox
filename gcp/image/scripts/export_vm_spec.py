@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 from whenever import Instant
@@ -18,14 +17,12 @@ from whenever import Instant
 from gcp.image.config.constants import DEFAULT_GCP_ZONE
 
 
-def _log(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [export_vm_spec] {msg}")
+def _log(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
-def _log_err(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [export_vm_spec] {msg}", file=sys.stderr)
+def _log_err(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
 def main() -> int:

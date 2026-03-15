@@ -1,4 +1,5 @@
 """Smoke tests for the unified tools CLI entry point."""
+
 from __future__ import annotations
 
 import subprocess
@@ -14,7 +15,7 @@ def test_tools_help():
         check=False,
     )
     assert result.returncode == 0
-    for group in ("bucket", "terraform", "repo", "build", "bmt"):
+    for group in ("bucket", "pulumi", "repo", "build", "bmt"):
         assert group in result.stdout
 
 
@@ -43,14 +44,14 @@ def test_build_help():
     assert "packer-validate" in result.stdout
 
 
-def test_terraform_help():
-    """terraform --help shows apply and import-topics."""
+def test_pulumi_help():
+    """pulumi --help shows apply and preflight."""
     result = subprocess.run(
-        [sys.executable, "-m", "tools", "terraform", "--help"],
+        [sys.executable, "-m", "tools", "pulumi", "--help"],
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0
     assert "apply" in result.stdout
-    assert "import-topics" in result.stdout
+    assert "preflight" in result.stdout

@@ -1,7 +1,7 @@
 """Shared repository path constants for tools and CI.
 
 Single source of truth for default config/runtime roots. Env contract and behavioral
-defaults live in tools/repo/vars_contract.py; infra-derived vars from Terraform. See
+defaults live in tools/repo/vars_contract.py; infra-derived vars from Pulumi. See
 tools/shared/env_contract.default_contract_path().
 
 All paths are pathlib.Path; relative ones are relative to repo root. Resolve against
@@ -26,7 +26,14 @@ DEFAULT_RUNTIME_ROOT = Path("gcp/remote")
 
 # Other canonical roots (relative to repo root).
 GITHUB_BMT_ROOT = Path(".github/bmt")
-INFRA_TERRAFORM = Path("infra/terraform")
+INFRA_PULUMI = Path("infra/pulumi")
+
+
+def pulumi_dir() -> Path:
+    """Pulumi project directory (infra/pulumi) resolved from repo root."""
+    return repo_root() / INFRA_PULUMI
+
+
 INFRA_SCRIPTS = Path("infra/scripts")
 IMAGE_SCRIPTS = Path("gcp/image/scripts")
 TOOLS_SCRIPTS = Path("tools/scripts")
@@ -37,5 +44,5 @@ DEFAULT_BMT_ROOT = Path("gcp/local")
 BMT_DEPS_SUBDIR = Path("dependencies")
 BMT_PROJECT_LIB_SUBDIR = Path("lib")
 
-# Terraform is source of truth for repo vars; no legacy config paths.
+# Pulumi is source of truth for repo vars; no legacy config paths.
 # Use shared env_contract.default_contract_path() for the contract.

@@ -83,4 +83,6 @@ class PresetManager:
         runners_dir = f"{binary_dir}/Runners"
         lib_dir = f"{binary_dir}/Kardome"
         with Path(out).open("a", encoding="utf-8") as f:
-            f.write(f"preset={preset}\nproject={project}\nrunners_dir={runners_dir}\nlib_dir={lib_dir}\n")
+            f.write(
+                f"preset={preset}\nproject={project}\nrunners_dir={runners_dir}\nlib_dir={lib_dir}\n"
+            )

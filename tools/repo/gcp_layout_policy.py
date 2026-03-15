@@ -90,12 +90,12 @@ class GcpLayoutPolicy:
                     continue
                 tracked_under_gcp.add(line[4:])  # drop "gcp/" prefix
 
+        # Required files: warn only (avoids brittle failures when adding projects).
         required_code_files = _required_code_files(tracked_under_gcp)
         for rel in required_code_files:
             p = code_root / rel
             if not p.exists():
-                print(f"::error::Missing required code mirror object: {p}", file=sys.stderr)
-                missing = True
+                print(f"::warning::Missing expected code mirror path: {p}", file=sys.stderr)
 
         # Forbidden paths under image (code mirror)
         code_prefix = "image/"
@@ -122,6 +122,9 @@ class GcpLayoutPolicy:
                 continue
             rel_in_runtime = rel[len(runtime_prefix) :]
             if matches(FORBIDDEN_RUNTIME_PATTERNS, rel_in_runtime):
+                # Allow .keep placeholders under outputs/inputs so empty dirs can be tracked
+                if rel_in_runtime.endswith("/.keep") or rel_in_runtime == ".keep":
+                    continue
                 forbidden_runtime_hits.append(rel_in_runtime)
 
         if forbidden_runtime_hits:
@@ -138,7 +141,10 @@ class GcpLayoutPolicy:
             if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".") and entry.name != "__pycache__"
         )
         if unexpected_top_level:
-            print("::error::gcp/ must have image/ (code mirror) and remote/ only.", file=sys.stderr)
+            print(
+                "::error::gcp/ must only contain allowed top-level entries (e.g. image/, remote/, local/).",
+                file=sys.stderr,
+            )
             for name in unexpected_top_level:
                 print(f"  - unexpected: gcp/{name}", file=sys.stderr)
             missing = True

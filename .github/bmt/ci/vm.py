@@ -14,10 +14,9 @@ from gcp.image.config.bmt_config import (
     VM_STABILIZATION_SEC,
     VM_START_RECOVERY_ATTEMPTS,
     VM_START_TIMEOUT_SEC,
-    VM_STOP_WAIT_TIMEOUT_SEC,
 )
 
-from ci import config, core, gcs
+from ci import config, core
 from ci.actions import gh_error, gh_notice, gh_warning, write_github_output
 
 _VM_STOPPING_WAIT_SEC = 120
@@ -116,9 +115,7 @@ def vm_add_metadata(
     try:
         from google.cloud.compute_v1.types import Items, Metadata
 
-        instance = _get_compute_client().get(
-            project=project, zone=zone, instance=instance_name
-        )
+        instance = _get_compute_client().get(project=project, zone=zone, instance=instance_name)
         existing = {}
         fingerprint = ""
         if instance.metadata:
@@ -244,7 +241,7 @@ class VmManager:
             # Derive blue/green pool from VM name (declarative convention; no repo var).
             name = self._cfg.bmt_vm_name.strip()
             if name.endswith("-blue") or name.endswith("-green"):
-                base = (name.removesuffix("-green").removesuffix("-blue").rstrip("-"))
+                base = name.removesuffix("-green").removesuffix("-blue").rstrip("-")
                 if base:
                     pool = [f"{base}-blue", f"{base}-green"]
                     print(f"VM pool from BMT_LIVE_VM blue/green (2 instance(s)): {pool}")
@@ -335,9 +332,16 @@ class VmManager:
             return any(
                 t in text
                 for t in (
-                    "already running", "already started", "is starting", "being started",
-                    "operation in progress", "currently stopping", "is stopping",
-                    "not ready", "resource not ready", "resource fingerprint changed",
+                    "already running",
+                    "already started",
+                    "is starting",
+                    "being started",
+                    "operation in progress",
+                    "currently stopping",
+                    "is stopping",
+                    "not ready",
+                    "resource not ready",
+                    "resource fingerprint changed",
                     "please try again",
                 )
             )
@@ -428,7 +432,9 @@ class VmManager:
             already_running = before_status == "RUNNING" and running
             if running and (start_advanced or already_running or recovery_pending):
                 recovery_pending = False
-                print(f"VM ready: status={last_seen_status} lastStart={last_seen_start or '<none>'}")
+                print(
+                    f"VM ready: status={last_seen_status} lastStart={last_seen_start or '<none>'}"
+                )
                 if stabilization_sec <= 0:
                     return
                 print(f"Stabilizing RUNNING for {stabilization_sec}s")
@@ -436,10 +442,10 @@ class VmManager:
                 if unstable:
                     recovery_attempts += 1
                     if recovery_attempts > recovery_attempts_max:
-                        raise RuntimeError(
-                            f"VM unstable; recovery exhausted (status={unstable})"
-                        )
-                    gh_warning(f"VM unstable (status={unstable}); recovery {recovery_attempts}/{recovery_attempts_max}")
+                        raise RuntimeError(f"VM unstable; recovery exhausted (status={unstable})")
+                    gh_warning(
+                        f"VM unstable (status={unstable}); recovery {recovery_attempts}/{recovery_attempts_max}"
+                    )
                     before_status = unstable
                     before_last_start = last_seen_start
                     recovery_pending = True
@@ -503,7 +509,10 @@ class VmManager:
             entrypoint_path = Path(tmp_dir) / "startup_entrypoint.sh"
             entrypoint_path.write_text(startup_script, encoding="utf-8")
             vm_add_metadata(
-                project, zone, instance_name, metadata,
+                project,
+                zone,
+                instance_name,
+                metadata,
                 metadata_files={"startup-script": entrypoint_path},
             )
         described = vm_describe(project, zone, instance_name)
@@ -516,4 +525,6 @@ class VmManager:
             raise RuntimeError("VM metadata verification failed: startup-script missing.")
         if (items.get("startup-script-url", "")).strip():
             raise RuntimeError("VM metadata verification failed: startup-script-url not cleared.")
-        print(f"Synced VM metadata for {instance_name}: GCS_BUCKET={bucket} BMT_REPO_ROOT={repo_root}")
+        print(
+            f"Synced VM metadata for {instance_name}: GCS_BUCKET={bucket} BMT_REPO_ROOT={repo_root}"
+        )

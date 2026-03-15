@@ -17,11 +17,11 @@ from gcp.image.path_utils import DEFAULT_BMT_REPO_ROOT
 
 
 def _log(msg: str) -> None:
-    print(f"[install_deps] {msg}", flush=True)
+    pass
 
 
 def _log_err(msg: str) -> None:
-    print(f"[install_deps] {msg}", file=sys.stderr, flush=True)
+    pass
 
 
 def _compute_dep_fingerprint(repo_root: Path) -> str | None:
@@ -55,13 +55,17 @@ def main() -> int:
     venv = repo_root / ".venv"
     dep_stamp = venv / ".bmt_dep_fingerprint"
 
-    python3_bin = subprocess.run(
-        ["which", "python3"],
-        capture_output=True,
-        text=True,
-        check=False,
-    ).stdout.strip() if sys.platform != "win32" else None
-    if not python3_bin or not os.path.isfile(python3_bin) or not os.access(python3_bin, os.X_OK):
+    python3_bin = (
+        subprocess.run(
+            ["which", "python3"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if sys.platform != "win32"
+        else None
+    )
+    if not python3_bin or not Path(python3_bin).is_file() or not os.access(python3_bin, os.X_OK):
         _log_err("::error::python3 not found; cannot install dependencies.")
         return 1
 
@@ -89,7 +93,8 @@ def main() -> int:
     if python_bin.is_file() and os.access(python_bin, os.X_OK):
         r = subprocess.run(
             [
-                str(python_bin), "-c",
+                str(python_bin),
+                "-c",
                 "import config.bmt_config; import jwt; import cryptography; import httpx; import google.cloud.storage; print('OK')",
             ],
             capture_output=True,

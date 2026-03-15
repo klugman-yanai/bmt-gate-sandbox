@@ -36,7 +36,7 @@ def _stable_repo_cwd(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
 @pytest.fixture(autouse=True)
 def _reset_bmt_config_cache() -> None:
     # ci package does not cache config; no-op for cross-test isolation.
-    yield
+    return
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

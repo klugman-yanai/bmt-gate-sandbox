@@ -5,13 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from whenever import Instant
-from typing import Any
 
 from tools.repo.paths import DEFAULT_CONFIG_ROOT
 from tools.repo.results_prefix import resolve_results_prefix
@@ -445,21 +446,33 @@ def _aggregate(
     return decision, counts, rows, blocked_legs, blocked_reasons
 
 
+def _print_fallback(decision: str, counts: dict[str, int]) -> None:
+    """Plain print when Rich unavailable or not TTY."""
+    print(f"\nDecision: {decision}")
+    print(
+        f"Counts: pass={counts['pass']} warning={counts['warning']} fail={counts['fail']} timeout={counts['timeout']}"
+    )
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    p = sub.add_parser("wait", help="Poll for verdicts and aggregate results")
+    """Deprecated: use `tools bmt wait` instead. Kept for backwards compatibility."""
+    p = sub.add_parser("wait", help="Poll for verdicts and aggregate results (deprecated: use tools bmt wait)")
     p.add_argument("--manifest", required=True, help="JSON manifest from trigger step")
     p.add_argument("--timeout-sec", required=True, type=int)
     p.add_argument("--poll-interval-sec", default=30, type=int)
     p.set_defaults(func=run)
 
 
-def run(args: argparse.Namespace) -> None:
-    """Poll for verdict files (via current.json pointer), aggregate results, and output decision."""
+def run(args: argparse.Namespace) -> str:
+    """Poll for verdict files (via current.json pointer), aggregate results, and output decision.
+
+    Returns the decision string (e.g. STATUS_PASS). Caller should exit 0 for pass, non-zero otherwise.
+    """
     bucket = _require_env("GCS_BUCKET")
-    github_output = _require_env("GITHUB_OUTPUT")
+    github_output = (os.environ.get("GITHUB_OUTPUT") or "").strip() or None
     config_root = Path(os.environ.get("BMT_CONFIG_ROOT", DEFAULT_CONFIG_ROOT))
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
 
@@ -488,10 +501,29 @@ def run(args: argparse.Namespace) -> None:
         blocked_reasons=blocked_reasons,
     )
 
-    print(f"\nDecision: {decision}")
-    print(
-        f"Counts: pass={counts['pass']} warning={counts['warning']} fail={counts['fail']} timeout={counts['timeout']}"
-    )
+    if sys.stdout.isatty():
+        try:
+            from rich.console import Console
+            from rich.table import Table
+
+            t = Table(title="Verdict summary")
+            t.add_column("Decision", style="bold")
+            t.add_column("pass", style="green")
+            t.add_column("warning", style="yellow")
+            t.add_column("fail", style="red")
+            t.add_column("timeout", style="red")
+            t.add_row(
+                decision,
+                str(counts["pass"]),
+                str(counts["warning"]),
+                str(counts["fail"]),
+                str(counts["timeout"]),
+            )
+            Console().print(t)
+        except ImportError:
+            _print_fallback(decision, counts)
+    else:
+        _print_fallback(decision, counts)
 
     _write_github_output(github_output, "decision", decision)
     _write_github_output(github_output, "pass_count", str(counts[STATUS_PASS]))
@@ -500,3 +532,4 @@ def run(args: argparse.Namespace) -> None:
     _write_github_output(github_output, "timeout_count", str(counts[STATUS_TIMEOUT]))
     _write_github_output(github_output, "blocked_legs", ",".join(sorted(blocked_legs)))
     _write_github_output(github_output, "blocked_reasons", ",".join(sorted(blocked_reasons)))
+    return decision

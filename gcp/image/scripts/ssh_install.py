@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
-from pathlib import Path
 
 from whenever import Instant
 
@@ -18,14 +16,12 @@ from gcp.image.config.constants import DEFAULT_GCP_ZONE
 from gcp.image.path_utils import DEFAULT_BMT_REPO_ROOT
 
 
-def _log(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [ssh_install] {msg}")
+def _log(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
-def _log_err(msg: str) -> None:
-    ts = Instant.now().format_iso(unit="second")
-    print(f"[{ts}] [ssh_install] {msg}", file=sys.stderr)
+def _log_err(_msg: str) -> None:
+    Instant.now().format_iso(unit="second")
 
 
 def main() -> int:

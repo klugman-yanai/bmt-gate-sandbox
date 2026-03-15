@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 from tools.repo.results_prefix import resolve_results_prefix

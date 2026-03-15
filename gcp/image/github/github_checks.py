@@ -13,7 +13,7 @@ from gcp.image.config.constants import GITHUB_API_VERSION, HTTP_TIMEOUT
 
 _REASON_LABELS: dict[str, str] = {
     "score_below_last": "Score dropped below baseline",
-    "score_above_last": "Score exceeded baseline (lte check failed)",
+    "score_above_last": "Score was above baseline (expected at or below)",
     "score_gte_last": "Score at or above baseline",
     "score_lte_last": "Score at or below baseline",
     "bootstrap_no_previous_result": "First run — no baseline to compare",
@@ -139,10 +139,10 @@ def render_progress_markdown(legs: list[dict[str, Any]], elapsed_sec: int, eta_s
     eta_str = f"~{_format_duration(eta_sec)} left" if eta_sec is not None else "ETA unknown"
 
     lines = [
-        f"**{legs_completed}/{legs_total} complete** · {elapsed_str} elapsed · {eta_str}",
+        f"**{legs_completed}/{legs_total} tasks complete** · {elapsed_str} elapsed · {eta_str}",
         "",
-        "| Project | BMT | Status | Progress | Duration |",
-        "|---------|-----|--------|----------|----------|",
+        "| Project | Test suite | Status | Progress | Duration |",
+        "|---------|------------|--------|----------|----------|",
     ]
 
     for leg in legs:
@@ -168,106 +168,63 @@ def render_progress_markdown(legs: list[dict[str, Any]], elapsed_sec: int, eta_s
     return "\n".join(lines)
 
 
-def render_results_table(
+def _leg_row_line(summary: dict[str, Any]) -> str:
+    project = summary.get("project_id", "unknown")
+    bmt_id = summary.get("bmt_id", "unknown")
+    passed = summary.get("passed", False)
+    status = summary.get("status", "unknown")
+    verdict_display = "✅ PASS" if (passed or status == "pass") else "❌ FAIL"
+    current_score = float(summary.get("aggregate_score", 0) or 0)
+    gate = summary.get("gate", {}) if isinstance(summary.get("gate"), dict) else {}
+    last_score = gate.get("last_score") if gate.get("last_score") is not None else summary.get("last_score")
+    baseline_str = f"{float(last_score):.1f}" if isinstance(last_score, (int, float)) else "—"
+    delta = summary.get("delta_from_previous")
+    tolerance_abs = float(gate.get("tolerance_abs") or 0)
+    delta_display = _delta_str(delta, tolerance_abs, passed=bool(passed or status == "pass"))
+    reason_display = _human_reason(summary.get("reason_code", "") or "")
+    timing = summary.get("orchestration_timing", {})
+    duration_sec = timing.get("duration_sec")
+    duration = _format_duration(duration_sec) if duration_sec is not None else "—"
+    return f"| {project} | {bmt_id} | {verdict_display} | {current_score:.1f} | {baseline_str} | {delta_display} | {reason_display} | {duration} |"
+
+
+def _failure_guidance_lines(leg_summaries: list[dict[str, Any]], failed_reasons: list[str]) -> list[str]:
+    out: list[str] = []
+    if not failed_reasons:
+        return out
+    out += ["", "**Next steps**", ""]
+    if "runner_failures" in failed_reasons or "runner_timeout" in failed_reasons:
+        log_links = []
+        for summary in leg_summaries:
+            if summary.get("reason_code") in ("runner_failures", "runner_timeout"):
+                uri = (summary.get("ci_verdict_uri") or "").strip()
+                if uri.endswith("ci_verdict.json"):
+                    logs_uri = uri[: -len("ci_verdict.json")] + "logs/"
+                    log_links.append(
+                        f"  - `{summary.get('project_id', '?')}.{summary.get('bmt_id', '?')}`: `{logs_uri}`"
+                    )
+        out.append("- Runner failed — check per-file logs:")
+        out.extend(log_links or ["  - Logs are in cloud storage; see links above when available."])
+    if any(r in ("score_below_last", "score_above_last") for r in failed_reasons):
+        out.append("- Score dropped below baseline — see delta above. Baseline updates on next passing merge.")
+    if "bootstrap_no_previous_result" in failed_reasons:
+        out.append("- No baseline yet — will be set once this run passes.")
+    return out
+
+
+def _log_links_section(
     leg_summaries: list[dict[str, Any]],
-    _aggregate: dict[str, Any],
-    *,
-    run_id: str | None = None,
-    runtime_bucket_root: str | None = None,
-) -> str:
-    """Render final BMT Gate output: pass/fail, scores, logs (per docs/github-and-ci.md).
-
-    Args:
-        leg_summaries: List of manager summary dicts
-        aggregate: Aggregate verdict dict with state/decision/reasons
-        run_id: Optional workflow run id for "Run status" GCS link
-        runtime_bucket_root: Optional gs://bucket/runtime for building status/logs URLs
-
-    Returns:
-        Markdown for Check Run summary (verdict table + GCS log links)
-    """
-    lines = ["**Pass/fail, scores, logs**", ""]
-
-    lines.append("| Project | BMT | Verdict | Score | Baseline | Delta | Reason | Duration |")
-    lines.append("|---------|-----|---------|-------|----------|-------|--------|----------:|")
-
-    for summary in leg_summaries:
-        project = summary.get("project_id", "unknown")
-        bmt_id = summary.get("bmt_id", "unknown")
-
-        # Manager summary uses "status" ("pass"/"fail") and "passed" (bool).
-        passed = summary.get("passed", False)
-        status = summary.get("status", "unknown")
-        if passed or status == "pass":
-            verdict_display = "✅ PASS"
-        else:
-            verdict_display = "❌ FAIL"
-
-        # Scores from manager summary and gate.
-        current_score = float(summary.get("aggregate_score", 0) or 0)
-        gate = summary.get("gate", {}) if isinstance(summary.get("gate"), dict) else {}
-        last_score = gate.get("last_score")
-        if last_score is None:
-            last_score = summary.get("last_score")
-        if isinstance(last_score, (int, float)):
-            baseline_str = f"{float(last_score):.1f}"
-        else:
-            baseline_str = "—"
-
-        # Delta with grace annotation.
-        delta = summary.get("delta_from_previous")
-        tolerance_abs = float(gate.get("tolerance_abs") or 0)
-        delta_display = _delta_str(delta, tolerance_abs, passed=bool(passed or status == "pass"))
-
-        reason_display = _human_reason(summary.get("reason_code", "") or "")
-
-        # Duration from orchestration_timing.
-        timing = summary.get("orchestration_timing", {})
-        duration_sec = timing.get("duration_sec")
-        duration = _format_duration(duration_sec) if duration_sec is not None else "—"
-
-        lines.append(
-            f"| {project} | {bmt_id} | {verdict_display} "
-            f"| {current_score:.1f} | {baseline_str} | {delta_display} | {reason_display} | {duration} |"
-        )
-
-    # Failure guidance.
-    failed_reasons = [
-        summary.get("reason_code", "") or ""
-        for summary in leg_summaries
-        if not (summary.get("passed") or summary.get("status") == "pass")
-    ]
-    if failed_reasons:
-        lines += ["", "**Next steps**", ""]
-        if "runner_failures" in failed_reasons or "runner_timeout" in failed_reasons:
-            log_links = []
-            for summary in leg_summaries:
-                if summary.get("reason_code") in ("runner_failures", "runner_timeout"):
-                    uri = (summary.get("ci_verdict_uri") or "").strip()
-                    if uri.endswith("ci_verdict.json"):
-                        logs_uri = uri[: -len("ci_verdict.json")] + "logs/"
-                        log_links.append(
-                            f"  - `{summary.get('project_id', '?')}.{summary.get('bmt_id', '?')}`: `{logs_uri}`"
-                        )
-            lines.append("- Runner failed — check per-file logs:")
-            if log_links:
-                lines.extend(log_links)
-            else:
-                lines.append("  - Logs: `runtime/<results_prefix>/snapshots/<run_id>/logs/`")
-        if any(r in ("score_below_last", "score_above_last") for r in failed_reasons):
-            lines.append("- Score dropped below baseline — see delta above. Baseline updates on next passing merge.")
-        if "bootstrap_no_previous_result" in failed_reasons:
-            lines.append("- No baseline yet — will be set once this run passes.")
-
-    # Logs: GCS Console links (run status + per-leg snapshot logs)
-    lines += ["", "**Logs**", ""]
-    has_log_links = False
+    runtime_bucket_root: str | None,
+    run_id: str | None,
+) -> list[str]:
+    out = ["", "**Logs**", ""]
+    has_any = False
     if runtime_bucket_root and run_id:
         status_uri = f"{runtime_bucket_root.rstrip('/')}/triggers/status/{run_id}.json"
         status_url = gcs_uri_to_console_url(status_uri)
         if status_url:
-            lines.append(f"- Run status (orchestrator/watcher): [open in GCS]({status_url})")
-            has_log_links = True
+            out.append(f"- Run status: [open in GCS]({status_url})")
+            has_any = True
     for summary in leg_summaries:
         project = summary.get("project_id", "?")
         bmt_id = summary.get("bmt_id", "?")
@@ -276,11 +233,47 @@ def render_results_table(
             logs_uri = uri[: -len("ci_verdict.json")] + "logs/"
             console_url = gcs_uri_to_console_url(logs_uri)
             if console_url:
-                lines.append(f"- {project}.{bmt_id}: [logs]({console_url})")
-                has_log_links = True
-    if not has_log_links:
-        lines.append("_No log links available._")
+                out.append(f"- {project}.{bmt_id}: [logs]({console_url})")
+                has_any = True
+    if not has_any:
+        out.append("_No log links available._")
+    return out
 
+
+def render_results_table(
+    leg_summaries: list[dict[str, Any]],
+    _aggregate: dict[str, Any],
+    *,
+    run_id: str | None = None,
+    runtime_bucket_root: str | None = None,
+    log_dump_url: str | None = None,
+) -> str:
+    """Render final BMT Gate output: pass/fail, scores, logs (per docs/github-and-ci.md).
+
+    Args:
+        leg_summaries: List of manager summary dicts
+        aggregate: Aggregate verdict dict with state/decision/reasons
+        run_id: Optional workflow run id for "Run status" GCS link
+        runtime_bucket_root: Optional gs://bucket/runtime for building status/logs URLs
+        log_dump_url: Optional signed URL for log dump; when set appends "Log dump (link expires in 3 days): ..."
+
+    Returns:
+        Markdown for Check Run summary (verdict table + GCS log links)
+    """
+    lines = ["**Pass/fail, scores, logs**", ""]
+    lines.append("| Project | Test suite | Verdict | Score | Baseline | Delta | Reason | Duration |")
+    lines.append("|---------|------------|---------|-------|----------|-------|--------|----------:|")
+    for summary in leg_summaries:
+        lines.append(_leg_row_line(summary))
+    failed_reasons = [
+        summary.get("reason_code", "") or ""
+        for summary in leg_summaries
+        if not (summary.get("passed") or summary.get("status") == "pass")
+    ]
+    lines.extend(_failure_guidance_lines(leg_summaries, failed_reasons))
+    lines.extend(_log_links_section(leg_summaries, runtime_bucket_root, run_id))
+    if log_dump_url:
+        lines.extend(["", f"Log dump (link expires in 3 days): {log_dump_url}"])
     return "\n".join(lines)
 
 

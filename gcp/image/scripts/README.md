@@ -33,7 +33,6 @@ Scripts under `scripts/` expect the **root project to be installed** so `gcp.ima
 | `set_startup_script_url.py` | Optional/manual: set VM to `startup-script-url` mode using entrypoint in GCS. |
 | `rollback_startup_to_inline.py` | Restore legacy inline startup-script mode. |
 | `export_vm_spec.py` | Export current VM spec (JSON + summary) for rollback/auditing. |
-| `build_bmt_image.py` (in infra) | Build pre-baked runtime image from local gcp/image; see `infra/scripts/build_bmt_image.py` (legacy; prefer Packer / BMT Image Build workflow). |
 | `create_bmt_green_vm.py` | Create `<base>-green` VM from baked image using source (blue) VM settings; source is `BMT_LIVE_VM`. |
 | `cutover_bmt_vm.py` | Cut over repo `BMT_LIVE_VM` GitHub variable to green VM. |
 | `rollback_bmt_vm.py` | Roll back repo `BMT_LIVE_VM` to blue VM (defaults to `<base>-blue` when current ends with `-green`). |

@@ -7,8 +7,7 @@ from pathlib import Path
 
 import pytest
 from ci import gcs as gcs_module
-from ci.runner import RunnerManager
-from ci.runner import _sha256_file
+from ci.runner import RunnerManager, _sha256_file
 
 
 def _write(path: Path, content: bytes) -> None:

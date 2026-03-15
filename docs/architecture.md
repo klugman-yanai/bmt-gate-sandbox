@@ -129,12 +129,12 @@ What must match production when this repo is used as the source for CI and the b
 
 | File | Role |
 | --- | --- |
-| `.github/scripts/ci/models.py` | Fixed code/runtime root URI helpers. |
-| `.github/scripts/ci/commands/run_trigger.py` | Trigger payload + runtime trigger write. |
-| `.github/scripts/ci/commands/start_vm.py` | Start + readiness verification. |
-| `.github/scripts/ci/commands/wait_handshake.py` | Handshake wait + diagnostics + reason codes. |
-| `.github/scripts/ci/commands/upload_runner.py` | Runtime runner upload. |
-| `.github/scripts/ci/commands/sync_vm_metadata.py` | Sync `GCS_BUCKET` and `BMT_REPO_ROOT` metadata. |
+| `.github/bmt/ci/core.py` | Fixed code/runtime root URI helpers, trigger/ack URIs. |
+| `.github/bmt/ci/commands/run_trigger.py` | Trigger payload + runtime trigger write. |
+| `.github/bmt/ci/commands/start_vm.py` | Start + readiness verification. |
+| `.github/bmt/ci/commands/wait_handshake.py` | Handshake wait + diagnostics + reason codes. |
+| `.github/bmt/ci/commands/upload_runner.py` | Runtime runner upload. |
+| `.github/bmt/ci/commands/sync_vm_metadata.py` | Sync `GCS_BUCKET` and `BMT_REPO_ROOT` metadata. |
 
 ### VM
 
@@ -149,12 +149,12 @@ What must match production when this repo is used as the source for CI and the b
 
 | File | Role |
 | --- | --- |
-| `tools/bucket_sync_gcp.py` | Manual code-root sync + manifest write. |
-| `tools/bucket_verify_gcp_sync.py` | Verify local `gcp/image` digest vs uploaded code manifest. |
-| `tools/bucket_upload_runner.py` | Runtime runner upload helper. |
-| `tools/bucket_upload_wavs.py` | Runtime dataset upload helper. |
-| `tools/bucket_validate_contract.py` | Validate split contract (code + runtime canonical objects). |
-| `tools/bmt_monitor.py` | Runtime-prefix-aware live monitor. |
+| `tools/remote/bucket_sync_gcp.py` | Manual code-root sync + manifest write. |
+| `tools/remote/bucket_verify_gcp_sync.py` | Verify local `gcp/image` digest vs uploaded code manifest. |
+| `tools/remote/bucket_upload_runner.py` | Runtime runner upload helper. |
+| `tools/remote/bucket_upload_wavs.py` | Runtime dataset upload helper. |
+| `tools/remote/bucket_validate_contract.py` | Validate split contract (code + runtime canonical objects). |
+| `tools/bmt/bmt_monitor.py` | Runtime-prefix-aware live monitor. |
 
 ## Trigger payload contract
 
@@ -178,7 +178,7 @@ Required fields:
 - Dependency install on VM: `scripts/install_deps.py` uses **repo-root** `pyproject.toml` for a fingerprint and `pip` for install (no uv at boot). The code-root `pyproject.toml` + `uv.lock` are the declarative VM contract; see [configuration.md](configuration.md#pyproject-files).
 - `startup-script-url` mode remains optional for manual setup/cutover
 
-Rollback path: `gcp/image/vm/rollback_startup_to_inline.sh`
+Rollback path: `gcp/image/scripts/rollback_startup_to_inline.py`
 
 ## Workspace contract
 
