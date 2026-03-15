@@ -1,4 +1,7 @@
 **.zip
+**.7z
+**.tar.gz
+**.tar
 
 # Build/output junk
 build/
@@ -36,6 +39,10 @@ gcp/local/runtime/triggers/
 gcp/local/runtime/**/inputs/**/*.wav
 gcp/local/runtime/**/outputs/
 gcp/local/runtime/**/results/
+
+# WAV datasets in the local bucket mirror — large runtime assets, not tracked in git.
+# Upload with: just upload-data <project> <zip-or-folder>
+gcp/remote/**/inputs/**/*.wav
 
 # Tooling/editor
 compile_commands.json

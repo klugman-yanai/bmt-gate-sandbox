@@ -154,6 +154,51 @@ def upload_runner(
     raise typer.Exit(rc)
 
 
+@app.command("upload-dataset")
+def upload_dataset(
+    project: Annotated[
+        str,
+        typer.Argument(help="Project name (e.g. sk)"),
+    ],
+    source: Annotated[
+        Path,
+        typer.Argument(help="Path to a .zip archive or a folder containing WAV files"),
+    ],
+    dataset_name: Annotated[
+        str | None,
+        typer.Option("--dataset", help="Dataset name override (auto-detected from source if omitted)"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Re-upload even if GCS already matches"),
+    ] = False,
+    no_local: Annotated[
+        bool,
+        typer.Option("--no-local", help="Skip syncing to gcp/remote/"),
+    ] = False,
+) -> None:
+    """Upload a WAV dataset (zip or folder) to projects/<project>/inputs/<dataset>/.
+
+    Also mirrors the files into gcp/remote/ so the local bucket mirror stays
+    current (pass --no-local to skip). Dataset name is auto-detected from the
+    source filename when not given: sk_false_rejects.zip → false_rejects.
+    """
+    from tools.remote.bucket_upload_dataset import BucketUploadDataset
+    from tools.repo.paths import repo_root
+
+    bucket = bucket_from_env()
+    local_mirror = None if no_local else repo_root() / "gcp" / "remote"
+    rc = BucketUploadDataset().run(
+        bucket=bucket,
+        project=project,
+        source=source,
+        dataset_name=dataset_name,
+        force=force,
+        local_mirror=local_mirror,
+    )
+    raise typer.Exit(rc)
+
+
 @app.command("upload-wavs")
 def upload_wavs(
     source_dir: Annotated[
