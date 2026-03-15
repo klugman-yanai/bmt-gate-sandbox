@@ -249,6 +249,10 @@ jobs:
   handshake:
     name: Handshake with VM
     needs: [setup, upload-runners]
+    if: >-
+      !cancelled()
+      && needs.setup.result == 'success'
+      && (needs['upload-runners'].result == 'success' || needs['upload-runners'].result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
