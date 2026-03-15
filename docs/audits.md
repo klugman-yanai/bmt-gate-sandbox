@@ -33,14 +33,9 @@ Used by repo-vars export (`tools/terraform_repo_vars.py`). `TERRAFORM_OUTPUT_TO_
 | `gcp_project` | GCP_PROJECT |
 | `gcp_zone` | GCP_ZONE |
 | `bmt_vm_name` | BMT_LIVE_VM |
-| `bmt_repo_root` | BMT_REPO_ROOT |
 | `service_account` | GCP_SA_EMAIL |
-| `pubsub_subscription` | BMT_PUBSUB_SUBSCRIPTION |
-| `pubsub_topic` | BMT_PUBSUB_TOPIC |
 
-`BMT_STATUS_CONTEXT` and `BMT_HANDSHAKE_TIMEOUT_SEC` are required repo vars but **not** read from Terraform; they come from contract defaults.
-
-**Outputs not used by export:** `vm_name` (redundant with `bmt_vm_name`), `bmt_status_context`, `bmt_handshake_timeout_sec`, `bmt_trigger_stale_sec`, `vm_self_link`, `resolved_image`, `image_family`. Optional cleanups: remove `vm_name`; consider removing or documenting the three behavioral outputs so it's clear export uses contract defaults, not Terraform.
+**YAGNI:** Subscription, topic, repo root, and VM pool are **derived in code** (or constants); they are not exported as repo variables. Terraform still has outputs for VM metadata and internal use; only the five vars above are pushed to GitHub.
 
 ---
 
@@ -50,13 +45,13 @@ Used by repo-vars export (`tools/terraform_repo_vars.py`). `TERRAFORM_OUTPUT_TO_
 
 **Infra / runtime fields — necessary**
 
-All used and deployment-specific: `gcs_bucket`, `gcp_project`, `gcp_zone`, `gcp_sa_email`, `bmt_vm_name`, `bmt_repo_root`, `gcp_wif_provider`, `bmt_pubsub_topic`, `bmt_pubsub_subscription`.
+All used and deployment-specific: `gcs_bucket`, `gcp_project`, `gcp_zone`, `gcp_sa_email`, `bmt_vm_name`, `gcp_wif_provider`. Topic/subscription/repo_root are derived or constant in code (BmtConfig.effective_pubsub_subscription, constants.PUBSUB_TOPIC_NAME, effective_repo_root).
 
 **Behavioral fields — audit**
 
-- **bmt_status_context** — Necessary. Must match GitHub branch protection status check name. Add `BMT_STATUS_CONTEXT` to `_RUNTIME_KEYS` in `gcp/image/lib/bmt_config.py` so repo/Terraform value is used.
-- **bmt_handshake_timeout_sec** — Necessary. Add `BMT_HANDSHAKE_TIMEOUT_SEC` to `_RUNTIME_KEYS` so it is configurable.
-- **bmt_trigger_stale_sec** — Could be constant (single use, 900). Optional: move to constant `TRIGGER_STALE_SEC = 900` and remove from BmtConfig.
+- **bmt_status_context** — In code only (constants.STATUS_CONTEXT). Not in Terraform or env.
+- **bmt_handshake_timeout_sec** — Default in BmtConfig only. Not in Terraform or env.
+- **bmt_trigger_stale_sec** — In BmtConfig; could be constant (900) if desired.
 - **bmt_vm_start_timeout_sec** — Dead (no code reads from config). Remove from BmtConfig or use constant in `vm.py`.
 - **bmt_idle_timeout_sec** — Dead (vm_watcher uses `_env_int`, not config). Remove from BmtConfig or use constant.
 
@@ -65,9 +60,9 @@ All used and deployment-specific: `gcs_bucket`, `gcp_project`, `gcp_zone`, `gcp_
 | Field | Action |
 | --- | --- |
 | All infra/runtime | Keep. |
-| **bmt_status_context** | Keep; add to `_RUNTIME_KEYS`. |
-| **bmt_handshake_timeout_sec** | Keep; add to `_RUNTIME_KEYS`. |
-| **bmt_trigger_stale_sec** | Optional: constant and remove from config. |
+| **bmt_status_context** | Code only. |
+| **bmt_handshake_timeout_sec** | BmtConfig only. |
+| **bmt_trigger_stale_sec** | BmtConfig; optional constant. |
 | **bmt_vm_start_timeout_sec** | Remove from BmtConfig or wire via `_RUNTIME_KEYS`. |
 | **bmt_idle_timeout_sec** | Remove from BmtConfig or use constant in vm_watcher. |
 

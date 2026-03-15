@@ -753,7 +753,7 @@ class BmtMonitor:
     ) -> None:
         if not bucket or not vm_name or not zone:
             print(
-                "Error: GCS_BUCKET, BMT_LIVE_VM, and GCP_ZONE are required. Set env vars or pass to run().",
+                "Error: GCS_BUCKET and BMT_LIVE_VM are required (GCP_ZONE defaults to europe-west4-a). Set env vars or pass to run().",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -803,7 +803,7 @@ class BmtMonitor:
 if __name__ == "__main__":
     bucket = bucket_from_env()
     vm_name = (os.environ.get("BMT_LIVE_VM") or "").strip()
-    zone = (os.environ.get("GCP_ZONE") or "").strip()
+    zone = "europe-west4-a"  # Fixed; not overridable via env
     run_id = (os.environ.get("BMT_RUN_ID") or "").strip() or None
     auto = truthy(os.environ.get("BMT_AUTO"))
     prod = truthy(os.environ.get("BMT_PROD"))

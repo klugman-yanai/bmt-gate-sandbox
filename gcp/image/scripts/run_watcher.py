@@ -14,7 +14,8 @@ from pathlib import Path
 
 from whenever import Instant
 
-from gcp.image.path_utils import DEFAULT_BMT_REPO_ROOT, VM_WATCHER_SCRIPT
+from gcp.image.config.bmt_config import get_config
+from gcp.image.path_utils import VM_WATCHER_SCRIPT
 
 METADATA_BASE = "http://metadata.google.internal/computeMetadata/v1"
 METADATA_HEADERS = {"Metadata-Flavor": "Google"}
@@ -225,15 +226,14 @@ def main() -> int:
 
         if not os.environ.get("GCS_BUCKET"):
             os.environ["GCS_BUCKET"] = _read_meta("GCS_BUCKET")
-        if not os.environ.get("BMT_REPO_ROOT"):
-            os.environ["BMT_REPO_ROOT"] = _read_meta("BMT_REPO_ROOT")
         if not os.environ.get("GCP_PROJECT"):
             os.environ["GCP_PROJECT"] = _read_meta("GCP_PROJECT")
-        if not os.environ.get("BMT_PUBSUB_SUBSCRIPTION"):
-            os.environ["BMT_PUBSUB_SUBSCRIPTION"] = _read_meta("BMT_PUBSUB_SUBSCRIPTION")
-
-        repo_root = os.environ.get("BMT_REPO_ROOT", "").strip() or DEFAULT_BMT_REPO_ROOT
+        cfg = get_config(runtime=os.environ)
+        repo_root = cfg.effective_repo_root
         os.environ["BMT_REPO_ROOT"] = repo_root
+        sub_effective = cfg.effective_pubsub_subscription or ""
+        if sub_effective:
+            os.environ["BMT_PUBSUB_SUBSCRIPTION"] = sub_effective
         bucket = os.environ.get("GCS_BUCKET", "").strip()
         if not bucket:
             _log_err("Set GCS_BUCKET or VM metadata GCS_BUCKET")
@@ -297,7 +297,7 @@ def main() -> int:
             "--exit-after-run",
             "--idle-timeout-sec", os.environ.get("BMT_IDLE_TIMEOUT_SEC", "600"),
         ]
-        sub = os.environ.get("BMT_PUBSUB_SUBSCRIPTION", "").strip()
+        sub = sub_effective.strip()
         if sub and project:
             watcher_args.extend(["--subscription", f"projects/{project}/subscriptions/{sub}", "--gcp-project", project])
             _log(f"Pub/Sub subscription: projects/{project}/subscriptions/{sub}")

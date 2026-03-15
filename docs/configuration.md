@@ -35,26 +35,30 @@ Tooling (`tools/repo/gh_repo_vars.py`, `tools/repo/gh_validate_vm_vars.py`, `too
 
 Repo vars (GitHub Variables) and env vars are only for values that **vary per repo or deployment** or are **secrets**. Everything else is a **constant** in code (no user override).
 
-### Must be repo var / env (varies per repo or is secret)
+### What you actually configure
 
-| Name | Why env/repo var |
-|------|------------------|
-| **GCS_BUCKET** | Which GCS bucket (per environment/repo). Workflows, VM metadata, and tools all need it. |
-| **GCP_PROJECT** | Which GCP project. Varies per deployment. |
-| **GCP_ZONE** | VM zone (e.g. `europe-west4-a`). Deployment-specific. |
-| **GCP_SA_EMAIL** | Service account for WIF and VM. From Terraform. |
-| **BMT_LIVE_VM** | VM instance name. Workflow starts it; varies per env. |
-| **BMT_PUBSUB_SUBSCRIPTION** | Pub/Sub subscription for trigger delivery to VM. From Terraform. |
-| **BMT_STATUS_CONTEXT** | Commit status name that must **match branch protection**. Resolved from branch rules or default; not a product constant. |
-| **GCP_WIF_PROVIDER** | Workload Identity Federation provider for CI. Secret; varies per project. |
-| **BMT_DISPATCH_APP_ID** | GitHub App ID for workflow_dispatch token. Per repo/installation. |
+Realistically you only change:
 
-### Optional repo var (has default in code)
+| Where | What |
+|-------|------|
+| **Repo** | Which GitHub repo (clone/origin). |
+| **Declarative config** (`infra/terraform/bmt.tfvars.json`) | **Four required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`. **Optional:** `bmt_vm_name` (default `bmt-gate-blue`). Run `just terraform` to apply and push to GitHub as `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. Zone is not exported; it is fixed in code at runtime. See [infra/terraform/README.md](../../infra/terraform/README.md). |
+| **GitHub (vars/secrets)** | **GCP_WIF_PROVIDER** (WIF for CI). **BMT_DISPATCH_APP_ID** and **BMT_DISPATCH_APP_PRIVATE_KEY** (GitHub App for workflow_dispatch). Set these by hand; they are not in Terraform. |
 
-| Name | Why optional | Default / source |
-|------|--------------|------------------|
-| **BMT_REPO_ROOT** | Path on VM for repo root; only overridden when different from image default. | `/opt/bmt` (DEFAULT_REPO_ROOT in bmt_config). |
-| **BMT_PUBSUB_TOPIC** | Pub/Sub topic for triggers. | From Terraform when set. |
+So: project, zone, bucket, and SA are the required four in `bmt.tfvars.json`; VM name is optional (default). WIF and GitHub App credentials are the only things you set directly in GitHub.
+
+### Not repo vars — derived or declarative (YAGNI)
+
+These are derived in code or come from Terraform/constants; do not set as GitHub variables:
+
+| Name | Source |
+|------|--------|
+| **BMT_PUBSUB_SUBSCRIPTION** | Derived: `bmt-vm-` + **BMT_LIVE_VM** (BmtConfig.effective_pubsub_subscription). |
+| **BMT_PUBSUB_TOPIC** | Constant: `bmt-triggers` (constants.PUBSUB_TOPIC_NAME). |
+| **BMT_REPO_ROOT** | Default in code: `/opt/bmt` (DEFAULT_REPO_ROOT). Terraform can override VM metadata only. |
+| **BMT_VM_POOL** | Derived when **BMT_LIVE_VM** ends with `-blue` or `-green`: `<base>-blue,<base>-green`. Else single-VM from BMT_LIVE_VM. |
+| **BMT_STATUS_CONTEXT** | Constant in code: `BMT Gate` (constants.STATUS_CONTEXT). Branch protection must match. |
+| **GCP_ZONE** | Constant: `europe-west4-a` (europe-west4 only; not a repo var). |
 
 ### Not repo vars — constants in code (do not override)
 
@@ -83,8 +87,8 @@ Handoff workflow **env** does not set `BMT_HANDSHAKE_TIMEOUT_SEC`; the CLI uses 
 
 Used by jobs or local tools; not part of the canonical repo vars list:
 
-- **BMT_VM_POOL**, **BMT_VM_POOL_LABEL** — VM pool for concurrent runs (workflow reads from vars).
-- **BMT_CONFIG**, **BMT_APPLY**, **BMT_FORCE**, **BMT_CONTRACT**, **BMT_PRUNE_EXTRA** — Tool flags for repo-vars and Terraform export.
+- **BMT_VM_POOL_LABEL** — Optional. Label filter to discover VM pool from GCP (overrides derived blue/green pool). **BMT_VM_POOL** is no longer a repo var; pool is derived from **BMT_LIVE_VM** when name ends with `-blue`/`-green`.
+- **BMT_CONFIG**, **BMT_FORCE**, **BMT_CONTRACT**, **BMT_PRUNE_EXTRA** — Tool flags for repo-vars (paths/behavior). Use `--apply` with `gh_repo_vars` or `terraform_repo_vars` to write vars; Terraform recipe passes `--apply` automatically.
 - **BMT_SRC_DIR**, **BMT_DELETE**, **BMT_FORCE**, **GCS_BUCKET** — Bucket sync/verify tools.
 - **GITHUB_TOKEN**, **GITHUB_RUN_ID**, **GITHUB_REPOSITORY**, etc. — Set by Actions; not repo vars.
 
@@ -94,27 +98,24 @@ Used by jobs or local tools; not part of the canonical repo vars list:
 
 Set in **Settings → Secrets and variables → Actions → Variables** (or via `gh variable set`). Canonical names only; no aliases (e.g. no `VM_NAME` or `BUCKET`). Set `GCP_PROJECT` explicitly; do not rely on a derived project fallback.
 
-### Required (github_repo_vars)
+### Repo variables: from Terraform vs set by hand
+
+| Variable | Set by | Purpose |
+| --- | --- | --- |
+| `GCS_BUCKET` | **Terraform export** (from `bmt.tfvars.json` → `gcs_bucket`) | GCS bucket name. |
+| `GCP_PROJECT` | **Terraform export** (from `gcp_project`) | GCP project ID. |
+| `GCP_SA_EMAIL` | **Terraform export** (from `service_account`) | Service account for WIF and VM. |
+| `BMT_LIVE_VM` | **Terraform export** (from `bmt_vm_name`) | VM instance name. Declared in declarative config, not in GitHub UI. |
+| `GCP_WIF_PROVIDER` | **You set in GitHub** | Workload Identity Federation provider for CI. |
+| `BMT_DISPATCH_APP_ID` | **You set in GitHub** | GitHub App ID for workflow_dispatch. (Private key as repo secret when needed.) |
+
+Run `just terraform` (with `bmt.tfvars.json` filled in) to apply infra and push the first four to GitHub. Set `GCP_WIF_PROVIDER` and the App credentials manually in GitHub. GCP_ZONE is fixed (europe-west4-a). Subscription, topic, repo root, and VM pool are derived in code.
+
+### Optional / workflow-only (not in Terraform export)
 
 | Variable | Purpose |
 | --- | --- |
-| `GCS_BUCKET` | GCS bucket name. |
-| `GCP_WIF_PROVIDER` | Workload Identity Federation provider for CI. (Secret; set manually.) |
-| `GCP_SA_EMAIL` | Service account email for WIF auth. (From Terraform output `service_account`.) |
-| `GCP_PROJECT` | GCP project ID for VM operations. |
-| `GCP_ZONE` | VM zone (e.g. `europe-west4-a`). |
-| `BMT_LIVE_VM` | VM instance name (workflow starts it; VM can stop itself after one run). |
-| `BMT_PUBSUB_SUBSCRIPTION` | Pub/Sub subscription for VM trigger delivery (from Terraform output). |
-| `BMT_STATUS_CONTEXT` | Commit status name (from Terraform or branch rules; must match branch protection). |
-
-These are set from Terraform via `just terraform-export-vars-apply` (or contract defaults where applicable); do not set them manually as optional overrides.
-
-### Optional (common)
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `BMT_VM_POOL` | — | **Recommended.** Comma-separated VM names (e.g. `vm1,vm2`). Pool is explicit and version-controlled; each name is verified via Compute SDK. When set, select-available-vm assigns by run ID so concurrent workflows get different VMs. If unset, uses `BMT_LIVE_VM` only. Pool must never be empty. |
-| `BMT_VM_POOL_LABEL` | — | Optional. Label filter to discover pool from GCP (e.g. `bmt-gate:true`). Use when you prefer discovery by instance label over an explicit list. Overrides `BMT_VM_POOL` when set. |
+| `BMT_VM_POOL_LABEL` | Label filter to discover VM pool from GCP (e.g. `bmt-gate:true`). Overrides derived blue/green pool when set. |
 | `BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING` | `"600"` | When select-available-vm reuses a RUNNING VM (no TERMINATED available), this timeout is used for handshake so the workflow does not fail while the VM finishes the previous trigger. Consecutive runs within the VM idle window reuse the same VM without cold boot. |
 | `BMT_IDLE_TIMEOUT_SEC` | `"600"` (VM/env) | Idle period in seconds after each run with no new trigger before the VM exits and self-stops. Set in VM metadata or env; `0` = exit immediately after one run (legacy behavior). |
 | `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
@@ -122,22 +123,19 @@ These are set from Terraform via `just terraform-export-vars-apply` (or contract
 
 **Behavioral constants (not repo vars):** Handshake timeouts, runtime context label, trigger metadata keep-recent count, VM stabilization/recovery values, preempt-on-PR-stale, and stale trigger age in hours are fixed in **gcp/image/config/bmt_config.py** (e.g. `DEFAULT_RUNTIME_CONTEXT`, `TRIGGER_METADATA_KEEP_RECENT`, `VM_STABILIZATION_SEC`). They are not configurable via environment or Terraform.
 
-Omitted vars inherit from current GitHub repo context first, then from Terraform outputs (when you run `just terraform-export-vars`) or contract defaults. Optional overrides can be passed via `just repo-vars-apply --config <path>` with a TOML/JSON file.
+Omitted vars inherit from current GitHub repo context first, then from Terraform outputs (when you run `just terraform`) or contract defaults.
 
-**VM pool (concurrent runs):** For two or more VMs, set **`BMT_VM_POOL`** to a comma-separated list of instance names (e.g. `bmt-vm-1,bmt-vm-2`). This is the recommended approach: explicit, version-controlled, and verified via the Compute SDK. Leave `BMT_VM_POOL_LABEL` unset unless you prefer discovery by instance label.
+**VM pool (concurrent runs):** When using blue/green VM names (e.g. **BMT_LIVE_VM** = `bmt-gate-blue`), the VM pool is derived in code (no `BMT_VM_POOL` repo var) so you don’t set it manually. For other schemes, use **`BMT_VM_POOL_LABEL`** to discover VMs by GCP instance label.
 
-For `BMT_STATUS_CONTEXT`, `tools/repo/gh_repo_vars.py` resolves the desired value from the effective branch rules using **infra/branch-status-context.json**. This keeps branch protection and repo variables aligned. Export with `just terraform-export-vars-apply`.
+**Status context:** The commit status name is a constant in code (`gcp/image/config/constants.py` → `STATUS_CONTEXT`). Configure branch protection to require that same name; there is no repo var.
 
 ### Useful commands
 
 ```bash
-just terraform-export-vars     # Print Terraform-sourced vars
-just terraform-export-vars-apply  # Apply them to GitHub
-just repo-vars-check           # Check repo vars against Terraform/contract
-just repo-vars-apply           # Apply vars to GitHub (from Terraform + optional override file)
-just show-env                  # Print env var names used by CI, VM, tools
-just validate-vm-vars          # Ensure repo vars match VM metadata
-just sync-vm-metadata         # Sync startup-critical VM metadata from repo
+just terraform                  # Preflight, apply, and push repo vars to GitHub
+just validate                   # Check repo vars vs Terraform/contract and VM metadata
+just show-env                   # Print env var names used by CI, VM, tools
+just sync-vm-metadata           # Sync startup-critical VM metadata from repo
 ```
 
 ---
@@ -203,7 +201,7 @@ Local mirror policy details: [../gcp/README.md](../gcp/README.md).
 - **`<code-root>/...`** — deployable watcher/orchestrator/manager/vm scripts/config mirrored from `gcp/image`.
 - **`<code-root>/pyproject.toml`** — VM runtime package (build-system + config package). Bootstrap `install_deps.py` runs `pip install -e ".[vm]"` from the code root so the config package and VM deps are installed in the venv; no PYTHONPATH.
 - **`<code-root>/uv.lock`** — optional pinned lock for `gcp/image` when using `uv sync` from code root.
-- **`<code-root>/_tools/uv/linux-x86_64/uv`** — pinned uv binary uploaded by `just sync-gcp`.
+- **`<code-root>/_tools/uv/linux-x86_64/uv`** — pinned uv binary uploaded by `just deploy`.
 - **`<code-root>/_tools/uv/linux-x86_64/uv.sha256`** — pinned uv checksum tracked in repo and verified at boot.
 - **`<runtime-root>/triggers/runs/<workflow_run_id>.json`** — Run trigger (CI writes; VM deletes after process).
 - **`<runtime-root>/triggers/acks/<workflow_run_id>.json`** — VM handshake ack.
@@ -246,6 +244,5 @@ The runtime context label (e.g. "BMT Runtime") is a non-gating constant in **gcp
 GitHub branch rules are the source of truth for that context. Keep branch rules and repo vars aligned via:
 
 ```bash
-just repo-vars-check
-just repo-vars-apply
+just validate
 ```

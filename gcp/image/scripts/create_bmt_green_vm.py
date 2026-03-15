@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Create a green VM from a pre-baked image while preserving core settings from current VM.
 
-Required env: GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM (source blue VM name).
-Optional: BMT_GREEN_VM_NAME (default: <base>-green when source ends with -blue, else <source>-green),
-  BMT_IMAGE_FAMILY (default from constants), BMT_IMAGE_NAME (explicit image),
-  BMT_GREEN_ALLOW_RECREATE (default 0; set 1 to delete/recreate).
+Required env: GCP_PROJECT, BMT_LIVE_VM (source blue VM name).
+Optional: BMT_GREEN_VM_NAME, BMT_IMAGE_FAMILY, BMT_IMAGE_NAME, BMT_GREEN_ALLOW_RECREATE. Zone is fixed (europe-west4-a).
 """
 
 from __future__ import annotations
@@ -19,12 +17,12 @@ from pathlib import Path
 
 from whenever import Instant
 
-from gcp.image.config.constants import DEFAULT_IMAGE_FAMILY
+from gcp.image.config.constants import DEFAULT_GCP_ZONE, DEFAULT_IMAGE_FAMILY
 
 
 def main() -> int:
     project = os.environ.get("GCP_PROJECT", "").strip()
-    zone = os.environ.get("GCP_ZONE", "").strip()
+    zone = DEFAULT_GCP_ZONE
     vm_name = os.environ.get("BMT_LIVE_VM", "").strip()
     green_name = os.environ.get("BMT_GREEN_VM_NAME", "").strip() or (
         f"{vm_name.removesuffix('-blue')}-green" if vm_name.endswith("-blue") else f"{vm_name}-green"
@@ -34,7 +32,7 @@ def main() -> int:
     allow_recreate = os.environ.get("BMT_GREEN_ALLOW_RECREATE", "0").strip() == "1"
 
     if not all([project, zone, vm_name]):
-        print("Set GCP_PROJECT, GCP_ZONE, and BMT_LIVE_VM.", file=sys.stderr)
+        print("Set GCP_PROJECT and BMT_LIVE_VM Zone is fixed (europe-west4-a).", file=sys.stderr)
         return 1
 
     for cmd in ["gcloud", "jq"]:

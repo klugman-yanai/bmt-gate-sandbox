@@ -7,7 +7,7 @@ if [[ -n "${SKIP_SYNC_VERIFY:-}" ]]; then
 fi
 if [[ -z "${GCS_BUCKET:-}" ]]; then
   echo "gcp/ changed but GCS_BUCKET is not set; sync cannot be verified."
-  echo "Set GCS_BUCKET and run: just sync-gcp && just verify-sync"
+  echo "Set GCS_BUCKET and run: just deploy"
   echo "Or set SKIP_SYNC_VERIFY=1 to skip this check (e.g. in CI or when not using this bucket)."
   exit 1
 fi
@@ -23,7 +23,7 @@ fi
 
 if [[ "$code_ok" -ne 1 || "$runtime_ok" -ne 1 ]]; then
   echo "gcp/ is out of sync with bucket; BMT workflow may fail (VM will accept zero legs)."
-  echo "Run: just sync-gcp && just verify-sync"
+  echo "Run: just deploy"
   echo "Or set SKIP_SYNC_VERIFY=1 to skip this check."
   exit 1
 fi

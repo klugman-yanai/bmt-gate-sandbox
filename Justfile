@@ -21,8 +21,8 @@ test:
 # -----------------------------------------------------------------------------
 # Release package: refresh .github-release/bmt/ after editing .github/bmt/ Python
 # -----------------------------------------------------------------------------
-
 # Copy .github/bmt/ (ci, config, pyproject.toml, uv.lock) into .github-release/bmt/.
+
 # Run after editing .github/bmt/ code so the release package stays in sync.
 release-package:
     rm -rf .github-release/bmt/ci .github-release/bmt/config .github-release/bmt/pyproject.toml .github-release/bmt/uv.lock
@@ -30,28 +30,18 @@ release-package:
     @echo "Updated .github-release/bmt/ from .github/bmt/ (ci, config, pyproject.toml, uv.lock)"
 
 # -----------------------------------------------------------------------------
-# Deploy: sync local gcp/ to bucket and verify (run after changing gcp/ code)
+# Bucket: deploy and preflight (GCS_BUCKET from env or gh variable)
 # -----------------------------------------------------------------------------
 
-# Sync gcp/image to bucket (GCS_BUCKET from env or gh variable get GCS_BUCKET)
-sync-gcp:
-    uv run python -m tools.remote.bucket_sync_gcp
-
-# Verify code + runtime seed sync (GCS_BUCKET from env or gh variable get GCS_BUCKET)
-verify-sync:
-    uv run python -m tools.remote.bucket_verify_gcp_sync
-    uv run python -m tools.remote.bucket_verify_runtime_seed_sync
-
-# Pre-flight: check bucket contents and diff code/ vs gcp/image.
-# Uses GCS_BUCKET from env, or from gh variable (gh variable get GCS_BUCKET).
-# Saves report to .local/preflight-bucket-*.txt. See docs/preflight-bucket-remote.md.
-preflight-bucket:
-    tools/scripts/run_preflight_bucket.sh
-
+# Sync gcp/image to bucket and verify code + runtime seed. Run after changing gcp/ code.
 deploy:
     uv run python -m tools.remote.bucket_sync_gcp
     uv run python -m tools.remote.bucket_verify_gcp_sync
     uv run python -m tools.remote.bucket_verify_runtime_seed_sync
+
+# Pre-flight: bucket contents and diff code/ vs gcp/image. Report in .local/preflight-bucket-*.txt
+preflight:
+    tools/scripts/run_preflight_bucket.sh
 
 # -----------------------------------------------------------------------------
 # VM and runtime observability
@@ -62,94 +52,76 @@ monitor:
     uv run python -m tools.bmt.bmt_monitor
 
 # -----------------------------------------------------------------------------
-# Repo vars and Terraform export (see docs/configuration.md)
+# Repo vars, validation, Terraform (see docs/configuration.md)
 # -----------------------------------------------------------------------------
 
-# Run Terraform declaratively: init + apply using GitHub repo variables (no prompts), then push outputs to GitHub.
-terraform:
-    uv run python -m tools.terraform.terraform_apply
-    BMT_APPLY=1 uv run python -m tools.terraform.terraform_repo_vars
+# Terraform: preflight, apply, push vars. Default quiet; use -v/--verbose for full output.
+# E.g. just terraform, just terraform --verbose, just terraform import-topics
+terraform arg1="" arg2="":
+    #!/usr/bin/env -S bash -eu
+    VERBOSE=""
+    [[ "{{arg1}}" == "--verbose" || "{{arg1}}" == "-v" || "{{arg2}}" == "--verbose" || "{{arg2}}" == "-v" ]] && VERBOSE="--verbose"
+    [[ "{{arg1}}" == "import-topics" || "{{arg2}}" == "import-topics" ]] && uv run python -m tools.terraform.terraform_import_topics $VERBOSE
+    uv run python -m tools.terraform.terraform_preflight $VERBOSE
+    uv run python -m tools.terraform.terraform_apply $VERBOSE
 
-# Print Terraform-sourced repo vars (key=value)
-terraform-export-vars:
-    uv run python -m tools.terraform.terraform_repo_vars
-
-# Apply Terraform-sourced repo vars to GitHub (set BMT_APPLY=1)
-terraform-export-vars-apply:
-    BMT_APPLY=1 uv run python -m tools.terraform.terraform_repo_vars
-
-# Check repo vars against Terraform/contract
-repo-vars-check:
+# Check repo vars vs Terraform/contract and vs VM metadata (run both together).
+validate:
     uv run python -m tools.repo.gh_repo_vars
-
-# Apply repo vars to GitHub (BMT_APPLY=1, optional BMT_CONFIG, BMT_CONTRACT)
-repo-vars-apply:
-    BMT_APPLY=1 uv run python -m tools.repo.gh_repo_vars
+    uv run python -m tools.repo.gh_validate_vm_vars
 
 # Print env var names used by CI, VM, tools
 show-env:
     uv run python -m tools.repo.gh_show_env
 
-# Validate repo vars match VM metadata (GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM)
-validate-vm-vars:
-    uv run python -m tools.repo.gh_validate_vm_vars
+# Remove Python/uv bloat from GCS (dry-run by default). Usage: just clean-bloat | just clean-bloat execute
+clean-bloat execute="":
+    #!/usr/bin/env -S bash -eu
+    EXEC_ARG=""
+    [[ "{{execute}}" == "execute" || "{{execute}}" == "--execute" ]] && EXEC_ARG="--execute"
+    uv run python -m tools.remote.bucket_clean_bloat $EXEC_ARG
 
-# Remove Python/uv bloat from GCS (GCS_BUCKET; default dry-run, BMT_EXECUTE=1 to run)
-clean-bloat:
-    uv run python -m tools.remote.bucket_clean_bloat
-
-# Symlink gcp/local/dependencies/* into each project's gcp/local/<project>/lib/
-# so libKardome.so finds them without copying. Idempotent; use --dry-run to preview.
-symlink-deps:
-    uv run python tools/scripts/symlink_bmt_deps.py
-
-# Scaffold a new BMT project (generic template; set parsing/gate in bmt_jobs.json).
-# First BMT gets a generated UUID. Usage: just add-project myproject
+# Scaffold a new BMT project. Usage: just add-project myproject
 add-project project:
     uv run python tools/scripts/add_bmt_project.py "{{ project }}"
 
 # -----------------------------------------------------------------------------
-# Run workflow locally (act)
+# Run workflows locally (act). Use .env for vars; required for handoff.
+# Usage: just act | just act handoff | just act trigger | just act <job> (e.g. just act prepare-builds)
 # -----------------------------------------------------------------------------
-# Run GitHub Actions workflows in Docker for debugging. Requires: Docker, act (nektos/act).
-# Set vars in .env (GCS_BUCKET, GCP_PROJECT, etc.) or export; optional --secret-file .secrets.
-# Usage: just act-workflow              # all jobs
-#        just act-workflow prepare-builds
-#        just act-bmt-handoff           # handoff only (passes head_sha, head_branch)
-act-workflow job="":
+act which="":
     #!/usr/bin/env -S bash -eu
+    VAR_ARG=""
+    [[ -f .env ]] && VAR_ARG="--var-file .env"
     W=".github/workflows/build-and-test.yml"
-    ENV_ARG=""
-    [[ -f .env ]] && ENV_ARG="--env-file .env"
-    if [[ -n "{{ job }}" ]]; then
-      act workflow_dispatch -W "$W" -j "{{ job }}" $ENV_ARG
-    else
-      act workflow_dispatch -W "$W" $ENV_ARG
-    fi
-
-act-bmt-handoff:
-    #!/usr/bin/env -S bash -eu
-    ENV_ARG=""
-    [[ -f .env ]] && ENV_ARG="--env-file .env"
-    act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
-      -i ci_run_id=$${GITHUB_RUN_ID:-local123} \
-      -i head_sha="$(git rev-parse HEAD)" \
-      -i head_branch="$(git branch --show-current)" \
-      -i head_event=push \
-      -i pr_number= \
-      $ENV_ARG
-
-act-trigger-ci:
-    #!/usr/bin/env -S bash -eu
-    ENV_ARG=""
-    [[ -f .env ]] && ENV_ARG="--env-file .env"
-    act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json $ENV_ARG
+    case "{{ which }}" in
+      handoff)
+        act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
+          -i ci_run_id=$${GITHUB_RUN_ID:-local123} \
+          -i head_sha="$(git rev-parse HEAD)" \
+          -i head_branch="$(git branch --show-current)" \
+          -i head_event=push \
+          -i pr_number= \
+          $VAR_ARG
+        ;;
+      trigger)
+        act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json $VAR_ARG
+        ;;
+      "")
+        act workflow_dispatch -W "$W" $VAR_ARG
+        ;;
+      *)
+        act workflow_dispatch -W "$W" -j "{{ which }}" $VAR_ARG
+        ;;
+    esac
 
 # -----------------------------------------------------------------------------
-# Image build
+# Image build then Terraform. Usage: just build | just build no_wait=1 | just build skip_image=1
+# - default: validate Packer, dispatch image build, wait, then run terraform.
+# - no_wait=1: dispatch image build and return (no wait, no terraform).
+# - skip_image=1: skip image build, run terraform only.
 # -----------------------------------------------------------------------------
-
-# Validate Packer template only (no GCP resources created)
+# Validate Packer template only (no GCP). Also run automatically at start of 'just build'.
 packer-validate:
     packer validate \
       -var 'gcp_project=dry-run' \
@@ -157,38 +129,43 @@ packer-validate:
       -var 'gcs_bucket=dry-run' \
       infra/packer/bmt-runtime.pkr.hcl
 
-# Dispatch Packer build workflow (branch defaults to current); does not wait.
-build-image branch="":
+build branch="" no_wait="" skip_image="":
     #!/usr/bin/env -S bash -eu
     B="{{ branch }}"
-    if [[ -z "$B" ]]; then B="$(git rev-parse --abbrev-ref HEAD)"; fi
+    [[ -z "$B" ]] && B="$(git rev-parse --abbrev-ref HEAD)"
     REPO="$(git remote get-url origin | sed 's|.*github.com[:/]\(.*\)\.git|\1|;s|.*github.com[:/]\(.*\)|\1|')"
-    echo "Dispatching image build from branch: $B (repo: $REPO)"
-    gh workflow run trigger-image-build.yml --repo "$REPO" -f branch="$B"
 
-# Rebuild VM image using the workflow file from your current branch (via trigger-image-build), then wait. Set BMT_SKIP_IMAGE_BUILD=1 to skip.
-build branch="":
-    #!/usr/bin/env -S bash -eu
-    if [[ -n "${BMT_SKIP_IMAGE_BUILD:-}" ]]; then
-      echo "Skipping image build (BMT_SKIP_IMAGE_BUILD is set). Run 'just terraform' to apply infra only."
+    do_image=1
+    [[ "{{ skip_image }}" == "1" || "{{ skip_image }}" == "true" ]] && do_image=0
+    run_terraform=1
+    [[ "{{ no_wait }}" == "1" || "{{ no_wait }}" == "true" ]] && run_terraform=0
+
+    if [[ "{{ no_wait }}" == "1" || "{{ no_wait }}" == "true" ]]; then
+      if [[ $do_image -eq 1 ]]; then
+        echo "Dispatching image build from branch: $B (repo: $REPO)"
+        gh workflow run trigger-image-build.yml --repo "$REPO" -f branch="$B"
+      fi
       exit 0
     fi
-    B="{{ branch }}"
-    if [[ -z "$B" ]]; then B="$(git rev-parse --abbrev-ref HEAD)"; fi
-    REPO="$(git remote get-url origin | sed 's|.*github.com[:/]\(.*\)\.git|\1|;s|.*github.com[:/]\(.*\)|\1|')"
-    echo "Dispatching image build from branch: $B (repo: $REPO)"
-    if ! gh workflow run trigger-image-build.yml --repo "$REPO" -f branch="$B" 2>&1; then
-      echo ""
-      echo "::warning::Trigger workflow (trigger-image-build.yml) must exist on the repo's *default* branch. Merge it once, or run: BMT_SKIP_IMAGE_BUILD=1 just build-terraform"
-      exit 1
-    fi
-    echo "Waiting for image build to complete..."
-    sleep 5
-    RUN_ID="$(gh run list --workflow=trigger-image-build.yml --repo "$REPO" --limit 1 --json databaseId -q '.[0].databaseId')"
-    gh run watch "$RUN_ID" --repo "$REPO" --exit-status
 
-# Rebuild image then Terraform (init + apply + export). Use after image or infra changes.
-# If the image-build workflow is not on the default branch, use: BMT_SKIP_IMAGE_BUILD=1 just build-terraform
-build-terraform branch="":
-    just build "{{ branch }}"
-    just terraform
+    if [[ $do_image -eq 1 ]]; then
+      packer validate \
+        -var 'gcp_project=dry-run' \
+        -var 'gcp_zone=europe-west4-a' \
+        -var 'gcs_bucket=dry-run' \
+        infra/packer/bmt-runtime.pkr.hcl
+      echo "Dispatching image build from branch: $B (repo: $REPO)"
+      if ! gh workflow run trigger-image-build.yml --repo "$REPO" -f branch="$B" 2>&1; then
+        echo "::warning::Trigger workflow must exist on default branch. Use 'just build skip_image=1' to run terraform only."
+        exit 1
+      fi
+      echo "Waiting for image build to complete..."
+      sleep 5
+      RUN_ID="$(gh run list --workflow=trigger-image-build.yml --repo "$REPO" --limit 1 --json databaseId -q '.[0].databaseId')"
+      gh run watch "$RUN_ID" --repo "$REPO" --exit-status
+    fi
+
+    if [[ $run_terraform -eq 1 ]]; then
+      uv run python -m tools.terraform.terraform_preflight
+      uv run python -m tools.terraform.terraform_apply
+    fi

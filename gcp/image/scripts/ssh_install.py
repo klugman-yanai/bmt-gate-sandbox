@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """SSH into the BMT VM and run dependency install (pip) so deps are persistent on the VM's disk.
 
-Required env: GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM.
-Optional: BMT_REPO_ROOT (default /opt/bmt).
+Required env: GCP_PROJECT, BMT_LIVE_VM.
+Zone and repo root use fixed defaults (not overridable via env).
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from whenever import Instant
 
+from gcp.image.config.constants import DEFAULT_GCP_ZONE
 from gcp.image.path_utils import DEFAULT_BMT_REPO_ROOT
 
 
@@ -29,13 +30,13 @@ def _log_err(msg: str) -> None:
 
 def main() -> int:
     project = os.environ.get("GCP_PROJECT", "").strip()
-    zone = os.environ.get("GCP_ZONE", "").strip()
+    zone = DEFAULT_GCP_ZONE
     vm_name = os.environ.get("BMT_LIVE_VM", "").strip()
-    repo_root = os.environ.get("BMT_REPO_ROOT", "").strip() or DEFAULT_BMT_REPO_ROOT
+    repo_root = DEFAULT_BMT_REPO_ROOT
 
-    if not all([project, zone, vm_name]):
-        _log_err("::error::Set GCP_PROJECT, GCP_ZONE, and BMT_LIVE_VM.")
-        _log_err("Example: GCP_PROJECT=... GCP_ZONE=europe-west4-a BMT_LIVE_VM=bmt-vm")
+    if not all([project, vm_name]):
+        _log_err("::error::Set GCP_PROJECT and BMT_LIVE_VM Zone is fixed (europe-west4-a).")
+        _log_err("Example: GCP_PROJECT=... BMT_LIVE_VM=bmt-vm")
         return 1
 
     _log(f"Running install_deps on {vm_name} ({repo_root})...")

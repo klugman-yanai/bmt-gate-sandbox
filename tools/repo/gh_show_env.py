@@ -160,7 +160,7 @@ def print_github_section(contract: dict[str, object]) -> None:
 
     required_vars = list_context_vars(contract, "github_repo_vars", "required")
     if not required_vars:
-        required_vars = ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_PROJECT", "GCP_ZONE", "BMT_LIVE_VM"]
+        required_vars = ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_PROJECT", "BMT_LIVE_VM"]
 
     defaults = _contract_defaults(contract)
     optional_vars = list_context_vars(contract, "github_repo_vars", "optional")
@@ -255,13 +255,13 @@ def print_vm_section() -> None:
         return
 
     vm_project = get_vm_project()
-    vm_zone = gh_var("GCP_ZONE")
+    vm_zone = "europe-west4-a"  # Fixed; not a repo var
     vm_name = gh_var("BMT_LIVE_VM")
 
     if not vm_project or not vm_zone or not vm_name:
         console.print(
             Panel(
-                Text("(need GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM from gh to connect)", style="dim"),
+                Text("(need GCP_PROJECT, BMT_LIVE_VM from gh; zone defaults to europe-west4-a)", style="dim"),
                 title="[bold]VM env[/]",
                 subtitle=description,
             )

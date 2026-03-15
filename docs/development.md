@@ -21,7 +21,7 @@ This document covers the **current** development workflow: setup, testing, lint/
    export GCS_BUCKET="<your-bucket>"   # for bucket_* and just sync-deploy, validate-bucket, etc.
    ```
 
-   Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM` for VM serial, validate-vm-vars, and CI workflow.
+   Optional: `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM` for VM serial, validate, and CI workflow.
 
 3. **Local diagnostics location:** Keep ad-hoc logs and snapshots under `.local/diagnostics/`. Do not use a root-level `debug/` directory.
 
@@ -96,7 +96,7 @@ This is the **canonical guide** for testing production BMT CI locally using the 
 **Prerequisites**
 
 - **BMT VM:** Terraform-managed; create or update the VM and repo vars with `just terraform-export-vars-apply` or the **BMT VM Provision** workflow (Actions). Console-created VMs are not required.
-- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, and the Terraform-exported vars (`just terraform-export-vars-apply`), including `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
+- **Repo variables** set: at least `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, and Terraform-exported vars (`just terraform`). Optional: `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `BMT_PUBSUB_TOPIC`. Use `gh variable list` or Settings → Secrets and variables → Actions → Variables.
 - **gcloud** authenticated and able to access the bucket and VM (`gcloud auth list`, `gcloud storage ls gs://<bucket>`).
 - **Python 3.12** and **uv** (`uv sync` and `uv pip install -e .` from repo root).
 
@@ -149,8 +149,8 @@ The repo root contains an `.actrc` that maps `ubuntu-22.04` to a compatible Dock
 
 **Vars and secrets**
 
-- Repo variables (e.g. `GCS_BUCKET`, `GCP_PROJECT`, `BMT_LIVE_VM`) are not available locally. Copy `.env.example` to `.env` and fill in values (do not commit `.env`). Pass them via `act --env-file .env` or set in the environment.
-- Secrets: put in a file (e.g. `.secrets`) and run `act --secret-file .secrets`, or pass per secret with `-s GITHUB_TOKEN=...`. Optional: copy `.secrets.example` to `.secrets` and set values; run act with `--secret-file .secrets`. For handoff steps that need a real token, use `-s GITHUB_TOKEN="$(gh auth token)"` or a secret file. See [configuration.md](configuration.md).
+- Repo variables (e.g. `GCS_BUCKET`, `GCP_PROJECT`, `BMT_LIVE_VM`) are not available locally. Copy `.env.example` to `.env` and fill in values (do not commit `.env`). Pass them with **`act --var-file .env`** so that `${{ vars.X }}` in the workflow resolve correctly (act’s recommended way for repo variables). The Just recipes use `--var-file .env` when `.env` exists.
+- Secrets: put in a file (e.g. `.secrets`) and run `act --secret-file .secrets`, or pass per secret with `-s GITHUB_TOKEN=...`. Optional: copy `.secrets.example` to `.secrets` and set values. For handoff steps that need a real token, use `-s GITHUB_TOKEN="$(gh auth token)"` or a secret file. See [configuration.md](configuration.md).
 
 **What to run**
 
@@ -194,7 +194,7 @@ The repo root contains an `.actrc` that maps `ubuntu-22.04` to a compatible Dock
 
 - **Reusable workflows** (`uses: ./.github/workflows/bmt-handoff.yml`) may not be fully supported by act in all versions; if the bmt job fails to invoke handoff, run `bmt-handoff.yml` via `workflow_dispatch` as above.
 - **GCP and VM**: Steps that need real GCP (WIF, storage, VM start) will only work if your Docker host has credentials and the same vars; use a sandbox bucket and optional VM for real handoff.
-- **Just recipe**: `just act-workflow [job]` runs act with the build-and-test workflow; see `just --list`.
+- **Just recipe**: `just act` (build-and-test), `just act handoff`, `just act trigger`, or `just act <job>`; see `just --list`.
 
 ---
 
@@ -225,7 +225,13 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just deploy` | Sync `gcp/` to bucket and verify (sync code + runtime seed, then verify). Requires `GCS_BUCKET`. Run after changing gcp/ code. |
 | `just monitor` | Live TUI for workflow/VM/GCS (e.g. `just monitor --run-id <id>`). |
 | `just vm-check <run_id>` | Show trigger, ack, and VM serial tail for a run. Read-only; does not start the VM. |
-| `just build-image [branch]` | Dispatch the BMT Image Build workflow (branch defaults to current). |
+| `just build` | Validate Packer, dispatch image build, wait, then run terraform. |
+| `just build no_wait=1` | Dispatch image build only (no wait, no terraform). |
+| `just build skip_image=1` | Skip image build; run terraform only. |
+| `just act` | Run build-and-test workflow locally. Uses .env if present. |
+| `just act handoff` | Run BMT handoff workflow with current HEAD. |
+| `just act trigger` | Run trigger-ci with pull_request event. |
+| `just act <job>` | Run a single job of build-and-test (e.g. `just act prepare-builds`). |
 
 Other operations (sync, upload, validate, repo vars, bmt matrix/trigger, etc.) are run via `uv run python -m tools.<folder>.<module>` (e.g. `tools.remote.bucket_sync_gcp`, `tools.repo.gh_repo_vars`) or `uv run bmt <cmd>`; see [CLAUDE.md](../CLAUDE.md) and `uv run bmt --help`.
 
@@ -239,7 +245,7 @@ There is **no formal build step** for the BMT pipeline. Deployment is:
 
    ```bash
    GCS_BUCKET="<bucket>" just deploy
-   # or stepwise: just sync-gcp && just verify-sync
+   # sync + verify: just deploy
    ```
 
    Notes:
@@ -263,13 +269,13 @@ There is **no formal build step** for the BMT pipeline. Deployment is:
 
 Dataset policy: `data/` is the local authoritative source for large WAV corpora; `gcp/remote/**/inputs/**` must remain placeholders only (`.keep`), not local WAV storage.
 
-4. **Validate bucket contract:**
+1. **Validate bucket contract:**
 
    ```bash
    GCS_BUCKET="<bucket>" uv run python -m tools.remote.bucket_validate_contract
    ```
 
-5. **Read-only mount for local inspection (optional):** To browse or play bucket dataset WAVs locally without downloading, use the FUSE script (requires `gcsfuse` and `gcloud` auth):
+2. **Read-only mount for local inspection (optional):** To browse or play bucket dataset WAVs locally without downloading, use the FUSE script (requires `gcsfuse` and `gcloud` auth):
 
    ```bash
    GCS_BUCKET="<bucket>" tools/local/mount_remote_data.sh
@@ -298,9 +304,8 @@ To remove existing `__pycache__`, `.pyc`, `.venv`, and similar bloat from the bu
 - **GCS:** Run a dry-run first, then execute:
 
   ```bash
-  GCS_BUCKET="<bucket>" just clean-bloat              # default: code scope, dry-run
-  GCS_BUCKET="<bucket>" just clean-bloat --execute    # delete bloat under code
-  GCS_BUCKET="<bucket>" just clean-bloat --scope both --execute   # code + runtime
+  GCS_BUCKET="<bucket>" just clean-bloat              # default: dry-run
+  GCS_BUCKET="<bucket>" just clean-bloat execute      # perform deletions
   ```
 
 - **VM:** The startup wrapper removes bloat under `BMT_REPO_ROOT` after each code sync, so the next VM boot will clean the local tree. No extra step required.

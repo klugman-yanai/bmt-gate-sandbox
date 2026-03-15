@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Roll back startup mode to inline startup-script metadata (legacy mode).
 
-Required env: GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM, GCS_BUCKET.
-Optional: BMT_REPO_ROOT (default /opt/bmt).
+Required env: GCP_PROJECT, BMT_LIVE_VM, GCS_BUCKET.
+Zone and repo root use fixed defaults (not overridable via env).
 """
 
 from __future__ import annotations
@@ -12,18 +12,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+from gcp.image.config.constants import DEFAULT_GCP_ZONE
 from gcp.image.path_utils import DEFAULT_BMT_REPO_ROOT
 
 
 def main() -> int:
     project = os.environ.get("GCP_PROJECT", "").strip()
-    zone = os.environ.get("GCP_ZONE", "").strip()
+    zone = DEFAULT_GCP_ZONE
     vm_name = os.environ.get("BMT_LIVE_VM", "").strip()
     bucket = os.environ.get("GCS_BUCKET", "").strip()
-    repo_root = os.environ.get("BMT_REPO_ROOT", "").strip() or DEFAULT_BMT_REPO_ROOT
+    repo_root = DEFAULT_BMT_REPO_ROOT
 
-    if not all([project, zone, vm_name, bucket]):
-        print("::error::Set GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM, and GCS_BUCKET.", file=sys.stderr)
+    if not all([project, vm_name, bucket]):
+        print("::error::Set GCP_PROJECT, BMT_LIVE_VM, and GCS_BUCKET Zone is fixed (europe-west4-a).", file=sys.stderr)
         return 1
 
     entrypoint = Path(__file__).resolve().parent / "startup_entrypoint.sh"

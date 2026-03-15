@@ -1,24 +1,24 @@
 """GitHub Actions repo vars contract and behavioral defaults.
 
-Source of truth for which vars exist, required vs optional, secrets, and default
-values for behavioral vars. Infra-derived values come from Terraform outputs;
-behavioral defaults come from gcp.image.config.bmt_config.BmtConfig (single source of truth).
+Minimum user config (declarative):
+- **bmt.tfvars.json** must set four required variables (no Terraform default):
+  gcp_project, gcp_zone, gcs_bucket, service_account.
+- **Optional** in tfvars: bmt_vm_name (default bmt-gate-blue). Terraform exports
+  gcs_bucket, gcp_project, bmt_vm_name, service_account to GitHub as
+  GCS_BUCKET, GCP_PROJECT, BMT_LIVE_VM, GCP_SA_EMAIL. Zone is not exported;
+  at runtime zone is fixed in code (not overridable via env).
 
-Repo vars are only for values that vary per repo or must be set by the user (e.g. bucket,
-project, VM name, status context for branch protection, WIF, GitHub App ID). Constants
-that users should not override (e.g. handshake timeout, repo root path) are not repo vars;
-code uses BmtConfig defaults. Optional vars (e.g. BMT_REPO_ROOT) have defaults so
-repo-vars-check does not require them. Secrets like BMT_DISPATCH_APP_PRIVATE_KEY are not
-in the contract when the key is stored in the bucket and CI does not need a repo-level secret.
+Manual in GitHub: GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID (and BMT_DISPATCH_APP_PRIVATE_KEY
+when this repo mints the dispatch token). Subscription, topic, repo root, VM pool
+are derived in code from BMT_LIVE_VM and constants.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from gcp.image.config.constants import DEFAULT_REPO_ROOT
-
 # Defaults for repo-vars check/apply (behavioral vars that remain in contract).
+# Repo root, subscription, topic, pool are in declarative config / derived in code; not repo vars.
 
 
 @dataclass(frozen=True)
@@ -45,13 +45,12 @@ class RepoVarsContract:
 
 
 # Terraform output name (outputs.tf) -> GitHub Actions variable name.
-# Only infra-derived vars; behavioral vars use DEFAULTS below.
+# YAGNI: only vars users or deployments need to set. Subscription, topic, repo_root, pool
+# are derived in code from BMT_LIVE_VM and constants (see bmt_config, vm.py).
 TERRAFORM_OUTPUT_TO_VAR: dict[str, str] = {
     "gcs_bucket": "GCS_BUCKET",
     "gcp_project": "GCP_PROJECT",
-    "gcp_zone": "GCP_ZONE",
     "bmt_vm_name": "BMT_LIVE_VM",
-    "bmt_repo_root": "BMT_REPO_ROOT",
     "service_account": "GCP_SA_EMAIL",
 }
 
@@ -59,14 +58,13 @@ REPO_VARS_CONTRACT = RepoVarsContract(
     required=(
         "GCS_BUCKET",
         "GCP_PROJECT",
-        "GCP_ZONE",
         "BMT_LIVE_VM",
         "GCP_SA_EMAIL",
     ),
-    optional=("BMT_REPO_ROOT",),
+    optional=(),
     secrets_not_in_terraform=(
         "GCP_WIF_PROVIDER",
         "BMT_DISPATCH_APP_ID",
     ),
-    defaults=(("BMT_REPO_ROOT", DEFAULT_REPO_ROOT),),
+    defaults=(),
 )

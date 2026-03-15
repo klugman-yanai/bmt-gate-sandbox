@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TF_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
-      TF_VAR_gcp_zone: ${{ vars.GCP_ZONE }}
+      TF_VAR_gcp_zone: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
       TF_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
       TF_VAR_bmt_vm_name: ${{ inputs.bmt_vm_name }}
       TF_VAR_image_family: ${{ inputs.image_family }}

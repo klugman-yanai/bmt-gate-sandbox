@@ -126,12 +126,12 @@ def parse_args() -> argparse.Namespace:
     )
     _ = parser.add_argument(
         "--subscription",
-        default=cfg.bmt_pubsub_subscription or os.environ.get("BMT_PUBSUB_SUBSCRIPTION", ""),
+        default=cfg.effective_pubsub_subscription or "",
         help="Pub/Sub subscription ID (e.g. bmt-vm-myvm). When set, uses Pub/Sub instead of GCS polling.",
     )
     _ = parser.add_argument(
         "--gcp-project",
-        default=cfg.gcp_project or os.environ.get("GCP_PROJECT", ""),
+        default=cfg.gcp_project or "",
         help="GCP project ID (required when --subscription is set).",
     )
     return parser.parse_args()

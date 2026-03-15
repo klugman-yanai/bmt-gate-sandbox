@@ -91,9 +91,8 @@ env:
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
-  GCP_ZONE: ${{ vars.GCP_ZONE }}
+  GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
   BMT_LIVE_VM: ${{ vars.BMT_LIVE_VM }}
-  BMT_VM_POOL: ${{ vars.BMT_VM_POOL }}
 
 permissions:
   contents: read

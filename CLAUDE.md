@@ -53,7 +53,7 @@ Scripts organized by category prefix:
 
 **Layout validators:** Run **`just test`** to run both layout policies (gcp + repo). Or run `uv run python -m tools.repo.gcp_layout_policy` and `uv run python -m tools.repo.repo_layout_policy` separately when changing layout or adding root-level entries.
 
-**Config vs repo vars:** **Terraform** (infra/terraform) is the source of truth for all non-secret configuration. Run **`just terraform-export-vars-apply`** to set GitHub repo variables from Terraform outputs. **infra/bootstrap/** holds shell bootstrap (`.env.example`, `bootstrap_gh_vars.sh`) for secrets and one-off `gh variable set` / `gh secret set`. **`tools/repo/gh_repo_vars.py`** checks or applies repo vars (expected values from Terraform when available); use `just repo-vars-check` and `just repo-vars-apply`. See [infra/README.md](infra/README.md).
+**Config vs repo vars:** **Terraform** (infra/terraform) is the source of truth for all non-secret configuration. Run **`just terraform`** to apply and push GitHub repo variables. **infra/bootstrap/** holds shell bootstrap (`.env.example`, `bootstrap_gh_vars.sh`) for secrets and one-off `gh variable set` / `gh secret set`. Use **`just validate`** to check repo vars vs Terraform/contract and VM metadata. See [infra/README.md](infra/README.md).
 
 Tools are **Python classes** with a `run()` method (and optional attributes). When run as scripts they read configuration from **environment variables only** (no CLI flags). Use `just` to see and run recipes.
 
@@ -150,9 +150,9 @@ python3 tools/bmt_run_local.py \
 
 ### Devtools (bucket sync, runner/wav upload, contract validation)
 
-Bucket is read from canonical `GCS_BUCKET`; shared helpers live in `tools/shared_bucket_env.py` (fixed code root `gs://<bucket>/code`, runtime root `gs://<bucket>/runtime`). From repo root use `just sync-gcp && just verify-sync` (with `GCS_BUCKET`) to update code root manually, and `just show-env` to print the env var names used by CI, VM, and local tools.
+Bucket is read from canonical `GCS_BUCKET`; shared helpers live in `tools/shared_bucket_env.py` (fixed code root `gs://<bucket>/code`, runtime root `gs://<bucket>/runtime`). From repo root use **`just deploy`** (with `GCS_BUCKET`) to sync and verify, and `just show-env` to print the env var names used by CI, VM, and local tools.
 
-**Pre-commit:** The workflow does not sync `gcp/` to GCS. The pre-commit hook (`verify-gcp-bucket-sync`) **blocks** commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`). Run `just sync-gcp && just verify-sync` before committing gcp changes so the VM has the same code.
+**Pre-commit:** The workflow does not sync `gcp/` to GCS. The pre-commit hook (`verify-gcp-bucket-sync`) **blocks** commits that touch `gcp/` unless the bucket is in sync (or `SKIP_SYNC_VERIFY=1`). Run `just deploy` before committing gcp changes so the VM has the same code.
 
 ```bash
 GCS_BUCKET="<bucket>" python3 tools/bucket_sync_gcp.py

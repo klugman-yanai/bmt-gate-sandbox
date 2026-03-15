@@ -11,7 +11,7 @@ Get a new project running on the VM and in CI. Do the steps **in order**. All pa
 | 1 | bmt-gcloud | Scaffold project: `just add-project <project>`. |
 | 2 | bmt-gcloud | Edit `gcp/image/projects/<project>/bmt_jobs.json` (paths, runner, gate, parsing). |
 | 3 | bmt-gcloud | No code edit needed — the scaffold generates the manager. Edit `bmt_manager.py` only if you need custom gate or runner logic (see [adding-new-project-and-bmt.md](adding-new-project-and-bmt.md) §3). |
-| 4 | bmt-gcloud | Validate: `uv run python tools/scripts/validate_bmt_jobs_schema.py`. Sync: `GCS_BUCKET=<bucket> just sync-gcp`. |
+| 4 | bmt-gcloud | Validate: `uv run python tools/scripts/validate_bmt_jobs_schema.py`. Sync: `GCS_BUCKET=<bucket> just deploy`. |
 | 5 | App repo | Add CMake preset for the project; ensure the workflow uploads the runner with the correct PROJECT and PRESET. |
 | 6 | App repo | Ensure `.github/bmt/` exists (copy from bmt-gcloud or run your one-time setup). |
 
@@ -81,7 +81,7 @@ Fix any reported errors.
 **Sync to bucket:**
 
 ```bash
-GCS_BUCKET=<bucket> just sync-gcp
+GCS_BUCKET=<bucket> just deploy
 ```
 
 **Done when:** Validation passes and sync completes. The bucket then has `projects/<project>/bmt_manager.py` and `projects/<project>/bmt_jobs.json`.

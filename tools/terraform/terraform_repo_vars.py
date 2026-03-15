@@ -8,13 +8,11 @@ Secrets (GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID) are not set here; set them manua
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 from tools.repo.vars_contract import REPO_VARS_CONTRACT, TERRAFORM_OUTPUT_TO_VAR
-from tools.shared.bucket_env import truthy
 
 
 def _repo_root() -> Path:
@@ -88,6 +86,7 @@ class TerraformRepoVars:
             for name, value in sorted(vars_to_set.items()):
                 print(f"{name}={value}")
             return 0
+        verbose = "--verbose" in sys.argv or "-v" in sys.argv
         for name, value in sorted(vars_to_set.items()):
             proc = subprocess.run(
                 ["gh", "variable", "set", name, "--body", value],
@@ -98,11 +97,14 @@ class TerraformRepoVars:
             if proc.returncode != 0:
                 print(f"::error::gh variable set {name} failed: {proc.stderr or proc.stdout}", file=sys.stderr)
                 return 1
-            print(f"Set {name}")
+            if verbose:
+                print(f"Set {name}")
+        if not verbose:
+            print("Repo vars OK.")
         return 0
 
 
 if __name__ == "__main__":
-    apply = truthy(os.environ.get("BMT_APPLY"))
-    dry_run = truthy(os.environ.get("BMT_DRY_RUN"))
+    apply = "--apply" in sys.argv
+    dry_run = "--dry-run" in sys.argv
     raise SystemExit(TerraformRepoVars().run(apply=apply, dry_run=dry_run))

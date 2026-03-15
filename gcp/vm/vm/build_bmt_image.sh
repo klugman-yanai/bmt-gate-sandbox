@@ -164,7 +164,7 @@ mkdir -p "${tmp_dir}/code"
 _retry 3 5 gcloud storage rsync "gs://${GCS_BUCKET}/code" "${tmp_dir}/code" --recursive
 
 if [[ ! -f "${tmp_dir}/code/vm/install_deps.sh" ]]; then
-	echo "::error::Bucket code sync is missing vm/install_deps.sh. Run just sync-gcp and ensure GCS_BUCKET has code/ synced." >&2
+	echo "::error::Bucket code sync is missing vm/install_deps.sh. Run just deploy and ensure GCS_BUCKET has code/ synced." >&2
 	exit 1
 fi
 

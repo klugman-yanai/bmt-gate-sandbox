@@ -17,10 +17,6 @@ provider "google" {
   project = var.gcp_project
 }
 
-# ---------------------------------------------------------------------------
-# Image resolution — use explicit name if provided, else resolve from family
-# ---------------------------------------------------------------------------
-
 data "google_compute_image" "bmt_runtime" {
   count   = var.image_name == "" ? 1 : 0
   family  = var.image_family
@@ -30,11 +26,10 @@ data "google_compute_image" "bmt_runtime" {
 locals {
   resolved_image = var.image_name != "" ? var.image_name : data.google_compute_image.bmt_runtime[0].self_link
   startup_script = file(var.startup_wrapper_script_path)
+  # Base name for blue/green: strip -blue or -green suffix so pool = "<base>-blue,<base>-green"
+  bmt_vm_base    = trimspace(replace(replace(var.bmt_vm_name, "-green", ""), "-blue", ""))
+  is_blue_green  = endswith(var.bmt_vm_name, "-blue") || endswith(var.bmt_vm_name, "-green")
 }
-
-# ---------------------------------------------------------------------------
-# BMT VM
-# ---------------------------------------------------------------------------
 
 resource "google_compute_instance" "bmt_vm" {
   name         = var.bmt_vm_name
@@ -88,12 +83,6 @@ resource "google_compute_instance" "bmt_vm" {
   # VM starts in TERMINATED state after creation; the workflow starts it per-run.
   desired_status = "TERMINATED"
 }
-
-# ---------------------------------------------------------------------------
-# Pub/Sub trigger delivery
-# ---------------------------------------------------------------------------
-# Topic name: canonical value in gcp/image/config/constants.py PUBSUB_TOPIC_NAME.
-# Keep this literal in sync; tests/infra/test_terraform_bmt_config_parity.py enforces.
 
 resource "google_pubsub_topic" "bmt_triggers" {
   name    = "bmt-triggers"

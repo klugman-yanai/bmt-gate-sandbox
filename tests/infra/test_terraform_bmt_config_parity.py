@@ -1,25 +1,12 @@
-"""Ensure Terraform variable defaults and resource names stay in sync with gcp/image/config.
-
-Source of truth for string constants used by both code and Terraform:
-- gcp/image/config/constants.py: PUBSUB_TOPIC_NAME, STATUS_CONTEXT, DEFAULT_REPO_ROOT, image defaults
-- gcp/image/config/bmt_config.py: BmtConfig defaults (handshake timeouts, etc.)
-
-Terraform variables.tf and main.tf must match these where they duplicate values (e.g. topic name,
-bmt_repo_root, bmt_status_context). These tests enforce that.
-"""
+"""Terraform defaults and resource names must match gcp/image/config where shared."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-import pytest
-
-from gcp.image.config.bmt_config import DEFAULT_REPO_ROOT, BmtConfig
-from gcp.image.config.constants import (
-    DEFAULT_IMAGE_FAMILY,
-    PUBSUB_TOPIC_NAME,
-)
+from gcp.image.config.bmt_config import DEFAULT_REPO_ROOT
+from gcp.image.config.constants import DEFAULT_IMAGE_FAMILY, PUBSUB_TOPIC_NAME
 
 
 def _repo_root() -> Path:
@@ -43,33 +30,6 @@ def test_terraform_bmt_repo_root_default_matches_bmt_config() -> None:
     assert match, "bmt_repo_root variable with default not found in variables.tf"
     assert match.group(1) == DEFAULT_REPO_ROOT, (
         f"Terraform bmt_repo_root default {match.group(1)!r} != bmt_config.DEFAULT_REPO_ROOT {DEFAULT_REPO_ROOT!r}"
-    )
-
-
-def test_terraform_bmt_status_context_default_matches_bmt_config() -> None:
-    """Terraform bmt_status_context default must match BmtConfig.bmt_status_context."""
-    content = _read_terraform_variables()
-    match = re.search(r'variable\s+"bmt_status_context"\s*\{[^}]*default\s*=\s*"([^"]*)"', content, re.DOTALL)
-    assert match, "bmt_status_context variable with default not found in variables.tf"
-    expected = BmtConfig().bmt_status_context
-    assert match.group(1) == expected, (
-        f"Terraform bmt_status_context default {match.group(1)!r} != BmtConfig.bmt_status_context {expected!r}"
-    )
-
-
-def test_terraform_bmt_handshake_timeout_sec_default_matches_bmt_config() -> None:
-    """Terraform bmt_handshake_timeout_sec default must match BmtConfig.bmt_handshake_timeout_sec."""
-    content = _read_terraform_variables()
-    match = re.search(
-        r'variable\s+"bmt_handshake_timeout_sec"\s*\{[^}]*default\s*=\s*(\d+)',
-        content,
-        re.DOTALL,
-    )
-    assert match, "bmt_handshake_timeout_sec variable with default not found in variables.tf"
-    expected = BmtConfig().bmt_handshake_timeout_sec
-    actual = int(match.group(1))
-    assert actual == expected, (
-        f"Terraform bmt_handshake_timeout_sec default {actual} != BmtConfig.bmt_handshake_timeout_sec {expected}"
     )
 
 

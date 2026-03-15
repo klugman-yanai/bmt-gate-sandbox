@@ -66,7 +66,6 @@ def test_start_vm_waits_for_running_and_advanced_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GCP_PROJECT", "proj")
-    monkeypatch.setenv("GCP_ZONE", "zone")
     monkeypatch.setenv("BMT_LIVE_VM", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "30")
@@ -84,7 +83,7 @@ def test_start_vm_waits_for_running_and_advanced_start(
 
     def _fake_start(project: str, zone: str, instance_name: str) -> None:
         assert project == "proj"
-        assert zone == "zone"
+        assert zone == "europe-west4-a"  # fixed in config; not overridable via env
         assert instance_name == "vm"
         started.append(True)
 
@@ -101,7 +100,6 @@ def test_start_vm_waits_for_running_and_advanced_start(
 
 def test_start_vm_times_out_when_not_running(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GCP_PROJECT", "proj")
-    monkeypatch.setenv("GCP_ZONE", "zone")
     monkeypatch.setenv("BMT_LIVE_VM", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setattr("ci.vm.VM_START_TIMEOUT_SEC", 1)

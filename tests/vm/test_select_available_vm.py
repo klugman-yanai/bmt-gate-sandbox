@@ -20,7 +20,6 @@ def test_select_available_vm_reuses_running_without_stop(tmp_path: Path, monkeyp
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     monkeypatch.setenv("GCP_PROJECT", "proj")
-    monkeypatch.setenv("GCP_ZONE", "zone")
     monkeypatch.setenv("BMT_LIVE_VM", "vm-only")
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
 
@@ -40,20 +39,18 @@ def test_select_available_vm_prefers_terminated(tmp_path: Path, monkeypatch: pyt
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     monkeypatch.setenv("GCP_PROJECT", "proj")
-    monkeypatch.setenv("GCP_ZONE", "zone")
-    monkeypatch.setenv("BMT_LIVE_VM", "fallback-vm")  # required by require_gcp(); pool used for selection
-    monkeypatch.setenv("BMT_VM_POOL", "vm-a,vm-b")
+    monkeypatch.setenv("BMT_LIVE_VM", "bmt-gate-blue")  # pool derived: bmt-gate-blue, bmt-gate-green
     monkeypatch.setenv("GITHUB_RUN_ID", "456")
 
     def _status(_p: str, _z: str, name: str) -> str:
-        return "TERMINATED" if name == "vm-a" else "RUNNING"
+        return "TERMINATED" if name == "bmt-gate-blue" else "RUNNING"
 
     monkeypatch.setattr("ci.vm._vm_status", _status)
 
     VmManager.from_env().select()
 
     content = github_output.read_text(encoding="utf-8")
-    assert "selected_vm=vm-a" in content
+    assert "selected_vm=bmt-gate-blue" in content
     assert "vm_reused_running=false" in content
 
 
@@ -62,9 +59,7 @@ def test_select_available_vm_run_id_assigns_among_running(tmp_path: Path, monkey
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     monkeypatch.setenv("GCP_PROJECT", "proj")
-    monkeypatch.setenv("GCP_ZONE", "zone")
-    monkeypatch.setenv("BMT_LIVE_VM", "fallback-vm")  # required by require_gcp(); pool used for selection
-    monkeypatch.setenv("BMT_VM_POOL", "vm-1,vm-2")
+    monkeypatch.setenv("BMT_LIVE_VM", "bmt-gate-blue")  # pool derived: bmt-gate-blue, bmt-gate-green
     monkeypatch.setenv("GITHUB_RUN_ID", "1")
 
     monkeypatch.setattr(
@@ -76,5 +71,5 @@ def test_select_available_vm_run_id_assigns_among_running(tmp_path: Path, monkey
 
     content = github_output.read_text(encoding="utf-8")
     assert "vm_reused_running=true" in content
-    # run_id 1 % 2 = 1 -> second VM
-    assert "selected_vm=vm-2" in content
+    # run_id 1 % 2 = 1 -> second VM (bmt-gate-green)
+    assert "selected_vm=bmt-gate-green" in content

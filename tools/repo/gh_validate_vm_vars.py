@@ -158,8 +158,10 @@ class GhValidateVmVars:
 if __name__ == "__main__":
     import os
 
+    # Zone is fixed (not overridable via env).
+    _DEFAULT_ZONE = "europe-west4-a"
     vm_name = (os.environ.get("BMT_LIVE_VM") or "").strip() or None
-    zone = (os.environ.get("GCP_ZONE") or "").strip() or None
+    zone = _DEFAULT_ZONE
     project = (os.environ.get("GCP_PROJECT") or "").strip() or None
     contract = (os.environ.get("BMT_ENV_CONTRACT") or "").strip() or None
     raise SystemExit(GhValidateVmVars().run(vm_name=vm_name, zone=zone, project=project, contract=contract))

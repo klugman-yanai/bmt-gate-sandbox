@@ -1,6 +1,6 @@
-# Optional override file. Copy to terraform.tfvars to override defaults.
-# When using `just terraform`, required values (gcp_project, gcp_zone, gcs_bucket, service_account)
-# are read from GitHub repo variables; this file is only needed for overrides.
+# Optional override file for manual `terraform plan/apply` (HCL).
+# For `just terraform`, use the declarative JSON config: copy bmt.tfvars.example.json
+# to bmt.tfvars.json and set gcp_project, gcp_zone, gcs_bucket, service_account.
 gcp_project  = "my-gcp-project"
 gcp_zone     = "europe-west4-a"
 gcs_bucket   = "my-bmt-bucket"

@@ -220,7 +220,7 @@ How the system runs today, with the current split storage contract and manual co
 - `<code-root> = gs://<bucket>/code`
 - `<runtime-root> = gs://<bucket>/runtime`
 
-Ownership: `gcp/image` is source of truth for deployable code/config/vm scripts only, manually synced to `<code-root>` (`just sync-gcp && just verify-sync`). `gcp/remote` is source of truth for runtime seed and is manually synced to `<runtime-root>` (`just sync-runtime-seed`). Runtime artifacts must live under `<runtime-root>` only.
+Ownership: `gcp/image` is source of truth for deployable code/config/vm scripts only, manually synced to `<code-root>` (`just deploy`). `gcp/remote` is source of truth for runtime seed and is manually synced to `<runtime-root>` (`just sync-runtime-seed`). Runtime artifacts must live under `<runtime-root>` only.
 
 **Data flow**
 
@@ -267,4 +267,4 @@ Ownership: `gcp/image` is source of truth for deployable code/config/vm scripts 
 - **`data/`** — Local wav datasets (uploaded explicitly).
 - **`tests/`**, **`docs/`** — Tests and documentation.
 
-Single deploy entrypoint: **`just deploy`** runs `just sync-gcp` then `just verify-sync` to push the deploy surface to the bucket.
+Single deploy entrypoint: **`just deploy`** syncs gcp/image to the bucket and verifies code + runtime seed.

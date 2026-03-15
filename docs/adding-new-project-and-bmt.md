@@ -16,7 +16,7 @@ Step-by-step. Do each section in order when that’s what you need. No prior kno
 | 4 | Leave **template_uri** as `projects/shared/input_template.json` (all projects use the shared template). | No change needed. |
 | 5 | Set **gate** to whatever your project’s pass/fail rule needs. All scoring/gate logic is in code (manager’s _evaluate_gate); the schema only allows optional fields like **tolerance_abs**. | Gate block is present; manager implements pass/fail in code. |
 | 6 | Set **parsing**: `counter_pattern` to a regex with **one** capture group for the numeric score (e.g. `"Hi NAMUH counter = (\\d+)"`). Set `score_key` or `keyword` if your runner needs it. | Parsing matches the runner’s stdout. |
-| 7 | From repo root: `GCS_BUCKET=<bucket> just sync-gcp`. | Sync finishes without errors. |
+| 7 | From repo root: `GCS_BUCKET=<bucket> just deploy`. | Sync finishes without errors. |
 
 **Manager logic is automated:** The scaffold generates a full manager; you do **not** edit `bmt_manager.py` for standard projects. Only edit it when you need custom gate or runner behavior (see §3).
 
@@ -62,7 +62,7 @@ Step-by-step. Do each section in order when that’s what you need. No prior kno
 
 | I want to… | Do this |
 |------------|--------|
-| **New project** | `just add-project <project>` → edit `bmt_jobs.json` (paths, runner, gate, parsing) → `GCS_BUCKET=<bucket> just sync-gcp`. |
+| **New project** | `just add-project <project>` → edit `bmt_jobs.json` (paths, runner, gate, parsing) → `GCS_BUCKET=<bucket> just deploy`. |
 | **New BMT / new WAVs** | Add entry under **bmts** in `bmt_jobs.json` → upload WAVs with `bucket_upload_wavs --dest-prefix <dataset_prefix>` (same as **paths.dataset_prefix**). |
 | **Custom manager logic** | Edit `gcp/image/projects/<project>/bmt_manager.py` only when needed; override _evaluate_gate or run_file (see §3). |
 | **JSON config** | Edit `bmt_jobs.json`; run `validate_bmt_jobs_schema.py`. Keep **template_uri** as `projects/shared/input_template.json`. |

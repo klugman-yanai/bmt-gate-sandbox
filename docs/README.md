@@ -39,6 +39,7 @@ Start here for structure and day-to-day use.
 | Doc | Description |
 | --- | --- |
 | [audits.md](audits.md) | Terraform outputs, BMT config fields, results prefix layout. |
+| [env-vars-audit.md](env-vars-audit.md) | All env vars: which are needed, which are auto-managed, which cause drift; minimal user surface. |
 
 ## Plans
 

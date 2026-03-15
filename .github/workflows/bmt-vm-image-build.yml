@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PKR_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
-      PKR_VAR_gcp_zone: ${{ vars.GCP_ZONE }}
+      PKR_VAR_gcp_zone: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
       PKR_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
       PKR_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
       PKR_VAR_image_family: ${{ inputs.image_family || 'bmt-runtime' }}

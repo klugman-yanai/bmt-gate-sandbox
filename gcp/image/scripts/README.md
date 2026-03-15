@@ -87,9 +87,7 @@ Pinned uv artifact contract under `<code-root>` (image build path):
 
 ## Manual operations
 
-1. Sync code:
-   - `just sync-gcp`
-   - `just verify-sync`
+1. Sync code: `just deploy`
 2. Optional/manual URL-mode setup:
    - `uv run python -m gcp.image.scripts.set_startup_script_url` (or `python gcp/image/scripts/set_startup_script_url.py`)
 3. Roll back startup script if needed:

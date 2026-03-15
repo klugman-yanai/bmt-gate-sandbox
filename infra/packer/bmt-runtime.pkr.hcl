@@ -8,10 +8,6 @@ packer {
   }
 }
 
-# ---------------------------------------------------------------------------
-# Variables — override via -var or a .pkrvars.hcl file
-# ---------------------------------------------------------------------------
-
 variable "gcp_project" { type = string }
 variable "gcp_zone" { type = string }
 variable "gcs_bucket" { type = string }
@@ -66,18 +62,10 @@ variable "keep_builder" {
   default = false
 }
 
-# ---------------------------------------------------------------------------
-# Locals
-# ---------------------------------------------------------------------------
-
 locals {
   timestamp  = formatdate("YYYYMMDD-HHmmss", timestamp())
   image_name = "${var.image_family}-${local.timestamp}"
 }
-
-# ---------------------------------------------------------------------------
-# Source
-# ---------------------------------------------------------------------------
 
 source "googlecompute" "bmt_runtime" {
   project_id   = var.gcp_project
@@ -110,15 +98,6 @@ source "googlecompute" "bmt_runtime" {
   # Packer cleans up the builder VM automatically; no manual trap needed.
   skip_create_image = false
 }
-
-# ---------------------------------------------------------------------------
-# Build
-# ---------------------------------------------------------------------------
-# Build contract: (1) Sync code from GCS to bmt_repo_root, (2) record glibc for manifest,
-# (3) install Google Cloud Ops Agent, (4) install Python 3.12 and deps from vm/vm_deps.txt,
-# (5) write image manifest, (6) upload manifest to GCS, (7) cloud-init clean. Any provisioner failure fails the build.
-# (1b) Install ffmpeg and gcsfuse; (1c) create /mnt/audio_data for FUSE mount.
-# ---------------------------------------------------------------------------
 
 build {
   name    = "bmt-runtime"

@@ -19,6 +19,10 @@ STATUS_CONTEXT = "BMT Gate"
 # VM path (Terraform bmt_repo_root default must match).
 DEFAULT_REPO_ROOT = "/opt/bmt"
 
+# GCP zone: used at runtime (not overridable via env). Terraform still requires gcp_zone in
+# bmt.tfvars.json (no default there); this constant is the single value used by code/CI.
+DEFAULT_GCP_ZONE = "europe-west4-a"
+
 # Image build / policy defaults (single source; Terraform image_family default must match DEFAULT_IMAGE_FAMILY).
 DEFAULT_IMAGE_FAMILY = "bmt-runtime"
 DEFAULT_BASE_IMAGE_FAMILY = "ubuntu-2204-lts"

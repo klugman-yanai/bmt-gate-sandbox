@@ -2,19 +2,17 @@
 """Remove Python/uv bloat objects from GCS bucket.
 
 Lists objects under bucket root, filters by bloat patterns, deletes. Default dry-run.
-Use BMT_EXECUTE=1 to perform deletions. Run from repo root with GCS_BUCKET set.
+Pass --execute to perform deletions. Run from repo root with GCS_BUCKET set.
 """
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 
 from tools.shared.bucket_env import (
     bucket_from_env,
     bucket_root_uri,
-    truthy,
 )
 from tools.shared.bucket_sync import matches
 from tools.shared.layout_patterns import BLOAT_PATTERNS
@@ -92,7 +90,7 @@ class BucketCleanBloat:
 
         if dry_run:
             if total_removed:
-                print(f"Would remove {total_removed} object(s). Run with BMT_EXECUTE=1 to perform deletions.")
+                print(f"Would remove {total_removed} object(s). Run with --execute to perform deletions.")
             else:
                 print("No bloat objects found.")
         else:
@@ -102,5 +100,5 @@ class BucketCleanBloat:
 
 if __name__ == "__main__":
     bucket = bucket_from_env()
-    dry_run = not truthy(os.environ.get("BMT_EXECUTE"))
+    dry_run = "--execute" not in sys.argv
     raise SystemExit(BucketCleanBloat().run(bucket=bucket, dry_run=dry_run))

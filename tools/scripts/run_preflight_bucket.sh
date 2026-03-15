@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wrapper: set GCS_BUCKET from env or gh variable, run preflight shell script then Python diff.
-# Usage: tools/scripts/run_preflight_bucket.sh   (or: just preflight-bucket)
+# Usage: tools/scripts/run_preflight_bucket.sh   (or: just preflight)
 set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)}"

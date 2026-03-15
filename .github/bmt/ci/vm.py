@@ -240,14 +240,18 @@ class VmManager:
             pool = vm_list_names(project, zone, filter_expr=filter_expr)
             pool.sort()
             print(f"VM pool from label {pool_label!r} ({len(pool)} instance(s)): {pool}")
-        if not pool:
-            pool_raw = (os.environ.get("BMT_VM_POOL") or "").strip()
-            pool = [n.strip() for n in pool_raw.split(",") if n.strip()] if pool_raw else []
+        if not pool and self._cfg.bmt_vm_name and self._cfg.bmt_vm_name.strip():
+            # Derive blue/green pool from VM name (declarative convention; no repo var).
+            name = self._cfg.bmt_vm_name.strip()
+            if name.endswith("-blue") or name.endswith("-green"):
+                base = (name.removesuffix("-green").removesuffix("-blue").rstrip("-"))
+                if base:
+                    pool = [f"{base}-blue", f"{base}-green"]
+                    print(f"VM pool from BMT_LIVE_VM blue/green (2 instance(s)): {pool}")
         if not pool:
             if not (self._cfg.bmt_vm_name and self._cfg.bmt_vm_name.strip()):
                 gh_error(
-                    "BMT VM pool is empty and BMT_LIVE_VM is not set. Set BMT_VM_POOL, "
-                    "BMT_VM_POOL_LABEL, or BMT_LIVE_VM."
+                    "BMT VM pool is empty and BMT_LIVE_VM is not set. Set BMT_VM_POOL_LABEL or BMT_LIVE_VM."
                 )
                 raise RuntimeError("BMT VM pool must not be empty.")
             pool = [self._cfg.bmt_vm_name]

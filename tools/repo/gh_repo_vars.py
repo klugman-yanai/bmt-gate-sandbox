@@ -620,7 +620,7 @@ if __name__ == "__main__":
     config = (os.environ.get("BMT_CONFIG") or "").strip()
     contract_raw = (os.environ.get("BMT_CONTRACT") or "").strip()
     contract_path = Path(contract_raw).resolve() if contract_raw else None
-    apply = truthy(os.environ.get("BMT_APPLY"))
+    apply = "--apply" in sys.argv
     prune_extra = truthy(os.environ.get("BMT_PRUNE_EXTRA"))
     force = truthy(os.environ.get("BMT_FORCE"))
     raise SystemExit(

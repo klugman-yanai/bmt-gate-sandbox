@@ -28,7 +28,7 @@ The **code and workflow** for a Terraform-first BMT VM are in place. **Documenta
 These cannot be “done” from the repo alone; someone must run them in the target project and repo:
 
 - **Phase 1:** Terraform backend init, confirm Packer image exists, `terraform plan` / `apply`, record VM name, list console VMs to retire.
-- **Phase 2:** `just terraform-export-vars-apply`, optional pool/label vars, `just repo-vars-check`, `just validate-vm-vars`, confirm sync-vm-metadata.
+- **Phase 2:** `just terraform`, optional pool/label vars, `just validate`, confirm sync-vm-metadata.
 - **Phase 3:** `just deploy`, trigger BMT handoff and confirm Terraform VM is used, delete console-created VM(s), document that production uses Terraform VM(s).
 
 ### Documentation (plan Tasks 3.4, 4.1, 4.2, 5.2, 5.3) — done

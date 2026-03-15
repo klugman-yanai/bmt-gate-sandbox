@@ -36,8 +36,8 @@ Focused review of **image build**, **variables** (design and flow), and **how th
 
 | User action | How agent can do it | Status |
 |------------|----------------------|--------|
-| Trigger image build | `gh workflow run bmt-vm-image-build.yml` or `just build-image` | ✅ Same commands |
-| Check/apply repo vars | `just repo-vars-check`, `just terraform-export-vars-apply`, `just repo-vars-apply` | ✅ Same commands |
+| Trigger image build | `gh workflow run bmt-vm-image-build.yml` or `just build` | ✅ Same commands |
+| Check/apply repo vars | `just validate`, `just terraform` | ✅ Same commands |
 | Run BMT handoff | Trigger workflow via UI or `gh workflow run` with inputs | ✅ Same |
 | Change a constant (e.g. topic name) | Edit `gcp/image/config/constants.py` and `infra/terraform/main.tf`, run parity test | ✅ Parity test enforces both |
 | Set optional image-build vars (BMT_EXPECTED_*) | `gh variable set`; not in vars_contract so not applied by terraform-export-vars | ⚠️ Agent can set them, but discovery is only via actionlint / workflow YAML, not contract |
@@ -86,7 +86,7 @@ Variables and image build are consumed by workflows and CLI as **inputs** (env, 
 
 | Entity | Create | Read | Update | Delete |
 |--------|--------|------|--------|--------|
-| Repo variables | `gh variable set` / repo-vars-apply | `gh variable list` / repo-vars-check | `gh variable set` | `gh variable delete` (manual or prune) |
+| Repo variables | `gh variable set` (via `just terraform`) | `gh variable list` / `just validate` | `gh variable set` | `gh variable delete` (manual or prune) |
 | Terraform outputs | Terraform apply | `terraform output` / terraform_repo_vars | N/A (outputs mirror state) | N/A |
 | VM image | Image build workflow | `gh run list` / check-image-up-to-date; GCS provenance | New build (new image name) | Not automated (GCE images are immutable; old ones can be deleted manually) |
 | Workflow run | `gh workflow run` / UI | `gh run list` / `gh run view` | N/A | Cancel only |
@@ -110,7 +110,7 @@ Repo variables: full CRUD. Image: Create + Read; Update = new build; Delete is m
 
 | Mechanism | Exists? | Location |
 |-----------|---------|----------|
-| Justfile recipes | Yes | `just` (image build, vars, sync, validate-vm-vars) |
+| Justfile recipes | Yes | `just` (image build, terraform, deploy, validate) |
 | Allowed vars list | Yes | actionlint.yaml (for lint); vars_contract.py (for semantics) |
 | Docs for vars and flow | Yes | CLAUDE.md, infra/README.md, docs/configuration.md, .github/bmt/config/README.md |
 | Single “handoff env vs constants” map | Partial | constants.py + workflow comments; not summarized in one place for agents |
@@ -151,7 +151,7 @@ This repo is infrastructure/CI: “features” are workflows and scripts. Behavi
 | Priority | Action | Principle | Effort |
 |----------|--------|-----------|--------|
 | 1 | Add to CLAUDE.md a short subsection **“Workflow env and constants”**: list env keys set from `vars.*` in bmt-handoff and bmt-vm-image-build; state that BMT_STATUS_CONTEXT and BMT_PUBSUB_TOPIC come from `gcp/image/config/constants.py` (and where they’re used). | Context injection, Capability discovery | Low |
-| 2 | Optionally add BMT_EXPECTED_IMAGE_FAMILY, BMT_EXPECTED_BASE_IMAGE_FAMILY, BMT_EXPECTED_BASE_IMAGE_PROJECT to vars_contract as optional (with defaults) so `just repo-vars-check` / terraform-export-vars know about them, or document in infra/README that image-build optional vars are set manually and listed in actionlint. | Action parity, Capability discovery | Low |
+| 2 | Optionally add BMT_EXPECTED_IMAGE_FAMILY, BMT_EXPECTED_BASE_IMAGE_FAMILY, BMT_EXPECTED_BASE_IMAGE_PROJECT to vars_contract as optional (with defaults) so `just validate` / terraform know about them, or document in infra/README that image-build optional vars are set manually and listed in actionlint. | Action parity, Capability discovery | Low |
 | 3 | In docs/configuration.md (or infra/README), add a one-sentence note that “check-image-up-to-date” gates handoff on image build when infra/packer or gcp/image change, and that image build uses the same repo vars (GCP_*, GCS_BUCKET) as handoff. | Context injection | Low |
 
 ---

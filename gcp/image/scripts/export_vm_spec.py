@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Export current VM configuration to a timestamped JSON snapshot for rollback/auditing.
 
-Required env: GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM.
-Optional: BMT_EXPORT_DIR (default: ./gcp/image/scripts/out)
+Required env: GCP_PROJECT, BMT_LIVE_VM.
+Optional: BMT_EXPORT_DIR (default: ./gcp/image/scripts/out). Zone is fixed (europe-west4-a).
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 
 from whenever import Instant
+
+from gcp.image.config.constants import DEFAULT_GCP_ZONE
 
 
 def _log(msg: str) -> None:
@@ -28,12 +30,12 @@ def _log_err(msg: str) -> None:
 
 def main() -> int:
     project = os.environ.get("GCP_PROJECT", "").strip()
-    zone = os.environ.get("GCP_ZONE", "").strip()
+    zone = DEFAULT_GCP_ZONE
     vm_name = os.environ.get("BMT_LIVE_VM", "").strip()
     export_dir = os.environ.get("BMT_EXPORT_DIR", "").strip() or str(Path(__file__).resolve().parent / "out")
 
-    if not all([project, zone, vm_name]):
-        _log_err("::error::Set GCP_PROJECT, GCP_ZONE, and BMT_LIVE_VM.")
+    if not all([project, vm_name]):
+        _log_err("::error::Set GCP_PROJECT and BMT_LIVE_VM Zone is fixed (europe-west4-a).")
         return 1
 
     r = subprocess.run(["which", "jq"], capture_output=True, text=True, check=False)

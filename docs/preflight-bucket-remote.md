@@ -11,7 +11,7 @@ See also: [brainstorm](brainstorms/2026-03-12-gcp-remote-image-mounts-brainstorm
 From the repo root. If `GCS_BUCKET` is not set, it is taken from GitHub repo variables (`gh variable get GCS_BUCKET`); ensure you are in the repo and `gh` is authenticated.
 
 ```bash
-just preflight-bucket
+just preflight
 ```
 
 Or run the script directly (set the bucket or rely on `gh variable get GCS_BUCKET` in your shell):
@@ -49,7 +49,7 @@ If the report contains only errors (e.g. no bucket access), no code/ listing is 
 GCS_BUCKET="${GCS_BUCKET:-$(gh variable get GCS_BUCKET)}" uv run python tools/scripts/preflight_bucket_vs_remote.py
 ```
 
-Or after `just preflight-bucket`, the diff is already run; to run only the diff with current env: `uv run python tools/scripts/preflight_bucket_vs_remote.py` (requires GCS_BUCKET set).
+Or after `just preflight`, the diff is already run; to run only the diff with current env: `uv run python tools/scripts/preflight_bucket_vs_remote.py` (requires GCS_BUCKET set).
 
 **Option C — only list gcp/image (no bucket access):**
 

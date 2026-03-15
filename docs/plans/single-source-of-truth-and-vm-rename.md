@@ -16,7 +16,7 @@
 
 | File | Where it should live | Rationale |
 |------|----------------------|-----------|
-| **bmt_jobs.json** | **GCS** (bucket `code/`) | Config is the source of truth in the bucket; synced from repo (`gcp/image/`). At runtime the root orchestrator **downloads** it from GCS into the run workspace and passes the local path to the manager. Keeping it in GCS means config changes (gate, paths, new BMTs) take effect after `just sync-gcp` and do not require rebuilding the Packer image. The image may contain a snapshot of `code/` at bake time, but the orchestrator deliberately fetches from GCS so each run uses the latest config. |
+| **bmt_jobs.json** | **GCS** (bucket `code/`) | Config is the source of truth in the bucket; synced from repo (`gcp/image/`). At runtime the root orchestrator **downloads** it from GCS into the run workspace and passes the local path to the manager. Keeping it in GCS means config changes (gate, paths, new BMTs) take effect after `just deploy` and do not require rebuilding the Packer image. The image may contain a snapshot of `code/` at bake time, but the orchestrator deliberately fetches from GCS so each run uses the latest config. |
 | **bmt_root_results.json** | **GCS** (runtime bucket) only | It is **output** of the root orchestrator (per-run summary). Written to GCS so CI and other consumers can read it. The VM writes it locally only as a staging step before upload; it does not need to persist on the VM filesystem. |
 
 So: both are **GCS-backed**. The VM filesystem (Packer image) holds code and venv; config (bmt_jobs) is read from GCS at runtime, and run results (bmt_root_results) are written to GCS.
@@ -25,7 +25,7 @@ So: both are **GCS-backed**. The VM filesystem (Packer image) holds code and ven
 
 At runtime the watcher **downloads** `root_orchestrator.py` from GCS, and the orchestrator **downloads** each leg’s manager and `bmt_jobs.json` from GCS. So those artifacts are always taken from the bucket, not from the baked image. The image only needs to provide the watcher, lib, config (e.g. GitHub repos), and vm scripts.
 
-**Keep these in GCS** (sync from `gcp/image/` with `just sync-gcp`) so that changes do **not** require an image rebuild:
+**Keep these in GCS** (sync from `gcp/image/` with `just deploy`) so that changes do **not** require an image rebuild:
 
 | In bucket `code/` | Purpose |
 |-------------------|--------|

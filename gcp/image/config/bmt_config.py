@@ -28,6 +28,8 @@ from pydantic import (
 
 from gcp.image.config import constants
 
+DEFAULT_GCP_ZONE: Final[str] = constants.DEFAULT_GCP_ZONE
+
 # ---------------------------------------------------------------------------
 # Behavioral constants (not config; fixed product behavior)
 # ---------------------------------------------------------------------------
@@ -48,40 +50,23 @@ VM_STOP_WAIT_TIMEOUT_SEC: Final[int] = 420
 # Context file: single file for config + workflow step outputs (avoids env vars in CLI).
 DEFAULT_CONTEXT_FILE: Final[str] = ".bmt/context.json"
 
-# Runtime env key names that may be injected into config (no other env is read).
+# Only these env keys are injected into config. All other values are defaults or derived
+# in code — no env override for zone, subscription, topic, repo root, status context,
+# or handshake/description constants (so users cannot break things by setting them).
 RuntimeEnvKey = Literal[
     "GCS_BUCKET",
     "GCP_PROJECT",
-    "GCP_ZONE",
     "GCP_SA_EMAIL",
     "BMT_LIVE_VM",
-    "BMT_REPO_ROOT",
     "GCP_WIF_PROVIDER",
-    "BMT_PUBSUB_TOPIC",
-    "BMT_PUBSUB_SUBSCRIPTION",
-    "BMT_STATUS_CONTEXT",
-    "BMT_HANDSHAKE_TIMEOUT_SEC",
-    "BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING",
-    "BMT_PROGRESS_DESCRIPTION",
-    "BMT_FAILURE_STATUS_DESCRIPTION",
 ]
 
-# Whitelist of env keys used to populate required/runtime fields.
 _RUNTIME_KEYS: Final[frozenset[RuntimeEnvKey]] = frozenset({
     "GCS_BUCKET",
     "GCP_PROJECT",
-    "GCP_ZONE",
     "GCP_SA_EMAIL",
     "BMT_LIVE_VM",
-    "BMT_REPO_ROOT",
     "GCP_WIF_PROVIDER",
-    "BMT_PUBSUB_TOPIC",
-    "BMT_PUBSUB_SUBSCRIPTION",
-    "BMT_STATUS_CONTEXT",
-    "BMT_HANDSHAKE_TIMEOUT_SEC",
-    "BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING",
-    "BMT_PROGRESS_DESCRIPTION",
-    "BMT_FAILURE_STATUS_DESCRIPTION",
 })
 
 # Type aliases for constrained numeric config (self-documenting and validated)
@@ -110,7 +95,10 @@ class BmtConfig(BaseModel):
     # Required (injected from runtime whitelist only)
     gcs_bucket: str = Field(default="", description="GCS bucket name")
     gcp_project: str = Field(default="", description="GCP project ID")
-    gcp_zone: str = Field(default="", description="GCP zone (e.g. europe-west4-a)")
+    gcp_zone: str = Field(
+        default=DEFAULT_GCP_ZONE,
+        description="GCP zone (europe-west4 only; not a repo var)",
+    )
     gcp_sa_email: str = Field(default="", description="Service account email")
     bmt_vm_name: str = Field(default="", description="BMT VM instance name")
     bmt_repo_root: str = Field(default="", description="Repo root on VM (overrides default)")
@@ -120,7 +108,7 @@ class BmtConfig(BaseModel):
         default=constants.PUBSUB_TOPIC_NAME,
         description="Pub/Sub topic for trigger notifications",
     )
-    bmt_pubsub_subscription: str = Field(default="", description="Pub/Sub subscription name")
+    bmt_pubsub_subscription: str = Field(default="", description="Pub/Sub subscription (empty => derived from bmt_vm_name)")
     # Defaults (code only; no JSON, no env overlay)
     bmt_status_context: str = Field(
         default=constants.STATUS_CONTEXT,
@@ -149,8 +137,18 @@ class BmtConfig(BaseModel):
 
     @property
     def effective_repo_root(self) -> str:
-        """Repo root: injected bmt_repo_root or default."""
+        """Repo root: injected bmt_repo_root or default (declarative default, not a repo var)."""
         return (self.bmt_repo_root or "").strip() or DEFAULT_REPO_ROOT
+
+    @property
+    def effective_pubsub_subscription(self) -> str:
+        """Pub/Sub subscription: injected or derived from VM name (bmt-vm-<bmt_vm_name>)."""
+        sub = (self.bmt_pubsub_subscription or "").strip()
+        if sub:
+            return sub
+        if self.bmt_vm_name and str(self.bmt_vm_name).strip():
+            return "bmt-vm-" + str(self.bmt_vm_name).strip()
+        return ""
 
 
 # ---------------------------------------------------------------------------

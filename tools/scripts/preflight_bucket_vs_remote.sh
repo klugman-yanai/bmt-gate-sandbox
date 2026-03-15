@@ -3,7 +3,7 @@
 # Saves output to .local/preflight-bucket-YYYYMMDD-HHMMSS.txt for diff/review.
 # Usage: GCS_BUCKET=<bucket> tools/scripts/preflight_bucket_vs_remote.sh
 #   Or: GCS_BUCKET="${GCS_BUCKET:-$(gh variable get GCS_BUCKET)}" tools/scripts/...
-# Requires: gcloud, GCS_BUCKET set (or use just preflight-bucket to get it from gh).
+# Requires: gcloud, GCS_BUCKET set (or use just preflight to get it from gh).
 set -euo pipefail
 
 BUCKET="${GCS_BUCKET:?Set GCS_BUCKET (e.g. export GCS_BUCKET=\$(gh variable get GCS_BUCKET))}"
