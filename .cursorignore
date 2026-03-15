@@ -43,6 +43,9 @@ data/
 sk_runtime/
 .bmt_runtime/
 **.zip
+**.7z
+**.tar.gz
+**.tar
 
 # Secrets and credentials
 secrets/
