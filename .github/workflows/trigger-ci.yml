@@ -21,7 +21,9 @@ on:
 
 permissions:
   contents: read
-  actions: write  # Called build-and-test.yml jobs need actions: write
+  actions: write
+  statuses: write   # bmt job posts commit status
+  id-token: write  # GCP WIF / OIDC
 
 jobs:
   ci:
