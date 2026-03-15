@@ -213,6 +213,8 @@ jobs:
         run: uv run bmt preflight-trigger-queue
 
       - name: Sync VM metadata from workflow config
+        env:
+          BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
         shell: bash
         run: uv run bmt sync-vm-metadata
 
@@ -227,7 +229,7 @@ jobs:
         id: start-vm
         if: steps.select-vm.outputs.vm_reused_running != 'true'
         shell: bash
-        run: uv run start
+        run: uv run bmt start-vm
 
       - name: Workflow summary notice
         run: echo "::notice::BMT result will appear in the PR Checks tab and Comments, not in this workflow summary."
@@ -291,6 +293,9 @@ jobs:
       handshake_uri: ${{ steps.run.outputs.handshake_uri || '' }}
       vm_started: ${{ steps.run.outputs.vm_started || 'false' }}
       handoff_reason: ${{ steps.run.outputs.handoff_reason || '' }}
+      handshake_reason_code: ${{ steps.run.outputs.handshake_reason_code || '' }}
+      handshake_reason_detail: ${{ steps.run.outputs.handshake_reason_detail || '' }}
+      handshake_diagnostics_uri: ${{ steps.run.outputs.handshake_diagnostics_uri || '' }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

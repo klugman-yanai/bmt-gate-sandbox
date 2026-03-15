@@ -45,6 +45,15 @@ outputs:
   handoff_reason:
     description: Handoff result reason (ok, no_runtime_supported_legs, handshake_timeout)
     value: ${{ steps.handoff-reason.outputs.handoff_reason || (steps.handshake.outcome == 'success' && 'ok' || 'handshake_timeout') }}
+  handshake_reason_code:
+    description: Machine-readable handshake reason code from wait-handshake.
+    value: ${{ steps.handshake.outputs.handshake_reason_code || '' }}
+  handshake_reason_detail:
+    description: Additional handshake failure detail (if provided by wait-handshake).
+    value: ${{ steps.handshake.outputs.handshake_reason_detail || '' }}
+  handshake_diagnostics_uri:
+    description: GCS URI for structured handshake diagnostics payload on failure.
+    value: ${{ steps.handshake.outputs.handshake_diagnostics_uri || '' }}
 
 runs:
   using: composite
@@ -105,6 +114,8 @@ runs:
 
     - name: Sync VM metadata from workflow config
       if: env.VM_PRE_STARTED != 'true'
+      env:
+        BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
       shell: bash
       run: uv run bmt sync-vm-metadata
 
@@ -120,6 +131,25 @@ runs:
       if: env.VM_PRE_STARTED != 'true' && steps.select-vm.outputs.vm_reused_running != 'true'
       shell: bash
       run: uv run bmt start-vm
+
+    - name: Wait for watcher readiness
+      id: watcher-ready
+      shell: bash
+      env:
+        VM_REUSED_RUNNING_EFFECTIVE: ${{ env.VM_PRE_STARTED == 'true' && env.PRE_STARTED_VM_REUSED_RUNNING || steps.select-vm.outputs.vm_reused_running }}
+      run: |
+        set -euo pipefail
+        if uv run bmt wait-watcher-ready; then
+          exit 0
+        fi
+        if [[ "${VM_REUSED_RUNNING_EFFECTIVE}" != "true" ]]; then
+          echo "::error::Watcher readiness failed on non-reused VM; aborting."
+          exit 1
+        fi
+        echo "::warning::Watcher readiness failed on reused VM; forcing clean restart and retrying once."
+        uv run bmt write-context && uv run bmt force-clean-vm-restart
+        uv run bmt start-vm
+        uv run bmt wait-watcher-ready
 
     - name: Write run trigger to GCS
       id: trigger
@@ -171,7 +201,8 @@ runs:
       run: |
         reason="ok"
         if [[ "${{ steps.handshake.outcome }}" != "success" ]]; then
-          reason="handshake_timeout"
+          code="${{ steps.handshake.outputs.handshake_reason_code }}"
+          reason="${code:-handshake_timeout}"
         elif [[ "${{ steps.handshake.outputs.handshake_accepted_leg_count }}" == "0" ]] || [[ -z "${{ steps.handshake.outputs.handshake_accepted_leg_count }}" ]]; then
           reason="no_runtime_supported_legs"
         fi
@@ -197,4 +228,4 @@ runs:
         gcp_zone: ${{ env.GCP_ZONE }}
         gcs_bucket: ${{ env.GCS_BUCKET }}
         handoff_state_line: "${{ steps.handoff-reason.outputs.handoff_reason == 'ok' && 'Handoff complete: VM confirmed trigger.' || steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero supported test runs.' || 'Handoff failed: VM did not confirm trigger.' }}"
-        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM confirmed trigger but reported no supported test runs.' || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not confirm trigger within handshake timeout.' || '' }}"
+        failure_reason: "${{ steps.handoff-reason.outputs.handoff_reason == 'no_runtime_supported_legs' && 'VM confirmed trigger but reported no supported test runs.' || steps.handshake.outputs.handshake_reason_code != '' && format('Handshake failed ({0}). diagnostics={1}', steps.handshake.outputs.handshake_reason_code, steps.handshake.outputs.handshake_diagnostics_uri || 'n/a') || steps.handoff-reason.outputs.handoff_reason == 'handshake_timeout' && 'VM did not confirm trigger within handshake timeout.' || '' }}"
