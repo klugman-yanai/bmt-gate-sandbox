@@ -29,23 +29,28 @@ jobs:
         run: |
           set -e
           REF="${{ github.event.inputs.branch || github.ref_name }}"
-          if ! gh workflow run bmt-vm-image-build.yml --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
-            DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null) || true
-            [[ -z "$DEFAULT_BRANCH" ]] && DEFAULT_BRANCH=main
-            echo "::warning::bmt-vm-image-build.yml not on $REF; triggering from default branch $DEFAULT_BRANCH (push this workflow + bmt-vm-image-build.yml to $REF to build from branch)."
-            if ! gh workflow run bmt-vm-image-build.yml --repo "${{ github.repository }}" --ref "$DEFAULT_BRANCH" 2>&1; then
-              echo "::error::Failed to trigger bmt-vm-image-build.yml on $REF or $DEFAULT_BRANCH. Ensure the image build workflow exists on one of those branches."
-              exit 1
+          # Try ops/ path first (reorganized branches), fall back to root-level (main)
+          IMAGE_WF="ops/bmt-vm-image-build.yml"
+          if ! gh workflow run "$IMAGE_WF" --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
+            IMAGE_WF="bmt-vm-image-build.yml"
+            if ! gh workflow run "$IMAGE_WF" --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
+              DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null) || true
+              [[ -z "$DEFAULT_BRANCH" ]] && DEFAULT_BRANCH=main
+              echo "::warning::Image build workflow not on $REF; triggering from default branch $DEFAULT_BRANCH."
+              if ! gh workflow run "$IMAGE_WF" --repo "${{ github.repository }}" --ref "$DEFAULT_BRANCH" 2>&1; then
+                echo "::error::Failed to trigger image build on $REF or $DEFAULT_BRANCH."
+                exit 1
+              fi
+              REF="$DEFAULT_BRANCH"
             fi
-            REF="$DEFAULT_BRANCH"
           fi
           for i in 1 2 3 4 5 6 7 8 9 10; do
             sleep 5
-            RUN_ID=$(gh run list --workflow bmt-vm-image-build.yml --repo "${{ github.repository }}" --branch "$REF" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+            RUN_ID=$(gh run list --workflow "$IMAGE_WF" --repo "${{ github.repository }}" --branch "$REF" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
             if [[ -n "$RUN_ID" ]]; then break; fi
           done
           if [[ -z "$RUN_ID" ]]; then
-            echo "::error::Triggered run not found for bmt-vm-image-build.yml on $REF. Check Actions tab."
+            echo "::error::Triggered run not found for $IMAGE_WF on $REF. Check Actions tab."
             exit 1
           fi
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT

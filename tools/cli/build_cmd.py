@@ -16,7 +16,7 @@ from tools.shared.rich_minimal import step_console, success_panel
 app = typer.Typer(no_args_is_help=True)
 
 PACKER_TEMPLATE = "infra/packer/bmt-runtime.pkr.hcl"  # relative to repo root
-IMAGE_BUILD_WORKFLOW = "trigger-image-build.yml"
+IMAGE_BUILD_WORKFLOW = "ops/trigger-image-build.yml"
 
 
 def _repo_slug() -> str:
