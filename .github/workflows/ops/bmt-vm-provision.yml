@@ -28,12 +28,12 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pulumi-apply-${{ inputs.bmt_vm_name }}
+  group: pulumi-apply-${{ github.event.inputs.bmt_vm_name }}
   cancel-in-progress: false
 
 jobs:
   pulumi:
-    name: Pulumi ${{ inputs.action }}
+    name: Pulumi ${{ github.event.inputs.action }}
     runs-on: ubuntu-latest
     env:
       GCP_PROJECT: ${{ vars.GCP_PROJECT }}
@@ -61,12 +61,12 @@ jobs:
         run: |
           set -euo pipefail
           expected_family="${BMT_EXPECTED_IMAGE_FAMILY:-bmt-runtime}"
-          if [[ "${{ inputs.image_family }}" != "${expected_family}" ]]; then
-            echo "::error::image_family must be '${expected_family}', got '${{ inputs.image_family }}'"
+          if [[ "${{ github.event.inputs.image_family }}" != "${expected_family}" ]]; then
+            echo "::error::image_family must be '${expected_family}', got '${{ github.event.inputs.image_family }}'"
             exit 1
           fi
-          if [[ -n "${{ inputs.image_name }}" ]]; then
-            image_ref="${{ inputs.image_name }}"
+          if [[ -n "${{ github.event.inputs.image_name }}" ]]; then
+            image_ref="${{ github.event.inputs.image_name }}"
             image_name="${image_ref##*/}"
             resolved_family="$(gcloud compute images describe "${image_name}" \
               --project="${GCP_PROJECT}" \
@@ -80,9 +80,9 @@ jobs:
       - name: Write bmt.tfvars.json
         working-directory: infra/pulumi
         env:
-          BMT_VM_NAME: ${{ inputs.bmt_vm_name }}
-          IMAGE_FAMILY: ${{ inputs.image_family }}
-          IMAGE_NAME: ${{ inputs.image_name }}
+          BMT_VM_NAME: ${{ github.event.inputs.bmt_vm_name }}
+          IMAGE_FAMILY: ${{ github.event.inputs.image_family }}
+          IMAGE_NAME: ${{ github.event.inputs.image_name }}
         run: |
           python3 -c "
           import json, os
@@ -112,28 +112,28 @@ jobs:
         run: pulumi install
 
       - name: Pulumi preview
-        if: inputs.action != 'destroy'
+        if: github.event.inputs.action != 'destroy'
         working-directory: infra/pulumi
         run: pulumi preview
 
       - name: Pulumi up
-        if: inputs.action == 'up'
+        if: github.event.inputs.action == 'up'
         working-directory: infra/pulumi
         run: pulumi up --yes
 
       - name: Update BMT_LIVE_VM repo variable after up
-        if: inputs.action == 'up'
+        if: github.event.inputs.action == 'up'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh variable set BMT_LIVE_VM \
             --repo "${{ github.repository }}" \
-            --body "${{ inputs.bmt_vm_name }}"
-          echo "Updated BMT_LIVE_VM=${{ inputs.bmt_vm_name }}"
+            --body "${{ github.event.inputs.bmt_vm_name }}"
+          echo "Updated BMT_LIVE_VM=${{ github.event.inputs.bmt_vm_name }}"
 
       - name: Pulumi destroy
-        if: inputs.action == 'destroy'
+        if: github.event.inputs.action == 'destroy'
         working-directory: infra/pulumi
         run: |
-          echo "::warning::Destroying VM ${{ inputs.bmt_vm_name }}"
+          echo "::warning::Destroying VM ${{ github.event.inputs.bmt_vm_name }}"
           pulumi destroy --yes

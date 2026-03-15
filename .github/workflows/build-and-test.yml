@@ -1,37 +1,46 @@
 name: CI
 
-# push/pull_request are in trigger-ci.yml so CI runs from the source branch (see trigger-ci.yml).
+# Structure aligned with Kardome-org/core-main test/check-bmt-gate-workflow-optimizations:
+# checkout-once → extract-presets → dev-build (no real builds) → decide-bmt → bmt.
 on:
+  push:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+      - test/check-bmt-gate-*
+      - test/workflow-optimizations
+      - test/*
+  pull_request:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+      - test/check-bmt-gate-*
+      - test/workflow-optimizations
   workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_call: {}
 
 defaults:
   run:
     shell: bash
 
+# Artifact upload (checkout-once) needs actions write.
 permissions:
   contents: read
   actions: read
 
-# One run per PR branch; cancel in-progress on new push.
 concurrency:
   group: ci-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
-# Pass rule:
-# - prepare-builds + dummy-build-release + dummy-build-non-release are topology checks only;
-#   dummy jobs echo "dummy runner for <project>" (no artifact, no compile).
 jobs:
-  prepare-builds:
+  checkout-once:
+    name: Checkout once
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: write
     outputs:
-      release_presets: ${{ steps.parse.outputs.release_presets }}
-      non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
+      artifact_size: ${{ steps.report.outputs.artifact_size }}
     steps:
       - name: Checkout source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -42,84 +51,118 @@ jobs:
           submodules: false
           lfs: false
 
+      - name: Create repo snapshot
+        run: |
+          tar --exclude='.git' \
+              --exclude='.ruff_cache' \
+              --exclude='.venv' --exclude='venv' --exclude='.uv' \
+              --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.tox' --exclude='*.egg-info' \
+              --exclude='.cursor' --exclude='.vscode' \
+              --exclude='node_modules' \
+              -czf /tmp/repo-snapshot.tar.gz .
+          mv /tmp/repo-snapshot.tar.gz repo-snapshot.tar.gz
+
+      - name: Report repo-snapshot size
+        id: report
+        run: |
+          size=$(du -h repo-snapshot.tar.gz | cut -f1)
+          echo "::notice::repo-snapshot artifact size: $size"
+          echo "artifact_size=$size" >>"$GITHUB_OUTPUT"
+
+      - name: Upload repo-snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: repo-snapshot
+          path: repo-snapshot.tar.gz
+          retention-days: 5
+
+  extract-presets:
+    name: Extract presets
+    runs-on: ubuntu-latest
+    outputs:
+      presets_release: ${{ steps.parse.outputs.presets_release }}
+      presets_nonrelease: ${{ steps.parse.outputs.presets_nonrelease }}
+    steps:
+      - name: Fetch CMakePresets.json
+        env:
+          REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://api.github.com/repos/${REPO}/contents/CMakePresets.json?ref=${REF}"
+          for delay in 0 5 10 20; do
+            [[ "$delay" -gt 0 ]] && sleep "$delay"
+            curl -fsSL --connect-timeout 15 --max-time 60 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              "${url}" -o CMakePresets.json && break
+          done
+          [[ -s CMakePresets.json ]] || { echo "::error::Failed to fetch CMakePresets.json"; exit 1; }
+
       - name: Parse CMakePresets.json
         id: parse
         run: |
-          presets=$(jq -c '
-            [ .buildPresets[]
+          # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
+          # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
+          presets_release=$(jq -c '
+            [ (.buildPresets // [])[]
               | { build: .name
-                , configure: .configurePreset
+                , configure: (.configurePreset // "")
                 , short: (.name | sub("-build$"; "")) }
-              | . + {
-                  is_release: (
-                    (.configure | test("_gcc_Release")) and
-                    (.configure | test("xtensa"; "i") | not) and
-                    (.configure | test("hexagon"; "i") | not)
-                  ),
-                  soft_fail: (
-                    (.configure | test("xtensa"; "i")) or
-                    (.configure | test("hexagon"; "i"))
-                  )
-                }
+              | select(
+                  .configure != "" and
+                  (.configure | test("_gcc_Release")) and
+                  (.configure | test("xtensa"; "i") | not) and
+                  (.configure | test("hexagon"; "i") | not)
+                )
             ]' CMakePresets.json)
-          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
-          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
+          presets_nonrelease=$(jq -c '
+            [ (.buildPresets // [])[]
+              | { build: .name
+                , configure: (.configurePreset // "")
+                , short: (.name | sub("-build$"; "")) }
+              | select(.configure != "" and (
+                  (.configure | test("_gcc_Release") | not) or
+                  (.configure | test("xtensa"; "i")) or
+                  (.configure | test("hexagon"; "i"))
+                ))
+              | . + {soft_fail: ((.configure | test("xtensa"; "i")) or (.configure | test("hexagon"; "i")))}
+            ]' CMakePresets.json)
+          {
+            echo "presets_release=$presets_release"
+            echo "presets_nonrelease=$presets_nonrelease"
+          } >>"$GITHUB_OUTPUT"
 
-  dummy-build-release:
-    needs: [prepare-builds]
+  # bmt-gcloud dev/test only: no real builds; replaces build-release/build-nonrelease from core-main.
+  dev-build:
+    name: Dev/test build (bmt-gcloud only)
+    needs: [checkout-once, extract-presets]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: write
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        include: ${{ fromJson(needs.prepare-builds.outputs.release_presets) }}
-    env:
-      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
-      - name: Dummy build ( ${{ matrix.short }} )
+      - name: Dev/test topology
         run: |
-          echo "Dummy build for ${{ matrix.short }} — dummy runner for relevant projects (no compile)."
-
-  dummy-build-non-release:
-    needs: [prepare-builds]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: write
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        include: ${{ fromJson(needs.prepare-builds.outputs.non_release_presets) }}
-    env:
-      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-    steps:
-      - name: Dummy build ( ${{ matrix.short }} )
-        run: |
-          echo "Dummy build for ${{ matrix.short }} — dummy runner for relevant projects (no compile)."
+          echo "bmt-gcloud dev/test repo: presets extracted, no real builds (not part of production release package)."
 
   decide-bmt:
-    needs: [dummy-build-release]
+    needs: [dev-build]
     runs-on: ubuntu-latest
     outputs:
       run_bmt: ${{ steps.out.outputs.run_bmt }}
     steps:
       - id: out
         run: |
-          r="${{ needs.dummy-build-release.result }}"
+          r="${{ needs.dev-build.result }}"
           same_repo="${{ github.event.pull_request.head.repo.full_name == github.repository }}"
           base_ref="${{ github.base_ref || github.ref_name }}"
-          if [[ "$r" != "success" && "$r" != "skipped" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ "$r" != "success" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [[ "$same_repo" != "true" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [[ "$base_ref" != "dev" && "$base_ref" != "ci/check-bmt-gate" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           echo "run_bmt=true" >> "$GITHUB_OUTPUT"
 
   bmt:
     needs: [decide-bmt]
-    # Run only when decide-bmt set run_bmt=true (dummy ok, same repo, base dev or ci/check-bmt-gate).
+    # Run only when decide-bmt set run_bmt=true (dev-build ok, same repo, base dev or ci/check-bmt-gate).
     if: needs.decide-bmt.outputs.run_bmt == 'true'
     permissions:
       contents: read

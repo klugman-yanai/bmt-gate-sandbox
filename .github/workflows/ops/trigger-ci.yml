@@ -1,0 +1,25 @@
+# Optional: run CI using workflow files from a *specific* branch (e.g. run build-and-test from a branch other than default).
+# Use workflow_dispatch and choose the ref; the default way to run CI is build-and-test.yml (direct push/PR, core-main parity).
+name: Trigger CI (from branch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or ref to run build-and-test from"
+        required: true
+        default: "test/check-bmt-gate-big-bang"
+
+permissions:
+  contents: read
+  actions: write
+  statuses: write   # bmt job posts commit status
+  id-token: write  # GCP WIF / OIDC
+
+jobs:
+  ci:
+    name: Run CI from source branch
+    # Call build-and-test from the chosen ref (workflow_dispatch input).
+    # No runs-on: jobs that call a reusable workflow (uses:) must not specify a runner.
+    uses: ./.github/workflows/build-and-test.yml@${{ github.event.inputs.ref }}
+    secrets: inherit

@@ -160,8 +160,7 @@ The repo root contains an `.actrc` that maps `ubuntu-22.04` to a compatible Dock
 
    ```bash
    # From repo root; vars from .env or export
-   act workflow_dispatch -W .github/workflows/build-and-test.yml -j prepare-builds
-   act workflow_dispatch -W .github/workflows/build-and-test.yml -j dummy-build-release
+   act workflow_dispatch -W .github/workflows/build-and-test.yml -j dev-build
    act workflow_dispatch -W .github/workflows/build-and-test.yml -j decide-bmt
    act workflow_dispatch -W .github/workflows/build-and-test.yml -j bmt
    ```
@@ -187,7 +186,7 @@ The repo root contains an `.actrc` that maps `ubuntu-22.04` to a compatible Dock
 3. **Trigger CI (from branch)** — Runs the trigger workflow that reuses build-and-test. Use a `pull_request` event so the job runs; act will use the workflow file from the current branch:
 
    ```bash
-   act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json
+   act pull_request -W .github/workflows/ops/trigger-ci.yml -e .github/workflows/events/pull_request.json
    ```
 
    The repo includes `.github/workflows/events/pull_request.json` with placeholder values. For a run that matches your branch, replace `head.sha` and `head.ref` in the JSON with `git rev-parse HEAD` and `git branch --show-current` (or use a script that writes the file).
@@ -233,7 +232,7 @@ Run `just` (or `just --list`) for the full list. Key recipes:
 | `just act` | Run build-and-test workflow locally. Uses .env if present. |
 | `just act handoff` | Run BMT handoff workflow with current HEAD. |
 | `just act trigger` | Run trigger-ci with pull_request event. |
-| `just act <job>` | Run a single job of build-and-test (e.g. `just act prepare-builds`). |
+| `just act <job>` | Run a single job of build-and-test (e.g. `just act dev-build`). |
 
 Other operations (sync, upload, validate, repo vars, bmt matrix/trigger, etc.) are run via `uv run python -m tools.<folder>.<module>` (e.g. `tools.remote.bucket_sync_gcp`, `tools.repo.gh_repo_vars`) or `uv run bmt <cmd>`; see [CLAUDE.md](../CLAUDE.md) and `uv run bmt --help`.
 
@@ -291,13 +290,13 @@ CI workflows are in `.github/workflows/`. They use **`uv run bmt <cmd>`** and `g
 
 ### VM image: rebuild when needed
 
-The **BMT Image Build** workflow (`.github/workflows/bmt-vm-image-build.yml`) builds the VM image with Packer. To keep the image up to date:
+The **BMT Image Build** workflow (`.github/workflows/ops/bmt-vm-image-build.yml`) builds the VM image with Packer. To keep the image up to date:
 
 - **Automatic:** Pushes to `main`, `ci/check-bmt-gate`, or `dev` that change `infra/packer/**` or `gcp/image/scripts/**` trigger the image build. The new image is published to the same family; Pulumi and **BMT VM Provision** use the latest image in the family when creating or recreating the VM.
-- **Manual:** Run the workflow from the Actions tab (**BMT Image Build** → Run workflow) to rebuild with default inputs.
+- **Manual:** Run the workflow from the Actions tab (**BMT Image Build** under ops) to rebuild with default inputs.
 - **Image-up-to-date check:** The BMT workflow runs a **Check image up to date** job first. If image-affecting paths changed on your branch/commit but no successful BMT Image Build run exists for that ref, the job fails with a clear message; run BMT Image Build for the branch and re-run BMT.
 - **Pre-commit:** When you commit under `infra/packer/` or `gcp/image/scripts/`, a hook (optional) reminds you that an image build should run before merging; see [gcp/image/scripts/README.md](../gcp/image/scripts/README.md).
-- **Using the new image:** New VMs get the latest image automatically. For an existing VM, run the **BMT VM Provision** workflow (with the same image family) and recreate the instance if you need the new disk image (e.g. after cloud-init or bootstrap changes).
+- **Using the new image:** New VMs get the latest image automatically. For an existing VM, run the **BMT VM Provision** workflow (under ops; same image family) and recreate the instance if you need the new disk image (e.g. after cloud-init or bootstrap changes).
 
 ### Cleaning GCS and VM of Python/uv bloat
 
@@ -359,6 +358,22 @@ For `run_context=pr`, watcher performs PR-state/head checks:
 - **PR comments:** upsert one VM-owned comment per tested SHA, including commit links (and superseding SHA link when applicable).
 
 Use `just monitor --run-id <id>` to confirm `run_outcome` / `cancel_reason` / `superseded_by_sha` from `<runtime-root>/triggers/status/<id>.json`.
+
+---
+
+## Debugging
+
+**Logs:** On the VM, rotating logs under `workspace_root/logs/` — `vm_watcher.log`, `root_orchestrator.log`. Same to stdout when run via startup script (Ops Agent can send to Cloud Logging). **Correlate:** Filter by `workflow_run_id` or `run_id` (in trigger/ack/status and log lines).
+
+**When something fails:** (1) PR **Checks** and commit status — BMT Gate and Check Run show pass/fail and may include a **log dump** signed URL (expires 3 days). (2) Cloud Logging — filter by `workflow_run_id` or `run_id`. (3) GCS `log-dumps/` — VM uploads on request or crash. **Request a log dump:** Upload JSON to `gs://<bucket>/<runtime_prefix>/log-dump-requests/<request_id>.json` (include `request_id` or `requested_at`); VM writes response with `signed_url` to `.../log-dump-requests/<request_id>.response.json` and deletes the request. VM polls while idle (`IDLE_TIMEOUT_SEC`, default 600s).
+
+---
+
+## Pre-flight (bucket)
+
+Before major bucket changes (e.g. making gcp/remote a mount): (1) **Bucket check** — `just preflight` (or `GCS_BUCKET=... tools/scripts/preflight_bucket_vs_remote.sh`) lists code/ and runtime/ and sizes. (2) **Diff code/ vs gcp/image** — `uv run python tools/scripts/preflight_bucket_vs_remote.py` (or `--report .local/preflight-*.txt` from a saved run) ensures every object under `gs://BUCKET/code/` has a counterpart under gcp/image so nothing required is lost.
+
+---
 
 ## VM start policy
 

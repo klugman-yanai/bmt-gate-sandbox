@@ -106,7 +106,7 @@ act which="":
           $VAR_ARG
         ;;
       trigger)
-        act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json $VAR_ARG
+        act pull_request -W .github/workflows/ops/trigger-ci.yml -e .github/workflows/events/pull_request.json $VAR_ARG
         ;;
       "")
         act workflow_dispatch -W "$W" $VAR_ARG

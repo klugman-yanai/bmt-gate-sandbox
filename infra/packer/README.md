@@ -1,6 +1,6 @@
 # Packer (BMT runtime image)
 
-CI: [bmt-vm-image-build.yml](../../.github/workflows/bmt-vm-image-build.yml). Local: copy [example.pkrvars.hcl](example.pkrvars.hcl) → `local.pkrvars.hcl`, set `gcp_project`, `gcp_zone`, `gcs_bucket`, then:
+CI: [bmt-vm-image-build.yml](../../.github/workflows/ops/bmt-vm-image-build.yml). Local: copy [example.pkrvars.hcl](example.pkrvars.hcl) → `local.pkrvars.hcl`, set `gcp_project`, `gcp_zone`, `gcs_bucket`, then:
 
 ```bash
 export PACKER_GITHUB_API_TOKEN="$(gh auth token)"

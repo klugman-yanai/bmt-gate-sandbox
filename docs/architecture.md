@@ -257,6 +257,16 @@ Ownership: `gcp/image` is source of truth for deployable code/config/vm scripts 
 
 ---
 
+## GitHub and CI
+
+**Communication flow:** `bmt-handoff.yml` validates handoff only (trigger + VM ack). Workflow success = handoff completed; **BMT outcome is VM-owned** (PR commit status `BMT_STATUS_CONTEXT` + Check Run). Handoff writes trigger, starts VM, waits for ack, exits; VM processes legs and posts final status/check. PR closed → skip or cancel; new commit → supersede (no pointer promotion). **Branch protection:** Require status check `BMT_STATUS_CONTEXT`. If handoff succeeds but status doesn’t move, debug VM auth/logs.
+
+**GitHub App (VM):** Statuses + Checks (PR comments not implemented). Check permissions: `uv run python tools/gh_app_perms.py --app-id <id> --private-key <path>`. Required: Commit statuses, Checks; Issues/Pull requests for future PR comments. Runners use `GITHUB_TOKEN`; VM uses App installation token.
+
+**CLI:** `gh pr checks --watch`, `gh run watch`, `gh run view --log`. Job summaries in workflow run; Check Run has title/summary. Triggers/acks trimmed; snapshots retained per pointer only.
+
+---
+
 ## Repository structure
 
 - **`.github/workflows/`** — Workflow YAML (bmt-handoff.yml, build-and-test.yml, dummy-build-and-test.yml). **`.github/actions/`** — Composite actions only; no Python under `.github/`.

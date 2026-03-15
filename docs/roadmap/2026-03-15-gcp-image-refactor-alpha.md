@@ -132,7 +132,7 @@ def main(config: WatcherConfig | None = None) -> int:
 
 **VM bootstrap:** Keep path_utils.VM_WATCHER_SCRIPT and scripts/run_watcher.py as the deploy contract; `python -m gcp.image` is the implementation detail. vm_watcher.py can remain a thin wrapper that calls the same code. **CLI exposes both** `watcher` (vm_watcher) and `run-watcher` (scripts/run_watcher); startup continues to use scripts/run_watcher.py so the VM contract is unchanged.
 
-### Task 1.1: Add Typer-based CLI skeleton and __main__.py
+### Task 1.1: Add Typer-based CLI skeleton and **main**.py
 
 **Files:**
 
@@ -149,7 +149,7 @@ If Typer is not in the root project, add it to the workspace member that provide
 
 Create `gcp/image/cli.py` with a Typer app. For the watcher subcommand: parse options, build a small config object (or kwargs), and call `vm_watcher.main(config=...)` or `vm_watcher.main(**opts)`. Do **not** set `sys.argv` and then call `main()`. Lazy-import vm_watcher inside the callback to avoid pulling GCS/GitHub on `--help`.
 
-**Step 3: Create __main__.py**
+**Step 3: Create **main**.py**
 
 Create `gcp/image/__main__.py` that imports `app` from `gcp.image.cli` and runs `app()`.
 
@@ -286,7 +286,7 @@ Define a **dataclass** WatcherEnvConfig (bucket, project, repo_root, sub_effecti
 - Create: `gcp/image/models/trigger.py` or add to `gcp/image/models.py`
 - Modify: `gcp/image/vm_watcher.py`, `gcp/image/trigger_resolution.py`
 
-Define TypedDict for run trigger payload (legs, repository, sha, workflow_run_id, run_context, bucket, status_context, etc.) and for resolved leg (index, project, bmt_id, run_id, decision, reason). Use in _download_and_parse_trigger and _resolve_requested_legs / _build_leg_lists.
+Define TypedDict for run trigger payload (legs, repository, sha, workflow_run_id, run_context, bucket, status_context, etc.) and for resolved leg (index, project, bmt_id, run_id, decision, reason). Use in _download_and_parse_trigger and _resolve_requested_legs /_build_leg_lists.
 
 ### Task 4.2: ManagerSummary / CiVerdict TypedDicts
 

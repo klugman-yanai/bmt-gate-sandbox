@@ -1,6 +1,6 @@
 """GitHub Check Runs API integration for BMT Gate (Checks tab).
 
-Output format per docs/github-and-ci.md: pass/fail, scores, logs. The Check Run
+Output format per docs/architecture.md (GitHub and CI): pass/fail, scores, logs. The Check Run
 appears on the PR Checks tab; branch protection can require it to pass before merge.
 """
 
@@ -131,7 +131,7 @@ def update_check_run(
 def render_progress_markdown(legs: list[dict[str, Any]], elapsed_sec: int, eta_sec: int | None) -> str:
     """Render in-progress table for BMT Gate Check Run (pass/fail per leg, progress).
 
-    See docs/github-and-ci.md. Final output uses render_results_table (scores, logs).
+    See docs/architecture.md (GitHub and CI). Final output uses render_results_table (scores, logs).
     """
     legs_completed = sum(1 for leg in legs if leg["status"] not in ["pending", "running"])
     legs_total = len(legs)
@@ -248,7 +248,7 @@ def render_results_table(
     runtime_bucket_root: str | None = None,
     log_dump_url: str | None = None,
 ) -> str:
-    """Render final BMT Gate output: pass/fail, scores, logs (per docs/github-and-ci.md).
+    """Render final BMT Gate output: pass/fail, scores, logs (per docs/architecture.md).
 
     Args:
         leg_summaries: List of manager summary dicts

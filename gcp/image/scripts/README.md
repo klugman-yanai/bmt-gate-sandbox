@@ -4,7 +4,7 @@ Bootstrap scripts here configure the VM to run the pre-baked watcher runtime fro
 
 ## Correct image rule
 
-When **image-affecting paths** change (`infra/packer/**` or `gcp/image/**`), a **BMT Image Build** run must succeed for that ref before BMT is considered valid. The BMT workflow enforces this: the **Check image up to date** job fails if those paths changed and no successful [BMT Image Build](../../../.github/workflows/bmt-vm-image-build.yml) run exists for the branch/commit. Run the workflow from the Actions tab or push to trigger it; then re-run BMT. A pre-commit hook (optional) warns when you commit under those paths.
+When **image-affecting paths** change (`infra/packer/**` or `gcp/image/**`), a **BMT Image Build** run must succeed for that ref before BMT is considered valid. The BMT workflow enforces this: the **Check image up to date** job fails if those paths changed and no successful [BMT Image Build](../../../.github/workflows/ops/bmt-vm-image-build.yml) run exists for the branch/commit. Run the workflow from the Actions tab or push to trigger it; then re-run BMT. A pre-commit hook (optional) warns when you commit under those paths.
 
 ## Boot flow
 

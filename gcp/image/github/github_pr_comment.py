@@ -1,7 +1,7 @@
 """Post comments on a GitHub PR (Issues API).
 
 Used by the BMT VM to post the \"Later\" PR comment: pass/fail, scores, logs
-(see docs/github-and-ci.md). The workflow posts the \"Now\" comment; the VM
+(see docs/architecture.md). The workflow posts the \"Now\" comment; the VM
 upserts a second comment when the run completes.
 """
 

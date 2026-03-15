@@ -6,7 +6,7 @@ Planned work and implementation plans. Dated items live in [docs/roadmap/](docs/
 
 | Plan | Description |
 |------|-------------|
-| [2026-03-15 gcp/image refactor](docs/roadmap/2026-03-15-gcp-image-refactor.md) | Single CLI entrypoint (Typer), constants/enums, value objects, typed payloads, extract modules. |
+| [2026-03-15 gcp/image refactor (alpha)](docs/roadmap/2026-03-15-gcp-image-refactor-alpha.md) | Single CLI entrypoint (Typer), constants/enums, value objects, typed payloads, extract modules. Alpha; no backwards compatibility; breaking changes expected. |
 
 ## Index
 

@@ -13,7 +13,7 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 - **Trigger-and-stop handoff** — CI writes one run trigger, starts the VM, waits for handshake ack, then exits. The VM runs BMT legs and posts final outcome.
 - **Commit status and Check Run** — VM posts pending then success/failure commit status and creates/updates a Check Run for progress and results. Branch protection gates on the status context (`BMT_STATUS_CONTEXT`, from Pulumi).
 - **Pointer-based results** — `current.json` points to latest and last-passing run; per-run artifacts live under `snapshots/<run_id>/`. Baseline for gate comparison comes from last-passing snapshot.
-- **PR closure and supersede** — Closed or superseded PR runs are skipped or cancelled without promoting pointers. See [docs/github-and-ci.md](docs/github-and-ci.md) and [docs/architecture.md](docs/architecture.md).
+- **PR closure and supersede** — Closed or superseded PR runs are skipped or cancelled without promoting pointers. See [docs/architecture.md](docs/architecture.md).
 
 ## Safety and reliability
 
@@ -28,7 +28,7 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 - **GitHub CLI** — `gh pr checks --watch` to wait for BMT and other checks; `gh run watch <run_id>` to follow a workflow run.
 - **Job summaries** — Workflow runs write handoff and routing summaries to the Actions run summary.
 
-See [docs/development.md](docs/development.md) and [docs/github-and-ci.md](docs/github-and-ci.md).
+See [docs/development.md](docs/development.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Monitoring (GitHub Actions and VM runtime)
 
@@ -36,7 +36,7 @@ See [docs/development.md](docs/development.md) and [docs/github-and-ci.md](docs/
 - **Live TUI** — `just monitor` (or `just monitor --run-id <id>`) shows trigger, ack, status, and VM/GCS state; useful when handshake fails.
 - **CLI inspection** — `just vm-check <run_id>` shows trigger, ack, and VM serial output for a run (read-only; does not start the VM).
 
-See [docs/github-and-ci.md](docs/github-and-ci.md).
+See [docs/architecture.md](docs/architecture.md).
 
 ## BMT management
 
@@ -53,7 +53,7 @@ See [docs/architecture.md](docs/architecture.md#results-contract).
 - **Snapshot retention** — Only latest and last_passing snapshot dirs retained per results prefix; trigger/ack/status metadata trimmed to current + previous.
 - **No long-tail history** — Run triggers deleted after processing; debugging uses workflow logs and Check Runs.
 
-See [docs/github-and-ci.md](docs/github-and-ci.md#actions-and-cli-tools).
+See [docs/architecture.md](docs/architecture.md#github-and-ci).
 
 ## Configuration
 
@@ -77,7 +77,7 @@ See [docs/architecture.md](docs/architecture.md) and [docs/configuration.md](doc
 
 ## Local usage
 
-**Testing production CI locally with real VM/GCS:** Follow [Testing production CI locally](docs/development.md#testing-production-ci-locally). Set repo vars (or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`), run `just deploy`, then trigger a workflow (e.g. push or manual dispatch). Use `just monitor` or `just vm-check <run_id>` to inspect. See also [docs/development.md](docs/development.md) and [docs/github-and-ci.md](docs/github-and-ci.md).
+**Testing production CI locally with real VM/GCS:** Follow [Testing production CI locally](docs/development.md#testing-production-ci-locally). Set repo vars (or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`), run `just deploy`, then trigger a workflow (e.g. push or manual dispatch). Use `just monitor` or `just vm-check <run_id>` to inspect. See also [docs/development.md](docs/development.md) and [docs/architecture.md](docs/architecture.md).
 
 - **Local BMT batch** (no cloud): `uv run python -m tools.bmt.bmt_run_local` (env: `BMT_ID`, `BMT_JOBS_CONFIG`, `BMT_RUNNER`, `BMT_RUNTIME_ROOT`, `BMT_DATASET_ROOT`, etc.). See [docs/development.md](docs/development.md).
 - **Bucket tools** (set `GCS_BUCKET`): `uv run python -m tools.remote.bucket_sync_gcp`, `uv run python -m tools.remote.bucket_verify_gcp_sync`, `uv run python -m tools.remote.bucket_sync_runtime_seed`, `uv run python -m tools.remote.bucket_upload_runner`, `uv run python -m tools.remote.bucket_upload_wavs`, `uv run python -m tools.remote.bucket_validate_contract`.

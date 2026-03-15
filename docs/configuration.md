@@ -35,6 +35,8 @@ Run **`just pulumi`** to apply infra and push all Tier 1 repo vars (from Pulumi 
 
 **Useful commands:** `just pulumi` (apply + push vars), `just validate` (check repo vars vs Pulumi/contract and VM metadata), `just show-env` (print env var names).
 
+**Env vars (minimal set):** Tier 1 above is the minimum: Pulumi tfvars (gcp_project, gcp_zone, gcs_bucket, service_account; optional bmt_vm_name). GitHub: GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID (and BMT_DISPATCH_APP_PRIVATE_KEY secret when repo mints token). VM: GCP Secret Manager keys per `gcp/image/config/github_repos.json`. Branch protection: require status check matching BMT_STATUS_CONTEXT (from Pulumi). Everything else is derived or in code; see **tools/repo/vars_contract.py**.
+
 ---
 
 ## Pulumi as source of truth
@@ -272,6 +274,12 @@ The repo has three `pyproject.toml` files:
 | **Root** (`pyproject.toml`) | Installable package **bmt-gcloud**: exposes `gcp` and `tools` for CLI and tests. Workspace members: `.github/bmt`, `gcp/image`. CLI and tests assume an **editable install from repo root** (`uv sync` or `pip install -e .`); no PYTHONPATH or sys.path. | **Yes** |
 | **`.github/bmt/pyproject.toml`** | BMT CLI package: build backend, `bmt` entrypoint, depends on **bmt-gcloud**. **Portable:** copy `.github/bmt/` into a production repo's `.github/`; no workspace or parent-repo reference. In this repo the root provides `bmt-gcloud` via `tool.uv.sources` so the member resolves from the workspace. In production, use PyPI or set `tool.uv.sources` in the enclosing project. | **Yes** |
 | **`gcp/image/pyproject.toml`** | VM runtime package (**bmt-vm-runtime**): build-system, installable packages. Bootstrap `install_deps.py` runs `pip install -e ".[vm]"` from the code root so the venv has config and VM deps; no PYTHONPATH. | **Yes** — VM code uses `from config.*`; image build and local VM-style runs rely on this. |
+
+---
+
+## Sandbox and production
+
+**Single source of truth:** bmt-gcloud. Author workflows here; deploy to bmt-gate-sandbox to validate; propose to core-main via PR. **Drift:** Diff `.github/workflows/bmt-handoff.yml`, `.github/actions/bmt-*`, `setup-gcp-uv`, and `.github/bmt/` between core-main and bmt-gcloud. Only in bmt-gcloud → PR to core-main or dev-only. Only in core-main → add to bmt-gcloud to mirror. **Sandbox** (klugman-yanai/bmt-gate-sandbox): full control; keep workflow shape and BMT condition in sync with production. **Production** (Kardome-org/core-main): propose changes via PR; branch protection and credentials are prod-specific.
 
 ---
 
