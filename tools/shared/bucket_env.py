@@ -43,3 +43,11 @@ def code_bucket_root_uri(bucket: str) -> str:
     script downloads from (gcloud storage rsync gs://<bucket>/code /opt/bmt).
     """
     return f"gs://{bucket}/code"
+
+
+def runtime_bucket_root_uri(bucket: str) -> str:
+    """Runtime namespace root: gs://<bucket>/runtime.
+
+    This is where gcp/remote (runners, datasets, triggers, results) lives.
+    """
+    return f"gs://{bucket}/runtime"

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from tools.repo.paths import DEFAULT_RUNTIME_ROOT
-from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
+from tools.shared.bucket_env import bucket_from_env, runtime_bucket_root_uri, truthy
 from tools.shared.bucket_sync import download_manifest, local_digest
 from tools.shared.layout_patterns import FORBIDDEN_RUNTIME_SEED
 
@@ -34,8 +34,7 @@ class BucketVerifyRuntimeSeedSync:
             print(f"::error::Missing source directory: {src}", file=sys.stderr)
             return 1
 
-        runtime_root = bucket_root_uri(bucket)
-        manifest_uri = f"{runtime_root}/{RUNTIME_SEED_MANIFEST}"
+        manifest_uri = f"{runtime_bucket_root_uri(bucket)}/{RUNTIME_SEED_MANIFEST}"
         local_d, local_count = local_digest(src, allow_generated_artifacts, FORBIDDEN_RUNTIME_SEED)
 
         try:

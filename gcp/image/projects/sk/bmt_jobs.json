@@ -3,15 +3,15 @@
     "4a5b6e82-a048-5c96-8734-2f64d2288378": {
       "enabled": true,
       "runner": {
-        "uri": "sk/runners/sk_gcc_release/kardome_runner",
-        "deps_prefix": "sk/runners/lib"
+        "uri": "projects/sk/kardome_runner",
+        "deps_prefix": "projects/sk/lib"
       },
       "template_uri": "projects/shared/input_template.json",
       "paths": {
-        "dataset_prefix": "sk/inputs/false_rejects",
-        "outputs_prefix": "sk/outputs/false_rejects",
-        "results_prefix": "sk/results/false_rejects",
-        "logs_prefix": "sk/results/logs/false_rejects"
+        "dataset_prefix": "projects/sk/inputs/false_rejects",
+        "outputs_prefix": "projects/sk/outputs/false_rejects",
+        "results_prefix": "projects/sk/results/false_rejects",
+        "logs_prefix": "projects/sk/results/logs/false_rejects"
       },
       "runtime": {
         "num_source_test": 0,
@@ -47,15 +47,15 @@
     "ac73397e-1162-5004-9ca2-17c969f53ee5": {
       "enabled": true,
       "runner": {
-        "uri": "sk/runners/sk_gcc_release/kardome_runner",
-        "deps_prefix": "sk/runners/lib"
+        "uri": "projects/sk/kardome_runner",
+        "deps_prefix": "projects/sk/lib"
       },
       "template_uri": "projects/shared/input_template.json",
       "paths": {
-        "dataset_prefix": "sk/inputs/false_alarms",
-        "outputs_prefix": "sk/outputs/false_alarms",
-        "results_prefix": "sk/results/false_alarms",
-        "logs_prefix": "sk/results/logs/false_alarms"
+        "dataset_prefix": "projects/sk/inputs/false_alarms",
+        "outputs_prefix": "projects/sk/outputs/false_alarms",
+        "results_prefix": "projects/sk/results/false_alarms",
+        "logs_prefix": "projects/sk/results/logs/false_alarms"
       },
       "runtime": {
         "num_source_test": 0,
