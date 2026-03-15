@@ -36,6 +36,13 @@ on:
         required: false
         type: string
         default: "[]"
+      skip_image_check:
+        description: >
+          Skip the check-image-up-to-date gate. Set to true when the VM image is known-good
+          and already provisioned (e.g. preseeded dev runs). Default false (full gate).
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       ci_run_id:
@@ -70,6 +77,13 @@ on:
         required: false
         type: string
         default: "[]"
+      skip_image_check:
+        description: >
+          Skip the check-image-up-to-date gate. Set to true when the VM image is known-good
+          and already provisioned (e.g. preseeded dev runs). Default false (full gate).
+        required: false
+        type: boolean
+        default: false
     outputs:
       bmt_gate_passed:
         description: "True if the handoff job completed successfully (VM picked up the run)."
@@ -103,6 +117,7 @@ jobs:
   # Ensure VM image was built when image-affecting paths (infra/packer, gcp/image) changed.
   check-image-up-to-date:
     name: Check image is up to date
+    if: ${{ !inputs.skip_image_check }}
     runs-on: ubuntu-22.04
     outputs:
       image_check_passed: ${{ steps.check.outputs.passed }}
@@ -126,6 +141,10 @@ jobs:
   setup:
     name: Prepare BMT run
     needs: check-image-up-to-date
+    if: >-
+      !cancelled()
+      && (needs.check-image-up-to-date.result == 'success'
+          || needs.check-image-up-to-date.result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
@@ -282,6 +301,13 @@ jobs:
             .github
             gcp
 
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          python_version: "3.12"
+
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
         with:
@@ -289,6 +315,7 @@ jobs:
           runner_matrix: ${{ needs.setup.outputs.runner_matrix }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          setup_gcp: "false"
 
       - id: run
         uses: ./.github/actions/bmt-handoff-run
@@ -297,6 +324,7 @@ jobs:
           classify_outputs: ${{ toJson(steps.classify.outputs) }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          setup_gcp: "false"
 
   handoff:
     name: Report BMT result

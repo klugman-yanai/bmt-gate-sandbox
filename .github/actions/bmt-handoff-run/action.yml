@@ -15,6 +15,10 @@ inputs:
   service_account:
     description: GCP service account email for WIF
     required: true
+  setup_gcp:
+    description: Whether to run setup-gcp-uv. Set to "false" when the caller already ran it in the same job.
+    required: false
+    default: "true"
 
 outputs:
   selected_vm:
@@ -69,6 +73,7 @@ runs:
         echo "ACCEPTED_PROJECTS_JSON=$(echo "$c" | jq -c '.accepted_projects // []')" >> "$GITHUB_ENV"
 
     - name: Setup GCP and uv
+      if: inputs.setup_gcp != 'false'
       uses: ./.github/actions/setup-gcp-uv
       with:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}

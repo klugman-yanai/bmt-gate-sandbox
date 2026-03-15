@@ -200,4 +200,5 @@ jobs:
       head_branch: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.ref || github.ref_name }}
       head_event: ${{ github.event_name }}
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
+      skip_image_check: true
     secrets: inherit
