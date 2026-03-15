@@ -150,7 +150,7 @@ The repo root contains an `.actrc` that maps `ubuntu-22.04` to a compatible Dock
 **Vars and secrets**
 
 - Repo variables (e.g. `GCS_BUCKET`, `GCP_PROJECT`, `BMT_LIVE_VM`) are not available locally. Copy `.env.example` to `.env` and fill in values (do not commit `.env`). Pass them via `act --env-file .env` or set in the environment.
-- Secrets: put in a file (e.g. `.secrets`) and run `act --secret-file .secrets`, or pass per secret with `-s GITHUB_TOKEN=...`. For BMT handoff you need the same vars the workflow uses (see [configuration.md](configuration.md)).
+- Secrets: put in a file (e.g. `.secrets`) and run `act --secret-file .secrets`, or pass per secret with `-s GITHUB_TOKEN=...`. Optional: copy `.secrets.example` to `.secrets` and set values; run act with `--secret-file .secrets`. For handoff steps that need a real token, use `-s GITHUB_TOKEN="$(gh auth token)"` or a secret file. See [configuration.md](configuration.md).
 
 **What to run**
 

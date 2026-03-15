@@ -139,6 +139,12 @@ act-bmt-handoff:
       -i pr_number= \
       $ENV_ARG
 
+act-trigger-ci:
+    #!/usr/bin/env -S bash -eu
+    ENV_ARG=""
+    [[ -f .env ]] && ENV_ARG="--env-file .env"
+    act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json $ENV_ARG
+
 # -----------------------------------------------------------------------------
 # Image build
 # -----------------------------------------------------------------------------
