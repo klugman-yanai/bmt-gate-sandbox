@@ -279,7 +279,7 @@ The repo has three `pyproject.toml` files:
 
 ## Sandbox and production
 
-**Single source of truth:** bmt-gcloud. Author workflows here; deploy to bmt-gate-sandbox to validate; propose to core-main via PR. **Drift:** Diff `.github/workflows/bmt-handoff.yml`, `.github/actions/bmt-*`, `setup-gcp-uv`, and `.github/bmt/` between core-main and bmt-gcloud. Only in bmt-gcloud → PR to core-main or dev-only. Only in core-main → add to bmt-gcloud to mirror. **Sandbox** (klugman-yanai/bmt-gate-sandbox): full control; keep workflow shape and BMT condition in sync with production. **Production** (Kardome-org/core-main): propose changes via PR; branch protection and credentials are prod-specific.
+**Single source of truth:** bmt-gcloud. Author workflows here; deploy to bmt-gcloud to validate; propose to core-main via PR. **Drift:** Diff `.github/workflows/bmt-handoff.yml`, `.github/actions/bmt-*`, `setup-gcp-uv`, and `.github/bmt/` between core-main and bmt-gcloud. Only in bmt-gcloud → PR to core-main or dev-only. Only in core-main → add to bmt-gcloud to mirror. **Sandbox** (klugman-yanai/bmt-gcloud): full control; keep workflow shape and BMT condition in sync with production. **Production** (Kardome-org/core-main): propose changes via PR; branch protection and credentials are prod-specific.
 
 ---
 

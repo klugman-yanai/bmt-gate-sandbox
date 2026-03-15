@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "repositories": {
-    "klugman-yanai/bmt-gate-sandbox": {
+    "klugman-yanai/bmt-gcloud": {
       "repo_env": "test",
       "description": "Test sandbox repository for BMT development",
       "secret_prefix": "GITHUB_APP_TEST",

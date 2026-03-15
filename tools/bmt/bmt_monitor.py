@@ -32,7 +32,7 @@ from tools.repo.results_prefix import resolve_results_prefix
 from tools.shared.bucket_env import bucket_from_env, truthy
 
 # Fallback when github_repos.json missing or has no matching repo_env
-_DEFAULT_REPO_TEST = "klugman-yanai/bmt-gate-sandbox"
+_DEFAULT_REPO_TEST = "klugman-yanai/bmt-gcloud"
 _DEFAULT_REPO_PROD = "Kardome-org/core-main"
 
 
