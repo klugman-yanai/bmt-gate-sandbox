@@ -298,8 +298,6 @@ jobs:
     permissions:
       id-token: write
       statuses: write
-    env:
-      BMT_LIVE_VM: ${{ needs.handshake.outputs.selected_vm || vars.BMT_LIVE_VM }}
     outputs:
       bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
       bmt_fallback_run: ${{ steps.outcome.outputs.bmt_fallback_run }}
@@ -359,3 +357,9 @@ jobs:
         run: |
           echo "bmt_gate_passed=${{ needs.handshake.result == 'success' }}" >> "$GITHUB_OUTPUT"
           echo "bmt_fallback_run=${{ needs.setup.result != 'cancelled' && needs.handshake.result != 'cancelled' && (needs.setup.result == 'failure' || needs.handshake.result == 'failure') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Fail job when BMT did not pass
+        if: steps.outcome.outputs.bmt_gate_passed != 'true'
+        run: |
+          echo "::error::BMT gate did not pass (handshake or setup failed)."
+          exit 1
