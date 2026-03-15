@@ -1,9 +1,0 @@
-name: Deprecated Code Owner Check
-on: [pull_request]
-
-jobs:
-  skip-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Skipping check
-        run: echo "✅ This workflow is deprecated and has been disabled."

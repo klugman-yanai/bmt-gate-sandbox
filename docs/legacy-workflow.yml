@@ -1,3 +1,6 @@
+# Legacy CI workflow (preset-based builds on dev/PR). Kept for reference.
+# Current workflows live under .github/workflows/. See docs/README.md and .github/README.md.
+---
 name: CI
 
 on:
@@ -75,9 +78,9 @@ jobs:
       # ---- install the requested CMake version -----------------------
       - name: Install CMake 3.29.3
         run: |
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz
-          tar -xf cmake-3.29.3-linux-x86_64.tar.gz
-          sudo mv cmake-3.29.3-linux-x86_64 /opt/cmake-3.29
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86-64.tar.gz
+          tar -xf cmake-3.29.3-linux-x86-64.tar.gz
+          sudo mv cmake-3.29.3-linux-x86-64 /opt/cmake-3.29
           echo "/opt/cmake-3.29/bin" >>"$GITHUB_PATH"
 
       # ---- install MinGW for Windows cross builds (if needed) --------

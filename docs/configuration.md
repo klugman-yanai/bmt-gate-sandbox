@@ -110,7 +110,15 @@ Set in **Settings → Secrets and variables → Actions → Variables** (or via 
 | `GCP_WIF_PROVIDER` | **You set in GitHub** | Workload Identity Federation provider for CI. |
 | `BMT_DISPATCH_APP_ID` | **You set in GitHub** | GitHub App ID for workflow_dispatch. (Private key as repo secret when needed.) |
 
-Run `just terraform` (with `bmt.tfvars.json` filled in) to apply infra and push the first four to GitHub. Set `GCP_WIF_PROVIDER` and the App credentials manually in GitHub. GCP_ZONE is fixed (europe-west4-a). Subscription, topic, repo root, and VM pool are derived in code.
+Run `just terraform` (with `bmt.tfvars.json` filled in) to apply infra and push the first four to GitHub. Set `GCP_WIF_PROVIDER` and the App credentials manually in GitHub.
+
+**Set by Terraform (do not configure by hand):** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. They are overwritten when you run `just terraform`.
+
+**Set by you (not in Terraform):** `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`.
+
+**Remove from GitHub (obsolete / derived in code):** `BMT_PUBSUB_SUBSCRIPTION`, `BMT_PUBSUB_TOPIC`. Subscription and topic are derived from `BMT_LIVE_VM` and constants; keeping them as repo vars causes drift. Run `just clean-bloat` to remove them (and clean GCS bloat); or delete manually with `gh variable delete BMT_PUBSUB_SUBSCRIPTION` and `gh variable delete BMT_PUBSUB_TOPIC`.
+
+**Optional / not from Terraform export:** `GCP_ZONE` — workflows may default it (e.g. `europe-west4-a`). You can set it from Terraform manually if needed: `gh variable set GCP_ZONE "$(cd infra/terraform && terraform output -raw gcp_zone)"`. `BMT_STATUS_CONTEXT` is a constant in code; branch protection must match it; no need to set as a repo var.
 
 ### Optional / workflow-only (not in Terraform export)
 

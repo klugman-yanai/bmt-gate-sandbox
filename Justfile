@@ -27,8 +27,11 @@ deploy:
 preflight:
     uv run python -m tools bucket preflight
 
+# GCS bloat + remove obsolete GitHub repo vars (BMT_PUBSUB_*)
 [group('bucket')]
 clean-bloat *args:
+    -gh variable delete BMT_PUBSUB_SUBSCRIPTION 2>/dev/null || true
+    -gh variable delete BMT_PUBSUB_TOPIC 2>/dev/null || true
     uv run python -m tools bucket clean-bloat {{ args }}
 
 # -- Infrastructure ----------------------------------------------------------
