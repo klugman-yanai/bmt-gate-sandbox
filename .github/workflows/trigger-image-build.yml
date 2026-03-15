@@ -12,8 +12,10 @@ on:
         required: false
         type: string
 
+# actions: write required so this workflow can trigger bmt-vm-image-build.yml via workflow_dispatch
 permissions:
   contents: read
+  actions: write
 
 jobs:
   trigger:

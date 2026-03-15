@@ -41,7 +41,7 @@ terraform *args:
 terraform-import-topics *args:
     uv run python -m tools terraform import-topics {{ args }}
 
-# Build VM image (dispatch trigger-image-build.yml). Pass --repo owner/name after 'build' if origin is a different repo (e.g. sandbox).
+# Build VM image (dispatch trigger-image-build.yml). Pass --repo owner/name after 'build' if origin differs (e.g. just build --repo klugman-yanai/bmt-gcloud).
 [group('infra')]
 build *args:
     uv run python -m tools build image --branch "`git rev-parse --abbrev-ref HEAD`" {{ args }}
