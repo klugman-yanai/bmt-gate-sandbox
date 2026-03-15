@@ -2,29 +2,36 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 import gcp.image.vm_watcher as watcher  # type: ignore[import-not-found]
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 
-def test_resolve_requested_legs_expands_project_wide_requests(monkeypatch):
-    monkeypatch.setattr(watcher, "_gcloud_exists", lambda _uri: True)
-    monkeypatch.setattr(
-        watcher,
-        "_load_jobs_config_from_gcs",
-        lambda *_args, **_kwargs: (
-            {
-                "bmts": {
-                    SK_BMT_FALSE_REJECT_NAMUH: {"enabled": True},
-                    "legacy_disabled": {"enabled": False},
-                }
-            },
-            None,
-        ),
+def _write_jobs(repo_root: Path, project: str, bmts: dict) -> None:
+    """Write a minimal bmt_jobs.json for a project under repo_root."""
+    project_dir = repo_root / "projects" / project
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "bmt_manager.py").write_text("# stub manager\n")
+    (project_dir / "bmt_jobs.json").write_text(json.dumps({"bmts": bmts}))
+
+
+def test_resolve_requested_legs_expands_project_wide_requests(tmp_path: Path):
+    _write_jobs(
+        tmp_path,
+        "sk",
+        {
+            SK_BMT_FALSE_REJECT_NAMUH: {"enabled": True},
+            "legacy_disabled": {"enabled": False},
+        },
     )
 
     resolved = watcher._resolve_requested_legs(
         legs_raw=[{"project": "sk", "bmt_id": "__all__", "run_id": "gh-1"}],
-        code_bucket_root="gs://bucket/code",
+        repo_root=tmp_path,
     )
 
     assert len(resolved) == 2
@@ -40,24 +47,16 @@ def test_resolve_requested_legs_expands_project_wide_requests(monkeypatch):
     assert len(run_ids) == len(set(run_ids))
 
 
-def test_resolve_requested_legs_keeps_explicit_bmt_mode(monkeypatch):
-    monkeypatch.setattr(watcher, "_gcloud_exists", lambda _uri: True)
-    monkeypatch.setattr(
-        watcher,
-        "_load_jobs_config_from_gcs",
-        lambda *_args, **_kwargs: (
-            {
-                "bmts": {
-                    SK_BMT_FALSE_REJECT_NAMUH: {"enabled": True},
-                }
-            },
-            None,
-        ),
+def test_resolve_requested_legs_keeps_explicit_bmt_mode(tmp_path: Path):
+    _write_jobs(
+        tmp_path,
+        "sk",
+        {SK_BMT_FALSE_REJECT_NAMUH: {"enabled": True}},
     )
 
     resolved = watcher._resolve_requested_legs(
         legs_raw=[{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH, "run_id": "gh-1"}],
-        code_bucket_root="gs://bucket/code",
+        repo_root=tmp_path,
     )
 
     assert len(resolved) == 1

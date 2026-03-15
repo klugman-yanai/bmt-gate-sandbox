@@ -4,8 +4,9 @@ Minimum user config (declarative):
 - **bmt.tfvars.json** must set four required variables (no Pulumi default):
   gcp_project, gcp_zone, gcs_bucket, service_account.
 - **Optional** in tfvars: bmt_vm_name (default bmt-gate-blue). Pulumi exports
-  gcs_bucket, gcp_project, bmt_vm_name, service_account to GitHub as
-  GCS_BUCKET, GCP_PROJECT, BMT_LIVE_VM, GCP_SA_EMAIL.
+  gcs_bucket, gcp_project, bmt_vm_base, service_account to GitHub as
+  GCS_BUCKET, GCP_PROJECT, BMT_LIVE_VM, GCP_SA_EMAIL. BMT_LIVE_VM is the
+  base name (e.g. bmt-gate); blue/green suffixes are derived automatically.
 
 Manual in GitHub (variables, not secrets): GCP_WIF_PROVIDER, BMT_DISPATCH_APP_ID,
 GCP_ZONE, BMT_STATUS_CONTEXT. Zone and status context are user-overridable;
@@ -50,7 +51,7 @@ class RepoVarsContract:
 INFRA_OUTPUT_TO_VAR: dict[str, str] = {
     "gcs_bucket": "GCS_BUCKET",
     "gcp_project": "GCP_PROJECT",
-    "bmt_vm_name": "BMT_LIVE_VM",
+    "bmt_vm_base": "BMT_LIVE_VM",
     "service_account": "GCP_SA_EMAIL",
 }
 

@@ -13,13 +13,12 @@ def _now_stamp() -> str:
     return Instant.now().format_iso(unit="second", basic=True)
 
 
-def _code_bucket_root(bucket: str) -> str:
-    """Bucket root. Code is not in GCS."""
-    return f"gs://{bucket}"
-
-
 def _runtime_bucket_root(bucket: str) -> str:
-    """Bucket root. No code/ or runtime/ prefix."""
+    """Bucket root: gs://<bucket>.
+
+    The bucket is a 1:1 mirror of gcp/remote/. All runtime data
+    (triggers, runners, datasets, results) lives directly under this root.
+    """
     return f"gs://{bucket}"
 
 

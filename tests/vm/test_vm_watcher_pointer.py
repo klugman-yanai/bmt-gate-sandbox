@@ -237,7 +237,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(watcher, "_resolve_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
     monkeypatch.setattr(watcher, "_run_orchestrator", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
     monkeypatch.setattr(
@@ -263,7 +263,7 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
             "bmt_id": SK_BMT_FALSE_REJECT_NAMUH,
             "run_id": "run-1",
             "passed": True,
-            "ci_verdict_uri": "gs://bucket/runtime/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",
+            "ci_verdict_uri": "gs://bucket/projects/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",
             "bmt_results": {"results": []},
             "orchestration_timing": {"duration_sec": 1},
         },
@@ -328,11 +328,11 @@ def test_process_run_trigger_splits_runtime_and_gate_contexts(monkeypatch, tmp_p
     monkeypatch.setattr(watcher.github_pr_comment, "upsert_pr_comment_by_marker", lambda *_args, **_kwargs: True)
 
     watcher._process_run_trigger(
-        "gs://bucket/runtime/triggers/runs/123.json",
-        "gs://bucket/code",
-        "gs://bucket/runtime",
+        "gs://bucket/triggers/runs/123.json",
+        "gs://bucket",
         tmp_path,
         lambda _repository: "token",
+        tmp_path,
     )
 
     # Runtime context is check-run only.
@@ -362,14 +362,14 @@ def test_process_run_trigger_rejects_missing_repository(monkeypatch, tmp_path: P
     )
 
     watcher._process_run_trigger(
-        "gs://bucket/runtime/triggers/runs/123.json",
-        "gs://bucket/code",
-        "gs://bucket/runtime",
+        "gs://bucket/triggers/runs/123.json",
+        "gs://bucket",
         tmp_path,
         lambda _repository: "token",
+        tmp_path,
     )
 
-    assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]
+    assert removed == [("gs://bucket/triggers/runs/123.json", False)]
 
 
 def test_process_run_trigger_rejects_when_auth_unavailable(monkeypatch, tmp_path: Path):
@@ -390,11 +390,11 @@ def test_process_run_trigger_rejects_when_auth_unavailable(monkeypatch, tmp_path
     )
 
     watcher._process_run_trigger(
-        "gs://bucket/runtime/triggers/runs/123.json",
-        "gs://bucket/code",
-        "gs://bucket/runtime",
+        "gs://bucket/triggers/runs/123.json",
+        "gs://bucket",
         tmp_path,
         lambda _repository: None,
+        tmp_path,
     )
 
     assert removed == []
@@ -410,11 +410,11 @@ def test_process_run_trigger_defers_on_transient_download_error(monkeypatch, tmp
     )
 
     watcher._process_run_trigger(
-        "gs://bucket/runtime/triggers/runs/123.json",
-        "gs://bucket/code",
-        "gs://bucket/runtime",
+        "gs://bucket/triggers/runs/123.json",
+        "gs://bucket",
         tmp_path,
         lambda _repository: "token",
+        tmp_path,
     )
 
     assert removed == []
@@ -430,14 +430,14 @@ def test_process_run_trigger_removes_malformed_trigger(monkeypatch, tmp_path: Pa
     )
 
     watcher._process_run_trigger(
-        "gs://bucket/runtime/triggers/runs/123.json",
-        "gs://bucket/code",
-        "gs://bucket/runtime",
+        "gs://bucket/triggers/runs/123.json",
+        "gs://bucket",
         tmp_path,
         lambda _repository: "token",
+        tmp_path,
     )
 
-    assert removed == [("gs://bucket/runtime/triggers/runs/123.json", False)]
+    assert removed == [("gs://bucket/triggers/runs/123.json", False)]
 
 
 def test_process_run_trigger_closed_pr_skips_pointer_promotion(monkeypatch, tmp_path: Path):
@@ -476,11 +476,11 @@ def test_process_run_trigger_closed_pr_skips_pointer_promotion(monkeypatch, tmp_
     monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: pointer_calls.append(summary))
 
     watcher._process_run_trigger(
-        "gs://bucket/runtime/triggers/runs/123.json",
-        "gs://bucket/code",
-        "gs://bucket/runtime",
+        "gs://bucket/triggers/runs/123.json",
+        "gs://bucket",
         tmp_path,
         lambda _repository: "token",
+        tmp_path,
     )
 
     assert pointer_calls == []
@@ -537,7 +537,7 @@ def test_process_run_trigger_superseded_mid_run_skips_pointer_promotion(monkeypa
     monkeypatch.setattr(watcher, "_gcloud_rm", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(watcher, "_cleanup_workflow_artifacts", lambda **_kwargs: None)
     monkeypatch.setattr(watcher, "_prune_workspace_runs", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(watcher, "_download_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
+    monkeypatch.setattr(watcher, "_resolve_orchestrator", lambda *_args, **_kwargs: tmp_path / "orchestrator.py")
     monkeypatch.setattr(watcher, "_run_orchestrator", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr(watcher, "_latest_run_root", lambda *_args, **_kwargs: tmp_path)
     monkeypatch.setattr(
@@ -549,7 +549,7 @@ def test_process_run_trigger_superseded_mid_run_skips_pointer_promotion(monkeypa
             "bmt_id": SK_BMT_FALSE_REJECT_NAMUH,
             "run_id": "run-1",
             "passed": True,
-            "ci_verdict_uri": "gs://bucket/runtime/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",
+            "ci_verdict_uri": "gs://bucket/projects/sk/results/false_rejects/snapshots/run-1/ci_verdict.json",
             "bmt_results": {"results": []},
             "orchestration_timing": {"duration_sec": 1},
         },
@@ -561,11 +561,11 @@ def test_process_run_trigger_superseded_mid_run_skips_pointer_promotion(monkeypa
     monkeypatch.setattr(watcher, "_update_pointer_and_cleanup", lambda _root, summary: pointer_calls.append(summary))
 
     watcher._process_run_trigger(
-        "gs://bucket/runtime/triggers/runs/123.json",
-        "gs://bucket/code",
-        "gs://bucket/runtime",
+        "gs://bucket/triggers/runs/123.json",
+        "gs://bucket",
         tmp_path,
         lambda _repository: "token",
+        tmp_path,
     )
 
     assert pointer_calls == []

@@ -18,26 +18,6 @@ from tools.shared.rich_minimal import step, step_console, success_panel
 app = typer.Typer(no_args_is_help=True)
 
 
-@app.command()
-def sync() -> None:
-    """Sync gcp/image to bucket (code root)."""
-    from tools.remote.bucket_sync_gcp import BucketSyncGcp
-
-    bucket = bucket_from_env()
-    rc = BucketSyncGcp().run(bucket=bucket)
-    raise typer.Exit(rc)
-
-
-@app.command("verify-code")
-def verify_code() -> None:
-    """Verify local gcp/image digest vs uploaded code manifest."""
-    from tools.remote.bucket_verify_gcp_sync import BucketVerifyGcpSync
-
-    bucket = bucket_from_env()
-    rc = BucketVerifyGcpSync().run(bucket=bucket)
-    raise typer.Exit(rc)
-
-
 @app.command("verify-runtime-seed")
 def verify_runtime_seed() -> None:
     """Verify runtime seed sync (manifest vs bucket)."""
@@ -50,31 +30,29 @@ def verify_runtime_seed() -> None:
 
 @app.command()
 def deploy() -> None:
-    """Sync gcp/image to bucket and verify code + runtime seed."""
-    from tools.remote.bucket_sync_gcp import BucketSyncGcp
-    from tools.remote.bucket_verify_gcp_sync import BucketVerifyGcpSync
+    """Sync gcp/remote to bucket root and verify runtime seed."""
+    from tools.remote.bucket_sync_runtime_seed import BucketSyncRuntimeSeed
     from tools.remote.bucket_verify_runtime_seed_sync import BucketVerifyRuntimeSeedSync
 
     bucket = bucket_from_env()
     console = step_console()
     if console is not None:
         console.print("[bold]Deploy[/]")
-    steps = [
-        ("Sync", BucketSyncGcp()),
-        ("Verify code", BucketVerifyGcpSync()),
+    steps: list[tuple[str, object]] = [
+        ("Sync runtime seed", BucketSyncRuntimeSeed()),
         ("Verify runtime seed", BucketVerifyRuntimeSeedSync()),
     ]
     for label, runner in steps:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = runner.run(bucket=bucket)
+            rc = runner.run(bucket=bucket)  # type: ignore[union-attr]
         if rc != 0:
             if buf.getvalue():
                 sys.stderr.write(buf.getvalue())
             step(console, label, ok=False)
             raise typer.Exit(rc)
         step(console, label, ok=True)
-    success_panel(console, "Deploy", "Code and runtime seed synced and verified.")
+    success_panel(console, "Deploy", "Runtime seed synced and verified.")
     raise typer.Exit(0)
 
 

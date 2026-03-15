@@ -17,12 +17,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from google.api_core import exceptions as gcs_exceptions
 from google.cloud import storage as gcs_storage
 
 from gcp.image import log_config
-from gcp.image.config.constants import EXECUTABLE_MODE
-from gcp.image.utils import _bucket_uri, _code_bucket_root, _now_iso, _now_stamp, _runtime_bucket_root
+from gcp.image.config.constants import DEFAULT_REPO_ROOT, EXECUTABLE_MODE
+from gcp.image.utils import _bucket_uri, _now_iso, _now_stamp, _runtime_bucket_root
 
 
 def _get_keep_recent_default() -> int:
@@ -108,20 +107,6 @@ def _get_gcs_client() -> gcs_storage.Client:
     return _gcs_client_holder[0]
 
 
-def _gcloud_cp(src: str, dst: Path) -> None:
-    """Download a single object from GCS to local path (SDK-based)."""
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    bucket_name, blob_name = _parse_gcs_uri(src)
-    blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
-    try:
-        blob.download_to_filename(str(dst))
-    except gcs_exceptions.NotFound:
-        raise OrchestratorError(f"GCS object not found: {src}") from None
-    except (gcs_exceptions.GoogleAPICallError, OSError):
-        logging.getLogger(log_config.ORCHESTRATOR_LOGGER_NAME).exception("Failed to download %s", src)
-        raise
-
-
 def _gcloud_upload(src: Path, dst: str) -> None:
     """Upload local file to GCS (SDK-based)."""
     bucket_name, blob_name = _parse_gcs_uri(dst)
@@ -165,16 +150,18 @@ def _validate_jobs_config(jobs_payload: dict[str, Any], *, project: str, bmt_id:
 def _run_one_leg(
     args: argparse.Namespace,
     run_root: Path,
-    code_bucket_root: str,
     runtime_bucket_root: str,
     run_id: str,
+    repo_root: Path,
 ) -> int:
     manager_rel = _manager_rel_path(args.project)
     jobs_rel = _jobs_rel_path(args.project)
-    local_manager = run_root / manager_rel
-    local_jobs = run_root / jobs_rel
-    _gcloud_cp(_bucket_uri(code_bucket_root, manager_rel), local_manager)
-    _gcloud_cp(_bucket_uri(code_bucket_root, jobs_rel), local_jobs)
+    local_manager = repo_root / manager_rel
+    local_jobs = repo_root / jobs_rel
+    if not local_manager.is_file():
+        raise OrchestratorError(f"Manager script not found in baked image: {local_manager}")
+    if not local_jobs.is_file():
+        raise OrchestratorError(f"Jobs config not found in baked image: {local_jobs}")
     try:
         jobs_payload = _load_json(local_jobs)
     except json.JSONDecodeError as exc:
@@ -207,7 +194,7 @@ def _run_one_leg(
     env = os.environ.copy()
     if args.leg_index is not None and args.workflow_run_id:
         env["BMT_STATUS_BUCKET"] = args.bucket
-        env["BMT_STATUS_RUNTIME_PREFIX"] = "runtime"
+        env["BMT_STATUS_RUNTIME_PREFIX"] = ""
         env["BMT_STATUS_RUN_ID"] = str(args.workflow_run_id)
         env["BMT_STATUS_LEG_INDEX"] = str(args.leg_index)
     orch_log = logging.getLogger(log_config.ORCHESTRATOR_LOGGER_NAME)
@@ -255,8 +242,8 @@ def main() -> int:
     run_id = args.run_id.strip()
     if args.run_context in {"dev", "pr"} and not run_id:
         raise OrchestratorError("--run-id is required for dev/pr runs")
-    code_bucket_root = _code_bucket_root(args.bucket)
     runtime_bucket_root = _runtime_bucket_root(args.bucket)
+    repo_root = Path(os.environ.get("BMT_REPO_ROOT", DEFAULT_REPO_ROOT))
     workspace_root = _resolve_workspace_root(args.workspace_root)
     workspace_root.mkdir(parents=True, exist_ok=True)
     log_config.configure_orchestrator_logging(workspace_root)
@@ -264,7 +251,7 @@ def main() -> int:
     run_root = workspace_root / args.project / args.bmt_id / f"run_{_now_stamp()}_{os.getpid()}"
     run_root.mkdir(parents=True, exist_ok=True)
     try:
-        return _run_one_leg(args, run_root, code_bucket_root, runtime_bucket_root, run_id)
+        return _run_one_leg(args, run_root, runtime_bucket_root, run_id, repo_root)
     finally:
         _prune_run_dirs(run_root.parent, keep_recent=KEEP_RECENT_DEFAULT)
 

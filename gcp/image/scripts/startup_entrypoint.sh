@@ -39,13 +39,6 @@ if [[ "${BMT_DATASET_MOUNT_ENABLED:-0}" == "1" ]]; then
   _log "gcsfuse mount ready at /mnt/audio_data"
 fi
 
-# Eager code sync: pull latest code from GCS (overwrites baked snapshot)
-_log "Pulling latest code from gs://${GCS_BUCKET}/code to ${BMT_REPO_ROOT}"
-if ! gcloud storage rsync "gs://${GCS_BUCKET}/code" "${BMT_REPO_ROOT}" --recursive; then
-  _log_err "::error::Code sync from GCS failed"
-  exit 1
-fi
-
 # Contract validation: if bucket is missing required objects, self-destruct
 if [[ -f "${VALIDATE_SCRIPT_PATH}" ]]; then
   _log "Running bucket contract validation..."

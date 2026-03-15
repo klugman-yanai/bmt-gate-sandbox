@@ -161,7 +161,8 @@ class SKBmtManager(BmtManagerBase):
 
         self.runner_uri: str = _bucket_uri(self.runtime_bucket_root, str(runner_cfg["uri"]))
         self.runner_deps_prefix: str = str(runner_cfg.get("deps_prefix", "")).strip()
-        self.template_uri: str = _bucket_uri(self.code_bucket_root, str(bmt_cfg["template_uri"]))
+        self.template_local_path: Path = self.repo_root / str(bmt_cfg["template_uri"])
+        self.template_uri: str = str(self.template_local_path)
         self.dataset_uri: str = _bucket_uri(self.runtime_bucket_root, str(paths_cfg["dataset_prefix"]))
         self.outputs_prefix: str = str(paths_cfg["outputs_prefix"]).rstrip("/")
         self.results_prefix: str = str(paths_cfg["results_prefix"]).rstrip("/")
@@ -232,31 +233,14 @@ class SKBmtManager(BmtManagerBase):
                 break
 
     def _setup_template_assets(self) -> None:
-        """Download/cache template JSON."""
-        template_meta_path = self.cache_meta_dir / "template_meta.json"
-        template_remote_meta = _gcs_object_meta(self.template_uri)
-        if template_remote_meta is None:
-            raise SKManagerError(f"Template object missing: {self.template_uri}")
-        template_hit = False
-        if self.cache_enabled and template_meta_path.is_file() and self.cache_template_path.is_file():
-            cached_meta = _load_json(template_meta_path)
-            template_hit = str(cached_meta.get("generation", "")) == str(
-                template_remote_meta.get("generation", "")
-            ) and int(cached_meta.get("size", -1)) == int(template_remote_meta.get("size", -2))
-        if not template_hit:
-            t0 = time.monotonic()
-            _gcloud_cp(self.template_uri, self.cache_template_path)
-            self.sync_durations_sec["template_sync"] = round(time.monotonic() - t0, 3)
-            _write_json(
-                template_meta_path,
-                {
-                    "timestamp": _now_iso(),
-                    "generation": str(template_remote_meta.get("generation", "")),
-                    "size": int(template_remote_meta.get("size", 0)),
-                    "template_uri": self.template_uri,
-                },
-            )
-        _mark_cache(self.cache_stats, "template", hit=template_hit)
+        """Copy template JSON from baked image to workspace cache."""
+        import shutil
+
+        if not self.template_local_path.is_file():
+            raise SKManagerError(f"Template not found in baked image: {self.template_local_path}")
+        self.cache_template_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.template_local_path, self.cache_template_path)
+        _mark_cache(self.cache_stats, "template", hit=False)
 
     def _setup_dataset_assets(self) -> None:
         """Set _inputs_root from BMT_DATASET_LOCAL_PATH or sync dataset from GCS."""

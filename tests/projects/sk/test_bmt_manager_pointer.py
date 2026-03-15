@@ -86,6 +86,9 @@ def test_snapshot_prefix_construction():
 def test_dataset_local_path_used_when_set(tmp_path, monkeypatch):
     """When BMT_DATASET_LOCAL_PATH is set to a valid dir, get_inputs_root() returns it and dataset rsync is skipped."""
     monkeypatch.setenv("BMT_DATASET_LOCAL_PATH", str(tmp_path))
+    from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root as _repo_root
+
+    monkeypatch.setenv("BMT_REPO_ROOT", str(_repo_root() / DEFAULT_CONFIG_ROOT))
     rsync_calls = []
 
     def record_rsync(src: str, dest) -> None:
@@ -104,12 +107,10 @@ def test_dataset_local_path_used_when_set(tmp_path, monkeypatch):
         patch("gcp.image.projects.sk.bmt_manager._gcloud_cp", side_effect=fake_cp),
         patch("gcp.image.projects.sk.bmt_manager._gcloud_ls_json", return_value=[{"name": "kardome_runner"}]),
         patch("gcp.image.projects.sk.bmt_manager._gcs_exists", return_value=True),
-        patch("gcp.image.projects.sk.bmt_manager._gcs_object_meta", return_value={"generation": "1", "size": 0}),
     ):
         from gcp.image.projects.sk import bmt_manager as sk_mgr
-        from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 
-        root = repo_root()
+        root = _repo_root()
         jobs_path = root / DEFAULT_CONFIG_ROOT / "projects/sk/bmt_jobs.json"
         if not jobs_path.exists():
             import pytest

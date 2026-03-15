@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from gcp.image.gcs_helpers import (
-    _gcloud_download_json,
-    _gcloud_exists,
     _gcloud_ls,
 )
 from gcp.image.utils import _bucket_uri
@@ -18,16 +18,18 @@ PROJECT_WIDE_BMT_IDS = frozenset({"", "*", "__all__", "all", "project_all", "__p
 _RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
-def _load_jobs_config_from_gcs(code_bucket_root: str, project: str) -> tuple[dict[str, Any] | None, str | None]:
-    """Load per-project jobs config from code bucket.
+def _load_jobs_config_from_local(repo_root: Path, project: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Load per-project jobs config from the local baked image.
 
     Returns (payload, error_reason_code).
     """
-    jobs_uri = _bucket_uri(code_bucket_root, f"projects/{project}/bmt_jobs.json")
-    result, err = _gcloud_download_json(jobs_uri)
-    if result is None:
-        reason = "jobs_schema_invalid" if err == "invalid_json" else "jobs_config_missing"
-        return None, reason
+    jobs_path = repo_root / f"projects/{project}/bmt_jobs.json"
+    if not jobs_path.is_file():
+        return None, "jobs_config_missing"
+    try:
+        result = json.loads(jobs_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None, "jobs_schema_invalid"
     if not isinstance(result.get("bmts"), dict):
         return None, "jobs_schema_invalid"
     return result, None
@@ -114,12 +116,12 @@ def _legs_from_jobs_payload(
 def _resolve_one_leg(
     raw_idx: int,
     leg: Any,
-    code_bucket_root: str,
+    repo_root: Path,
     manager_exists_cache: dict[str, bool],
     jobs_cache: dict[str, tuple[dict[str, Any] | None, str | None]],
     used_run_ids: set[str],
-    exists: Callable[[str], bool],
-    load_jobs: Callable[[str, str], tuple[dict[str, Any] | None, str | None]],
+    exists: Callable[[Path], bool],
+    load_jobs: Callable[[Path, str], tuple[dict[str, Any] | None, str | None]],
 ) -> list[dict[str, Any]]:
     """Resolve one raw leg into a list of leg dicts to append. Mutates caches and used_run_ids."""
     if not isinstance(leg, dict):
@@ -143,8 +145,8 @@ def _resolve_one_leg(
         ]
 
     if project not in manager_exists_cache:
-        manager_uri = _bucket_uri(code_bucket_root, f"projects/{project}/bmt_manager.py")
-        manager_exists_cache[project] = exists(manager_uri)
+        manager_path = repo_root / f"projects/{project}/bmt_manager.py"
+        manager_exists_cache[project] = exists(manager_path)
     if not manager_exists_cache[project]:
         return [
             _one_leg_dict(
@@ -156,7 +158,7 @@ def _resolve_one_leg(
         ]
 
     if project not in jobs_cache:
-        jobs_cache[project] = load_jobs(code_bucket_root, project)
+        jobs_cache[project] = load_jobs(repo_root, project)
     jobs_payload, jobs_error = jobs_cache[project]
     if jobs_error is not None or jobs_payload is None:
         return [
@@ -187,9 +189,9 @@ def _resolve_one_leg(
 def _resolve_requested_legs(
     *,
     legs_raw: list[Any],
-    code_bucket_root: str,
-    _exists_func: Callable[[str], bool] | None = None,
-    _load_jobs_func: Callable[[str, str], tuple[dict[str, Any] | None, str | None]] | None = None,
+    repo_root: Path,
+    _exists_func: Callable[[Path], bool] | None = None,
+    _load_jobs_func: Callable[[Path, str], tuple[dict[str, Any] | None, str | None]] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve requested legs against VM runtime support by convention files.
 
@@ -198,8 +200,10 @@ def _resolve_requested_legs(
 
     Optional _exists_func and _load_jobs_func allow injection for tests (e.g. from vm_watcher).
     """
-    exists = _exists_func if _exists_func is not None else _gcloud_exists
-    load_jobs = _load_jobs_func if _load_jobs_func is not None else _load_jobs_config_from_gcs
+    exists: Callable[[Path], bool] = _exists_func if _exists_func is not None else (lambda p: p.is_file())
+    load_jobs: Callable[[Path, str], tuple[dict[str, Any] | None, str | None]] = (
+        _load_jobs_func if _load_jobs_func is not None else _load_jobs_config_from_local
+    )
     requested_legs: list[dict[str, Any]] = []
     manager_exists_cache: dict[str, bool] = {}
     jobs_cache: dict[str, tuple[dict[str, Any] | None, str | None]] = {}
@@ -209,7 +213,7 @@ def _resolve_requested_legs(
         legs = _resolve_one_leg(
             raw_idx,
             leg,
-            code_bucket_root,
+            repo_root,
             manager_exists_cache,
             jobs_cache,
             used_run_ids,

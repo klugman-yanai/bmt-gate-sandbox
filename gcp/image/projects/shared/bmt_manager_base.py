@@ -28,7 +28,6 @@ from google.cloud import storage as gcs_storage
 try:
     from utils import (
         _bucket_uri,
-        _code_bucket_root,
         _now_iso,
         _now_stamp,
         _parse_gcs_uri as _utils_parse_gcs_uri,
@@ -37,7 +36,6 @@ try:
 except ImportError:
     from gcp.image.utils import (
         _bucket_uri,
-        _code_bucket_root,
         _now_iso,
         _now_stamp,
         _parse_gcs_uri as _utils_parse_gcs_uri,
@@ -442,9 +440,18 @@ class BmtManagerBase(ABC):
         self.human: bool = args.human
         self.summary_out: Path = Path(args.summary_out)
 
-        # Bucket roots
+        # Bucket root (1:1 mirror of gcp/remote; no runtime/ prefix)
         self.runtime_bucket_root: str = _runtime_bucket_root(args.bucket)
-        self.code_bucket_root: str = _code_bucket_root(args.bucket)
+
+        # Local repo root (baked into VM image via Packer)
+        try:
+            from config.constants import DEFAULT_REPO_ROOT as _DEFAULT_REPO_ROOT  # type: ignore[import]
+        except ImportError:
+            try:
+                from gcp.image.config.constants import DEFAULT_REPO_ROOT as _DEFAULT_REPO_ROOT
+            except ImportError:
+                _DEFAULT_REPO_ROOT = "/opt/bmt"
+        self.repo_root: Path = Path(os.environ.get("BMT_REPO_ROOT", _DEFAULT_REPO_ROOT))
 
         # Workspace dirs (populated by _setup_dirs)
         self.workspace_root: Path = Path(args.workspace_root).expanduser().resolve()

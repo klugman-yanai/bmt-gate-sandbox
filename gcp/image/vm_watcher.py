@@ -56,7 +56,7 @@ from gcp.image.trigger_cleanup import (
 )
 from gcp.image.trigger_resolution import (
     _discover_run_triggers,
-    _load_jobs_config_from_gcs,
+    _load_jobs_config_from_local,
     _resolve_requested_legs as _resolve_requested_legs_impl,
     _run_handshake_uri_from_trigger_uri,
 )
@@ -100,15 +100,10 @@ def _post_commit_status_resilient(
 def _resolve_requested_legs(
     *,
     legs_raw: list[Any],
-    code_bucket_root: str,
+    repo_root: Path,
 ) -> list[dict[str, Any]]:
-    """Resolve requested legs; injects _gcloud_exists and _load_jobs_config for testability."""
-    return _resolve_requested_legs_impl(
-        legs_raw=legs_raw,
-        code_bucket_root=code_bucket_root,
-        _exists_func=_gcloud_exists,
-        _load_jobs_func=_load_jobs_config_from_gcs,
-    )
+    """Resolve requested legs against baked image paths. Thin wrapper for test patchability."""
+    return _resolve_requested_legs_impl(legs_raw=legs_raw, repo_root=repo_root)
 
 
 def _get_bmt_config_defaults() -> tuple[int, int, int]:
@@ -126,7 +121,7 @@ def _get_bmt_config_defaults() -> tuple[int, int, int]:
 _idle_sec_val, _stale_hours_val, _keep_recent_val = _get_bmt_config_defaults()
 try:
     from config.bmt_config import DEFAULT_RUNTIME_CONTEXT, get_config
-    from utils import _bucket_uri, _code_bucket_root, _now_iso, _runtime_bucket_root
+    from utils import _bucket_uri, _now_iso, _runtime_bucket_root
 
     from gcp.image.config.constants import EXECUTABLE_MODE, HTTP_TIMEOUT
 
@@ -147,7 +142,7 @@ except ImportError:
         github_pull_request,
         status_file,
     )
-    from gcp.image.utils import _bucket_uri, _code_bucket_root, _now_iso, _runtime_bucket_root
+    from gcp.image.utils import _bucket_uri, _now_iso, _runtime_bucket_root
 
 IDLE_TIMEOUT_DEFAULT = _idle_sec_val
 STALE_TRIGGER_AGE_HOURS_DEFAULT = _stale_hours_val
@@ -242,15 +237,13 @@ def _resolve_workspace_root(raw: str) -> Path:
     return preferred.resolve()
 
 
-def _download_orchestrator(code_bucket_root: str, workspace_root: Path) -> Path:
-    """Download root_orchestrator.py from the code namespace."""
-    orchestrator_uri = _bucket_uri(code_bucket_root, "root_orchestrator.py")
-    local_path = workspace_root / "bin" / "root_orchestrator.py"
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    bucket_name, blob_name = _parse_gcs_uri(orchestrator_uri)
-    _get_gcs_client().bucket(bucket_name).blob(blob_name).download_to_filename(str(local_path))
-    local_path.chmod(local_path.stat().st_mode | EXECUTABLE_MODE)
-    return local_path
+def _resolve_orchestrator(repo_root: Path) -> Path:
+    """Return local path to root_orchestrator.py (baked into VM image)."""
+    path = repo_root / "root_orchestrator.py"
+    if not path.is_file():
+        raise FileNotFoundError(f"root_orchestrator.py not found in baked image: {path}")
+    path.chmod(path.stat().st_mode | EXECUTABLE_MODE)
+    return path
 
 
 def _run_orchestrator(
@@ -469,10 +462,10 @@ def _download_and_parse_trigger(uri: str) -> dict | None:
 
 def _process_run_trigger(
     run_trigger_uri: str,
-    default_code_bucket_root: str,
     default_runtime_bucket_root: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
+    repo_root: Path,
 ) -> bool:
     """Returns True if trigger was consumed (exit-after-run may fire), False if kept for retry."""
     run_payload = _download_and_parse_trigger(run_trigger_uri)
@@ -513,7 +506,6 @@ def _process_run_trigger(
         return False
 
     bucket = str(run_payload.get("bucket", "")).strip()
-    code_bucket_root = _code_bucket_root(bucket) if bucket else default_code_bucket_root
     runtime_bucket_root = _runtime_bucket_root(bucket) if bucket else default_runtime_bucket_root
     runtime_prefix = ""  # bucket root; no runtime/ prefix
 
@@ -532,7 +524,7 @@ def _process_run_trigger(
 
     requested_legs = _resolve_requested_legs(
         legs_raw=legs_raw,
-        code_bucket_root=code_bucket_root,
+        repo_root=repo_root,
     )
     accepted_legs, rejected_legs, accepted_exec_legs = _build_leg_lists(
         requested_legs,
@@ -751,8 +743,8 @@ def _process_run_trigger(
                 progress_thread.start()
 
         try:
-            orchestrator_path = _download_orchestrator(code_bucket_root, workspace_root)
-        except subprocess.CalledProcessError:
+            orchestrator_path = _resolve_orchestrator(repo_root)
+        except (OSError, FileNotFoundError):
             _stop_heartbeat_thread()
             _stop_progress_thread()
             try:
@@ -1301,12 +1293,12 @@ def _handle_one_pubsub_message(
     subscriber: Any,
     subscription_path: str,
     received_msg: Any,
-    code_bucket_root: str,
     runtime_bucket_root: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
     exit_after_run: bool,
     idle_timeout_sec: int,
+    repo_root: Path,
 ) -> bool:
     """Process one Pub/Sub message; ack or nack. Returns True if caller should exit now (exit_after_run and consumed and no idle window)."""
     ack_id = received_msg.ack_id
@@ -1325,10 +1317,10 @@ def _handle_one_pubsub_message(
     trigger_uri = f"gs://{bucket}/triggers/runs/{run_id}.json"
     trigger_consumed = _process_run_trigger(
         trigger_uri,
-        code_bucket_root,
         runtime_bucket_root,
         workspace_root,
         github_token_resolver,
+        repo_root,
     )
     if trigger_consumed:
         subscriber.acknowledge(request={"subscription": subscription_path, "ack_ids": [ack_id]})
@@ -1342,12 +1334,12 @@ def _handle_one_pubsub_message(
 def _run_pubsub_loop(
     *,
     subscription_path: str,
-    code_bucket_root: str,
     runtime_bucket_root: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
     exit_after_run: bool,
     idle_timeout_sec: int,
+    repo_root: Path,
 ) -> int:
     """Pull triggers from a Pub/Sub subscription instead of polling GCS.
 
@@ -1385,12 +1377,12 @@ def _run_pubsub_loop(
                 subscriber=subscriber,
                 subscription_path=subscription_path,
                 received_msg=received_msg,
-                code_bucket_root=code_bucket_root,
                 runtime_bucket_root=runtime_bucket_root,
                 workspace_root=workspace_root,
                 github_token_resolver=github_token_resolver,
                 exit_after_run=exit_after_run,
                 idle_timeout_sec=idle_timeout_sec,
+                repo_root=repo_root,
             )
             if exit_now:
                 return 0
@@ -1406,8 +1398,12 @@ def main() -> int:
     workspace_root.mkdir(parents=True, exist_ok=True)
     log_config.configure_vm_watcher_logging(workspace_root)
 
-    code_bucket_root = _code_bucket_root(args.bucket)
     runtime_bucket_root = _runtime_bucket_root(args.bucket)
+    try:
+        from config.bmt_config import DEFAULT_REPO_ROOT as _DEFAULT_REPO_ROOT
+    except ImportError:
+        from gcp.image.config.constants import DEFAULT_REPO_ROOT as _DEFAULT_REPO_ROOT
+    repo_root = Path(os.environ.get("BMT_REPO_ROOT", _DEFAULT_REPO_ROOT))
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
@@ -1442,34 +1438,34 @@ def main() -> int:
         subscription_path = f"projects/{gcp_project}/subscriptions/{subscription}"
         return _run_pubsub_loop(
             subscription_path=subscription_path,
-            code_bucket_root=code_bucket_root,
             runtime_bucket_root=runtime_bucket_root,
             workspace_root=workspace_root,
             github_token_resolver=github_token_resolver,
             exit_after_run=exit_after_run,
             idle_timeout_sec=idle_timeout_sec,
+            repo_root=repo_root,
         )
 
     return _run_gcs_poll_loop(
         args=args,
-        code_bucket_root=code_bucket_root,
         runtime_bucket_root=runtime_bucket_root,
         workspace_root=workspace_root,
         github_token_resolver=github_token_resolver,
         exit_after_run=exit_after_run,
         idle_timeout_sec=idle_timeout_sec,
+        repo_root=repo_root,
     )
 
 
 def _run_gcs_poll_loop(
     *,
     args: argparse.Namespace,
-    code_bucket_root: str,
     runtime_bucket_root: str,
     workspace_root: Path,
     github_token_resolver: Callable[[str], str | None],
     exit_after_run: bool,
     idle_timeout_sec: int,
+    repo_root: Path,
 ) -> int:
     poll_log = logging.getLogger(log_config.VM_WATCHER_LOGGER_NAME)
     idle_deadline = time.monotonic() + idle_timeout_sec if (exit_after_run and idle_timeout_sec > 0) else None
@@ -1483,10 +1479,10 @@ def _run_gcs_poll_loop(
                     break
                 trigger_consumed = _process_run_trigger(
                     run_trigger_uri,
-                    code_bucket_root,
                     runtime_bucket_root,
                     workspace_root,
                     github_token_resolver,
+                    repo_root,
                 )
                 if exit_after_run and trigger_consumed:
                     if idle_timeout_sec > 0:

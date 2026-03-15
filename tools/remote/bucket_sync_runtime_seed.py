@@ -124,7 +124,6 @@ class BucketSyncRuntimeSeed:
 
         manifest = _local_manifest(src, allow_generated_artifacts)
         manifest["bucket"] = bucket
-        manifest["runtime_prefix"] = "runtime"
         return _upload_manifest(dest, manifest)
 
 
