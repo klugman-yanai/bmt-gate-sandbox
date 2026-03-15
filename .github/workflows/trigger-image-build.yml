@@ -21,6 +21,8 @@ jobs:
   trigger:
     name: Run image build from branch
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Dispatch image build on branch
         id: dispatch
