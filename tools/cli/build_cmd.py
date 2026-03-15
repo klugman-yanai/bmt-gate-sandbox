@@ -1,6 +1,7 @@
 """VM image build orchestration (extracted from Justfile bash)."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -165,6 +166,10 @@ def image(
     branch: Annotated[
         str, typer.Option(help="Git branch to build from")
     ] = "",
+    repo: Annotated[
+        str,
+        typer.Option("--repo", help="GitHub repo (owner/name) to dispatch to; default from git origin. Set BMT_BUILD_REPO to override."),
+    ] = "",
     no_wait: Annotated[
         bool,
         typer.Option("--no-wait", help="Dispatch build and return immediately"),
@@ -180,7 +185,7 @@ def image(
 ) -> None:
     """Build VM image, optionally run terraform after."""
     branch = branch or _current_branch()
-    repo = _repo_slug()
+    repo = (repo or os.environ.get("BMT_BUILD_REPO") or "").strip() or _repo_slug()
 
     if skip_image:
         rc = _run_terraform()
