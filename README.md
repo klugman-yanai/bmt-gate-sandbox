@@ -59,9 +59,9 @@ See [docs/github-and-ci.md](docs/github-and-ci.md#actions-and-cli-tools).
 
 **Pulumi is the source of truth** for all non-secret configuration. Run `just pulumi` to apply infra and export repo vars. Secrets are set manually (see [infra/README.md](infra/README.md)).
 
-| Required (from Terraform) | Secrets (set manually) |
+| Required (from Pulumi) | Secrets (set manually) |
 |---------------------------|------------------------|
-| `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`, `GCP_SA_EMAIL`, `BMT_PUBSUB_SUBSCRIPTION` | `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` |
+| `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCP_SA_EMAIL` | `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` |
 
 Required vars (e.g. `GCS_BUCKET`, `BMT_LIVE_VM`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`) are set from Pulumi; run `just pulumi` to apply infra and push repo vars to GitHub. See [docs/configuration.md](docs/configuration.md).
 
@@ -96,17 +96,7 @@ See [gcp/README.md](gcp/README.md) for canonical mirror policy.
 
 ## Documentation
 
-Full index: [docs/README.md](docs/README.md).
-
-| Doc | Description |
-| --- | --- |
-| [README.md](README.md) | This file — purpose, features, config, local usage. |
-| [CLAUDE.md](CLAUDE.md) | AI/maintainer guide — layout, devtools, lint/test, CI/VM, env vars. |
-| [docs/architecture.md](docs/architecture.md) | Trigger-and-stop, GCS contract, script map. |
-| [docs/configuration.md](docs/configuration.md) | Env contract, repo vars, VM metadata, secrets. |
-| [docs/development.md](docs/development.md) | Setup, testing, Justfile, deploy. |
-| [docs/development.md](docs/development.md#testing-production-ci-locally) | Canonical how-to: test prod CI locally. |
-| [gcp/README.md](gcp/README.md) | Bucket mirror policy. [gcp/image/scripts/README.md](gcp/image/scripts/README.md) — VM bootstrap. |
+Full index: [docs/README.md](docs/README.md). Key: [architecture](docs/architecture.md), [configuration](docs/configuration.md), [development](docs/development.md) (incl. [test prod CI locally](docs/development.md#testing-production-ci-locally)), [adding a project](docs/adding-a-project.md), [ROADMAP](ROADMAP.md), [CONTRIBUTING](CONTRIBUTING.md). [CLAUDE.md](CLAUDE.md) — AI/maintainer guide. [gcp/README.md](gcp/README.md) — bucket mirror policy.
 
 ## Notes
 
@@ -118,4 +108,4 @@ Full index: [docs/README.md](docs/README.md).
 
 ## Test vs production
 
-When moving to production: update GitHub App credentials and repo mapping (`gcp/image/config/github_repos.json`), and ensure Pulumi (and thus `BMT_STATUS_CONTEXT`) matches branch protection. See [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md).
+When moving to production: update GitHub App credentials and repo mapping (`gcp/image/config/github_repos.json`), and ensure Pulumi (and thus `BMT_STATUS_CONTEXT`) matches branch protection. See [docs/configuration.md](docs/configuration.md) and [docs/development.md](docs/development.md).

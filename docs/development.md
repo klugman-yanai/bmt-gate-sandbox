@@ -134,7 +134,7 @@ After prerequisites and sync, trigger the real CI (push to your branch or use **
 - Live TUI: `just monitor` or `just monitor --run-id <run_id>`.
 - Outcome: Check Run and commit status in GitHub; `current.json` and snapshot dirs in GCS at the results prefix.
 
-See [architecture.md](architecture.md) and [plans/high-level-design-improvements.md](plans/high-level-design-improvements.md) for strategy and rationale.
+See [architecture.md](architecture.md) and [plans/](plans/) for strategy and rationale.
 
 ---
 

@@ -98,11 +98,11 @@ act which="":
     case "{{ which }}" in
       handoff)
         act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
-          -i ci_run_id=$${GITHUB_RUN_ID:-local123} \
-          -i head_sha="$(git rev-parse HEAD)" \
-          -i head_branch="$(git branch --show-current)" \
-          -i head_event=push \
-          -i pr_number= \
+          --input ci_run_id="$${GITHUB_RUN_ID:-local123}" \
+          --input head_sha="$(git rev-parse HEAD)" \
+          --input head_branch="$(git branch --show-current)" \
+          --input head_event=push \
+          --input pr_number= \
           $VAR_ARG
         ;;
       trigger)

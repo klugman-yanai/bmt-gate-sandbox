@@ -216,7 +216,7 @@ The `gcp/` directory has `gcp/image` (mirrors bucket `code/`) and `gcp/remote` (
 - **Per-project managers** — Each project has its own **bmt_manager.py** (e.g. `sk/bmt_manager.py`). They load BMT job config (dict/JSON), cache runner/template/dataset from GCS via `gcloud` CLI, run the runner binary per WAV in a thread pool, parse scores, evaluate gate, and write outputs under `{results_prefix}/snapshots/{run_id}/` (latest.json, ci_verdict.json, logs). Baseline is read by resolving `current.json` to the last-passing snapshot.
 - **gcp/image/lib/** — Shared VM-side code only: `github_auth.py` (GitHub App JWT + installation token), `github_checks.py` (Check Run create/update), `status_file.py`. No `bmt_lib/` or `github_api.py` in the current implementation.
 
-See **docs/architecture.md** for the full script reference, data flow, and limitations. Planned changes (SDK, Pydantic, bmt_lib, PR comments): **docs/plans/future-architecture.md**.
+See **docs/architecture.md** for the full script reference, data flow, and limitations. Planned changes: see [ROADMAP.md](ROADMAP.md) and [docs/roadmap/](docs/roadmap/).
 
 ### Config Files
 
@@ -246,48 +246,4 @@ The **Check Run** is implemented and runs after the watcher updates `current.jso
 
 ## GCP Environment Variables (CI)
 
-Configure via **GitHub repository or organization variables** (Settings → Secrets and variables → Actions → Variables), or with `gh`:
-
-```bash
-gh variable set GCS_BUCKET "<bucket>"
-gh variable set GCP_WIF_PROVIDER "<wif-provider>"
-gh variable set GCP_SA_EMAIL "<sa-email>"
-gh variable set GCP_ZONE "<zone>"
-gh variable set BMT_VM_NAME "<vm-name>"
-```
-
-**BMT VM is Pulumi-managed.** `BMT_VM_NAME` is set from Pulumi outputs via `just pulumi` (or by the bmt-vm-provision workflow after up). Console-created VMs are not required.
-
-**Required (from Pulumi):** `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_STATUS_CONTEXT` are part of static declarative config. Set them via Pulumi config and export to GitHub with `just pulumi`. Do not set them manually as optional overrides.
-
-| Variable | Purpose |
-| -------- | ------- |
-| `GCS_BUCKET` | GCS bucket name |
-| `GCP_WIF_PROVIDER` | Workload Identity Federation provider |
-| `GCP_SA_EMAIL` | Service account email for WIF auth |
-| `GCP_PROJECT` | GCP project ID for VM operations |
-| `GCP_ZONE` | VM zone (e.g. `europe-west4-a`) |
-| `BMT_VM_NAME` | VM instance name (set from Pulumi via just pulumi or bmt-vm-provision; workflow starts it; VM stops itself after one run) |
-| `BMT_STATUS_CONTEXT` | Commit status name (from Pulumi; must match branch protection) |
-| `BMT_HANDSHAKE_TIMEOUT_SEC` | Handshake timeout seconds (from Pulumi) |
-
-**Optional** (leave unset for defaults): **Sandbox/testing:** `BMT_RUNNERS_PRESEEDED_IN_GCS` — when set to `true`, the workflow does not download runner artifacts; it verifies runners already exist in GCS and skips the upload-runners job (avoids "artifact not found" in bmt-gate-sandbox).
-
-For **local** use (e.g. `gcp/image/scripts/audit_vm_and_bucket.sh`, `ssh_install.sh`), set the same canonical vars explicitly (`GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCS_BUCKET`).
-
-### CI workflow (trigger BMT from CI)
-
-| Secret | Purpose |
-| ------ | ------- |
-| `BMT_DISPATCH_APP_ID` | GitHub App ID used to mint a token for dispatching the BMT handoff workflow. Same names in test and prod repos; each repo sets the App installed on that repo. |
-| `BMT_DISPATCH_APP_PRIVATE_KEY` | GitHub App private key (PEM) for `workflow_dispatch` token minting. |
-
-### VM-side (for trigger-and-stop gating)
-
-`vm_watcher.py` uses GitHub App credentials only. For each enabled repository mapping in `gcp/image/config/github_repos.json`, the VM must have:
-
-- `<prefix>_ID`
-- `<prefix>_INSTALLATION_ID`
-- `<prefix>_PRIVATE_KEY`
-
-**Branch protection:** Require the status check named by `BMT_STATUS_CONTEXT` to pass before merge.
+**Required (from Pulumi):** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCP_SA_EMAIL`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`. Run `just pulumi` to apply and push repo vars. **Secrets:** `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY`. **VM-side:** per-repo `<prefix>_ID`, `<prefix>_INSTALLATION_ID`, `<prefix>_PRIVATE_KEY` in `gcp/image/config/github_repos.json`. Full reference: [docs/configuration.md](docs/configuration.md). Branch protection must require `BMT_STATUS_CONTEXT`.

@@ -38,6 +38,8 @@ todos:
 
 # gcp/image Single Entrypoint and Readability Refactor — Implementation Plan (Deepened)
 
+**Compatibility:** No backwards compatibility is required. This is an **alpha build**; breaking changes are expected. Implement the refactor directly without preserving old entrypoints, script paths, or APIs.
+
 ## Enhancement Summary
 
 **Deepened on:** 2026-03-15

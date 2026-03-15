@@ -1,52 +1,43 @@
 # Documentation index
 
-Start here for structure and day-to-day use.
+Start here. Full entry: [README](../README.md).
 
 ## Start here
 
 | I want to… | Doc |
 | ---------- | --- |
-| **Test prod CI locally** with real VM/GCS | [development.md](development.md#testing-production-ci-locally) |
-| **Set up config / repo vars** | [configuration.md](configuration.md), [../infra/README.md](../infra/README.md) |
-| **Understand the pipeline** (trigger, handoff, results) | [architecture.md](architecture.md), [github-and-ci.md](github-and-ci.md) |
+| **Test prod CI locally** (real VM/GCS) | [development.md](development.md#testing-production-ci-locally) |
+| **Set up config / repo vars** | [configuration.md](configuration.md), [infra/README.md](../infra/README.md) |
+| **Understand the pipeline** | [architecture.md](architecture.md), [github-and-ci.md](github-and-ci.md) |
 | **Develop and run tests** | [development.md](development.md) |
-| **Add a new BMT project** (full: bmt-gcloud + app repo) | [adding-a-new-project.md](adding-a-new-project.md) |
-| **Add project / BMT data / manager / JSONs** (quick steps, bmt-gcloud only) | [adding-new-project-and-bmt.md](adding-new-project-and-bmt.md) |
-| **Keep sandbox and production in sync** | [sandbox-and-production.md](sandbox-and-production.md) |
+| **Add a project or BMT** | [adding-a-project.md](adding-a-project.md) |
+| **Sandbox vs production** | [sandbox-and-production.md](sandbox-and-production.md) |
 
----
-
-**Path map (old → new):** CI entrypoint: `uv run bmt <cmd>` / `.github/bmt/ci/` (not `.github/scripts/ci_driver.py`). Bucket tools: `tools/remote/bucket_*.py` (invoke via `tools bucket` or `uv run python -m tools.remote.bucket_*`). BMT run/monitor/wait: `tools/bmt/` only (not under `tools/remote/`). VM scripts: `gcp/image/scripts/` (not `gcp/image/vm/`).
-
-## Active reference
+## Reference
 
 | Doc | Description |
 | --- | --- |
-| [architecture.md](architecture.md) | Trigger-and-stop flow, GCS contract, script map, production surface, implementation/data flow, repository structure. |
+| [architecture.md](architecture.md) | Trigger-and-stop flow, GCS contract, script map, data flow. |
 | [configuration.md](configuration.md) | Env contract, repo vars, VM metadata, secrets, bucket layout. |
-| [development.md](development.md) | Setup, testing (unit, local BMT, pointer/snapshot, **testing prod CI locally**), lint/typecheck, Justfile, deploy. |
-| [adding-a-new-project.md](adding-a-new-project.md) | How to add a new BMT project (e.g. Skyworth): gcp/image layout, manager script, bmt_jobs.json, app-repo matrix and runner upload, .github/bmt. |
-| [adding-new-project-and-bmt.md](adding-new-project-and-bmt.md) | Concise steps: new project (scaffold, bmt_jobs), new BMT .wav data (upload), new manager logic (base class), JSON config. |
-| [github-and-ci.md](github-and-ci.md) | Communication flow, GitHub App permissions, Actions/CLI tools, workflow output (intended UX). |
-| [preflight-bucket-remote.md](preflight-bucket-remote.md) | Before making gcp/remote a mount: check bucket contents, diff code/ vs gcp/image, and next steps for wipe/mount. |
+| [development.md](development.md) | Setup, testing, lint/typecheck, Justfile, deploy. |
+| [github-and-ci.md](github-and-ci.md) | Communication flow, GitHub App, Actions/CLI, workflow output. |
+| [adding-a-project.md](adding-a-project.md) | Full checklist (bmt-gcloud + app repo) and quick steps (bmt-gcloud only). |
+| [debugging-bmt-pipeline.md](debugging-bmt-pipeline.md) | Logs, correlating a run, failure debugging. |
+| [preflight-bucket-remote.md](preflight-bucket-remote.md) | Pre-flight: bucket check, diff code/ vs gcp/image. |
 
-## Sandbox and production
+## Roadmap and plans
+
+| Location | Description |
+| -------- | ----------- |
+| [ROADMAP.md](../ROADMAP.md) | Current roadmap index (root). |
+| [roadmap/](roadmap/) | Dated implementation plans. |
+| [plans/](plans/) | Design and migration plans. |
+
+## Audits
 
 | Doc | Description |
 | --- | --- |
-| [sandbox-and-production.md](sandbox-and-production.md) | Maintaining sandbox and production, sandbox mirror production, drift (core-main vs bmt-gcloud). |
-
-## Audits / reference
-
-| Doc | Description |
-| --- | --- |
-| [audits.md](audits.md) | Terraform outputs, BMT config fields, results prefix layout. |
-| [env-vars-audit.md](env-vars-audit.md) | All env vars: which are needed, which are auto-managed, which cause drift; minimal user surface. |
-
-## Plans
-
-See [docs/plans/](plans/) for architecture, migration, and design plans. Dated filenames reflect when they were written.
-
-## Archive
-
-- **[archive/](archive/)** — Ephemeral or one-off docs (merge strategies, CI branch update notes).
+| [audits/bmt-config-and-results.md](audits/bmt-config-and-results.md) | BMT config fields, results prefix layout, infra → repo vars. |
+| [audits/agent-native-and-complexity-audit.md](audits/agent-native-and-complexity-audit.md) | Agent-native and complexity audit. |
+| [audits/agent-native-image-vars-workflow.md](audits/agent-native-image-vars-workflow.md) | Agent-native: image build, variables, workflow. |
+| [env-vars-audit.md](env-vars-audit.md) | Env vars: minimal set, by source, drift, override policy. |

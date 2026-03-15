@@ -262,7 +262,7 @@ def add_project(project: str, dry_run: bool = False) -> int:
         f"1. Edit gcp/image/projects/{project}/bmt_jobs.json (paths, gate, runner URI).",
         "2. Run: just deploy  (with GCS_BUCKET set) to push to the bucket.",
         f"3. In the app repo: add CMake preset and runner upload for project={project}.",
-        "4. See docs/adding-new-project-and-bmt.md for the full checklist.",
+        "4. See docs/adding-a-project.md for the full checklist.",
     )
     if sys.stdout.isatty():
         try:
