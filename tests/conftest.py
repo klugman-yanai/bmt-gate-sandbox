@@ -14,8 +14,9 @@ def repo_root() -> Path:
 
 @pytest.fixture(scope="session")
 def gcp_code_root(repo_root: Path) -> Path:
-    path = repo_root / "gcp" / "code"
-    assert path.exists(), f"Expected gcp code root to exist: {path}"
+    """VM deployable code root (gcp/image mirrors bucket code/)."""
+    path = repo_root / "gcp" / "image"
+    assert path.exists(), f"Expected gcp image root to exist: {path}"
     return path
 
 

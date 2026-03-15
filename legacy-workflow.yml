@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+  pull_request_target:
+    branches: [dev]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ─────────────────────── 1) extract preset list ───────────────────────
+  extract-presets:
+    runs-on: ubuntu-latest
+    outputs:
+      presets: ${{ steps.parse.outputs.presets }}
+    steps:
+      - name: Checkout source for preset parsing
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
+          fetch-depth: 1
+
+      - name: Parse CMakePresets.json
+        id: parse
+        run: |
+          presets=$(jq -c '
+            [ .buildPresets[]
+              | { build: .name
+                , configure: .configurePreset
+                , short: (.name | sub("-build$"; "")) }
+            ]' CMakePresets.json)
+          echo "presets=$presets" >>"$GITHUB_OUTPUT"
+
+  # ─────────────────────── 2) build every preset ────────────────────────
+  build:
+    needs: extract-presets
+    runs-on: ubuntu-latest # ← always GH-hosted; no self-hosted waiting
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.extract-presets.outputs.presets) }}
+
+    steps:
+      # Checkout with FG-PAT; do NOT persist GITHUB_TOKEN creds
+      - name: Checkout source to build
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
+
+      # Make webOS toolchains relocatable and install minimal deps
+      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y patchelf libfl2
+          if compgen -G "third-party/starfish-bdk*" > /dev/null; then
+            find third-party/starfish-bdk* -type f -executable | while read -r exe; do
+              if file "$exe" | grep -q "ELF.*executable"; then
+                patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$exe" || true
+                patchelf --set-rpath '$ORIGIN/../lib' "$exe" || true
+              fi
+            done
+          fi
+
+      # ---- install the requested CMake version -----------------------
+      - name: Install CMake 3.29.3
+        run: |
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz
+          tar -xf cmake-3.29.3-linux-x86_64.tar.gz
+          sudo mv cmake-3.29.3-linux-x86_64 /opt/cmake-3.29
+          echo "/opt/cmake-3.29/bin" >>"$GITHUB_PATH"
+
+      # ---- install MinGW for Windows cross builds (if needed) --------
+      - name: Install MinGW (64-bit)
+        if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+
+      # ---- configure -------------------------------------------------
+      - name: Configure ( ${{ matrix.configure }} )
+        # If xtensa/hexagon, don't fail the job even if configure fails
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: |
+          if [[ "${{ matrix.configure }}" == *webos* || "${{ matrix.build }}" == *webos* ]]; then
+            cmake --preset "${{ matrix.configure }}" \
+              -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+          else
+            cmake --preset "${{ matrix.configure }}"
+          fi
+
+      # ---- build -----------------------------------------------------
+      - name: Build ( ${{ matrix.short }} )
+        # If xtensa/hexagon, don't fail the job even if build fails
+        continue-on-error: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: cmake --build --preset "${{ matrix.build }}" 2>&1 | tee build.log
+
+      # ---- soft check for Xtensa/Hexagon (never fail) ----------------
+      - name: Soft check (Xtensa/Hexagon)
+        if: ${{ contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon') }}
+        run: |
+          warnings=$(grep -c "warning:" build.log || true)
+          errors=$(grep -c "error:"   build.log || true)
+          echo "Warnings: $warnings"
+          echo "Errors  : $errors"
+          if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
+            echo "::warning::Xtensa/Hexagon build had $warnings warnings and $errors errors — NOT failing CI by request."
+          else
+            echo "::notice::Xtensa/Hexagon build clean."
+          fi
+
+      # ---- strict check for everything else (fail on any) ------------
+      - name: Strict check (non-embedded)
+        if: ${{ ! (contains(matrix.configure, 'xtensa') || contains(matrix.build, 'xtensa') || contains(matrix.configure, 'hexagon') || contains(matrix.build, 'hexagon')) }}
+        run: |
+          warnings=$(grep -c "warning:" build.log || true)
+          errors=$(grep -c "error:"   build.log || true)
+          echo "Warnings: $warnings"
+          echo "Errors  : $errors"
+          if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
+            echo "::error::Build failed – warnings or errors detected."
+            exit 1
+          fi

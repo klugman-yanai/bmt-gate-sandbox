@@ -109,6 +109,37 @@ add-project project:
     uv run python tools/scripts/add_bmt_project.py "{{ project }}"
 
 # -----------------------------------------------------------------------------
+# Run workflow locally (act)
+# -----------------------------------------------------------------------------
+# Run GitHub Actions workflows in Docker for debugging. Requires: Docker, act (nektos/act).
+# Set vars in .env (GCS_BUCKET, GCP_PROJECT, etc.) or export; optional --secret-file .secrets.
+# Usage: just act-workflow              # all jobs
+#        just act-workflow prepare-builds
+#        just act-bmt-handoff           # handoff only (passes head_sha, head_branch)
+act-workflow job="":
+    #!/usr/bin/env -S bash -eu
+    W=".github/workflows/build-and-test.yml"
+    ENV_ARG=""
+    [[ -f .env ]] && ENV_ARG="--env-file .env"
+    if [[ -n "{{ job }}" ]]; then
+      act workflow_dispatch -W "$W" -j "{{ job }}" $ENV_ARG
+    else
+      act workflow_dispatch -W "$W" $ENV_ARG
+    fi
+
+act-bmt-handoff:
+    #!/usr/bin/env -S bash -eu
+    ENV_ARG=""
+    [[ -f .env ]] && ENV_ARG="--env-file .env"
+    act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
+      -i ci_run_id=$${GITHUB_RUN_ID:-local123} \
+      -i head_sha="$(git rev-parse HEAD)" \
+      -i head_branch="$(git branch --show-current)" \
+      -i head_event=push \
+      -i pr_number= \
+      $ENV_ARG
+
+# -----------------------------------------------------------------------------
 # Image build
 # -----------------------------------------------------------------------------
 

@@ -136,6 +136,66 @@ See [architecture.md](architecture.md) and [plans/high-level-design-improvements
 
 ---
 
+## Running the workflow locally (act)
+
+Use [nektos/act](https://github.com/nektos/act) to run GitHub Actions workflows in Docker on your machine. Useful for debugging workflow YAML and job order without pushing.
+
+**Prerequisites**
+
+- Docker running.
+- [act](https://github.com/nektos/act#installation) installed (e.g. `curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash`, or package manager).
+
+**Vars and secrets**
+
+- Repo variables (e.g. `GCS_BUCKET`, `GCP_PROJECT`, `BMT_LIVE_VM`) are not available locally. Pass them via a **`.env`** in the repo root (do not commit; add `.env` to `.gitignore` if needed) or via `act -P ubuntu-22.04=...` / `act --env-file .env`.
+- Secrets: put in a file (e.g. `.secrets`) and run `act --secret-file .secrets`, or pass per secret with `-s GITHUB_TOKEN=...`. For BMT handoff you need the same vars the workflow uses (see [configuration.md](configuration.md)).
+
+**What to run**
+
+1. **Full CI (build-and-test)** — Simulates the workflow that runs on push/PR. Use `workflow_dispatch` or a synthetic `pull_request` event:
+
+   ```bash
+   # From repo root; vars from .env or export
+   act workflow_dispatch -W .github/workflows/build-and-test.yml -j prepare-builds
+   act workflow_dispatch -W .github/workflows/build-and-test.yml -j dummy-build-release
+   act workflow_dispatch -W .github/workflows/build-and-test.yml -j decide-bmt
+   act workflow_dispatch -W .github/workflows/build-and-test.yml -j bmt
+   ```
+
+   Or run the whole workflow (all jobs):
+
+   ```bash
+   act workflow_dispatch -W .github/workflows/build-and-test.yml
+   ```
+
+2. **BMT handoff only** — Debug the handoff workflow in isolation. You must pass required inputs:
+
+   ```bash
+   act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
+     -i ci_run_id=12345 \
+     -i head_sha=$(git rev-parse HEAD) \
+     -i head_branch=$(git branch --show-current) \
+     -i head_event=push \
+     -i pr_number= \
+     --env-file .env
+   ```
+
+3. **Trigger CI (from branch)** — Runs the trigger workflow that reuses build-and-test. Use a `pull_request` event so the job runs; act will use the workflow file from the current branch:
+
+   ```bash
+   act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json
+   ```
+
+   Create `.github/workflows/events/pull_request.json` with a minimal payload (e.g. `{"pull_request": {"head": {"sha": "...", "ref": "feat/foo"}, "base": {"ref": "dev"}, "number": 1}, "repository": {"default_branch": "main"}}`) or use act’s default event payload and override as needed.
+
+**Limitations**
+
+- **Reusable workflows** (`uses: ./.github/workflows/bmt-handoff.yml`) may not be fully supported by act in all versions; if the bmt job fails to invoke handoff, run `bmt-handoff.yml` via `workflow_dispatch` as above.
+- **GCP and VM**: Steps that need real GCP (WIF, storage, VM start) will only work if your Docker host has credentials and the same vars; use a sandbox bucket and optional VM for real handoff.
+- **Just recipe**: `just act-workflow [job]` runs act with the build-and-test workflow; see `just --list`.
+
+---
+
 ## Lint and type check
 
 All of the following are run by **`just test`** (pytest, ruff check, ruff format --check, basedpyright, shellcheck, gcp layout policy, repo layout policy). To run only lint/typecheck:

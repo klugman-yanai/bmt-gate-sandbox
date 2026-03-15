@@ -2,13 +2,27 @@
 
 Terraform is the **source of truth** for all non-secret configuration. Repo variables used by CI and the BMT CLI are populated from Terraform outputs.
 
+## Proper order: Packer → Terraform
+
+Terraform **does not build** the VM image. It creates the VM from an **existing** image (family `bmt-runtime`). Build the image first, then apply Terraform.
+
+| Step | What to do |
+|------|------------|
+| **1. GitHub variables** | Set `GCP_PROJECT`, `GCP_ZONE`, `GCS_BUCKET`, `GCP_SA_EMAIL` (Settings → Variables or `infra/bootstrap/bootstrap_gh_vars.sh`). |
+| **2. Packer image** | **Option A (CI):** `just build` — dispatches the image-build workflow from your branch and waits. **Option B (local):** `packer init` then `packer build -var-file=infra/packer/local.pkrvars.hcl infra/packer/bmt-runtime.pkr.hcl` (copy `example.pkrvars.hcl` → `local.pkrvars.hcl`, set `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`; use `PACKER_GITHUB_API_TOKEN="$(gh auth token)"` before init to avoid rate limits). See [infra/packer/README.md](packer/README.md). |
+| **3. Terraform** | From repo root: **`just terraform`**. Init (backend from `GCS_BUCKET`), plan, apply (vars from `gh variable get`), then export outputs to GitHub. No prompts. |
+| **4. Secrets** | Set `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` and any VM-side GitHub App credentials (see table below). |
+
+One-liner after the image exists: **`just terraform`**. To rebuild the image and then apply Terraform: **`just build-terraform`** (or `BMT_SKIP_IMAGE_BUILD=1 just build-terraform` if the image-build workflow is not on the default branch).
+
 ## Flow
 
 Configuration is **fully declarative**: all values come from the repo (GitHub variables + in-repo defaults). No Terraform prompts.
 
 1. **Set GitHub repo variables** (once per repo): `GCP_PROJECT`, `GCP_ZONE`, `GCS_BUCKET`, `GCP_SA_EMAIL`. Use GitHub Settings → Variables or `infra/bootstrap/bootstrap_gh_vars.sh` with an env file.
-2. **Apply and export:** From repo root run **`just terraform`**. This runs Terraform init (using `GCS_BUCKET` for state backend), **plan** then **apply** the plan (vars from gh), then pushes Terraform outputs to GitHub repo variables. No user input.
-3. **Set secrets manually** (see below). They are never in Terraform or the export script.
+2. **Build the Packer image** (see table above).
+3. **Apply and export:** From repo root run **`just terraform`**. This runs Terraform init (using `GCS_BUCKET` for state backend), **plan** then **apply** the plan (vars from gh), then pushes Terraform outputs to GitHub repo variables. No user input.
+4. **Set secrets manually** (see below). They are never in Terraform or the export script.
 
 ## Safeguards
 

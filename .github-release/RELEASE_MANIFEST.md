@@ -6,7 +6,9 @@ This directory contains the repo’s GitHub Actions: workflows, custom actions, 
 
 ## Workflows
 
-- **build-and-test.yml** — Main CI. On push and pull requests to `dev`: parses CMake presets, runs release and non-release builds, then runs the BMT gate when the release build succeeds (same repo, base branch `dev`). Uses `pull_request_target` for fork-safe checkout.
+- **trigger-ci.yml** — Thin trigger on push/`pull_request_target` to `dev`. Calls `build-and-test.yml` from the **source branch** (PR head or pushed branch) so CI uses your branch’s workflow files. Copy to the repo’s `.github/workflows/` and merge to default once.
+
+- **build-and-test.yml** — Main CI (real builds + BMT). Invoked by `trigger-ci` with `workflow_call` from the source ref; also supports `workflow_dispatch` and `workflow_call` directly. Parses CMake presets, runs release and non-release builds, then runs the BMT gate when the release build succeeds (same repo, base branch `dev`). Uses `pull_request_target` in the trigger for fork-safe checkout.
 
 - **bmt-handoff.yml** — Reusable BMT workflow. Triggered by the main CI when the gate runs: selects or starts the BMT VM, writes the run trigger to GCS, waits for VM handshake, writes the handoff summary. Called with `workflow_call` from `build-and-test`.
 

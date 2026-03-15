@@ -1,22 +1,11 @@
 name: CI
 
+# push/pull_request are in trigger-ci.yml so CI runs from the source branch (see trigger-ci.yml).
 on:
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"
-  push:
-    branches:
-      - dev
-      - ci/check-bmt-gate
-      - test/check-bmt-gate-*
-      - test/workflow-optimizations
-      - test/*
-  pull_request:
-    branches:
-      - dev
-      - ci/check-bmt-gate
-      - test/check-bmt-gate-*
-      - test/workflow-optimizations
+  workflow_call: {}
 
 defaults:
   run:
