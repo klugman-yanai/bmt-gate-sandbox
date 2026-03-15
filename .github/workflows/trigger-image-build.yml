@@ -23,10 +23,21 @@ jobs:
       - name: Dispatch image build on branch
         id: dispatch
         run: |
+          set -e
           REF="${{ inputs.branch || github.ref_name }}"
-          gh workflow run bmt-vm-image-build.yml --repo "${{ github.repository }}" --ref "$REF"
-          sleep 5
-          RUN_ID=$(gh run list --workflow bmt-vm-image-build.yml --repo "${{ github.repository }}" --branch "$REF" --limit 1 --json databaseId -q '.[0].databaseId')
+          if ! gh workflow run bmt-vm-image-build.yml --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
+            echo "::error::Failed to trigger bmt-vm-image-build.yml on ref $REF. Ensure .github/workflows/bmt-vm-image-build.yml exists on that branch."
+            exit 1
+          fi
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            sleep 5
+            RUN_ID=$(gh run list --workflow bmt-vm-image-build.yml --repo "${{ github.repository }}" --branch "$REF" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+            if [[ -n "$RUN_ID" ]]; then break; fi
+          done
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::error::Triggered run not found for bmt-vm-image-build.yml on $REF. Check Actions tab."
+            exit 1
+          fi
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
       - name: Watch image build
         run: gh run watch ${{ steps.dispatch.outputs.run_id }} --repo "${{ github.repository }}" --exit-status
