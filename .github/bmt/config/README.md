@@ -15,4 +15,4 @@ To set or refresh GitHub repo variables and secrets for the repo that runs the w
 
 - See **bmt-gcloud** devtools/docs for the list of required variables and how to set them (`gh variable set` / `gh secret set`), or use the bootstrap helper and `.env.example` there.
 
-Required variables set by Terraform export: `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. Set manually: `GCP_WIF_PROVIDER`. Zone, subscription, topic, status context, and handshake timeouts are fixed or derived in code (not overridable via env). Optional and secrets are documented in bmt-gcloud.
+Required variables set by Terraform export: `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`. Set manually: `GCP_WIF_PROVIDER`. Zone, subscription, topic, status context, and timeout settings are fixed or derived in code (not overridable via env). Optional and secrets are documented in bmt-gcloud.
