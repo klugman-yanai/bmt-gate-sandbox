@@ -9,12 +9,10 @@ from collections.abc import Callable
 from ci import config
 from ci.actions import gh_error
 from ci.handoff import HandoffManager
-from ci.handshake import HandshakeManager
 from ci.matrix import MatrixManager
 from ci.preset import PresetManager
 from ci.runner import RunnerManager
 from ci.trigger import TriggerManager
-from ci.vm import VmManager
 
 
 def _load_env() -> None:
@@ -27,12 +25,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "filter-supported-matrix": lambda: MatrixManager.from_env().filter_supported(),
     "parse-release-runners": lambda: MatrixManager.from_env().parse_release_runners(),
     "upload-runner": lambda: RunnerManager.from_env().upload(),
-    "select-available-vm": lambda: VmManager.from_env().select(),
-    "start-vm": lambda: VmManager.from_env().start(),
-    "sync-vm-metadata": lambda: VmManager.from_env().sync_metadata(),
     "write-context": lambda: HandoffManager.from_env().write_context(),
-    "wait-watcher-ready": lambda: HandshakeManager.from_env().wait_watcher_ready(),
-    "wait-handshake": lambda: HandshakeManager.from_env().wait(),
     "resolve-failure-context": lambda: HandoffManager.from_env().resolve_failure_context(),
     "filter-upload-matrix": lambda: RunnerManager.from_env().filter_upload_matrix(),
     "upload-runner-to-gcs": lambda: RunnerManager.from_env().upload_runner_to_gcs(),
@@ -41,8 +34,6 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "summarize-matrix-handshake": lambda: RunnerManager.from_env().summarize_matrix_handshake(),
     "preflight-trigger-queue": lambda: TriggerManager.from_env().preflight_queue(),
     "write-run-trigger": lambda: TriggerManager.from_env().write(),
-    "force-clean-vm-restart": lambda: HandshakeManager.from_env().force_clean_vm_restart(),
-    "handshake-timeout-diagnostics": lambda: HandshakeManager.from_env().timeout_diagnostics(),
     "post-pending-status": lambda: HandoffManager.from_env().post_pending_status(),
     "post-handoff-timeout-status": lambda: HandoffManager.from_env().post_handoff_timeout_status(),
     "cleanup-failed-trigger-artifacts": lambda: (
@@ -81,24 +72,12 @@ def main_write_run_trigger() -> None:
     _main_with("write-run-trigger")
 
 
-def main_wait_handshake() -> None:
-    _main_with("wait-handshake")
-
-
-def main_start_vm() -> None:
-    _main_with("start-vm")
-
-
 def main_write_context() -> None:
     _main_with("write-context")
 
 
 def main_write_handoff_summary() -> None:
     _main_with("write-handoff-summary")
-
-
-def main_select_available_vm() -> None:
-    _main_with("select-available-vm")
 
 
 if __name__ == "__main__":

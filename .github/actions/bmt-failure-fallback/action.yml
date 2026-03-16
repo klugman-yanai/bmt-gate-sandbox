@@ -39,10 +39,6 @@ inputs:
     description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
     required: false
     default: "BMT Gate"
-  bmt_live_vm:
-    description: "VM base name fallback when selected_vm is empty (e.g. from vars.BMT_LIVE_VM). Used for stop-VM cleanup."
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -135,9 +131,9 @@ runs:
           reason="No supported test runs to hand off."
         elif [[ "${{ steps.x.outputs.handoff_result }}" == "failure" ]]; then
           if [[ "${{ steps.x.outputs.handoff_reason }}" == "no_runtime_supported_legs" ]]; then
-            reason="VM confirmed trigger but accepted zero supported test runs."
+            reason="Trigger was written but runtime accepted zero supported test runs."
           else
-            reason="VM did not confirm trigger within handshake timeout."
+            reason="Trigger handoff failed before runtime pickup was confirmed."
           fi
         fi
         echo "reason=${reason}" >>"$GITHUB_OUTPUT"
@@ -150,17 +146,13 @@ runs:
         repository: ${{ github.repository }}
         head_sha: ${{ steps.failctx.outputs.head_sha }}
         head_branch: ${{ steps.x.outputs.head_branch }}
-        head_event: ${{ steps.x.outputs.head_event }}
         pr_number: ${{ steps.failctx.outputs.pr_number }}
-        routing_decision: ${{ steps.x.outputs.classify_path }}
-        runner_matrix: ${{ steps.x.outputs.runner_matrix }}
-        accepted_projects: ${{ steps.x.outputs.classify_accepted_projects }}
         filtered_matrix: ${{ steps.x.outputs.classify_filtered_matrix }}
         trigger_written: ${{ steps.failctx.outputs.trigger_written }}
         vm_started: ${{ steps.x.outputs.vm_started }}
         handshake_ok: ${{ steps.x.outputs.handshake_ok }}
         handshake_uri: ${{ steps.x.outputs.handshake_uri }}
-        handoff_state_line: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: VM accepted zero supported test runs.' || 'Handoff failed: VM did not confirm trigger.' }}"
+        handoff_state_line: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: runtime accepted zero supported test runs.' || 'Handoff failed: runtime pickup not confirmed.' }}"
         failure_reason: ${{ steps.reason.outputs.reason }}
 
     - name: Setup GCP for cleanup
@@ -179,7 +171,7 @@ runs:
         HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
         GITHUB_TOKEN: ${{ github.token }}
         BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
-        BMT_FAILURE_STATUS_DESCRIPTION: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: VM accepted zero supported test runs.' || 'BMT cancelled: VM handshake timeout before pickup.' }}"
+        BMT_FAILURE_STATUS_DESCRIPTION: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: runtime accepted zero supported test runs.' || 'BMT cancelled: runtime handoff failed before pickup.' }}"
       run: uv run bmt write-context && uv run bmt post-handoff-timeout-status
 
     - name: Cleanup failed trigger artifacts
@@ -187,14 +179,3 @@ runs:
       shell: bash
       run: uv run bmt cleanup-failed-trigger-artifacts
 
-    - name: Stop VM after workflow failure
-      if: steps.failctx.outputs.trigger_written == 'true' || steps.x.outputs.vm_started == 'true'
-      env:
-        BMT_LIVE_VM: ${{ steps.x.outputs.selected_vm || inputs.bmt_live_vm }}
-      shell: bash
-      run: |
-        if [[ -z "${BMT_LIVE_VM:-}" ]]; then
-          echo "::warning::BMT_LIVE_VM empty; cannot stop VM."
-          exit 0
-        fi
-        gcloud compute instances stop "$BMT_LIVE_VM" --zone "$GCP_ZONE" --project "$GCP_PROJECT" || true

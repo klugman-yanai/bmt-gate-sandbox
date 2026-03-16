@@ -133,9 +133,8 @@ def test_all_commands_are_registered(repo_root: Path) -> None:
         "parse-release-runners",
         "write-run-trigger",
         "upload-runner",
-        "start-vm",
-        "sync-vm-metadata",
-        "wait-handshake",
+        "write-context",
+        "resolve-failure-context",
     ]
     for cmd in expected_commands:
         assert cmd in result.stderr, f"Command '{cmd}' not listed in usage output"

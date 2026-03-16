@@ -14,7 +14,7 @@ module-root = ""
 name = "bmt"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-description = "BMT CI driver: matrix discovery, trigger, VM lifecycle, and runner upload."
+description = "BMT CI driver: matrix discovery, trigger handoff, and runner upload."
 dependencies = [
     "bmt-gcloud",
     "google-cloud-compute>=1.45",
@@ -36,11 +36,8 @@ dev = [
 bmt = "ci.driver:main"
 bmt-matrix = "ci.driver:main_matrix"
 bmt-trigger = "ci.driver:main_write_run_trigger"
-bmt-wait = "ci.driver:main_wait_handshake"
-bmt-start-vm = "ci.driver:main_start_vm"
 bmt-write-context = "ci.driver:main_write_context"
 bmt-write-summary = "ci.driver:main_write_handoff_summary"
-bmt-select-vm = "ci.driver:main_select_available_vm"
 
 [tool.ruff]
 target-version = "py312"

@@ -92,7 +92,6 @@ env:
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
-  BMT_LIVE_VM: ${{ vars.BMT_LIVE_VM }}
 
 permissions:
   contents: read
@@ -115,11 +114,11 @@ jobs:
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
       matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
-      selected_vm: ${{ steps.select-vm.outputs.selected_vm || '' }}
-      vm_reused_running: ${{ steps.select-vm.outputs.vm_reused_running || 'false' }}
-      restart_vm: ${{ steps.preflight.outputs.restart_vm || 'false' }}
-      stale_cleanup_count: ${{ steps.preflight.outputs.stale_cleanup_count || '0' }}
-      vm_started: ${{ steps.start-vm.outcome == 'success' || steps.select-vm.outputs.vm_reused_running == 'true' }}
+      selected_vm: ${{ '' }}
+      vm_reused_running: ${{ 'false' }}
+      restart_vm: ${{ 'false' }}
+      stale_cleanup_count: ${{ '0' }}
+      vm_started: ${{ 'false' }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -152,47 +151,6 @@ jobs:
           AVAILABLE_ARTIFACTS: ${{ inputs.available_artifacts || '[]' }}
           BMT_RUNNERS_PRESEEDED_IN_GCS: "true"
         run: uv run bmt write-context && uv run bmt filter-upload-matrix
-
-      - name: Select available VM from pool
-        id: select-vm
-        shell: bash
-        run: |
-          uv run bmt select-available-vm
-          selected_vm="$(grep '^selected_vm=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
-          echo "BMT_LIVE_VM=${selected_vm}" >> "$GITHUB_ENV"
-
-      - name: Preflight runtime trigger queue (stale cleanup)
-        id: preflight
-        shell: bash
-        env:
-          RUN_CONTEXT: ${{ steps.prepare.outputs.run_context }}
-          PR_NUMBER: ${{ steps.prepare.outputs.pr_number }}
-        run: uv run bmt preflight-trigger-queue
-
-      - name: Sync VM metadata from workflow config
-        env:
-          BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
-          BMT_VM_NAME: ${{ steps.select-vm.outputs.selected_vm }}
-        shell: bash
-        run: uv run bmt sync-vm-metadata
-
-      - name: Force clean VM restart after stale-trigger cleanup
-        if: steps.preflight.outputs.restart_vm == 'true'
-        shell: bash
-        env:
-          BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
-          BMT_VM_NAME: ${{ steps.select-vm.outputs.selected_vm }}
-          STALE_CLEANUP_COUNT: ${{ steps.preflight.outputs.stale_cleanup_count }}
-        run: uv run bmt write-context && uv run bmt force-clean-vm-restart
-
-      - name: Start BMT VM
-        id: start-vm
-        if: steps.select-vm.outputs.vm_reused_running != 'true'
-        env:
-          BMT_LIVE_VM: ${{ steps.select-vm.outputs.selected_vm }}
-          BMT_VM_NAME: ${{ steps.select-vm.outputs.selected_vm }}
-        shell: bash
-        run: uv run bmt start-vm
 
       - name: Workflow summary notice
         run: echo "::notice::BMT result will appear in the PR Checks tab and Comments, not in this workflow summary."
@@ -231,7 +189,7 @@ jobs:
         run: uv run bmt validate-runner-in-repo
 
   handshake:
-    name: Handshake with VM
+    name: Handoff trigger
     needs: [setup, upload-runners]
     if: >-
       !cancelled()
@@ -243,22 +201,22 @@ jobs:
     outputs:
       # Step-level results for failure-fallback diagnostics
       classify_result: ${{ steps.classify.outcome || 'skipped' }}
-      handoff_result: ${{ steps.run.outcome || 'skipped' }}
+      handoff_result: ${{ steps.run-eventarc.outcome || 'skipped' }}
       # Classify outputs
       classify_path: ${{ steps.classify.outputs.path || 'unknown' }}
       has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
       accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
       filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
       # Handshake-run outputs (VM ack, trigger, etc.)
-      selected_vm: ${{ steps.run.outputs.selected_vm || '' }}
-      trigger_written: ${{ steps.run.outputs.trigger_written || 'false' }}
-      handshake_ok: ${{ steps.run.outputs.handshake_ok || 'false' }}
-      handshake_uri: ${{ steps.run.outputs.handshake_uri || '' }}
-      vm_started: ${{ steps.run.outputs.vm_started || 'false' }}
-      handoff_reason: ${{ steps.run.outputs.handoff_reason || '' }}
-      handshake_reason_code: ${{ steps.run.outputs.handshake_reason_code || '' }}
-      handshake_reason_detail: ${{ steps.run.outputs.handshake_reason_detail || '' }}
-      handshake_diagnostics_uri: ${{ steps.run.outputs.handshake_diagnostics_uri || '' }}
+      selected_vm: ${{ steps.run-eventarc.outputs.selected_vm || '' }}
+      trigger_written: ${{ steps.run-eventarc.outputs.trigger_written || 'false' }}
+      handshake_ok: ${{ steps.run-eventarc.outputs.handshake_ok || 'false' }}
+      handshake_uri: ${{ steps.run-eventarc.outputs.handshake_uri || '' }}
+      vm_started: ${{ steps.run-eventarc.outputs.vm_started || 'false' }}
+      handoff_reason: ${{ steps.run-eventarc.outputs.handoff_reason || '' }}
+      handshake_reason_code: ${{ steps.run-eventarc.outputs.handshake_reason_code || '' }}
+      handshake_reason_detail: ${{ steps.run-eventarc.outputs.handshake_reason_detail || '' }}
+      handshake_diagnostics_uri: ${{ steps.run-eventarc.outputs.handshake_diagnostics_uri || '' }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -285,14 +243,46 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
           setup_gcp: "false"
 
-      - id: run
-        uses: ./.github/actions/bmt-handoff-run
+      - id: run-eventarc
+        shell: bash
+        env:
+          FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
+          RUN_CONTEXT: ${{ needs.setup.outputs.run_context }}
+          HEAD_EVENT: ${{ needs.setup.outputs.head_event }}
+          HEAD_SHA: ${{ needs.setup.outputs.head_sha }}
+          HEAD_BRANCH: ${{ needs.setup.outputs.head_branch }}
+          PR_NUMBER: ${{ needs.setup.outputs.pr_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          uv run bmt write-context
+          uv run bmt write-run-trigger
+          echo "selected_vm=" >> "$GITHUB_OUTPUT"
+          echo "trigger_written=true" >> "$GITHUB_OUTPUT"
+          echo "handshake_ok=true" >> "$GITHUB_OUTPUT"
+          echo "handshake_uri=" >> "$GITHUB_OUTPUT"
+          echo "vm_started=false" >> "$GITHUB_OUTPUT"
+          echo "handoff_reason=ok_eventarc_trigger_written" >> "$GITHUB_OUTPUT"
+          echo "handshake_reason_code=" >> "$GITHUB_OUTPUT"
+          echo "handshake_reason_detail=eventarc_async" >> "$GITHUB_OUTPUT"
+          echo "handshake_diagnostics_uri=" >> "$GITHUB_OUTPUT"
+
+      - name: Write handoff summary (Eventarc trigger-only)
+        uses: ./.github/actions/bmt-write-summary
         with:
-          setup_outputs: ${{ toJson(needs.setup.outputs) }}
-          classify_outputs: ${{ toJson(steps.classify.outputs) }}
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          setup_gcp: "false"
+          mode: run_success
+          repository: ${{ github.repository }}
+          head_sha: ${{ needs.setup.outputs.head_sha }}
+          head_branch: ${{ needs.setup.outputs.head_branch }}
+          pr_number: ${{ needs.setup.outputs.pr_number }}
+          filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
+          trigger_written: "true"
+          vm_started: "false"
+          handshake_ok: "true"
+          handoff_state_line: "Handoff complete: trigger written to GCS; Eventarc/Workflow will execute asynchronously."
+          gcp_project: ${{ env.GCP_PROJECT }}
+          gcp_zone: ${{ env.GCP_ZONE }}
+          gcs_bucket: ${{ env.GCS_BUCKET }}
 
   handoff:
     name: Report BMT result
@@ -356,7 +346,6 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
-          bmt_live_vm: ${{ vars.BMT_LIVE_VM }}
 
       - id: outcome
         run: |

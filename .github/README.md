@@ -15,11 +15,11 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 **No.** Adding only modified `build-and-test.yml` and `bmt-handoff.yml` to core-main will cause the real workflow to fail. `bmt-handoff.yml` and the actions it uses depend on the rest of this repo:
 
-- **Missing local actions** — Handoff uses: `check-image-up-to-date`, `bmt-prepare-context`, `setup-gcp-uv`, `bmt-filter-handoff-matrix`, `bmt-handoff-run`, `bmt-failure-fallback` (and `bmt-write-summary` via handoff-run). All must exist under `.github/actions/`.
-- **Missing BMT CLI** — Steps run `uv run bmt …` (write-context, filter-upload-matrix, select-available-vm, sync-vm-metadata, write-run-trigger, wait-handshake, etc.). The package lives under `.github/bmt/` (pyproject.toml, ci/, config/); core-main needs it.
+- **Missing local actions** — Handoff uses: `check-image-up-to-date`, `bmt-prepare-context`, `setup-gcp-uv`, `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary`. All must exist under `.github/actions/`.
+- **Missing BMT CLI** — Steps run `uv run bmt …` (write-context, filter-upload-matrix, write-run-trigger, etc.). The package lives under `.github/bmt/` (pyproject.toml, ci/, config/); core-main needs it.
 - **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
 - **Check image up to date** — The first handoff job calls `check-image-up-to-date`, which expects a workflow named `bmt-vm-image-build.yml` and fails if image-affecting paths changed but no successful run exists. If core-main does not have that workflow, the check will fail whenever `infra/packer` or `gcp/image` change (or the action must be made optional when the workflow is absent).
-- **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.GCP_ZONE`, `vars.BMT_LIVE_VM`. These must be set in core-main (or the org).
+- **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.GCP_ZONE`. These must be set in core-main (or the org).
 - **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `build-release` (gates BMT), `build-nonrelease` (parallel), `decide-bmt` → `bmt`. In core-main the same graph applies with real builds.
 
 **For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `gcp/image` for the fallback constant; set the repo vars; and either add `bmt-vm-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
@@ -27,7 +27,7 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 ## This repo’s workflow layout
 
 - **workflows/** — **`build-and-test.yml`** (main CI; structure aligned with core-main), **`bmt-handoff.yml`** (BMT handoff, called by build-and-test). **Test-only (not for core-main):** **`ops/`** — trigger-ci, trigger-image-build, bmt-vm-image-build, bmt-vm-provision; **`clang-format-auto-fix.yml`**.
-- **actions/** — Local composite actions: `bmt-runner-env`, `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-handoff-run`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
+- **actions/** — Local composite actions: `bmt-runner-env`, `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
 - **bmt/** — BMT CLI (`uv run bmt …`) and config used by workflows
 - **docs/** — Notes and references: `action-versions.md`, `dry-and-organization.md`
 
