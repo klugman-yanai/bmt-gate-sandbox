@@ -183,6 +183,9 @@ cloud_run_job_standard = gcp.cloudrunv2.Job(
                     image=f"{cfg.cloud_run_image_uri}:latest",
                     envs=[
                         gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="GCS_BUCKET", value=cfg.gcs_bucket
+                        ),
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
                             name="GCP_PROJECT", value=cfg.gcp_project
                         ),
                         gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
@@ -226,6 +229,9 @@ cloud_run_job_heavy = gcp.cloudrunv2.Job(
                 gcp.cloudrunv2.JobTemplateTemplateContainerArgs(
                     image=f"{cfg.cloud_run_image_uri}:latest",
                     envs=[
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="GCS_BUCKET", value=cfg.gcs_bucket
+                        ),
                         gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
                             name="GCP_PROJECT", value=cfg.gcp_project
                         ),
@@ -309,11 +315,11 @@ gcp.projects.IAMMember(
     member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
 )
 
-# Write access to bucket (summaries, results, acks)
+# Write/delete access to bucket objects (summaries, results, acks)
 gcp.storage.BucketIAMMember(
     "job-runner-bucket-writer",
     bucket=cfg.gcs_bucket,
-    role="roles/storage.objectCreator",
+    role="roles/storage.objectAdmin",
     member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
 )
 

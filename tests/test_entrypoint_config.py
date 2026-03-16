@@ -54,3 +54,23 @@ def test_coordinator_mode_loads(tmp_path: Path) -> None:
     assert config.mode == "coordinator"
     assert config.coordinator_cfg is not None
     assert config.coordinator_cfg.workflow_run_id == "run-12345"
+
+
+def test_env_fallback_task_mode_without_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When config file is absent, Cloud Run env vars can bootstrap task mode."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("BMT_CONFIG", raising=False)
+    monkeypatch.setenv("BMT_TRIGGER_OBJECT", "triggers/runs/abc.json")
+    monkeypatch.setenv("BMT_WORKFLOW_RUN_ID", "wf-123")
+    monkeypatch.setenv("GCS_BUCKET", "test-bucket")
+    monkeypatch.setenv("CLOUD_RUN_TASK_INDEX", "2")
+    monkeypatch.setenv("BMT_WORKSPACE_ROOT", "/tmp/work")
+
+    config = load_entrypoint_config()
+    assert config.mode == "task"
+    assert config.task is not None
+    assert config.task.bucket == "test-bucket"
+    assert config.task.trigger_object == "triggers/runs/abc.json"
+    assert config.task.task_index == 2

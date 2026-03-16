@@ -121,17 +121,19 @@ def run_task(config: TaskConfig) -> int:
 
     if config.task_index >= len(requested_legs):
         logger.error("task_index %s out of range (legs=%s)", config.task_index, len(requested_legs))
-        _write_rejected_summary_artifact(
+        wrote = _write_rejected_summary_artifact(
             bucket_root, workflow_run_id, config.task_index, requested_legs, "task_index_out_of_range"
         )
-        return 1
+        # Keep Cloud Run execution successful when a summary artifact exists.
+        return 0 if wrote else 1
 
     leg = requested_legs[config.task_index]
     if leg.get("decision") != DECISION_ACCEPTED:
-        _write_rejected_summary_artifact(
+        wrote = _write_rejected_summary_artifact(
             bucket_root, workflow_run_id, config.task_index, [leg], leg.get("reason") or "rejected"
         )
-        return 1
+        # Keep Cloud Run execution successful when a summary artifact exists.
+        return 0 if wrote else 1
 
     project = str(leg.get("project", "?"))
     bmt_id = str(leg.get("bmt_id", "?"))
@@ -179,7 +181,9 @@ def run_task(config: TaskConfig) -> int:
         requested_legs=requested_legs,
     )
 
-    return exit_code
+    # Task-level BMT verdict is represented in uploaded summary artifacts and finalized by coordinator.
+    # Returning non-zero here aborts workflow before coordinator can aggregate and report.
+    return 0
 
 
 def _write_rejected_summary_artifact(
@@ -188,7 +192,7 @@ def _write_rejected_summary_artifact(
     task_index: int,
     requested_legs: list[dict[str, Any]],
     reason: str,
-) -> None:
+) -> bool:
     """Write a failure summary artifact for a rejected or out-of-range leg so coordinator can aggregate."""
     if task_index < len(requested_legs):
         leg = requested_legs[task_index]
@@ -208,7 +212,7 @@ def _write_rejected_summary_artifact(
     )
     artifact_path = summary_artifact_path(workflow_run_id, project, bmt_id)
     artifact_uri = _bucket_uri(bucket_root, artifact_path)
-    _gcloud_upload_json(artifact_uri, summary)
+    return _gcloud_upload_json(artifact_uri, summary)
 
 
 def _make_failure_summary(

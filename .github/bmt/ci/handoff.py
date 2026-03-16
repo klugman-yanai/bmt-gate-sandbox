@@ -181,10 +181,9 @@ class HandoffManager:
             head_branch = (getattr(w, "head_branch", None) or "").strip()
             pr_number = (getattr(w, "pr_number", None) or "").strip()
             filtered_matrix_raw = getattr(w, "filtered_matrix", None) or '{"include":[]}'
+            accepted_projects_raw = getattr(w, "accepted_projects", None) or "[]"
             trigger_written = (getattr(w, "trigger_written", None) or "false").strip()
-            vm_started = (getattr(w, "vm_started", None) or "false").strip()
-            handshake_ok = (getattr(w, "handshake_ok", None) or "false").strip()
-            handshake_elapsed_sec = (getattr(w, "handshake_elapsed_sec", None) or "").strip()
+            dispatch_confirmed = (getattr(w, "handshake_ok", None) or "false").strip()
             handoff_state_line = (getattr(w, "handoff_state_line", None) or "").strip()
             failure_reason = (getattr(w, "failure_reason", None) or "").strip()
             server = (getattr(w, "github_server_url", None) or "https://github.com").strip()
@@ -196,10 +195,9 @@ class HandoffManager:
             head_branch = os.environ.get("HEAD_BRANCH", "")
             pr_number = os.environ.get("PR_NUMBER", "")
             filtered_matrix_raw = os.environ.get("FILTERED_MATRIX", '{"include":[]}')
+            accepted_projects_raw = os.environ.get("ACCEPTED_PROJECTS", "[]")
             trigger_written = os.environ.get("TRIGGER_WRITTEN", "false")
-            vm_started = os.environ.get("VM_STARTED", "false")
-            handshake_ok = os.environ.get("HANDSHAKE_OK", "false")
-            handshake_elapsed_sec = os.environ.get("HANDSHAKE_ELAPSED_SEC", "").strip()
+            dispatch_confirmed = os.environ.get("HANDSHAKE_OK", "false")
             handoff_state_line = os.environ.get("HANDOFF_STATE_LINE", "")
             failure_reason = os.environ.get("FAILURE_REASON", "")
             server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
@@ -212,11 +210,27 @@ class HandoffManager:
         if isinstance(_matrix, str):
             _matrix = json.loads(_matrix)
         legs_planned = len((_matrix if isinstance(_matrix, dict) else {}).get("include", []))
+        _accepted = json.loads(accepted_projects_raw)
+        if isinstance(_accepted, str):
+            _accepted = json.loads(_accepted)
+        subtask_projects = [
+            str(p).strip() for p in (_accepted if isinstance(_accepted, list) else [])
+            if str(p).strip()
+        ]
+        if not subtask_projects and legs_planned:
+            include = (_matrix if isinstance(_matrix, dict) else {}).get("include", [])
+            seen = set()
+            for row in include if isinstance(include, list) else []:
+                if isinstance(row, dict) and "project" in row:
+                    p = str(row.get("project", "")).strip()
+                    if p and p not in seen:
+                        seen.add(p)
+                        subtask_projects.append(p)
         if not handoff_state_line:
             handoff_state_line = {
-                "run_success": "Handoff complete: VM confirmed trigger.",
+                "run_success": "Handoff complete: trigger written; cloud runtime will process the run.",
                 "skip": "Handoff complete: no supported test runs to hand off.",
-                "failure": "Handoff failed: VM did not confirm trigger.",
+                "failure": "Handoff failed: dispatch could not be confirmed.",
             }.get(mode, "Handoff state unavailable. Check this workflow run.")
         link_parts = []
         if pr_url:
@@ -226,18 +240,25 @@ class HandoffManager:
         link_parts.append(f"`{head_sha[:7]}` on `{head_branch}`")
         links_line = " · ".join(link_parts)
         trigger_icon = "✅" if trigger_written == "true" else "❌"
-        vm_icon = "✅" if vm_started == "true" else "❌"
-        handshake_icon = "✅" if handshake_ok == "true" else "❌"
+        dispatch_icon = "✅" if dispatch_confirmed == "true" else "❌"
         table_rows = [
             "| | |",
             "|---|---|",
             f"| Trigger written | {trigger_icon} |",
-            f"| VM started | {vm_icon} |",
-            f"| VM confirmed | {handshake_icon} |",
+            f"| Dispatch confirmed | {dispatch_icon} |",
+            f"| Test runs | **{legs_planned}** |",
         ]
-        if handshake_elapsed_sec and handshake_ok == "true":
-            table_rows.append(f"| Handshake time | **{handshake_elapsed_sec}s** |")
-        table_rows.append(f"| Test runs | **{legs_planned}** |")
+        subtasks_display = ", ".join(subtask_projects) if subtask_projects else "—"
+        cloud_status = f"{dispatch_icon} **Confirmed**" if dispatch_confirmed == "true" else "❌ Not confirmed"
+        cloud_job_lines = [
+            "### Google Cloud job",
+            "",
+            "| | |",
+            "|---|---|",
+            f"| Status | {cloud_status} |",
+            f"| Subtasks | **{subtasks_display}** |",
+            "",
+        ]
         lines = [
             "## BMT Handoff",
             "",
@@ -245,18 +266,19 @@ class HandoffManager:
             "",
             *table_rows,
             "",
+            *cloud_job_lines,
             handoff_state_line,
         ]
         if failure_reason:
             lines.extend(["", f"> ⚠️ {failure_reason}"])
         lines.extend(
-            ["", "_BMT result will appear in the PR **Checks** tab and **Comments** — not here._"]
+            ["", "_BMT result will appear in the PR **Checks** tab and commit status — not here._"]
         )
         if mode == "failure":
             lines.extend(
                 [
                     "",
-                    "_Handoff failed — inspect the trigger and handshake steps above for details._",
+                    "_Handoff failed — inspect the trigger and dispatch steps above for details._",
                 ]
             )
         _append_step_summary("\n".join(lines) + "\n")

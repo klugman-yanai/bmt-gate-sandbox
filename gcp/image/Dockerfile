@@ -15,8 +15,9 @@ COPY gcp/image/pyproject.toml gcp/image/uv.lock /opt/bmt/gcp/image/
 COPY gcp/__init__.py /opt/bmt/gcp/__init__.py
 COPY gcp/image/__init__.py /opt/bmt/gcp/image/__init__.py
 
-# Install deps into a project-local .venv
-RUN cd /opt/bmt/gcp/image && uv sync --frozen --no-dev --no-editable
+# Install deps into a project-local .venv from pyproject dependencies.
+# Do not rely on stale lock snapshots for runtime-critical deps.
+RUN cd /opt/bmt/gcp/image && uv sync --no-dev --no-editable
 
 # Stage 2: application code
 FROM deps AS app

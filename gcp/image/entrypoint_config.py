@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -100,8 +101,15 @@ def load_entrypoint_config(config_path: str | Path | None = None) -> EntrypointC
     2. ``BMT_CONFIG`` env var
     3. Well-known paths: /etc/bmt/config.json, ./config.json, ./.bmt/config.json
     """
-    path = _resolve_config_path(config_path)
-    raw = _load_json(path)
+    try:
+        path = _resolve_config_path(config_path)
+        raw = _load_json(path)
+    except FileNotFoundError:
+        # Cloud Run mode can be configured fully from environment without a config file.
+        raw = _env_fallback_config()
+        if raw is None:
+            raise
+        path = Path("<env>")
     mode = str(raw.get("mode", "")).strip()
     if not mode:
         raise ValueError(f"Config {path}: 'mode' is required (watcher|orchestrator|task|coordinator)")
@@ -150,13 +158,43 @@ def _resolve_config_path(explicit: str | Path | None) -> Path:
     )
 
 
+def _env_fallback_config() -> dict[str, Any] | None:
+    """Best-effort config from env for Cloud Run jobs.
+
+    Used only when no file-based config is available.
+    """
+    trigger_object = os.environ.get("BMT_TRIGGER_OBJECT", "").strip() or os.environ.get(
+        "TRIGGER_OBJECT", ""
+    ).strip()
+    if not trigger_object:
+        return None
+
+    mode = os.environ.get("BMT_MODE", "").strip() or "task"
+    bucket = os.environ.get("GCS_BUCKET", "").strip() or os.environ.get("BUCKET", "").strip()
+    workflow_run_id = os.environ.get("BMT_WORKFLOW_RUN_ID", "").strip() or os.environ.get(
+        "WORKFLOW_RUN_ID", ""
+    ).strip()
+
+    return {
+        "mode": mode,
+        "bucket": bucket,
+        "trigger_object": trigger_object,
+        "workflow_run_id": workflow_run_id,
+        "workspace_root": os.environ.get(
+            "BMT_WORKSPACE_ROOT", str(Path(tempfile.gettempdir()) / "bmt_workspace")
+        ),
+        "repo_root": os.environ.get("BMT_REPO_ROOT", _DEFAULT_REPO_ROOT),
+        "run_context": os.environ.get("RUN_CONTEXT", "ci"),
+    }
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
     if not isinstance(data, dict):
-        raise ValueError(f"Expected JSON object in {path}, got {type(data).__name__}")
+        raise TypeError(f"Expected JSON object in {path}, got {type(data).__name__}")
     return data
 
 

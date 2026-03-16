@@ -293,13 +293,10 @@ jobs:
           head_branch: ${{ needs.resolve_bmt_request.outputs.head_branch }}
           pr_number: ${{ needs.resolve_bmt_request.outputs.pr_number }}
           filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
+          accepted_projects: ${{ steps.classify.outputs.accepted_projects }}
           trigger_written: "true"
-          vm_started: "false"
           handshake_ok: "true"
           handoff_state_line: "Dispatch confirmed: trigger written to GCS; cloud runtime processing is in progress."
-          gcp_project: ${{ env.GCP_PROJECT }}
-          gcp_zone: ${{ env.GCP_ZONE }}
-          gcs_bucket: ${{ env.GCS_BUCKET }}
 
       - name: Checkout repo (for local actions)
         if: steps.run-eventarc.outcome != 'success' || steps.verify-trigger.outcome != 'success'
@@ -335,6 +332,7 @@ jobs:
           prepare_result: ${{ needs.resolve_bmt_request.result }}
           classify_result: ${{ steps.classify.outcome || 'failure' }}
           handoff_result: ${{ steps.run-eventarc.outcome || 'failure' }}
+          accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
           dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
           dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
           fallback_ref: ${{ github.sha }}

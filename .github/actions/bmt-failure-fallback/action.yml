@@ -39,6 +39,10 @@ inputs:
     description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
     required: false
     default: "BMT Gate"
+  accepted_projects:
+    description: JSON array of cloud job subtask project names from classify (e.g. ["sk"])
+    required: false
+    default: "[]"
 
 runs:
   using: composite
@@ -148,15 +152,14 @@ runs:
         head_branch: ${{ steps.x.outputs.head_branch }}
         pr_number: ${{ steps.failctx.outputs.pr_number }}
         filtered_matrix: ${{ steps.x.outputs.classify_filtered_matrix }}
+        accepted_projects: ${{ inputs.accepted_projects }}
         trigger_written: ${{ steps.failctx.outputs.trigger_written }}
-        vm_started: ${{ steps.x.outputs.vm_started }}
         handshake_ok: ${{ steps.x.outputs.handshake_ok }}
-        handshake_uri: ${{ steps.x.outputs.handshake_uri }}
         handoff_state_line: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: runtime accepted zero supported test runs.' || 'Handoff failed: runtime pickup not confirmed.' }}"
         failure_reason: ${{ steps.reason.outputs.reason }}
 
     - name: Setup GCP for cleanup
-      if: steps.failctx.outputs.trigger_written == 'true' || steps.x.outputs.vm_started == 'true'
+      if: steps.failctx.outputs.trigger_written == 'true'
       uses: ./.github/actions/setup-gcp-uv
       with:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}
