@@ -31,6 +31,25 @@ class InfraConfig:
     disk_type: str = "pd-ssd"
     bmt_repo_root: str = "/opt/bmt"
     startup_wrapper_script_path: str = "../../.github/bmt/ci/resources/startup_entrypoint.sh"
+    # Cloud Run
+    cloud_run_region: str = "europe-west4"
+    cloud_run_memory_standard: str = "8Gi"
+    cloud_run_cpu_standard: str = "4"
+    cloud_run_memory_heavy: str = "16Gi"
+    cloud_run_cpu_heavy: str = "8"
+    cloud_run_task_timeout_sec: int = 3600
+    cloud_run_job_sa_name: str = "bmt-job-runner"
+    cloud_run_workflow_sa_name: str = "bmt-workflow-sa"
+    artifact_registry_repo: str = "bmt-images"
+    github_repo_owner: str = ""
+    github_repo_name: str = ""
+
+    @property
+    def cloud_run_image_uri(self) -> str:
+        """Derive image URI from Artifact Registry config."""
+        return (
+            f"{self.cloud_run_region}-docker.pkg.dev/{self.gcp_project}/{self.artifact_registry_repo}/bmt-orchestrator"
+        )
 
     @property
     def bmt_vm_base(self) -> str:

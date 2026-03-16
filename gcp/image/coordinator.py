@@ -63,9 +63,7 @@ def generate_log_dump(
     4. Generates a signed URL (3-day expiry)
     """
     failed_runner_legs = [
-        s
-        for s in leg_summaries
-        if s and (s.get("reason_code") or "") in ("runner_failures", "runner_timeout")
+        s for s in leg_summaries if s and (s.get("reason_code") or "") in ("runner_failures", "runner_timeout")
     ]
     if not failed_runner_legs:
         return None
@@ -308,3 +306,21 @@ def post_commit_status_cancelled(
 def failed_legs_summary(leg_summaries: list[dict[str, Any] | None]) -> str:
     """Human-readable display of which legs failed (for PR comments)."""
     return _failed_legs_display(leg_summaries)
+
+
+# ---------------------------------------------------------------------------
+# Summary artifact contract (Cloud Run task → coordinator)
+# ---------------------------------------------------------------------------
+
+
+def summary_artifact_path(workflow_run_id: str, project: str, bmt_id: str) -> str:
+    """Build the GCS object path for a leg's summary artifact.
+
+    Convention: triggers/summaries/<workflow_run_id>/<project>-<bmt_id>.json
+    """
+    from gcp.image.config.constants import TRIGGER_SUMMARIES_PREFIX
+
+    wf = workflow_run_id.strip()
+    proj = project.strip()
+    bid = bmt_id.strip()
+    return f"{TRIGGER_SUMMARIES_PREFIX}/{wf}/{proj}-{bid}.json"

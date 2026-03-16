@@ -24,6 +24,8 @@ _CONFIG_SEARCH_PATHS = (
     Path(".bmt/config.json"),
 )
 
+_DEFAULT_REPO_ROOT = "/opt/bmt"
+
 
 @dataclass(frozen=True, slots=True)
 class WatcherConfig:
@@ -55,12 +57,38 @@ class OrchestratorConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskConfig:
+    """Config for Cloud Run task mode (one leg, selected by CLOUD_RUN_TASK_INDEX)."""
+
+    bucket: str
+    trigger_object: str
+    workspace_root: Path
+    repo_root: Path = Path(_DEFAULT_REPO_ROOT)
+    task_index: int = 0
+    run_context: str = "ci"
+    summary_out: Path = Path("manager_summary.json")
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinatorEntrypointConfig:
+    """Config for coordinator mode (post-execution aggregation)."""
+
+    bucket: str
+    workflow_run_id: str
+    trigger_object: str
+    workspace_root: Path
+    repo_root: Path = Path(_DEFAULT_REPO_ROOT)
+
+
+@dataclass(frozen=True, slots=True)
 class EntrypointConfig:
     """Top-level entrypoint config. ``mode`` selects which sub-config is active."""
 
-    mode: str  # "watcher" | "orchestrator"
+    mode: str  # "watcher" | "orchestrator" | "task" | "coordinator"
     watcher: WatcherConfig | None = None
     orchestrator: OrchestratorConfig | None = None
+    task: TaskConfig | None = None
+    coordinator_cfg: CoordinatorEntrypointConfig | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -76,23 +104,26 @@ def load_entrypoint_config(config_path: str | Path | None = None) -> EntrypointC
     raw = _load_json(path)
     mode = str(raw.get("mode", "")).strip()
     if not mode:
-        raise ValueError(f"Config {path}: 'mode' is required (watcher|orchestrator)")
+        raise ValueError(f"Config {path}: 'mode' is required (watcher|orchestrator|task|coordinator)")
 
     if mode == "watcher":
         watcher = _build_watcher_config(raw, path)
         return EntrypointConfig(mode=mode, watcher=watcher, raw=raw)
-    elif mode == "orchestrator":
+    if mode == "orchestrator":
         orchestrator = _build_orchestrator_config(raw, path)
         return EntrypointConfig(mode=mode, orchestrator=orchestrator, raw=raw)
-    else:
-        raise ValueError(f"Config {path}: unknown mode {mode!r} (expected watcher|orchestrator)")
+    if mode == "task":
+        task = _build_task_config(raw, path)
+        return EntrypointConfig(mode=mode, task=task, raw=raw)
+    if mode == "coordinator":
+        coord = _build_coordinator_entrypoint_config(raw, path)
+        return EntrypointConfig(mode=mode, coordinator_cfg=coord, raw=raw)
+    raise ValueError(f"Config {path}: unknown mode {mode!r} (expected watcher|orchestrator|task|coordinator)")
 
 
 # ---------------------------------------------------------------------------
 # Internal builders
 # ---------------------------------------------------------------------------
-
-_DEFAULT_REPO_ROOT = "/opt/bmt"
 
 
 def _resolve_config_path(explicit: str | Path | None) -> Path:
@@ -153,7 +184,9 @@ def _build_watcher_config(raw: dict[str, Any], source: Path) -> WatcherConfig:
         bucket = os.environ.get("GCS_BUCKET", "").strip()
     return WatcherConfig(
         bucket=bucket,
-        workspace_root=Path(raw.get("workspace_root") or os.environ.get("BMT_WORKSPACE_ROOT", "~/bmt_workspace")).expanduser().resolve(),
+        workspace_root=Path(raw.get("workspace_root") or os.environ.get("BMT_WORKSPACE_ROOT", "~/bmt_workspace"))
+        .expanduser()
+        .resolve(),
         repo_root=Path(raw.get("repo_root") or os.environ.get("BMT_REPO_ROOT", _DEFAULT_REPO_ROOT)),
         gcp_project=_str_optional(raw, "gcp_project"),
         poll_interval_sec=int(raw.get("poll_interval_sec", 10)),
@@ -174,4 +207,27 @@ def _build_orchestrator_config(raw: dict[str, Any], source: Path) -> Orchestrato
         repo_root=Path(raw.get("repo_root") or os.environ.get("BMT_REPO_ROOT", _DEFAULT_REPO_ROOT)),
         run_context=str(raw.get("run_context", "manual")),
         summary_out=Path(raw.get("summary_out", "manager_summary.json")),
+    )
+
+
+def _build_task_config(raw: dict[str, Any], source: Path) -> TaskConfig:
+    task_index_str = os.environ.get("CLOUD_RUN_TASK_INDEX", str(raw.get("task_index", 0)))
+    return TaskConfig(
+        bucket=_str_required(raw, "bucket", source),
+        trigger_object=_str_required(raw, "trigger_object", source),
+        workspace_root=Path(raw.get("workspace_root", ".")).expanduser().resolve(),
+        repo_root=Path(raw.get("repo_root") or os.environ.get("BMT_REPO_ROOT", _DEFAULT_REPO_ROOT)),
+        task_index=int(task_index_str),
+        run_context=str(raw.get("run_context", "ci")),
+        summary_out=Path(raw.get("summary_out", "manager_summary.json")),
+    )
+
+
+def _build_coordinator_entrypoint_config(raw: dict[str, Any], source: Path) -> CoordinatorEntrypointConfig:
+    return CoordinatorEntrypointConfig(
+        bucket=_str_required(raw, "bucket", source),
+        workflow_run_id=_str_required(raw, "workflow_run_id", source),
+        trigger_object=_str_required(raw, "trigger_object", source),
+        workspace_root=Path(raw.get("workspace_root", ".")).expanduser().resolve(),
+        repo_root=Path(raw.get("repo_root") or os.environ.get("BMT_REPO_ROOT", _DEFAULT_REPO_ROOT)),
     )

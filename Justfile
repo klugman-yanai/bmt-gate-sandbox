@@ -163,3 +163,32 @@ act which="":
         act workflow_dispatch -W "$W" -j "{{ which }}" $VAR_ARG
         ;;
     esac
+
+# -- Docker (Cloud Run image) --------------------------------------------------
+
+# Build the BMT orchestrator container image
+[group('docker')]
+docker-build:
+    docker build -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
+
+# Run the container locally with gcp/stage bind-mounted as /mnt/runtime (FUSE simulation)
+[group('docker')]
+docker-run-test *args:
+    docker run --rm \
+        -v "$(pwd)/gcp/stage:/mnt/runtime:ro" \
+        -e BMT_CONFIG=/etc/bmt/config.json \
+        {{ args }} \
+        bmt-orchestrator:latest
+
+# Tag and push the image to Artifact Registry (requires gcloud auth configure-docker)
+[group('docker')]
+docker-push:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT=$(cd infra/pulumi && pulumi stack output gcp_project 2>/dev/null || echo "${GCP_PROJECT:-train-kws-202311}")
+    REGION="${CLOUD_RUN_REGION:-europe-west4}"
+    REPO="${ARTIFACT_REGISTRY_REPO:-bmt-images}"
+    IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/bmt-orchestrator:latest"
+    docker tag bmt-orchestrator:latest "${IMAGE}"
+    docker push "${IMAGE}"
+    echo "Pushed: ${IMAGE}"

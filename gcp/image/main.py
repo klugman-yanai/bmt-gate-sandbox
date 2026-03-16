@@ -32,6 +32,18 @@ def main(config_path: str | None = None) -> int:
         assert config.orchestrator is not None
         return run_orchestrator(config.orchestrator)
 
+    if config.mode == "task":
+        from gcp.image.run import run_task
+
+        assert config.task is not None
+        return run_task(config.task)
+
+    if config.mode == "coordinator":
+        from gcp.image.run import run_coordinator_entrypoint
+
+        assert config.coordinator_cfg is not None
+        return run_coordinator_entrypoint(config.coordinator_cfg)
+
     return 1
 
 

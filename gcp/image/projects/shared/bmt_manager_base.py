@@ -26,6 +26,11 @@ from google.api_core import exceptions as gcs_exceptions
 from google.cloud import storage as gcs_storage
 
 try:
+    from config.constants import FUSE_MOUNT_ROOT as _FUSE_MOUNT_ROOT_STR  # type: ignore[import]
+except ImportError:
+    from gcp.image.config.constants import FUSE_MOUNT_ROOT as _FUSE_MOUNT_ROOT_STR
+
+try:
     from utils import (
         _bucket_uri,
         _now_iso,
@@ -41,6 +46,14 @@ except ImportError:
         _parse_gcs_uri as _utils_parse_gcs_uri,
         _runtime_bucket_root,
     )
+
+
+_FUSE_MOUNT_ROOT = Path(_FUSE_MOUNT_ROOT_STR)
+
+
+def _fuse_inputs_root(inputs_prefix: str) -> Path:
+    """Resolve an inputs prefix to a path under the FUSE mount."""
+    return _FUSE_MOUNT_ROOT / inputs_prefix.strip("/")
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +487,11 @@ class BmtManagerBase(ABC):
         cache_base = self.cache_root / args.project_id / args.bmt_id
         self.cache_base: Path = cache_base
         self.cache_meta_dir: Path = cache_base / "meta"
+
+    @staticmethod
+    def is_fuse_available() -> bool:
+        """True if GCS FUSE mount is present (Cloud Run with volume mount)."""
+        return _FUSE_MOUNT_ROOT.is_dir()
 
     def _setup_dirs(self) -> None:
         """Create all workspace directories."""

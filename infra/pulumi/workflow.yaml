@@ -1,0 +1,81 @@
+main:
+  params: [event]
+  steps:
+    - init:
+        assign:
+          - project_number: ${sys.get_env("GOOGLE_CLOUD_PROJECT_NUMBER")}
+          - location: ${sys.get_env("GOOGLE_CLOUD_LOCATION")}
+
+    - extract_event:
+        assign:
+          - object_name: ${event.data.name}
+          - bucket: ${event.data.bucket}
+
+    - check_prefix:
+        switch:
+          - condition: ${not(text.match_regex(object_name, "^triggers/runs/.*\\.json$"))}
+            next: skip_non_trigger
+
+    - read_trigger:
+        call: http.get
+        args:
+          url: ${"https://storage.googleapis.com/download/storage/v1/b/" + bucket + "/o/" + text.url_encode(object_name) + "?alt=media"}
+          auth:
+            type: OAuth2
+        result: trigger_response
+
+    - parse_trigger:
+        assign:
+          - trigger: ${trigger_response.body}
+          - task_count: ${len(trigger.legs)}
+          - workflow_run_id: ${trigger.workflow_run_id}
+
+    - execute_job:
+        call: googleapis.run.v1.namespaces.jobs.run
+        args:
+          name: ${"namespaces/" + project_number + "/jobs/bmt-orchestrator-standard"}
+          location: ${location}
+          body:
+            overrides:
+              taskCount: ${task_count}
+              containerOverrides:
+                - env:
+                    - name: BMT_TRIGGER_OBJECT
+                      value: ${object_name}
+                    - name: BMT_WORKFLOW_RUN_ID
+                      value: ${workflow_run_id}
+        result: job_execution
+
+    - wait_completion:
+        assign:
+          - execution_status: ${job_execution.status}
+
+    - run_coordinator:
+        call: googleapis.run.v1.namespaces.jobs.run
+        args:
+          name: ${"namespaces/" + project_number + "/jobs/bmt-orchestrator-standard"}
+          location: ${location}
+          body:
+            overrides:
+              taskCount: 1
+              containerOverrides:
+                - env:
+                    - name: BMT_MODE
+                      value: "coordinator"
+                    - name: BMT_WORKFLOW_RUN_ID
+                      value: ${workflow_run_id}
+                    - name: BMT_TRIGGER_OBJECT
+                      value: ${object_name}
+        result: coordinator_result
+
+    - done:
+        return:
+          workflow_run_id: ${workflow_run_id}
+          task_count: ${task_count}
+          status: "completed"
+
+    - skip_non_trigger:
+        return:
+          status: "skipped"
+          reason: "not a trigger file"
+          object: ${object_name}

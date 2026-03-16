@@ -81,3 +81,22 @@ REASON_DEMO_FORCE_PASS = "demo_force_pass"
 # ---------------------------------------------------------------------------
 # Bump when adding fields (additive/non-breaking). Consumers ignore unknown keys.
 ARTIFACT_SCHEMA_VERSION = 1
+
+# ---------------------------------------------------------------------------
+# Cloud Run / FUSE constants
+# ---------------------------------------------------------------------------
+FUSE_MOUNT_ROOT = "/mnt/runtime"
+
+# Summary artifacts written by each Cloud Run task for the coordinator
+TRIGGER_SUMMARIES_PREFIX = "triggers/summaries"
+
+# Partial failure reason (coordinator could not collect all leg summaries)
+REASON_PARTIAL_MISSING = "partial_missing"
+
+# Cloud Run task index env var (set automatically by Cloud Run)
+CLOUD_RUN_TASK_INDEX_ENV = "CLOUD_RUN_TASK_INDEX"
+CLOUD_RUN_TASK_COUNT_ENV = "CLOUD_RUN_TASK_COUNT"
+
+# Env vars set by the Workflow when invoking the Cloud Run Job
+BMT_TRIGGER_OBJECT_ENV = "BMT_TRIGGER_OBJECT"
+BMT_WORKFLOW_RUN_ID_ENV = "BMT_WORKFLOW_RUN_ID"
