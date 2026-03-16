@@ -49,7 +49,7 @@ def test_non_inputs_path_is_not_data():
 # ── local_digest() inputs exclusion ───────────────────────────────────────────
 
 
-@pytest.fixture()
+@pytest.fixture
 def staging_tree(tmp_path: Path) -> Path:
     """Create a synthetic gcp/stage tree with runner, inputs (.keep + WAV), and manifest."""
     # Runner binary

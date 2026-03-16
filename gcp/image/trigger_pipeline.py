@@ -18,8 +18,7 @@ from gcp.image.trigger_resolution import (
     _resolve_requested_legs,
     _run_handshake_uri_from_trigger_uri,
 )
-from gcp.image.utils import _bucket_uri, _now_iso, _runtime_bucket_root
-
+from gcp.image.utils import _now_iso
 
 # ---------------------------------------------------------------------------
 # Trigger download

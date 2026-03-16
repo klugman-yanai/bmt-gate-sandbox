@@ -10,9 +10,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import signal
-import sys
-from pathlib import Path
 
 from gcp.image.entrypoint_config import OrchestratorConfig, WatcherConfig
 

@@ -27,7 +27,6 @@ from gcp.image.projects.shared.bmt_manager_base import (
     _gcloud_ls_json,
     _gcloud_rsync,
     _gcs_exists,
-    _gcs_object_meta,
     _load_json,
     _manifest_digest,
     _mark_cache,

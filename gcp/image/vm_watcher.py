@@ -32,11 +32,8 @@ _HEALTH_REFRESH_INTERVAL_SEC: int = 60
 from gcp.image import log_config
 from gcp.image.gcs_helpers import (
     _gcloud_download_json,
-    _gcloud_exists,
     _gcloud_rm,
     _gcloud_upload_json,
-    _get_gcs_client,
-    _parse_gcs_uri,
     generate_signed_url,
 )
 from gcp.image.github_status import (
@@ -61,7 +58,6 @@ from gcp.image.trigger_cleanup import (
 )
 from gcp.image.trigger_resolution import (
     _discover_run_triggers,
-    _load_jobs_config_from_local,
     _resolve_requested_legs as _resolve_requested_legs_impl,
     _run_handshake_uri_from_trigger_uri,
 )
@@ -147,7 +143,7 @@ except ImportError:
         github_pull_request,
         status_file,
     )
-    from gcp.image.utils import _bucket_uri, _now_iso, _runtime_bucket_root
+    from gcp.image.utils import _now_iso, _runtime_bucket_root
 
 IDLE_TIMEOUT_DEFAULT = _idle_sec_val
 STALE_TRIGGER_AGE_HOURS_DEFAULT = _stale_hours_val
