@@ -1,5 +1,5 @@
-name: BMT
-run-name: "BMT Handoff • ${{ inputs.head_branch || github.event.inputs.head_branch }} • ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
+name: BMT Cloud Jobs Handoff
+run-name: "BMT Cloud Jobs Handoff • ${{ inputs.head_branch || github.event.inputs.head_branch }} • ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
 
 on:
   workflow_dispatch:

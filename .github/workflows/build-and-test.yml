@@ -1,7 +1,7 @@
 name: CI
 
-# Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 6 jobs, no image-check.
-# checkout-once → extract-presets → build-release + build-nonrelease (parallel) → bmt-handoff → bmt-gate-summary.
+# Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 5 jobs, no image-check.
+# prepare-build-context → build-release + build-nonrelease (parallel) → bmt-handoff → bmt-gate-summary.
 on:
   push:
     branches:
@@ -23,7 +23,7 @@ defaults:
   run:
     shell: bash
 
-# Artifact upload (checkout-once) needs actions write.
+# Artifact upload (prepare-build-context) needs actions write.
 permissions:
   contents: read
   actions: read
@@ -33,13 +33,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checkout-once:
+  prepare-build-context:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
       actions: write
     outputs:
       artifact_size: ${{ steps.report.outputs.artifact_size }}
+      presets_release: ${{ steps.parse.outputs.presets_release }}
+      presets_nonrelease: ${{ steps.parse.outputs.presets_nonrelease }}
     steps:
       - name: Checkout source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -74,29 +76,6 @@ jobs:
           name: repo-snapshot
           path: repo-snapshot.tar.gz
           retention-days: 5
-
-  extract-presets:
-    runs-on: ubuntu-22.04
-    outputs:
-      presets_release: ${{ steps.parse.outputs.presets_release }}
-      presets_nonrelease: ${{ steps.parse.outputs.presets_nonrelease }}
-    steps:
-      - name: Fetch CMakePresets.json
-        env:
-          REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-          REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          url="https://api.github.com/repos/${REPO}/contents/CMakePresets.json?ref=${REF}"
-          for delay in 0 5 10 20; do
-            [[ "$delay" -gt 0 ]] && sleep "$delay"
-            curl -fsSL --connect-timeout 15 --max-time 60 \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github.raw" \
-              "${url}" -o CMakePresets.json && break
-          done
-          [[ -s CMakePresets.json ]] || { echo "::error::Failed to fetch CMakePresets.json"; exit 1; }
 
       - name: Parse CMakePresets.json
         id: parse
@@ -135,12 +114,12 @@ jobs:
   # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build-release:
-    needs: [checkout-once, extract-presets]
+    needs: prepare-build-context
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.extract-presets.outputs.presets_release) }}
+        include: ${{ fromJson(needs.prepare-build-context.outputs.presets_release) }}
     steps:
       - name: Release build placeholder (bmt-gcloud)
         run: |
@@ -149,19 +128,19 @@ jobs:
   # Non-release builds: run in parallel; do not block BMT.
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build-nonrelease:
-    needs: [checkout-once, extract-presets]
+    needs: prepare-build-context
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       max-parallel: 6
       matrix:
-        include: ${{ fromJson(needs.extract-presets.outputs.presets_nonrelease) }}
+        include: ${{ fromJson(needs.prepare-build-context.outputs.presets_nonrelease) }}
     steps:
       - name: Non-release build placeholder (bmt-gcloud)
         run: |
           echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
-  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 6 jobs, build-release → bmt-handoff → bmt-gate-summary.
+  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 5 jobs, build-release → bmt-handoff → bmt-gate-summary.
   bmt-handoff:
     needs: build-release
     if: >-
