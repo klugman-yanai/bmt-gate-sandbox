@@ -319,13 +319,13 @@ gcp.storage.BucketIAMMember(
 
 # --- IAM: Workflow SA ---
 
-# Invoke Cloud Run Jobs
+# Invoke Cloud Run Jobs (run.jobsExecutorWithOverrides required for body.overrides)
 gcp.cloudrunv2.JobIamMember(
     "workflow-invokes-standard-job",
     name=cloud_run_job_standard.name,
     location=cfg.cloud_run_region,
     project=cfg.gcp_project,
-    role="roles/run.invoker",
+    role="roles/run.jobsExecutorWithOverrides",
     member=pulumi.Output.concat("serviceAccount:", workflow_sa.email),
 )
 
@@ -334,7 +334,7 @@ gcp.cloudrunv2.JobIamMember(
     name=cloud_run_job_heavy.name,
     location=cfg.cloud_run_region,
     project=cfg.gcp_project,
-    role="roles/run.invoker",
+    role="roles/run.jobsExecutorWithOverrides",
     member=pulumi.Output.concat("serviceAccount:", workflow_sa.email),
 )
 
@@ -352,6 +352,22 @@ gcp.projects.IAMMember(
     project=cfg.gcp_project,
     role="roles/eventarc.eventReceiver",
     member=pulumi.Output.concat("serviceAccount:", workflow_sa.email),
+)
+
+# Trigger SA must invoke workflows (Eventarc uses this identity)
+gcp.projects.IAMMember(
+    "workflow-sa-workflows-invoker",
+    project=cfg.gcp_project,
+    role="roles/workflows.invoker",
+    member=pulumi.Output.concat("serviceAccount:", workflow_sa.email),
+)
+
+# GCS service agent must publish events to Pub/Sub for Eventarc
+gcp.projects.IAMMember(
+    "gcs-sa-pubsub-publisher",
+    project=cfg.gcp_project,
+    role="roles/pubsub.publisher",
+    member=f"serviceAccount:service-{project_info.number}@gs-project-accounts.iam.gserviceaccount.com",
 )
 
 # Workflow logging
