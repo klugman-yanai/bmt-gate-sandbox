@@ -518,9 +518,13 @@ def _secretmanager_location() -> str | None:
 
 def _access_secret(secret_name: str, project: str, location: str | None) -> str:
     cmd = ["gcloud", "secrets", "versions", "access", "latest", "--secret", secret_name, "--project", project]
+    env = os.environ.copy()
     if location:
-        cmd.extend(["--location", location])
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        # Regional Secret Manager endpoint; keep canonical secret resource format.
+        env["CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER"] = (
+            f"https://secretmanager.{location}.rep.googleapis.com/"
+        )
+    r = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     if r.returncode == 0:
         return r.stdout.strip()
     logger.warning(
