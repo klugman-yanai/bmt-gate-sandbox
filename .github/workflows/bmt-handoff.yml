@@ -206,6 +206,8 @@ jobs:
       # Step-level results for diagnostics
       classify_result: ${{ steps.classify.outcome || 'skipped' }}
       dispatch_result: ${{ steps.run-eventarc.outcome || 'skipped' }}
+      verify_trigger_result: ${{ steps.verify-trigger.outcome || 'skipped' }}
+      run_trigger_uri: ${{ steps.run-eventarc.outputs.run_trigger_uri || '' }}
       classify_path: ${{ steps.classify.outputs.path || 'unknown' }}
       has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
       accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
@@ -262,8 +264,26 @@ jobs:
           echo "trigger_written=true" >> "$GITHUB_OUTPUT"
           echo "dispatch_reason=ok_eventarc_trigger_written" >> "$GITHUB_OUTPUT"
 
-      - name: Write dispatch summary (trigger confirmed)
+      - name: Verify trigger in GCS
+        id: verify-trigger
         if: steps.run-eventarc.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_TRIGGER_URI="${{ steps.run-eventarc.outputs.run_trigger_uri }}"
+          if [[ -z "${RUN_TRIGGER_URI}" ]]; then
+            echo "::error::run_trigger_uri missing from write-run-trigger step."
+            exit 1
+          fi
+          if ! gcloud storage cat "${RUN_TRIGGER_URI}" >/dev/null 2>&1; then
+            echo "::error::Trigger file not found at ${RUN_TRIGGER_URI} (write may have failed or bucket/path mismatch)."
+            exit 1
+          fi
+          echo "::notice::Trigger verified at ${RUN_TRIGGER_URI}"
+          echo "trigger_verified=true" >> "$GITHUB_OUTPUT"
+
+      - name: Write dispatch summary (trigger confirmed)
+        if: steps.run-eventarc.outcome == 'success' && steps.verify-trigger.outcome == 'success'
         uses: ./.github/actions/bmt-write-summary
         with:
           mode: run_success
@@ -281,7 +301,7 @@ jobs:
           gcs_bucket: ${{ env.GCS_BUCKET }}
 
       - name: Checkout repo (for local actions)
-        if: steps.run-eventarc.outcome != 'success'
+        if: steps.run-eventarc.outcome != 'success' || steps.verify-trigger.outcome != 'success'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
@@ -291,14 +311,14 @@ jobs:
             gcp
 
       - uses: ./.github/actions/setup-gcp-uv
-        if: steps.run-eventarc.outcome != 'success'
+        if: steps.run-eventarc.outcome != 'success' || steps.verify-trigger.outcome != 'success'
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           python_version: "3.12"
 
       - name: Set BMT constants for fallback
-        if: steps.run-eventarc.outcome != 'success'
+        if: steps.run-eventarc.outcome != 'success' || steps.verify-trigger.outcome != 'success'
         id: bmt-constants
         run: |
           STATUS_CONTEXT=$(uv run python -c "from gcp.image.config.constants import STATUS_CONTEXT; print(STATUS_CONTEXT)")
@@ -306,7 +326,7 @@ jobs:
           echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
 
       - name: Failure fallback
-        if: steps.run-eventarc.outcome != 'success'
+        if: steps.run-eventarc.outcome != 'success' || steps.verify-trigger.outcome != 'success'
         uses: ./.github/actions/bmt-failure-fallback
         with:
           handshake_outputs: ${{ toJson(steps.run-eventarc.outputs) }}
@@ -323,7 +343,7 @@ jobs:
 
       - id: outcome
         run: |
-          if [[ "${{ steps.run-eventarc.outcome }}" == "success" ]]; then
+          if [[ "${{ steps.run-eventarc.outcome }}" == "success" && "${{ steps.verify-trigger.outcome }}" == "success" ]]; then
             echo "bmt_gate_passed=true" >> "$GITHUB_OUTPUT"
             echo "bmt_dispatch_confirmed=true" >> "$GITHUB_OUTPUT"
             echo "bmt_final_state=dispatched_async" >> "$GITHUB_OUTPUT"
@@ -338,5 +358,5 @@ jobs:
       - name: Fail job when BMT did not pass
         if: steps.outcome.outputs.bmt_gate_passed != 'true'
         run: |
-          echo "::error::BMT dispatch did not complete successfully (classify=${{ steps.classify.outcome || 'n/a' }}, trigger=${{ steps.run-eventarc.outcome || 'n/a' }}, ack=${{ steps.wait-ack.outcome || 'n/a' }})."
+          echo "::error::BMT dispatch did not complete successfully (classify=${{ steps.classify.outcome || 'n/a' }}, trigger=${{ steps.run-eventarc.outcome || 'n/a' }}, verify=${{ steps.verify-trigger.outcome || 'n/a' }})."
           exit 1
