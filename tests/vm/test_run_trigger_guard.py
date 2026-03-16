@@ -46,10 +46,11 @@ def _mock_pubsub_publisher(monkeypatch: pytest.MonkeyPatch) -> None:
         pass
 
 
-def test_trigger_rejects_when_other_pending_trigger_exists(
+def test_trigger_allows_even_when_other_pending_triggers_exist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Cloud-run/Eventarc handoff does not use a single-VM queue guard."""
     output_file = tmp_path / "out.txt"
     matrix = json.dumps({"include": [{"project": "sk", "bmt_id": SK_BMT_FALSE_REJECT_NAMUH}]})
     _set_required_env(monkeypatch, output_file, matrix, "dev")
@@ -63,12 +64,13 @@ def test_trigger_rejects_when_other_pending_trigger_exists(
             f"{runtime_root}/triggers/runs/10001.json",
         ],
     )
-    uploaded: list[str] = []
-    monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: uploaded.append(uri))
+    uploaded: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(gcs_module, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
+    _mock_pubsub_publisher(monkeypatch)
 
-    with pytest.raises(RuntimeError, match="pending run trigger"):
-        TriggerManager.from_env().write()
-    assert uploaded == []
+    TriggerManager.from_env().write()
+    assert len(uploaded) == 1
+    assert uploaded[0][0].startswith(f"{runtime_root}/triggers/runs/")
 
 
 def test_trigger_allows_when_only_current_run_trigger_exists(
@@ -158,6 +160,7 @@ def test_trigger_rejects_queueing_for_pr_context(
     )
     uploaded: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(gcs_module, "upload_json", lambda uri, payload: uploaded.append((uri, payload)))
+    _mock_pubsub_publisher(monkeypatch)
     with pytest.raises(RuntimeError, match="pending run trigger"):
         TriggerManager.from_env().write()
     assert uploaded == []

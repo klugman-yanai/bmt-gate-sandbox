@@ -272,15 +272,6 @@ class TriggerManager:
             run_payload["pull_request_number"] = pr_number
 
         run_trigger_uri_str = core.run_trigger_uri(runtime_bucket_root, workflow_run_id)
-        pending = _list_pending_trigger_uris(runtime_bucket_root)
-        blocking = [u for u in pending if u != run_trigger_uri_str]
-        if blocking:
-            sample = ", ".join(blocking[:3])
-            extra = "" if len(blocking) <= 3 else f" (+{len(blocking) - 3} more)"
-            raise RuntimeError(
-                f"VM runtime is busy: pending run trigger(s) exist. Blocking: {sample}{extra}. "
-                "Wait for the active run to finish or clean stale trigger files."
-            )
         try:
             gcs.upload_json(run_trigger_uri_str, run_payload)
         except gcs.GcsError as exc:
