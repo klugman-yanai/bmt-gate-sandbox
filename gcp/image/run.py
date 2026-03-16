@@ -428,24 +428,20 @@ def _coordinator_pr_number(trigger: dict[str, Any]) -> int | None:
 
 
 def _coordinator_resolve_github_token(repository: str) -> str:
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
-    if not token:
-        token = os.environ.get("BMT_GITHUB_TOKEN", "").strip()
-    if token:
-        return token
     project = os.environ.get("GCP_PROJECT", "").strip()
-    if project:
+    if repository and project:
         _load_github_app_credentials_from_secret_manager(project)
-        token = os.environ.get("GITHUB_TOKEN", "").strip() or os.environ.get("BMT_GITHUB_TOKEN", "").strip()
-        if token:
-            return token
-    if repository:
         try:
             from gcp.image.github import github_auth
 
             return (github_auth.resolve_auth_for_repository(repository) or "").strip()
         except Exception:
             return ""
+    # Legacy local fallback (disabled in Cloud Run by default).
+    if os.environ.get("BMT_ALLOW_LEGACY_TOKEN_AUTH", "").strip().lower() in {"1", "true", "yes"}:
+        token = os.environ.get("GITHUB_TOKEN", "").strip() or os.environ.get("BMT_GITHUB_TOKEN", "").strip()
+        if token:
+            return token
     return ""
 
 
@@ -521,18 +517,20 @@ def _secretmanager_location() -> str | None:
 
 
 def _access_secret(secret_name: str, project: str, location: str | None) -> str:
-    base_cmd = ["gcloud", "secrets", "versions", "access", "latest", "--secret", secret_name, "--project", project]
-    cmd = [*base_cmd]
+    cmd = ["gcloud", "secrets", "versions", "access", "latest", "--secret", secret_name, "--project", project]
     if location:
         cmd.extend(["--location", location])
     r = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if r.returncode == 0:
         return r.stdout.strip()
-    # Fallback for global/non-regional secrets when location-scoped lookup fails.
-    if location:
-        r2 = subprocess.run(base_cmd, capture_output=True, text=True, check=False)
-        if r2.returncode == 0:
-            return r2.stdout.strip()
+    logger.warning(
+        "Secret access failed for %s (project=%s, location=%s, code=%s): %s",
+        secret_name,
+        project,
+        location or "<none>",
+        r.returncode,
+        (r.stderr or r.stdout or "").strip(),
+    )
     return ""
 
 
