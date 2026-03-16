@@ -6,14 +6,15 @@ Invoked by startup_entrypoint.sh or systemd. Reads GCS_BUCKET, BMT_REPO_ROOT, et
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
-
-from whenever import Instant
 
 from gcp.image.config.bmt_config import get_config
 from gcp.image.path_utils import VM_WATCHER_SCRIPT
@@ -24,12 +25,53 @@ METADATA_HEADERS = {"Metadata-Flavor": "Google"}
 _log_file_holder: list[str | None] = [None]
 
 
+def _now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _now_stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+
+
 def _log(_msg: str) -> None:
-    Instant.now().format_iso(unit="second")
+    sys.stdout.write(f"[{_now_iso()}] [run_watcher] {_msg}\n")
+    sys.stdout.flush()
 
 
 def _log_err(_msg: str) -> None:
-    Instant.now().format_iso(unit="second")
+    sys.stderr.write(f"[{_now_iso()}] [run_watcher] {_msg}\n")
+    sys.stderr.flush()
+
+
+def _write_health_marker(stage: str, *, status: str = "ok", detail: str = "") -> None:
+    """Best-effort health marker for handshake preflight checks."""
+    bucket = os.environ.get("GCS_BUCKET", "").strip()
+    if not bucket:
+        return
+    instance = _read_meta_simple("instance/name") or os.environ.get("BMT_LIVE_VM", "").strip()
+    if not instance:
+        return
+    payload = {
+        "instance": instance,
+        "stage": stage,
+        "status": status,
+        "detail": detail,
+        "updated_at": _now_iso(),
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tf:
+        tf.write(json.dumps(payload, indent=2) + "\n")
+        tmp_path = tf.name
+    uri = f"gs://{bucket}/triggers/status/health/{instance}.json"
+    try:
+        subprocess.run(
+            ["gcloud", "storage", "cp", tmp_path, uri, "--quiet"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        with contextlib.suppress(OSError):
+            Path(tmp_path).unlink()
 
 
 def _read_meta(key: str) -> str:
@@ -121,8 +163,7 @@ def _upload_log_and_stop(exit_code: int) -> None:
         bucket = os.environ.get("GCS_BUCKET", "").strip()
         if bucket:
             vm_name = _read_meta_simple("instance/name") or "unknown"
-            ts_compact = Instant.now().format_iso(unit="second", basic=True)
-            ts = f"{ts_compact[:8]}T{ts_compact[8:]}"
+            ts = _now_stamp()
             dest = f"gs://{bucket}/logs/{vm_name}-{ts}.log"
             try:
                 r = subprocess.run(
@@ -201,7 +242,7 @@ def _validate_venv_imports(python_bin: str) -> bool:
             """
 import importlib.util
 import sys
-required = ["jwt", "cryptography", "httpx", "google.cloud.storage"]
+required = ["jwt", "cryptography", "httpx", "google.cloud.storage", "whenever"]
 missing = [n for n in required if importlib.util.find_spec(n) is None]
 if importlib.util.find_spec("google.cloud.pubsub_v1") is None and importlib.util.find_spec("google.cloud.pubsub") is None:
     missing.append("google.cloud.pubsub_v1|google.cloud.pubsub")
@@ -321,31 +362,43 @@ def _launch_watcher(repo_root: str, bucket: str, venv_python: str, sub_effective
 def main() -> int:
     exit_code = 0
     try:
-        ts_compact = Instant.now().format_iso(unit="second", basic=True)
-        log_path = Path(tempfile.gettempdir()) / f"bmt-startup-{ts_compact[:8]}T{ts_compact[8:]}.log"
+        ts = _now_stamp()
+        log_path = Path(tempfile.gettempdir()) / f"bmt-startup-{ts}.log"
         _log_file_holder[0] = str(log_path)
         with log_path.open("a"):
             pass
         _log(f"Phase: startup; log file={_log_file_holder[0]}")
+        _write_health_marker("startup")
 
         config_triple = _setup_env_and_config()
         if config_triple is None:
+            _write_health_marker("config_failed", status="error", detail="missing_or_invalid_config")
             return 1
         bucket, project, repo_root, sub_effective = config_triple
+        _write_health_marker("config_loaded")
         _resolve_workspace_root()
 
         venv_python = _ensure_venv_and_watcher(repo_root)
         if venv_python is None:
+            _write_health_marker("runtime_validation_failed", status="error", detail="venv_or_watcher_invalid")
             return 1
+        _write_health_marker("runtime_validated")
         _configure_secrets_and_creds(project)
+        _write_health_marker("secrets_loaded")
 
         _log("Phase: launching vm_watcher.py")
+        _write_health_marker("watcher_launching")
+        _write_health_marker("watcher_running")
         exit_code = _launch_watcher(repo_root, bucket, venv_python, sub_effective, project)
+        status = "ok" if exit_code == 0 else "error"
+        _write_health_marker("watcher_exited", status=status, detail=f"exit_code={exit_code}")
     except SystemExit as e:
         exit_code = e.code if isinstance(e.code, int) else 1
+        _write_health_marker("startup_failed", status="error", detail=f"system_exit={exit_code}")
     except Exception as e:
         _log_err(str(e))
         exit_code = 1
+        _write_health_marker("startup_failed", status="error", detail=str(e))
     finally:
         _log(f"Phase: exit handler; exit_code={exit_code}")
         _upload_log_and_stop(exit_code)

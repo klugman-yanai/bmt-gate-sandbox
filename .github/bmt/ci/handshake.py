@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from ci import config, core, gcs
-from ci.actions import gh_endgroup, gh_group, gh_notice, write_github_output
+from ci.actions import gh_endgroup, gh_error, gh_group, gh_notice, write_github_output
 from ci.vm import _as_int, _vm_status, vm_describe, vm_serial_tail, vm_start, vm_stop
 
 HandshakeReasonCode = Literal[
@@ -165,14 +165,16 @@ class HandshakeManager:
             )
 
         if not gcs.object_exists(trigger_uri):
+            vm_status = _vm_status(project, zone, instance_name)
             _record_handshake_failure(
                 reason="trigger_missing",
                 reason_detail="Trigger file missing before handshake wait",
                 trigger_exists=False,
                 runtime_status_exists=gcs.object_exists(runtime_status_uri),
-                vm_status=_vm_status(project, zone, instance_name),
+                vm_status=vm_status,
                 serial_tail=vm_serial_tail(project, zone, instance_name, lines=40),
             )
+            gh_error(f"Handshake failed: trigger file missing at {trigger_uri} vm_status={vm_status}")
             raise RuntimeError(f"Trigger file missing before handshake wait: {trigger_uri}")
 
         deadline = time.monotonic() + timeout_sec
@@ -306,6 +308,11 @@ class HandshakeManager:
                 vm_status=last_vm_status,
                 serial_tail=serial,
             )
+            err_summary = (
+                f"Handshake timeout at {ack_uri}: reason={reason} vm_status={last_vm_status} "
+                f"trigger_exists={trigger_exists} runtime_status_exists={runtime_exists}"
+            )
+            gh_error(err_summary)
             raise RuntimeError(
                 f"Timed out waiting for VM handshake at {ack_uri}{details}; "
                 f"reason={reason}; vm_status={last_vm_status}; trigger_exists={trigger_exists}; "
@@ -462,10 +469,12 @@ class HandshakeManager:
                 )
             time.sleep(poll_interval_sec)
 
-        raise RuntimeError(
-            "Timed out waiting for watcher readiness: "
-            f"uri={health_uri} vm_status={last_status} last_age_sec={last_age} detail={last_detail or '<none>'}"
+        err_msg = (
+            f"Timed out waiting for watcher readiness: uri={health_uri} "
+            f"vm_status={last_status} last_age_sec={last_age} detail={last_detail or '<none>'}"
         )
+        gh_error(err_msg)
+        raise RuntimeError(err_msg)
 
     def timeout_diagnostics(self) -> None:
         """Print GCS trigger/ack and VM diagnostics for handshake timeout debugging."""
@@ -542,4 +551,5 @@ class HandshakeManager:
                 print("VM reached TERMINATED; proceeding with normal start step.")
                 return
             time.sleep(5)
+        gh_error("Force clean restart: VM did not reach TERMINATED within 2 minutes")
         raise RuntimeError("VM did not reach TERMINATED before restart sequence.")

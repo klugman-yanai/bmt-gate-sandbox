@@ -22,9 +22,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from tools.repo.paths import DEFAULT_CONFIG_ROOT, DEFAULT_RUNTIME_ROOT
+from tools.repo.paths import DEFAULT_CONFIG_ROOT, DEFAULT_STAGE_ROOT
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 from tools.shared.bucket_env import truthy
+from tools.shared.dataset_manifest import InputFileRegistry
 from tools.shared.time_utils import now_iso, now_stamp
 
 PRINT_LOCK = threading.Lock()
@@ -69,7 +70,7 @@ class RunOptions:
     project_id: str = "sk"
     run_context: str = "manual"
     code_root: Path | str = DEFAULT_CONFIG_ROOT
-    runtime_root: Path | str = DEFAULT_RUNTIME_ROOT
+    runtime_root: Path | str = DEFAULT_STAGE_ROOT
     sk_root: str = ""
     results_subdir: str = "false_rejects"
     runner: str = ""
@@ -151,6 +152,12 @@ def resolve_local_path(path_or_contract: str, code_root: Path, runtime_root: Pat
     if raw.startswith("sk/config/"):
         return (code_root / raw).resolve()
     if raw.startswith("sk/"):
+        return (runtime_root / raw).resolve()
+    # Shared assets (templates, shared config) live under gcp/image.
+    if raw.startswith("projects/shared/"):
+        return (code_root / raw).resolve()
+    # All other projects/ paths (runner, dataset, outputs, results) are in gcp/stage.
+    if raw.startswith("projects/"):
         return (runtime_root / raw).resolve()
     return (Path.cwd() / p).resolve()
 
@@ -536,7 +543,8 @@ def main(**kwargs: Any) -> int:
     cfg.log_root.mkdir(parents=True, exist_ok=True)
 
     template_cfg = load_json(cfg.template_path)
-    wav_files = sorted(cfg.dataset_root.rglob("*.wav"))
+    registry = InputFileRegistry(cfg.dataset_root)
+    wav_files = registry.list_wavs(require_materialized=True)
     if opts.limit > 0:
         wav_files = wav_files[: opts.limit]
     if not wav_files:
@@ -628,7 +636,7 @@ class BmtRunLocal:
         project_id: str = "sk",
         run_context: str = "manual",
         code_root: Path | str = DEFAULT_CONFIG_ROOT,
-        runtime_root: Path | str = DEFAULT_RUNTIME_ROOT,
+        runtime_root: Path | str = DEFAULT_STAGE_ROOT,
         sk_root: str = "",
         results_subdir: str = "false_rejects",
         runner: str = "",
@@ -682,7 +690,7 @@ if __name__ == "__main__":
         run_ctx = "manual"
     num_src = e("BMT_NUM_SOURCE_TEST")
     code_root: str | Path = (e("BMT_CODE_ROOT") or "").strip() or DEFAULT_CONFIG_ROOT
-    runtime_root: str | Path = (e("BMT_RUNTIME_ROOT") or "").strip() or DEFAULT_RUNTIME_ROOT
+    runtime_root: str | Path = (e("BMT_STAGE_ROOT") or e("BMT_RUNTIME_ROOT") or "").strip() or DEFAULT_STAGE_ROOT
     jobs_config_val: str | Path = (e("BMT_JOBS_CONFIG") or "").strip() or "gcp/image/projects/sk/bmt_jobs.json"
     raise SystemExit(
         BmtRunLocal().run(

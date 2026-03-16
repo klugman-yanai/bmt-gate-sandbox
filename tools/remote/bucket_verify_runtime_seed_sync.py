@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify local gcp/remote matches runtime seed manifest in bucket."""
+"""Verify local gcp/stage matches runtime seed manifest in bucket."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from tools.repo.paths import DEFAULT_RUNTIME_ROOT
+from tools.repo.paths import DEFAULT_STAGE_ROOT
 from tools.shared.bucket_env import bucket_from_env, runtime_bucket_root_uri, truthy
 from tools.shared.bucket_sync import download_manifest, local_digest
 from tools.shared.layout_patterns import FORBIDDEN_RUNTIME_SEED
@@ -16,13 +16,13 @@ RUNTIME_SEED_MANIFEST = "_meta/runtime_seed_manifest.json"
 
 
 class BucketVerifyRuntimeSeedSync:
-    """Verify local gcp/remote matches runtime seed manifest in bucket."""
+    """Verify local gcp/stage matches runtime seed manifest in bucket."""
 
     def run(
         self,
         *,
         bucket: str,
-        src_dir: Path | str = DEFAULT_RUNTIME_ROOT,
+        src_dir: Path | str = DEFAULT_STAGE_ROOT,
         allow_generated_artifacts: bool = False,
     ) -> int:
         if not bucket:
@@ -50,7 +50,7 @@ class BucketVerifyRuntimeSeedSync:
             return 1
 
         if local_d != remote_digest or local_count != remote_count:
-            print(f"::error::gcp/remote is not in sync with {manifest_uri}", file=sys.stderr)
+            print(f"::error::gcp/stage is not in sync with {manifest_uri}", file=sys.stderr)
             print(
                 f"Local digest={local_d} count={local_count}; manifest digest={remote_digest} count={remote_count}",
                 file=sys.stderr,
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     import os
 
     bucket = bucket_from_env()
-    src_dir = (os.environ.get("BMT_SRC_DIR") or "").strip() or DEFAULT_RUNTIME_ROOT
+    src_dir = (os.environ.get("BMT_SRC_DIR") or "").strip() or DEFAULT_STAGE_ROOT
     allow = truthy(os.environ.get("BMT_ALLOW_GENERATED_ARTIFACTS"))
     raise SystemExit(
         BucketVerifyRuntimeSeedSync().run(

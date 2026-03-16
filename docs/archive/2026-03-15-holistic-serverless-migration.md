@@ -1,3 +1,5 @@
+> **ARCHIVED:** This document has been split into 5 focused roadmap files. See [docs/roadmap/](../roadmap/) for the active plans. Kept for historical reference.
+
 # Holistic Serverless Migration: Detailed Implementation Plan
 
 **Status:** Proposed / Integrated Master Plan
@@ -37,8 +39,8 @@ Phases are grouped into three **parts** to separate code/contract work from infr
 
 ## Enhancement Summary
 
-**Deepened on:** 2026-03-15  
-**Tech review:** 2026-03-15 (code-reviewer); feedback applied to close critical/recommended gaps.  
+**Deepened on:** 2026-03-15
+**Tech review:** 2026-03-15 (code-reviewer); feedback applied to close critical/recommended gaps.
 **Sections enhanced:** Phases 1–8, Verification Matrix, Contract & contributor workflow, Artifact Contract, Reading Guide.
 
 ### Key Improvements
@@ -197,6 +199,7 @@ Example registry JSON **in GCS** (same shape as before; the key point is it live
   }
 }
 ```
+
 (Repo layout: `gcp/image/projects/sk/bmt_jobs.json`; no `config/` segment.)
 
 Optional: a small script to add a project without hand-editing JSON. Use **typed** `BmtRegistry` / `BmtProjectEntry` in memory; serialize to JSON for GCS (no raw dicts).
@@ -404,6 +407,7 @@ Reference a JSON file that conforms to the artifact contract (no JSONL for contr
   "parsing": { "keyword": "NAMUH" }
 }
 ```
+
 (Base class uses `input_file_extensions` to recursively collect inputs from the dataset root; no custom collection code in the project.)
 
 (Example is SK-style; paths follow the bucket layout that mirrors `gcp/remote` (e.g. `projects/sk/...`). In the repo, jobs config uses a `bmts` map keyed by bmt_id—see `gcp/image/projects/sk/bmt_jobs.json`. Runner output format is not assumed to be shared across BMTs.)
@@ -456,30 +460,75 @@ The following parts implement the contract and workflow above. Each part states 
 
 **Goal:** Establish a clean and sustainable split between BMT code/config (fully local, editable) and BMT data (WAV audio corpora, potentially 30 GB per project) so that contributors can work against a real directory tree without storing large binary files locally.
 
-**Context:** `gcp/remote/` is the local mirror of the GCS bucket. It already holds runner binaries, config, and input placeholders (`inputs/**/.keep`) but `gcp/README.md` already forbids real WAV files under `gcp/remote/**/inputs` ("keep local corpora under `data/` and upload explicitly"). The problem is that local contributors have no visibility into _which_ WAV files exist in GCS without downloading everything or running `gcloud storage ls`. With 30 GB+ per project this is not practical.
+**Context:** `gcp/remote/` (renamed to `gcp/stage/` in task 0.8) is the local staging area — a 1:1 mirror of the GCS bucket that you edit and deploy *from*. It already holds runner binaries, config, and input placeholders (`inputs/**/.keep`) but `gcp/README.md` already forbids real WAV files under it ("keep local corpora under `data/` and upload explicitly"). The problem is that local contributors have no visibility into *which* WAV files exist in GCS without downloading everything or running `gcloud storage ls`. With 30 GB+ per project this is not practical. Throughout Phase 0, `gcp/stage/` is used as the target name; tasks 0.1–0.7 should be executed against the directory under its current name `gcp/remote/` and task 0.8 performs the rename.
 
 **Pre-existing bugs discovered during this design (block Phase 1):**
 
 1. `FORBIDDEN_RUNTIME_SEED` in `tools/shared/layout_patterns.py` uses the pattern `r"(^|/)sk/inputs(/|$)"` (hard-coded old project prefix) but the current layout is `projects/sk/inputs/`. The exclusion never fires. `local_digest()` already silently walks `inputs/` if any files land there.
-2. `local_digest()` in `tools/shared/bucket_sync.py` performs a recursive filesystem walk + full file read of every file under `gcp/remote/`. If a FUSE mount is active (or real WAVs are present) at any `inputs/` path, it reads the entire corpus on every `just deploy` and on every pre-commit hook invocation that touches `gcp/`. This makes the dev workflow unusable unless `SKIP_SYNC_VERIFY=1` is permanently set.
+2. `local_digest()` in `tools/shared/bucket_sync.py` performs a recursive filesystem walk + full file read of every file under `gcp/stage/` (currently `gcp/remote/`). If a FUSE mount is active (or real WAVs are present) at any `inputs/` path, it reads the entire corpus on every `just deploy` and on every pre-commit hook invocation that touches `gcp/`. This makes the dev workflow unusable unless `SKIP_SYNC_VERIFY=1` is permanently set.
+3. `resolve_local_path()` in `tools/bmt/bmt_run_local.py` routes paths beginning with `sk/` to `runtime_root` but paths beginning with `projects/sk/` (the actual format in `bmt_jobs.json`) fall through to `Path.cwd() / raw`, resolving to `<repo_root>/projects/sk/…` rather than `<repo_root>/gcp/stage/projects/sk/…`. Without explicit `BMT_RUNNER` / `BMT_DATASET_ROOT` overrides the tool does not resolve paths correctly.
 
-Both must be fixed in Phase 0 before FUSE or manifest tooling is layered on top.
+All three must be fixed in Phase 0 before FUSE or manifest tooling is layered on top.
+
+---
+
+### Q: Why not symlinks to each remote file?
+
+Short answer: **symlinks to GCS objects are not possible without FUSE**, and even with FUSE, direct mounting is strictly better than symlinks into a mount.
+
+- A Linux symlink stores a target *string*. The kernel has no GCS driver, so `ln -s gs://bucket/file.wav local/file.wav` creates a symlink that always returns `ENOENT` on any `open()`, `stat()`, or `os.path.exists()`. GCS URIs are not filesystem paths.
+- If you create symlinks pointing *into* a FUSE mount (e.g. `local/inputs/file.wav → /mnt/gcs/projects/sk/inputs/file.wav`), they work when the mount is active but become **dangling** when it is not — `os.path.exists()` returns `False`, `open()` throws `FileNotFoundError`, and `git status` shows all files as deleted. This is a strictly worse failure mode than an empty directory (which is what you get when a FUSE mount is inactive over its mount point).
+- **A direct FUSE mount gives you the same transparent filesystem access without the dangling-symlink failure mode.** When unmounted, the mount point is an empty directory (explicit and recoverable) rather than a directory of broken links.
+- gcsfuse can store symlinks *inside* a mounted GCS bucket as objects with `symlink_target` metadata, but it cannot create symlinks *outside* its mount that point into it.
+
+The only production-grade mechanism for "filesystem entries that proxy to remote content" on Linux is FUSE itself.
+
+---
+
+### Q: Should `gcp/stage/` be split into `stage/src` and `stage/data`?
+
+The proposal is architecturally sound but adds meaningful complexity to the sync pipeline. Research shows:
+
+- **Option A (GCS restructured too):** Migrates bucket objects to `src/` and `data/` prefixes. Breaks the 1:1 mirror, requires updating every `dataset_prefix` / `results_prefix` path in `bmt_jobs.json`, and forces a VM image update. Not recommended unless doing a deliberate full bucket layout migration.
+- **Option B (local split with sync mapping):** `gcp/stage/src/` maps to certain GCS prefixes, `gcp/stage/data/` maps to `gs://bucket/projects/*/inputs/`. Adds path-remapping logic to `bucket_sync_runtime_seed.py` and an extra routing branch in `resolve_local_path()`. Touches ~7 files at low-to-medium effort. GCS stays flat.
+- **Option C (GCS flat; mount tree outside the staging area — chosen):** `gcp/stage/` stays as the 1:1 GCS mirror for all non-audio content. Audio data gets its own mount tree at `gcp/mnt/` (gitignored), entirely outside the staging area. No sync changes, no path remapping, no `bmt_jobs.json` changes, no GCS restructuring.
+
+```
+gcp/
+  image/        ← VM code baked into image (unchanged)
+  stage/        ← local staging area, 1:1 GCS mirror (renamed from remote/ in 0.8)
+    config/
+    projects/sk/
+      lib/
+      kardome_runner
+      inputs/false_rejects/.keep                    ← placeholder; no real WAVs
+      inputs/false_rejects/dataset_manifest.json    ← tracked in git
+  mnt/          ← FUSE observation window; gitignored entirely
+    sk-inputs/  ← gcsfuse --only-dir=projects/sk/inputs ... -o ro
+```
+
+The explicit `stage/src` + `stage/data` split is achievable later (Option B) if the need arises. **Phase 0 implements Option C; Option B is deferred.**
+
+**Do not mount the code prefix (`gcp/stage/`) via FUSE for editing.** gcsfuse explicitly warns against VCS repos on FUSE mounts: `git` uses `flock`, hardlinks, and atomic renames that are unsupported or unreliable on gcsfuse. Edits to code via writable GCS FUSE push broken/partial code to the bucket immediately (no staging, no atomic commit), and code is baked into the VM image at build time anyway — a writable FUSE mount of the code tree has no deployment path and real downside risk.
 
 ---
 
 ### Decision: Local data access approach
 
-The design space covers five options. The pre-existing `.gitignore` rule (`gcp/remote/**/inputs/**/*.wav`) already excludes real WAVs from git; the question is how to restore visibility.
+The pre-existing `.gitignore` rule (`gcp/remote/**/inputs/**/*.wav`) already excludes real WAVs from git; the question is how to restore visibility.
 
 | Approach | Complexity | Filename visibility (offline) | Tooling compat. | WSL2 safety | Verdict |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Manifest JSON** (tracked in git) | Low | Full (names + sizes in JSON) | Requires manifest-aware enumeration | Excellent | **Primary — recommended** |
-| **gcsfuse `--only-dir` mount** | Medium | Full (real filesystem tree) | Transparent — any tool works | Mostly fine (see pitfalls) | **Secondary — opt-in** |
+| **gcsfuse `--only-dir` mount into `gcp/mnt/`** | Medium | Full (real filesystem tree) | Transparent — any tool works | Mostly fine (see pitfalls) | **Secondary — opt-in** |
 | **rclone mount** | Medium | Full | Transparent | Same as gcsfuse | Alternative to gcsfuse |
+| **Symlinks into a FUSE mount** | Medium | Full when mounted, dangling when not | Breaks on unmount (worse than empty dir) | Fragile | Not recommended |
+| **Symlinks to GCS URIs (no FUSE)** | None | Symlinks exist but always ENOENT | Completely broken | N/A | Impossible |
 | **0-byte stub files** | Low | Names visible, content absent | Breaks naive `open()` silently | Excellent | Not recommended |
 | **DVC** | High | Opaque (`.dvc` dir file) | Requires DVC everywhere | Excellent | Too heavy for this use case |
+| **`remote/src` + `remote/data` explicit split (Option B)** | Medium | Same as chosen + cleaner structure | ~7 file changes; sync remapping | Excellent | Deferred — achievable later |
 
-**Chosen direction:** Manifest JSON as the primary mechanism + optional gcsfuse mount as a transparent opt-in layer.
+**Chosen direction:** Option C — `gcp/stage/` (1:1 GCS staging area, no data files); manifest JSON tracked at `inputs/<dataset>/dataset_manifest.json`; optional FUSE mounts at `gcp/mnt/<project>-inputs/` (gitignored, separate observation window).
 
 ---
 
@@ -487,18 +536,24 @@ The design space covers five options. The pre-existing `.gitignore` rule (`gcp/r
 
 - [ ] **0.1 Fix `FORBIDDEN_RUNTIME_SEED` pattern (pre-existing bug)**
   - **File:** `tools/shared/layout_patterns.py`
-  - **Task:** Change the hard-coded `r"(^|/)sk/inputs(/|$)"` pattern in `DEFAULT_CODE_EXCLUDES`, `FORBIDDEN_RUNTIME_SEED`, and `CODE_CLEAN_PATTERNS` to the project-agnostic `r"(^|/)inputs(/|$)"`. Verify by running `just test` and `just validate-layout`.
-  - **Why:** The current pattern is keyed to the `sk` project name and does not match the actual path layout `projects/sk/inputs/`, so no inputs exclusion fires today.
+  - **Task:** Change the hard-coded `r"(^|/)sk/inputs(/|$)"` pattern in `DEFAULT_CODE_EXCLUDES`, `FORBIDDEN_RUNTIME_SEED`, and `CODE_CLEAN_PATTERNS` to the project-agnostic `r"(^|/)projects/[^/]+/inputs(/|$)"` (matching the actual `projects/<name>/inputs/` layout). Verify by running `just test` and `just validate-layout`.
+  - **Why:** The current pattern is keyed to the `sk` project name and does not match the actual path layout `projects/sk/inputs/`, so no inputs exclusion fires today. This means `local_digest()` and the runtime seed sync are silently including any files present under `inputs/`.
 
 - [ ] **0.2 Protect `local_digest()` from data paths**
   - **File:** `tools/shared/bucket_sync.py`
-  - **Task:** Add an explicit skip condition for any path under an `inputs/` subtree that is not a `.keep` file or a `dataset_manifest.json`. The fix to 0.1 should already make the `exclude_patterns` path work; verify with a unit test that passes a synthetic `inputs/` directory with a `.wav` file and asserts it is excluded from the digest.
-  - **Why:** `local_digest()` opens and SHA256-hashes every file. If a FUSE mount is active or real WAVs are present, this function reads gigabytes of audio on every `git commit` that touches `gcp/`.
+  - **Task:** Verify that the fix to 0.1 causes the `exclude_patterns` path to correctly skip `inputs/` subtrees. Add a unit test that passes a synthetic `inputs/` directory containing a `.wav` file and asserts it is excluded from the digest. Add an explicit guard: any path under `projects/*/inputs/` that is not a `.keep` or `dataset_manifest.json` is skipped.
+  - **Why:** `local_digest()` opens and SHA256-hashes every file. If a FUSE mount is active at `gcp/mnt/` or real WAVs land in `gcp/stage/`, this function reads gigabytes of audio on every `git commit` that touches `gcp/`.
+
+- [ ] **0.2b Fix `resolve_local_path()` routing (pre-existing bug)**
+  - **File:** `tools/bmt/bmt_run_local.py`
+  - **Task:** The current routing for `projects/sk/…` paths (from `bmt_jobs.json`) falls through to `Path.cwd() / raw`, resolving to `<repo_root>/projects/sk/…` instead of `<repo_root>/gcp/stage/projects/sk/…`. Add an explicit `projects/` prefix branch that routes to `runtime_root`. Example: `if raw.startswith("projects/"): return (runtime_root / raw).resolve()`. Add a unit test covering a `projects/sk/kardome_runner` path with an explicit `runtime_root`.
+  - **Why:** Without this fix, `bmt_run_local.py` only works correctly when `BMT_RUNNER` and `BMT_DATASET_ROOT` env overrides are provided explicitly. The path resolution contract should work from `bmt_jobs.json` alone.
 
 - [ ] **0.3 Add `DatasetManifest` model and generation tool**
   - **Files:** `tools/shared/dataset_manifest.py` (new), `tools/remote/gen_input_manifest.py` (new)
-  - **Task:** Define a `DatasetEntry` (path relative to dataset root, size_bytes, sha256, updated) and `DatasetManifest` (schema_version, dataset, project, bucket, prefix, generated_at, entries) as frozen dataclasses (or Pydantic models matching the project style). Emit `dataset_manifest.json` at the dataset root (e.g. `gcp/remote/projects/sk/inputs/false_rejects/dataset_manifest.json`). The generation tool calls `gcloud storage ls --json gs://$GCS_BUCKET/<prefix>/` to enumerate, normalises paths, and writes the manifest. Manifest files are tracked in git (they are tiny; the existing `.gitignore` excludes only `*.wav` under inputs, not JSON).
+  - **Task:** Define a `DatasetEntry` (path relative to dataset root, size_bytes, sha256, updated) and `DatasetManifest` (schema_version, dataset, project, bucket, prefix, generated_at, entries) as frozen dataclasses (or Pydantic models matching the project style). Emit `dataset_manifest.json` at the dataset root (e.g. `gcp/stage/projects/sk/inputs/false_rejects/dataset_manifest.json`). The generation tool calls `gcloud storage ls --json gs://$GCS_BUCKET/<prefix>/` to enumerate, normalises paths, and writes the manifest. Manifest files are tracked in git (they are tiny; the existing `.gitignore` excludes only `*.wav` under inputs, not JSON).
   - **Manifest shape:**
+
     ```json
     {
       "schema_version": 1,
@@ -522,17 +577,70 @@ The design space covers five options. The pre-existing `.gitignore` rule (`gcp/r
   - **File:** `tools/remote/bucket_upload_wavs.py` (or `bucket_upload_dataset.py`)
   - **Task:** After a successful upload, call the manifest generation tool for the affected dataset. Commit the updated `dataset_manifest.json` as part of the deploy workflow (or instruct the developer to do so via a `just` recipe).
 
-- [ ] **0.6 Add `just` recipes for on-demand materialization**
+- [ ] **0.6 Add `just` recipes for on-demand materialization and FUSE mounts**
   - **File:** `Justfile`
   - **Task:** Add the following recipes:
-    - `just fetch-inputs <project> <dataset>` — `gcloud storage cp -r gs://$GCS_BUCKET/projects/<project>/inputs/<dataset>/ gcp/remote/projects/<project>/inputs/<dataset>/`
-    - `just fetch-wav <path>` — fetch a single file: `gcloud storage cp gs://$GCS_BUCKET/<path> gcp/remote/<path>`
+    - `just fetch-inputs <project> <dataset>` — `gcloud storage cp -r gs://$GCS_BUCKET/projects/<project>/inputs/<dataset>/ gcp/stage/projects/<project>/inputs/<dataset>/`
+    - `just fetch-wav <path>` — fetch a single file: `gcloud storage cp gs://$GCS_BUCKET/<path> gcp/stage/<path>`
     - `just gen-manifest <project> <dataset>` — run the generation tool for one dataset
-    - `just mount-inputs <project>` (optional, documented as dev QoL) — gcsfuse `--only-dir` mount; see gcsfuse section below
-    - `just umount-inputs <project>` — unmount
+    - `just mount-data <project>` (optional, documented as dev QoL) — mounts `gs://$GCS_BUCKET/projects/<project>/inputs` read-only into `gcp/mnt/<project>-inputs/` via `gcsfuse --only-dir`. **Does not mount into `gcp/stage/`** — the staging area stays clean.
+    - `just umount-data <project>` — `fusermount -u gcp/mnt/<project>-inputs`
+  - **Task:** Add `gcp/mnt/` to `.gitignore` so mount points are never tracked.
 
 - [ ] **0.7 Update `gcp/README.md` and `docs/development.md`**
-  - **Task:** Document the manifest contract (what `dataset_manifest.json` contains, where it lives, when to regenerate it). Document the three tiers of local data access: (1) manifest-only (offline, zero deps — see WAV names without content); (2) on-demand fetch via `just fetch-inputs`; (3) FUSE mount via `just mount-inputs` for full fidelity. Document WSL2 FUSE pitfalls.
+  - **Task:** Document the manifest contract (what `dataset_manifest.json` contains, where it lives, when to regenerate it). Document the three tiers of local data access: (1) manifest-only (offline, zero deps — see WAV names without content); (2) on-demand fetch via `just fetch-inputs`; (3) FUSE mount at `gcp/mnt/<project>-inputs/` via `just mount-data` for full fidelity. Document that `gcp/stage/` is never directly mounted via FUSE. Document WSL2 FUSE pitfalls.
+
+- [ ] **0.8 Rename `gcp/remote/` → `gcp/stage/`**
+  - **Why:** `gcp/remote/` is a misnomer — it is the local staging area you edit and deploy *from* to GCS, not the remote side. `gcp/stage/` names what it actually is: a staging area under local control. `gcp/mnt/` remains correct (FUSE mount points).
+  - **Scope — 14 files that reference `gcp/remote` or `DEFAULT_RUNTIME_ROOT`:**
+    - `tools/repo/paths.py` — rename `DEFAULT_RUNTIME_ROOT` to `DEFAULT_STAGE_ROOT = Path("gcp/stage")`
+    - `tools/shared/layout_patterns.py` — update any hardcoded `gcp/remote` strings
+    - `tools/shared/bucket_env.py` — update path references
+    - `tools/remote/bucket_sync_runtime_seed.py` — update default root
+    - `tools/remote/bucket_verify_runtime_seed_sync.py` — update default root
+    - `tools/remote/bucket_upload_dataset.py` — update `local_mirror` default
+    - `tools/bmt/bmt_run_local.py` — update `runtime_root` default
+    - `tools/cli/bucket_cmd.py` — update docstrings and defaults
+    - `tools/repo/gcp_layout_policy.py` — update layout root
+    - `tools/repo/repo_layout_policy.py` — update any path refs
+    - `CLAUDE.md` — update all references
+    - `gcp/README.md` — update all references
+    - `Justfile` — update all recipes
+    - `.gitignore` / `.cursorignore` — update path patterns
+  - **Note:** This rename exposes the deeper issue that path roots are scattered across 14 files rather than flowing from a single config object. Do 0.8 as a pure rename first; fix the architecture in 0.9.
+
+- [ ] **0.9 Introduce `WorkspaceLayout` — a single typed path config for all dev tools**
+  - **File:** `tools/repo/paths.py`
+  - **Why:** The fact that renaming one directory requires 14 file edits is a design smell. Path roots are scattered as constants across multiple tools rather than flowing from a single injected config object. This makes renames expensive, makes testing with alternative roots fragile, and means every new tool must independently discover and import the right constant.
+  - **Task:** Define a `WorkspaceLayout` frozen dataclass in `tools/repo/paths.py` that owns **all** local path roots:
+
+    ```python
+    @dataclass(frozen=True)
+    class WorkspaceLayout:
+        stage_root: Path   # gcp/stage/ — local staging mirror of GCS (renamed from gcp/remote/)
+        image_root: Path   # gcp/image/ — VM code baked into image (read-only locally)
+        mnt_root: Path     # gcp/mnt/   — FUSE mount points (gitignored, opt-in)
+        data_root: Path    # data/      — local WAV corpora for bmt_run_local
+
+        @classmethod
+        def from_env(cls) -> "WorkspaceLayout":
+            """Construct from environment variables with defaults."""
+            ...
+
+        @classmethod
+        def default(cls) -> "WorkspaceLayout":
+            return cls(
+                stage_root=Path("gcp/stage"),
+                image_root=Path("gcp/image"),
+                mnt_root=Path("gcp/mnt"),
+                data_root=Path("data"),
+            )
+    ```
+
+  - **Note:** `bmt_workspace` is NOT part of `WorkspaceLayout`. It is the VM-side runtime scratch directory (`~/bmt_workspace/` on the running VM), used by `vm_watcher.py` and `bmt_manager_base.py` for caching runner binaries and staging run outputs. It has no presence in dev tooling. Local dev equivalent is `local_batch/` (used by `bmt_run_local.py`), which is also not part of `WorkspaceLayout` — it is configured separately via `BMT_LOCAL_BATCH_DIR` or the `--workspace` flag.
+  - **Task:** Refactor all tools that currently import `DEFAULT_RUNTIME_ROOT`, `DEFAULT_STAGE_ROOT`, etc. to instead receive a `WorkspaceLayout` instance as a constructor parameter (or accept it via `from_env()`). No tool should import a bare path constant; they should all accept a `WorkspaceLayout`.
+  - **Task:** Add `WorkspaceLayout.from_env()` that reads `BMT_STAGE_ROOT`, `BMT_MNT_ROOT`, etc. overrides so integration tests can point tools at a temp directory without any monkey-patching.
+  - **Outcome:** After this task, changing any root directory is a one-line change to `WorkspaceLayout.default()`. Future renames cost zero files.
 
 ---
 
@@ -548,10 +656,11 @@ The design space covers five options. The pre-existing `.gitignore` rule (`gcp/r
 
 **gcsfuse opt-in (full fidelity for editors and shell tools):**
 
-When a contributor wants to see real filenames in their editor's file tree or wants shell autocomplete on WAV paths, they can mount the inputs prefix directly over the correct directory:
+When a contributor wants to see real filenames in their editor's file tree or wants shell autocomplete on WAV paths, they mount the inputs prefix into the **`gcp/mnt/` tree** (gitignored; separate from the mirror):
 
 ```bash
-# just mount-inputs sk
+# just mount-data sk
+mkdir -p gcp/mnt/sk-inputs
 gcsfuse \
   --only-dir=projects/sk/inputs \
   --file-mode=444 \
@@ -561,16 +670,30 @@ gcsfuse \
   --type-cache-ttl=300s \
   --kernel-list-cache-ttl-secs=60 \
   $GCS_BUCKET \
-  gcp/remote/projects/sk/inputs
+  gcp/mnt/sk-inputs
 ```
 
-Unmount with `fusermount -u gcp/remote/projects/sk/inputs` (Linux/WSL2).
+Unmount: `fusermount -u gcp/mnt/sk-inputs` (Linux/WSL2).
+
+`gcp/stage/` is **never directly mounted** — the staging area stays a clean, fully-local, git-trackable directory. The FUSE mount lives entirely outside it in `gcp/mnt/`.
+
+**Future optional: `stage/src` + `stage/data` explicit split (Option B)**
+
+If you later want the data subtree to be structurally separated from the staging area (e.g. for a cleaner per-project FUSE boundary, or for independent sync), the tooling changes are bounded thanks to `WorkspaceLayout` (0.9):
+
+- Add `data_root: Path = Path("gcp/stage/data")` to `WorkspaceLayout`
+- Update `bucket_sync_runtime_seed.py` + verify tool to accept two source dirs with path remapping (`gcp/stage/data/sk/` → `gs://bucket/projects/sk/inputs/sk/`)
+- Update `resolve_local_path()` routing to route `projects/*/inputs/` paths to `data_root`
+- Update `bucket_upload_dataset.py` `local_mirror` path
+- Touches ~7 files, all small-to-medium changes; GCS layout stays flat (no `bmt_jobs.json` changes)
+
+This is explicitly deferred. Phase 0 does not require it.
 
 **WSL2 FUSE pitfalls (kernel 6.6, Microsoft standard):**
 
 - WSL2 kernel 6.6 includes FUSE 3.x — gcsfuse works. However:
   - `chmod`/`chown` silently fail; gcsfuse pins all file ownership to the mounting user's UID. Any tool that calls `os.chmod()` on a mounted path gets `Operation not permitted`.
-  - The FUSE mount is torn down when the WSL session exits. Manage with `just mount-inputs` / `just umount-inputs`; document that contributors need to re-mount on each session. Optionally use systemd (available with `systemd=true` in `.wslconfig`).
+  - The FUSE mount is torn down when the WSL session exits. Manage with `just mount-data` / `just umount-data`; document that contributors need to re-mount on each session. Optionally use systemd (available with `systemd=true` in `.wslconfig`).
   - Heavy traversal (e.g. `rg`, `find`, basedpyright scanning) without `--stat-cache-ttl` floods the GCS List API. Use `--stat-cache-ttl=300s` to mitigate.
   - `--implicit-dirs` is required; GCS does not store directory marker objects.
   - **Add the inputs mount point to `.cursorignore`** (and IDE ignore lists) so the IDE does not index WAV files or traverse 30 GB of audio.
@@ -735,6 +858,7 @@ Phases 1–3: boundary foundations, single entrypoint (config-driven, no CLI), a
   - **File:** `gcp/image/coordinator.py` (new)
   - **Task:** Extract aggregation, pointer update, status/check posting, and trigger cleanup from watcher-centric flow into reusable coordinator logic.
   - **Requirement:** Coordinator module must be runnable from CI post-step or dedicated Cloud Run coordinator job.
+  - **Task (log dump → Check Run):** The coordinator must own log dump generation for failure cases. On any non-success outcome, the coordinator: (1) collects recent log content (watcher log + per-leg runner log tails from `{results_prefix}/snapshots/{run_id}/logs/`); (2) uploads the concatenated content to GCS under the well-known log dumps prefix via `log_config.dump_logs_to_gcs()`; (3) generates a signed URL via `generate_signed_url()` (3-day expiry); (4) passes `log_dump_url` to `github_checks.render_results_table()` so the link appears in the Check Run summary on the **Checks tab** of the PR. This applies to gate failures, timeouts, and unhandled crashes — the Check Run summary must always contain a clickable log dump link when the conclusion is `failure`. The current implementation in `vm_watcher.py` (lines ~1058–1109 and ~1234–1270) is the reference; extract it into `coordinator.py` so it is not re-implemented per execution model.
 - [ ] **3.5 Contributor API Contract Module Structure (OOP only; declarative config; minimal boilerplate)**
   - **Files:** `gcp/image/contracts/`, `gcp/image/projects/shared/`
   - **Task:** Define **`BmtManagerProtocol`** (structural contract) with **exact method signatures**: `setup_assets()`, `collect_input_files(inputs_root)`, `run_file(input_file, inputs_root)`, `compute_score(file_results)`, `get_runner_identity()`, `evaluate_gate(...)`, and `run()`. The framework types against this Protocol (e.g. orchestrator returns `BmtManagerProtocol`). Define how the orchestrator resolves `manager_script` (e.g. GCS path or relative path) to a callable class: e.g. dynamic import of a module under the code root, or registry mapping to baked-in classes.
@@ -902,6 +1026,7 @@ Phases 4–6: container image, Pulumi Cloud Run Job with GCS Fuse, scalability a
   - **Task:** Coordinator obtains registry and per-leg `results_prefix` from GCS (registry + jobs config) or from aggregated leg summaries; document how the coordinator gets registry/jobs (e.g. download from GCS, or from CI env).
   - **Task:** Define summary artifact contract path (e.g. `triggers/summaries/<workflow_run_id>/<leg>.json` under the mount root) and optional JSONL telemetry path with aggregation trigger condition.
   - **Task:** Coordinator must own final pointer updates, check/status publication, and cleanup. Define and document **who runs the coordinator** when CI uses `gcloud run jobs execute --wait`: e.g. last task in the same job, or a CI step after `--wait` that reads summary artifacts; ensure pointer/status/cleanup run exactly once.
+  - **Task (log collection for Check Run in Cloud Run model):** In the Cloud Run Jobs model there is no persistent watcher process — log collection for the Check Run failure summary changes fundamentally. Define the log collection mechanism before Phase 7 cutover. Options: (A) **GCS-based**: each task writes its own log artifact to `{results_prefix}/snapshots/{run_id}/logs/` (already the per-leg manager pattern); the coordinator downloads and concatenates them after `--wait` completes, uploads the dump, and generates a signed URL — same path as the VM model; (B) **Cloud Logging**: coordinator reads Cloud Run task logs from Cloud Logging API scoped to the job execution ID (`gcloud logging read "resource.type=cloud_run_job AND labels.execution_name=<exec>"`) and uploads the fetched log content. Option A is preferred because it reuses the existing `log_config` machinery and requires no new IAM (logs are already written to GCS by the manager). **Requirement:** regardless of mechanism, the coordinator must generate a signed URL and include it in the Check Run `output.summary` as "Log dump (link expires in 3 days): `<url>`" for every `failure` conclusion. The link must be visible in the **Checks tab** of the PR without clicking through to external dashboards.
 - [ ] **6.5 Partial Failure and Retry Semantics**
   - **Task:** Specify behavior for missing leg summaries, retry exhaustion, partial success/failure outcomes, and final gate decision mapping. **Explicit rules:** If any leg has no summary by timeout → aggregate = failure, reason = partial_missing. If all legs have summaries → aggregate = failure if any leg failed; success only if all passed. Retry exhaustion for one leg → that leg = failure; others unchanged.
   - **Task:** Ensure coordinator logic is idempotent for safe retries (e.g. write pointer/status keyed by workflow_run_id; overwrite or skip-if-already-final so retries do not duplicate status or corrupt pointer).
@@ -928,6 +1053,8 @@ Phases 4–6: container image, Pulumi Cloud Run Job with GCS Fuse, scalability a
 
 - Partial task failures must produce deterministic aggregate verdicts and non-ambiguous final status.
 - Quota-driven parallelism limits should degrade gracefully (reduced parallelism or explicit failure reason).
+- Log collection must not block the Check Run update: if the log dump upload or signed URL generation fails, the coordinator must still finalize the Check Run (with a degraded note: "Log dump unavailable") rather than leaving it in `in_progress`.
+- Signed URLs expire in 3 days; the Check Run text must state the expiry so developers know to act promptly.
 
 **References:**
 
@@ -1066,6 +1193,7 @@ Phases 7–8: direct API handoff, WIF/Eventarc policy, shadow run, cutover, and 
 
 - Pointer correctness (`current.json latest/last_passing`) after mixed pass/fail task outcomes.
 - Status/check run correctness for success, timeout, superseded, and schema-invalid scenarios.
+- Log dump signed URL present in Check Run `output.summary` for all `failure` conclusions (gate fail, timeout, crash); Check Run finalized even when log dump upload fails (degraded note instead).
 - Cleanup behavior for triggers/acks/status artifacts after each workflow run family.
 - Contributor API contract checks: stub/type compatibility, base-class hook coverage, and reference manager conformance.
 - Artifact contract checks: canonical JSON schema validation and JSONL parse-error budget enforcement.

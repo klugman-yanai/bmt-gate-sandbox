@@ -38,6 +38,47 @@ upload-data project source *args:
 clean-bloat *args:
     uv run python -m tools bucket clean-bloat {{ args }}
 
+# -- Data access (local fetch, manifests, FUSE mounts) -----------------------
+
+# Fetch a full dataset from GCS into gcp/stage/ for local use.
+# Example: just fetch-inputs sk false_rejects
+[group('bucket')]
+fetch-inputs project dataset:
+    gcloud storage cp -r "gs://$GCS_BUCKET/projects/{{ project }}/inputs/{{ dataset }}/" \
+        "gcp/stage/projects/{{ project }}/inputs/{{ dataset }}/"
+
+# Fetch a single file from GCS into gcp/stage/.
+# Example: just fetch-wav projects/sk/inputs/false_rejects/ambient/cafe_001.wav
+[group('bucket')]
+fetch-wav path:
+    gcloud storage cp "gs://$GCS_BUCKET/{{ path }}" "gcp/stage/{{ path }}"
+
+# (Re-)generate dataset_manifest.json for a dataset (requires GCS_BUCKET).
+# Example: just gen-manifest sk false_rejects
+[group('bucket')]
+gen-manifest project dataset:
+    BMT_PROJECT={{ project }} BMT_DATASET={{ dataset }} uv run python -m tools.remote.gen_input_manifest
+
+# Mount a dataset read-only via gcsfuse into gcp/mnt/<project>-inputs/ (dev QoL, opt-in).
+# Requires gcsfuse. Example: just mount-data sk
+[group('bucket')]
+mount-data project:
+    mkdir -p gcp/mnt/{{ project }}-inputs
+    gcsfuse \
+        --only-dir="projects/{{ project }}/inputs" \
+        --file-mode=444 \
+        --dir-mode=555 \
+        --implicit-dirs \
+        --stat-cache-ttl=300s \
+        --type-cache-ttl=300s \
+        --kernel-list-cache-ttl-secs=60 \
+        "$GCS_BUCKET" gcp/mnt/{{ project }}-inputs
+
+# Unmount a gcsfuse data mount. Example: just umount-data sk
+[group('bucket')]
+umount-data project:
+    fusermount -u gcp/mnt/{{ project }}-inputs
+
 # Set GCS_BUCKET GitHub repo var from Pulumi output (e.g. after it was removed)
 [group('bucket')]
 set-bucket-var:

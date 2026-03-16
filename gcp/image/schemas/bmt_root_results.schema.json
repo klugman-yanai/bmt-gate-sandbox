@@ -6,6 +6,7 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
+    "schema_version": { "type": "integer", "const": 1, "description": "Artifact schema version (additive changes only within a major version)" },
     "timestamp": { "type": "string", "description": "ISO8601 UTC timestamp" },
     "bucket": { "type": "string", "description": "GCS bucket name" },
     "project": { "type": "string", "description": "Project id (e.g. sk)" },

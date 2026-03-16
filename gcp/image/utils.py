@@ -16,7 +16,7 @@ def _now_stamp() -> str:
 def _runtime_bucket_root(bucket: str) -> str:
     """Bucket root: gs://<bucket>.
 
-    The bucket is a 1:1 mirror of gcp/remote/. All runtime data
+    The bucket is a 1:1 mirror of gcp/stage/. All runtime data
     (triggers, runners, datasets, results) lives directly under this root.
     """
     return f"gs://{bucket}"

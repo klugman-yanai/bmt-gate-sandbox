@@ -1,3 +1,5 @@
+> **ARCHIVED:** Superseded by [gcp-image-refactor.md](../roadmap/gcp-image-refactor.md). Key change: config-driven invocation replaces Typer CLI. Kept for historical reference.
+
 ---
 name: gcp-image-refactor-alpha
 title: gcp/image Single Entrypoint and Readability Refactor (Alpha)

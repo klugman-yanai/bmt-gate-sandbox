@@ -1,8 +1,7 @@
 name: CI
 
-# Structure aligned with test/check-bmt-gate-workflow-optimizations and ci/check-bmt-gate:
-# Only release runners are sent to BMT; non-release builds run in parallel (do not block BMT).
-# checkout-once → extract-presets → build-release (gates BMT) + build-nonrelease (parallel) → decide-bmt → bmt.
+# Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 6 jobs, no image-check.
+# checkout-once → extract-presets → build-release + build-nonrelease (parallel) → bmt-handoff → bmt-gate-summary.
 on:
   push:
     branches:
@@ -35,7 +34,6 @@ concurrency:
 
 jobs:
   checkout-once:
-    name: Checkout repository
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -78,7 +76,6 @@ jobs:
           retention-days: 5
 
   extract-presets:
-    name: Parse CMake presets
     runs-on: ubuntu-22.04
     outputs:
       presets_release: ${{ steps.parse.outputs.presets_release }}
@@ -138,7 +135,6 @@ jobs:
   # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build-release:
-    name: Build release
     needs: [checkout-once, extract-presets]
     runs-on: ubuntu-22.04
     strategy:
@@ -153,7 +149,6 @@ jobs:
   # Non-release builds: run in parallel; do not block BMT.
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build-nonrelease:
-    name: Build non-release
     needs: [checkout-once, extract-presets]
     runs-on: ubuntu-22.04
     strategy:
@@ -168,7 +163,6 @@ jobs:
 
   # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 6 jobs, build-release → bmt-handoff → bmt-gate-summary.
   bmt-handoff:
-    name: Run BMT gate
     needs: build-release
     if: >-
       success()
@@ -199,11 +193,9 @@ jobs:
       head_branch: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.ref || github.ref_name }}
       head_event: ${{ github.event_name }}
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
-      skip_image_check: true
     secrets: inherit
 
   bmt-gate-summary:
-    name: BMT gate summary
     needs: bmt-handoff
     if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-22.04

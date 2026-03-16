@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/bmt_registry.schema.json",
+  "title": "BMT project registry",
+  "description": "Project registry (bmt_projects.json). Maps project name to manager_script and jobs_config paths. Loaded from GCS at runtime.",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "required": ["manager_script", "jobs_config"],
+    "additionalProperties": true,
+    "properties": {
+      "manager_script": { "type": "string", "description": "Path to manager module (relative to code root)" },
+      "jobs_config": { "type": "string", "description": "Path to bmt_jobs.json (relative to bucket root)" }
+    }
+  }
+}

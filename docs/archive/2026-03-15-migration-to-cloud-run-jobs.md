@@ -1,3 +1,5 @@
+> **ARCHIVED:** Superseded by [cloud-run-containerization-and-infra.md](../roadmap/cloud-run-containerization-and-infra.md). Kept for historical reference.
+
 # Migration to Google Cloud Run Jobs: Detailed Implementation Plan
 
 **Status:** Proposed / Detailed Strategy

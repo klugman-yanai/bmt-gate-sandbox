@@ -13,9 +13,9 @@ from pathlib import Path
 
 from whenever import Instant
 
-from tools.repo.paths import DEFAULT_RUNTIME_ROOT
+from tools.repo.paths import DEFAULT_STAGE_ROOT
 from tools.shared.bucket_env import bucket_from_env, runtime_bucket_root_uri, truthy
-from tools.shared.bucket_sync import download_manifest, local_digest, matches
+from tools.shared.bucket_sync import download_manifest, is_inputs_data_path, local_digest, matches
 from tools.shared.layout_patterns import FORBIDDEN_RUNTIME_SEED
 
 RUNTIME_SEED_MANIFEST = "_meta/runtime_seed_manifest.json"
@@ -30,6 +30,9 @@ def _iter_source_files(src: Path, allow_generated_artifacts: bool) -> list[Path]
     files: list[Path] = []
     for path in sorted(p for p in src.rglob("*") if p.is_file()):
         rel = path.relative_to(src).as_posix()
+        # Same explicit guard as local_digest(): skip data files under projects/*/inputs/.
+        if is_inputs_data_path(rel):
+            continue
         if not allow_generated_artifacts and matches(FORBIDDEN_RUNTIME_SEED, rel):
             continue
         files.append(path)
@@ -80,7 +83,7 @@ class BucketSyncRuntimeSeed:
         self,
         *,
         bucket: str,
-        src_dir: Path | str = DEFAULT_RUNTIME_ROOT,
+        src_dir: Path | str = DEFAULT_STAGE_ROOT,
         delete: bool = False,
         allow_generated_artifacts: bool = False,
         force: bool = False,
@@ -129,7 +132,7 @@ class BucketSyncRuntimeSeed:
 
 if __name__ == "__main__":
     bucket = bucket_from_env()
-    src_dir = (os.environ.get("BMT_SRC_DIR") or "").strip() or DEFAULT_RUNTIME_ROOT
+    src_dir = (os.environ.get("BMT_SRC_DIR") or "").strip() or DEFAULT_STAGE_ROOT
     delete = truthy(os.environ.get("BMT_DELETE"))
     allow_generated_artifacts = truthy(os.environ.get("BMT_ALLOW_GENERATED_ARTIFACTS"))
     force = truthy(os.environ.get("BMT_FORCE"))

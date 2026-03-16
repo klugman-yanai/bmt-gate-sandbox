@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-commit hook: if gcp/remote changed, require that the runtime seed is in sync with GCS.
+# Pre-commit hook: if gcp/stage changed, require that the runtime seed is in sync with GCS.
 # Block commit until sync is done or SKIP_SYNC_VERIFY=1.
 # Note: gcp/image is baked into the VM image via Packer and is NOT synced to GCS.
 set -euo pipefail
@@ -14,7 +14,7 @@ if [[ -z "${GCS_BUCKET:-}" ]]; then
 fi
 cd "$(git rev-parse --show-toplevel)"
 if ! uv run python -m tools.remote.bucket_verify_runtime_seed_sync; then
-  echo "gcp/remote is out of sync with bucket; BMT workflow may fail."
+  echo "gcp/stage is out of sync with bucket; BMT workflow may fail."
   echo "Run: just deploy"
   echo "Or set SKIP_SYNC_VERIFY=1 to skip this check."
   exit 1

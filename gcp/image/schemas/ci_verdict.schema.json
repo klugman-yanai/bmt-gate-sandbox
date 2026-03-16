@@ -6,6 +6,7 @@
   "type": "object",
   "additionalProperties": true,
   "properties": {
+    "schema_version": { "type": "integer", "const": 1, "description": "Artifact schema version (additive changes only within a major version)" },
     "run_id": { "type": "string" },
     "project_id": { "type": "string" },
     "bmt_id": { "type": "string" },

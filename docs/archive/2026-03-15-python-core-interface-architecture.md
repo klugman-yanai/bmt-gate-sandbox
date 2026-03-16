@@ -1,3 +1,5 @@
+> **ARCHIVED:** Superseded by [contributor-api-and-manager-contract.md](../roadmap/contributor-api-and-manager-contract.md). Key differences: typed value class returns (not dict), no lifecycle hooks, declarative config. Kept for historical reference.
+
 # Python Core Interface Architecture for BMT System
 
 **Status:** Proposed  

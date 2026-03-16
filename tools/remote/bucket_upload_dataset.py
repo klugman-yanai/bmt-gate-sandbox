@@ -2,7 +2,7 @@
 """Upload a WAV dataset (zip or folder) to the canonical project inputs path.
 
 GCS destination:  gs://<bucket>/projects/<project>/inputs/<dataset>/
-Local mirror:     gcp/remote/projects/<project>/inputs/<dataset>/  (opt-in only)
+Local mirror:     gcp/stage/projects/<project>/inputs/<dataset>/  (opt-in only)
 
 Datasets can be 30-40 GB — local mirroring is disabled by default. Enable with
 ``--local`` (CLI) or ``BMT_LOCAL_MIRROR=1`` (env).
@@ -23,6 +23,7 @@ from pathlib import Path
 
 from archivefile import ArchiveFile
 
+from tools.remote.gen_input_manifest import GenInputManifest
 from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
 
 _ARCHIVE_SUFFIXES = {".zip", ".tar", ".gz", ".7z", ".rar", ".tgz"}
@@ -177,6 +178,22 @@ class BucketUploadDataset:
 
         n_files = sum(1 for _ in source.rglob("*") if _.is_file())
         print(f"Done: {n_files} file(s) uploaded to {gcs_dest}/")
+
+        # Regenerate dataset_manifest.json after a successful upload.
+        bucket_name = gcs_dest.removeprefix("gs://").split("/")[0]
+        if local_mirror is not None:
+            print("Regenerating dataset manifest...")
+            GenInputManifest().run(
+                bucket=bucket_name,
+                project=project,
+                dataset=dataset_name,
+                stage_root=local_mirror,
+            )
+        else:
+            print(
+                f"Tip: run 'just gen-manifest {project} {dataset_name}' to update dataset_manifest.json "
+                "and commit it so other contributors can see the file list offline."
+            )
         return 0
 
     def _already_synced(self, source: Path, dest_uri: str) -> bool:
@@ -235,7 +252,7 @@ if __name__ == "__main__":
     from tools.repo.paths import repo_root
 
     local_str = (os.environ.get("BMT_LOCAL_MIRROR") or "").strip()
-    local_mirror = repo_root() / "gcp" / "remote" if truthy(local_str) else None
+    local_mirror = repo_root() / "gcp" / "stage" if truthy(local_str) else None
     raise SystemExit(
         BucketUploadDataset().run(
             bucket=bucket,

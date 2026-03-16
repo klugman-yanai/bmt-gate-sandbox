@@ -7,7 +7,7 @@ verify_runtime_seed_sync, clean_bloat, and gcp_layout_policy.
 from __future__ import annotations
 
 # Layout policy: allowed top-level entries under gcp/
-ALLOWED_TOP_LEVEL = {"README.md", "image", "remote", "local", "__init__.py"}
+ALLOWED_TOP_LEVEL = {"README.md", "image", "stage", "local", "__init__.py"}
 
 # Code namespace: exclude from sync/verify and forbid in layout (gcp/image).
 DEFAULT_CODE_EXCLUDES = (
@@ -26,13 +26,15 @@ DEFAULT_CODE_EXCLUDES = (
     r"(^|/)[^/]+\.egg-info(/|$)",
     r"\.egg$",
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/inputs(/|$)",
-    r"(^|/)sk/outputs(/|$)",
-    r"(^|/)sk/results(/|$)",
+    r"(^|/)projects/[^/]+/inputs(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
+    r"(^|/)projects/[^/]+/results(/|$)",
 )
 
 # Runtime seed: exclude from sync/verify when allow_generated_artifacts=False.
 # Same list for sync and verify so digest matches.
+# NOTE: inputs/ is NOT excluded here because .keep and dataset_manifest.json need to be
+# synced to GCS. Data files (WAVs etc.) are excluded via _is_inputs_data_path() in bucket_sync.py.
 FORBIDDEN_RUNTIME_SEED = (
     r"(^|/)__pycache__(/|$)",
     r"__pycache__",
@@ -49,11 +51,11 @@ FORBIDDEN_RUNTIME_SEED = (
     r"(^|/)[^/]+\.egg-info(/|$)",
     r"\.egg$",
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/results(/|$)",
-    r"(^|/)sk/outputs(/|$)",
+    r"(^|/)projects/[^/]+/results(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
 )
 
-# Bloat-only (clean_bloat runtime); do not include triggers/sk paths under runtime.
+# Bloat-only (clean_bloat runtime); do not include triggers/project paths under runtime.
 BLOAT_PATTERNS = (
     r"(^|/)__pycache__(/|$)",
     r"__pycache__",
@@ -71,24 +73,24 @@ BLOAT_PATTERNS = (
     r"\.egg$",
 )
 
-# Code namespace clean = bloat + errant triggers/sk paths.
+# Code namespace clean = bloat + errant triggers/project paths.
 CODE_CLEAN_PATTERNS = (
     *BLOAT_PATTERNS,
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/inputs(/|$)",
-    r"(^|/)sk/outputs(/|$)",
-    r"(^|/)sk/results(/|$)",
+    r"(^|/)projects/[^/]+/inputs(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
+    r"(^|/)projects/[^/]+/results(/|$)",
 )
 
 # Layout policy: forbid these in gcp/image (same as code excludes).
 FORBIDDEN_CODE_PATTERNS = DEFAULT_CODE_EXCLUDES
 
-# Layout policy: forbid these in gcp/remote (includes .wav under inputs).
+# Layout policy: forbid these in gcp/stage (includes .wav under inputs).
 FORBIDDEN_RUNTIME_PATTERNS = (
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/results(/|$)",
-    r"(^|/)sk/outputs(/|$)",
-    r"(^|/)inputs(/|$).*\.wav$",
+    r"(^|/)projects/[^/]+/results(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
+    r"(^|/)projects/[^/]+/inputs/.*\.wav$",
     r"(^|/)__pycache__(/|$)",
     r"__pycache__",
     r"\.pyc$",

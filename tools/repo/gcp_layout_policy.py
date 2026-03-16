@@ -58,7 +58,7 @@ class GcpLayoutPolicy:
     def run(self) -> int:
         root = Path("gcp")
         code_root = root / "image"
-        runtime_seed_root = root / "remote"
+        runtime_seed_root = root / "stage"
 
         missing = False
 
@@ -115,7 +115,7 @@ class GcpLayoutPolicy:
                 print(f"  ... and {len(forbidden_hits) - 30} more", file=sys.stderr)
             missing = True
 
-        runtime_prefix = "remote/"
+        runtime_prefix = "stage/"
         forbidden_runtime_hits = []
         for rel in sorted(tracked_under_gcp):
             if not rel.startswith(runtime_prefix):
@@ -128,7 +128,7 @@ class GcpLayoutPolicy:
                 forbidden_runtime_hits.append(rel_in_runtime)
 
         if forbidden_runtime_hits:
-            print("::error::Forbidden generated/runtime paths found in gcp/remote:", file=sys.stderr)
+            print("::error::Forbidden generated/runtime paths found in gcp/stage:", file=sys.stderr)
             for rel in forbidden_runtime_hits[:30]:
                 print(f"  - {rel}", file=sys.stderr)
             if len(forbidden_runtime_hits) > 30:
@@ -154,7 +154,7 @@ class GcpLayoutPolicy:
 
         print("GCP layout policy check passed")
         print(f"Code mirror root (image): {code_root}")
-        print(f"Runtime seed root: {runtime_seed_root}")
+        print(f"Staging area root (stage): {runtime_seed_root}")
         print(f"Top-level entries: {', '.join(sorted(ALLOWED_TOP_LEVEL))}")
         return 0
 

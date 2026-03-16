@@ -440,7 +440,7 @@ class BmtManagerBase(ABC):
         self.human: bool = args.human
         self.summary_out: Path = Path(args.summary_out)
 
-        # Bucket root (1:1 mirror of gcp/remote; no runtime/ prefix)
+        # Bucket root (1:1 mirror of gcp/stage; no runtime/ prefix)
         self.runtime_bucket_root: str = _runtime_bucket_root(args.bucket)
 
         # Local repo root (baked into VM image via Packer)

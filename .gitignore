@@ -40,10 +40,14 @@ gcp/local/runtime/**/inputs/**/*.wav
 gcp/local/runtime/**/outputs/
 gcp/local/runtime/**/results/
 
-# WAV datasets in the local bucket mirror — large runtime assets (up to 30-40 GB), not tracked in git.
+# WAV datasets in the local staging area — large runtime assets (up to 30-40 GB), not tracked in git.
 # Upload to GCS with: just upload-data <project> <zip-or-folder>
 # Pass --local to also mirror locally: just upload-data <project> <source> --local
-gcp/remote/**/inputs/**/*.wav
+gcp/stage/**/inputs/**/*.wav
+
+# FUSE mount points for read-only observation of GCS input data (opt-in, dev QoL).
+# Mount with: just mount-data <project>  Unmount with: just umount-data <project>
+gcp/mnt/
 
 # Tooling/editor
 compile_commands.json

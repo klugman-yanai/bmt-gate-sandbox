@@ -20,9 +20,25 @@ from gcp.image.config.bmt_config import (
 
 __all__ = ["BmtConfig", "BmtContext", "get_config", "get_context", "load_env"]
 
+_RUNTIME_ENV_KEYS = (
+    "GCS_BUCKET",
+    "GCP_PROJECT",
+    "GCP_SA_EMAIL",
+    "BMT_LIVE_VM",
+    "BMT_REPO_ROOT",
+    "GCP_WIF_PROVIDER",
+)
+
 
 def get_config() -> BmtConfig:
-    """Load config: from .bmt/context.json if present, else from env."""
+    """Load config with env precedence; fall back to context when env is unset.
+
+    Local/manual runs often leave a stale .bmt/context.json behind. If runtime
+    env keys are present, prefer env so the current shell controls execution.
+    """
+    has_runtime_env = any((os.environ.get(k) or "").strip() for k in _RUNTIME_ENV_KEYS)
+    if has_runtime_env:
+        return _get_config_lib(runtime=os.environ)
     path = _get_context_path_lib(runtime=os.environ)
     ctx = _load_context_from_file_lib(path)
     if ctx is not None:

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/bmt_jobs.schema.json",
+  "title": "BMT jobs config",
+  "description": "Per-project BMT definitions (bmt_jobs.json). Maps bmt_id to job config.",
+  "type": "object",
+  "required": ["bmts"],
+  "additionalProperties": true,
+  "properties": {
+    "bmts": {
+      "type": "object",
+      "description": "Map of bmt_id -> job config",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "runner": {
+            "type": "object",
+            "properties": {
+              "uri": { "type": "string" },
+              "deps_prefix": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "template_uri": { "type": "string" },
+          "paths": {
+            "type": "object",
+            "properties": {
+              "dataset_prefix": { "type": "string" },
+              "results_prefix": { "type": "string" },
+              "outputs_prefix": { "type": "string" },
+              "logs_prefix": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "input_file_extensions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["*.wav"]
+          },
+          "runtime": {
+            "type": "object",
+            "properties": {
+              "num_source_test": { "type": "integer" },
+              "enable_overrides": { "type": "object", "additionalProperties": true },
+              "cache": {
+                "type": "object",
+                "properties": {
+                  "enabled": { "type": "boolean", "default": true },
+                  "root": { "type": "string" },
+                  "dataset_ttl_sec": { "type": "integer", "default": 300 }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          },
+          "gate": {
+            "type": "object",
+            "properties": {
+              "comparison": { "type": "string", "enum": ["gte", "lte"] },
+              "tolerance_abs": { "type": "number", "default": 0.0 }
+            },
+            "additionalProperties": true
+          },
+          "parsing": {
+            "type": "object",
+            "properties": {
+              "keyword": { "type": "string" },
+              "counter_pattern": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "warning_policy": { "type": "object", "additionalProperties": true },
+          "demo": { "type": "object", "additionalProperties": true },
+          "artifacts": { "type": "object", "additionalProperties": true }
+        }
+      }
+    }
+  }
+}

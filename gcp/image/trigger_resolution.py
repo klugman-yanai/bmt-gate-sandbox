@@ -8,6 +8,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from gcp.image.config.constants import (
+    DECISION_ACCEPTED,
+    DECISION_REJECTED,
+    REASON_BMT_DISABLED,
+    REASON_BMT_NOT_DEFINED,
+    REASON_JOBS_SCHEMA_INVALID,
+    TRIGGER_RUNS_PREFIX,
+)
 from gcp.image.gcs_helpers import (
     _gcloud_ls,
 )
@@ -64,9 +72,18 @@ def _one_leg_dict(project: str, bmt_id: str, run_id: str, reason: str | None, in
         "project": project,
         "bmt_id": bmt_id,
         "run_id": run_id,
-        "decision": "accepted" if reason is None else "rejected",
+        "decision": DECISION_ACCEPTED if reason is None else DECISION_REJECTED,
         "reason": reason,
     }
+
+
+def _check_bmt_entry(bmt_cfg: Any, *, is_project_wide: bool) -> str | None:
+    """Validate a BMT entry from jobs config. Returns rejection reason or None if accepted."""
+    if not isinstance(bmt_cfg, dict):
+        return REASON_JOBS_SCHEMA_INVALID if is_project_wide else REASON_BMT_NOT_DEFINED
+    if bmt_cfg.get("enabled", True) is False:
+        return REASON_BMT_DISABLED
+    return None
 
 
 def _legs_from_jobs_payload(
@@ -84,31 +101,19 @@ def _legs_from_jobs_payload(
         if not bmts:
             out.append(
                 _one_leg_dict(
-                    project, "?", _derive_leg_run_id(run_id_base, "empty-project", used_run_ids), "bmt_not_defined"
+                    project, "?", _derive_leg_run_id(run_id_base, "empty-project", used_run_ids), REASON_BMT_NOT_DEFINED
                 )
             )
             return out
         for bmt_id_key in sorted(bmts):
             bmt_id = str(bmt_id_key).strip() or "?"
             run_id = _derive_leg_run_id(run_id_base, bmt_id, used_run_ids)
-            bmt_cfg = bmts.get(bmt_id_key)
-            if not isinstance(bmt_cfg, dict):
-                reason = "jobs_schema_invalid"
-            elif bmt_cfg.get("enabled", True) is False:
-                reason = "bmt_disabled"
-            else:
-                reason = None
+            reason = _check_bmt_entry(bmts.get(bmt_id_key), is_project_wide=True)
             out.append(_one_leg_dict(project, bmt_id, run_id, reason))
         return out
     bmt_id = bmt_id_raw or "?"
     run_id = _derive_leg_run_id(run_id_base, bmt_id, used_run_ids)
-    bmt_cfg = bmts.get(bmt_id)
-    if not isinstance(bmt_cfg, dict):
-        reason = "bmt_not_defined"
-    elif bmt_cfg.get("enabled", True) is False:
-        reason = "bmt_disabled"
-    else:
-        reason = None
+    reason = _check_bmt_entry(bmts.get(bmt_id), is_project_wide=False)
     out.append(_one_leg_dict(project, bmt_id, run_id, reason))
     return out
 
@@ -166,7 +171,7 @@ def _resolve_one_leg(
                 project,
                 fallback_bmt,
                 _derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-error", used_run_ids),
-                jobs_error or "jobs_schema_invalid",
+                jobs_error or REASON_JOBS_SCHEMA_INVALID,
             )
         ]
 
@@ -177,7 +182,7 @@ def _resolve_one_leg(
                 project,
                 fallback_bmt,
                 _derive_leg_run_id(run_id_base, bmt_id_raw or "jobs-schema", used_run_ids),
-                "jobs_schema_invalid",
+                REASON_JOBS_SCHEMA_INVALID,
             )
         ]
 
@@ -229,7 +234,7 @@ def _resolve_requested_legs(
 
 def _discover_run_triggers(runtime_bucket_root: str) -> list[str]:
     """List run trigger JSON files under triggers/runs/."""
-    runs_uri = _bucket_uri(runtime_bucket_root, "triggers/runs/")
+    runs_uri = _bucket_uri(runtime_bucket_root, f"{TRIGGER_RUNS_PREFIX}/")
     all_objects = _gcloud_ls(runs_uri)
     return [uri for uri in all_objects if uri.endswith(".json")]
 

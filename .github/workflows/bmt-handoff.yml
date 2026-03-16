@@ -36,13 +36,6 @@ on:
         required: false
         type: string
         default: "[]"
-      skip_image_check:
-        description: >
-          Skip the check-image-up-to-date gate. Set to true when the VM image is known-good
-          and already provisioned (e.g. preseeded dev runs). Default false (full gate).
-        required: false
-        type: boolean
-        default: false
   workflow_call:
     inputs:
       ci_run_id:
@@ -77,13 +70,6 @@ on:
         required: false
         type: string
         default: "[]"
-      skip_image_check:
-        description: >
-          Skip the check-image-up-to-date gate. Set to true when the VM image is known-good
-          and already provisioned (e.g. preseeded dev runs). Default false (full gate).
-        required: false
-        type: boolean
-        default: false
     outputs:
       bmt_gate_passed:
         description: "True if the handoff job completed successfully (VM picked up the run)."
@@ -113,38 +99,9 @@ permissions:
   actions: read
 
 jobs:
-  # Pipeline: check-image-up-to-date → setup → (upload-runners ∥ handshake) → handoff (fallback on setup/handshake failure).
-  # Ensure VM image was built when image-affecting paths (infra/packer, gcp/image) changed.
-  check-image-up-to-date:
-    name: Check image is up to date
-    if: ${{ !inputs.skip_image_check }}
-    runs-on: ubuntu-22.04
-    outputs:
-      image_check_passed: ${{ steps.check.outputs.passed }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Check image build required and present
-        id: check
-        uses: ./.github/actions/check-image-up-to-date
-        with:
-          head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name }}
-          default_branch: ${{ github.event.repository.default_branch || 'main' }}
-
-  # Success: setup (includes VM start) → upload-runners → handshake (classify + trigger + wait ack + summary).
-  # Failure: setup or handshake fails → handoff runs fallback (post status, cleanup) then sets outputs.
+  # DAG aligned with docs/archive/bmt-handoff-v0.0.1.yml (without image check): setup → upload-runners → handshake → handoff.
   setup:
     name: Prepare BMT run
-    needs: check-image-up-to-date
-    if: >-
-      !cancelled()
-      && (needs.check-image-up-to-date.result == 'success'
-          || needs.check-image-up-to-date.result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
@@ -399,6 +356,7 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
+          bmt_live_vm: ${{ vars.BMT_LIVE_VM }}
 
       - id: outcome
         run: |

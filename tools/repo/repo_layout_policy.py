@@ -55,7 +55,7 @@ REQUIRED_PATHS = (
     DEFAULT_CONFIG_ROOT,
     "tools/scripts/hooks/pre-commit-sync-gcp.sh",
 )
-# gcp/remote (DEFAULT_RUNTIME_ROOT) is optional: populated by sync; not required to exist for policy pass.
+# gcp/stage (DEFAULT_STAGE_ROOT) is optional: populated by sync; not required to exist for policy pass.
 
 
 def _tracked_paths() -> list[str]:

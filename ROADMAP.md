@@ -1,13 +1,19 @@
 # Roadmap
 
-Planned work and implementation plans. Dated items live in [docs/roadmap/](docs/roadmap/).
+Planned work and implementation plans. Full files live in [docs/roadmap/](docs/roadmap/).
 
 ## Current
 
 | Plan | Description |
 |------|-------------|
-| [2026-03-15 gcp/image refactor (alpha)](docs/roadmap/2026-03-15-gcp-image-refactor-alpha.md) | Single CLI entrypoint (Typer), constants/enums, value objects, typed payloads, extract modules. Alpha; no backwards compatibility; breaking changes expected. |
+| [gcp-data-separation-and-dev-workflow](docs/roadmap/gcp-data-separation-and-dev-workflow.md) | Bug fixes blocking dev, manifest-based dataset visibility, WorkspaceLayout. **Most urgent.** |
+| [gcp-image-refactor](docs/roadmap/gcp-image-refactor.md) | Constants, types, config-driven entrypoint, structural decoupling. |
+| [contributor-api-and-manager-contract](docs/roadmap/contributor-api-and-manager-contract.md) | Protocol, BaseBmtManager, contributor workflow, artifact contract. |
+| [cloud-run-containerization-and-infra](docs/roadmap/cloud-run-containerization-and-infra.md) | Dockerfile, Cloud Run Job + GCS Fuse, Pulumi, coordinator model. |
+| [ci-cutover-and-vm-decommission](docs/roadmap/ci-cutover-and-vm-decommission.md) | Direct API handoff, shadow testing, cutover, VM decommission. |
+
+**Dependency chain:** 1 → 2+3 → 4 → 5. See [docs/roadmap/](docs/roadmap/) for urgency ranking.
 
 ## Index
 
-See [docs/roadmap/](docs/roadmap/) for full files. Older design notes and assessments are in [docs/plans/](docs/plans/).
+See [docs/roadmap/](docs/roadmap/) for active plans. Older design notes in [docs/plans/](docs/plans/). Archived plans in [docs/archive/](docs/archive/).

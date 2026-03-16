@@ -27,3 +27,57 @@ DEFAULT_GCP_ZONE = "europe-west4-a"
 DEFAULT_IMAGE_FAMILY = "bmt-runtime"
 DEFAULT_BASE_IMAGE_FAMILY = "ubuntu-2204-lts"
 DEFAULT_BASE_IMAGE_PROJECT = "ubuntu-os-cloud"
+
+# ---------------------------------------------------------------------------
+# Result path constants (L0 leaf — no gcp.image imports allowed)
+# ---------------------------------------------------------------------------
+# Canonical JSON filenames under {results_prefix}/snapshots/{run_id}/
+CURRENT_JSON = "current.json"
+LATEST_JSON = "latest.json"
+CI_VERDICT_JSON = "ci_verdict.json"
+MANAGER_SUMMARY_JSON = "manager_summary.json"
+
+# Directory segments under results_prefix
+SNAPSHOTS_PREFIX = "snapshots"
+LOGS_PREFIX = "logs"
+
+# Pointer keys inside current.json
+POINTER_KEY_LATEST = "latest"
+POINTER_KEY_LAST_PASSING = "last_passing"
+
+# ---------------------------------------------------------------------------
+# Registry / runtime config path constants
+# ---------------------------------------------------------------------------
+RUNTIME_CONFIG_PREFIX = "config"
+BMT_PROJECTS_FILENAME = "bmt_projects.json"
+
+# ---------------------------------------------------------------------------
+# Trigger family path segments (relative to bucket root)
+# ---------------------------------------------------------------------------
+TRIGGER_RUNS_PREFIX = "triggers/runs"
+TRIGGER_ACKS_PREFIX = "triggers/acks"
+TRIGGER_STATUS_PREFIX = "triggers/status"
+WORKFLOW_UPLOADED_PREFIX = "_workflow/uploaded"
+LOG_DUMPS_PREFIX = "log-dumps"
+LOG_DUMP_REQUESTS_PREFIX = "log-dump-requests"
+
+# ---------------------------------------------------------------------------
+# Trigger decision constants (aligned with existing lowercase codes)
+# ---------------------------------------------------------------------------
+DECISION_ACCEPTED = "accepted"
+DECISION_REJECTED = "rejected"
+
+# Reason codes for rejected legs
+REASON_JOBS_SCHEMA_INVALID = "jobs_schema_invalid"
+REASON_BMT_NOT_DEFINED = "bmt_not_defined"
+REASON_BMT_DISABLED = "bmt_disabled"
+REASON_SUPERSEDED = "superseded"
+REASON_RUNNER_FAILURES = "runner_failures"
+REASON_RUNNER_TIMEOUT = "runner_timeout"
+REASON_DEMO_FORCE_PASS = "demo_force_pass"
+
+# ---------------------------------------------------------------------------
+# Artifact schema versioning
+# ---------------------------------------------------------------------------
+# Bump when adding fields (additive/non-breaking). Consumers ignore unknown keys.
+ARTIFACT_SCHEMA_VERSION = 1

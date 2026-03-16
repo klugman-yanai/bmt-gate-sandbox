@@ -126,10 +126,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          vm_name="${{ github.event.inputs.bmt_vm_name }}"
+          vm_base="${vm_name%-blue}"
+          vm_base="${vm_base%-green}"
           gh variable set BMT_LIVE_VM \
             --repo "${{ github.repository }}" \
-            --body "${{ github.event.inputs.bmt_vm_name }}"
-          echo "Updated BMT_LIVE_VM=${{ github.event.inputs.bmt_vm_name }}"
+            --body "${vm_base}"
+          echo "Updated BMT_LIVE_VM=${vm_base} (from input ${vm_name})"
 
       - name: Pulumi destroy
         if: github.event.inputs.action == 'destroy'

@@ -31,6 +31,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "start-vm": lambda: VmManager.from_env().start(),
     "sync-vm-metadata": lambda: VmManager.from_env().sync_metadata(),
     "write-context": lambda: HandoffManager.from_env().write_context(),
+    "wait-watcher-ready": lambda: HandshakeManager.from_env().wait_watcher_ready(),
     "wait-handshake": lambda: HandshakeManager.from_env().wait(),
     "resolve-failure-context": lambda: HandoffManager.from_env().resolve_failure_context(),
     "filter-upload-matrix": lambda: RunnerManager.from_env().filter_upload_matrix(),
