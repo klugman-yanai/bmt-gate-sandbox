@@ -20,9 +20,14 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+# Minimum seconds between health marker refreshes (keeps reused-VM handshake from failing on stale marker)
+_HEALTH_REFRESH_INTERVAL_SEC: int = 60
 
 from gcp.image import log_config
 from gcp.image.gcs_helpers import (
@@ -1460,6 +1465,35 @@ def main() -> int:
     )
 
 
+def _instance_name_for_health() -> str:
+    """Instance name for health marker: GCP metadata instance/name or BMT_LIVE_VM env."""
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/name",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.read().decode("utf-8").strip()
+    except (OSError, urllib.error.URLError, urllib.error.HTTPError, ValueError):
+        pass
+    return os.environ.get("BMT_LIVE_VM", "").strip()
+
+
+def _refresh_health_marker(bucket: str, instance_name: str) -> None:
+    """Write watcher_running health marker to GCS so handshake accepts reused VM (best-effort)."""
+    if not bucket or not instance_name:
+        return
+    uri = f"gs://{bucket}/triggers/status/health/{instance_name}.json"
+    payload = {
+        "instance": instance_name,
+        "stage": "watcher_running",
+        "status": "ok",
+        "detail": "",
+        "updated_at": _now_iso(),
+    }
+    _gcloud_upload_json(uri, payload)
+
+
 def _run_gcs_poll_loop(
     *,
     args: argparse.Namespace,
@@ -1472,6 +1506,8 @@ def _run_gcs_poll_loop(
 ) -> int:
     poll_log = logging.getLogger(log_config.VM_WATCHER_LOGGER_NAME)
     idle_deadline = time.monotonic() + idle_timeout_sec if (exit_after_run and idle_timeout_sec > 0) else None
+    last_health_refresh: float = 0.0
+    instance_name_for_health = ""
     while not _shutdown_holder[0]:
         run_trigger_uris = _discover_run_triggers(runtime_bucket_root)
         if run_trigger_uris:
@@ -1497,6 +1533,14 @@ def _run_gcs_poll_loop(
             return 0
         else:
             log_config.process_log_dump_requests(args.bucket, runtime_bucket_root, workspace_root)
+            # Keep health marker fresh so reused-VM handshake passes without long freshness window
+            now = time.monotonic()
+            if now - last_health_refresh >= _HEALTH_REFRESH_INTERVAL_SEC:
+                if not instance_name_for_health:
+                    instance_name_for_health = _instance_name_for_health()
+                if instance_name_for_health and args.bucket:
+                    _refresh_health_marker(args.bucket, instance_name_for_health)
+                    last_health_refresh = now
         if not _shutdown_holder[0]:
             time.sleep(args.poll_interval_sec)
     return 0
