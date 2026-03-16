@@ -72,7 +72,7 @@ on:
         default: "[]"
     outputs:
       bmt_gate_passed:
-        description: "True if trigger dispatch succeeded and no fallback failure path ran."
+        description: "True only when trigger dispatch succeeded and final BMT status context is success."
         value: ${{ jobs.report_gate.outputs.bmt_gate_passed }}
       bmt_fallback_run:
         description: "True if context/dispatch failed and failure-fallback path ran."
@@ -92,13 +92,14 @@ env:
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
+  BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT || 'BMT Gate' }}
 
 permissions:
   contents: read
   actions: read
 
 jobs:
-  # Trigger-only DAG: resolve_context -> validate_runners -> dispatch_eventarc -> report_gate.
+  # Eventarc DAG: resolve_context -> validate_runners -> dispatch_eventarc -> report_gate (waits final BMT verdict).
   resolve_context:
     name: Resolve BMT Context
     runs-on: ubuntu-22.04
@@ -153,7 +154,7 @@ jobs:
         run: uv run bmt write-context && uv run bmt filter-upload-matrix
 
       - name: Workflow summary notice
-        run: echo "::notice::BMT result will appear in the PR Checks tab and Comments, not in this workflow summary."
+        run: echo "::notice::Workflow will wait for final BMT status context and fail if verdict is not success."
   # Validate requested runners exist in repo (no build/upload); write marker so handoff can request real BMT from VM.
   validate_runners:
     name: Validate runner • ${{ matrix.project }}
@@ -292,6 +293,7 @@ jobs:
     permissions:
       id-token: write
       statuses: write
+      contents: read
     outputs:
       bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
       bmt_fallback_run: ${{ steps.outcome.outputs.bmt_fallback_run }}
@@ -347,13 +349,73 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
           bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
 
+      - name: Set BMT constants for verdict wait
+        if: steps.set-fallback.outputs.run_fallback != 'true'
+        id: bmt-verdict-constants
+        run: |
+          STATUS_CONTEXT="${BMT_STATUS_CONTEXT}"
+          echo "status_context=$STATUS_CONTEXT" >> "$GITHUB_OUTPUT"
+          echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
+
+      - name: Wait for final BMT status context
+        if: steps.set-fallback.outputs.run_fallback != 'true'
+        id: wait-verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ needs.resolve_context.outputs.head_sha }}
+          STATUS_CONTEXT: ${{ steps.bmt-verdict-constants.outputs.status_context }}
+          TIMEOUT_SEC: "5400"
+          POLL_SEC: "20"
+        shell: bash
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + TIMEOUT_SEC ))
+          verdict_state=""
+          verdict_target_url=""
+          verdict_desc=""
+          while [[ $(date +%s) -lt "$deadline" ]]; do
+            status_json="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/status")"
+            match_json="$(jq -c --arg ctx "${STATUS_CONTEXT}" '[.statuses[] | select(.context == $ctx)] | first // {}' <<<"${status_json}")"
+            verdict_state="$(jq -r '.state // ""' <<<"${match_json}")"
+            verdict_target_url="$(jq -r '.target_url // ""' <<<"${match_json}")"
+            verdict_desc="$(jq -r '.description // ""' <<<"${match_json}")"
+            if [[ -z "${verdict_state}" || "${verdict_state}" == "pending" ]]; then
+              sleep "${POLL_SEC}"
+              continue
+            fi
+            break
+          done
+
+          if [[ -z "${verdict_state}" || "${verdict_state}" == "pending" ]]; then
+            echo "::error::Timed out waiting for status context '${STATUS_CONTEXT}' on ${HEAD_SHA}."
+            echo "verdict_state=timeout" >> "$GITHUB_OUTPUT"
+            echo "verdict_passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "::notice::BMT status context '${STATUS_CONTEXT}' resolved to '${verdict_state}'."
+          [[ -n "${verdict_desc}" ]] && echo "::notice::${verdict_desc}"
+          [[ -n "${verdict_target_url}" ]] && echo "::notice::Details: ${verdict_target_url}"
+          echo "verdict_state=${verdict_state}" >> "$GITHUB_OUTPUT"
+          echo "verdict_target_url=${verdict_target_url}" >> "$GITHUB_OUTPUT"
+          if [[ "${verdict_state}" == "success" ]]; then
+            echo "verdict_passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict_passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
       - id: outcome
         run: |
-          echo "bmt_gate_passed=${{ needs.dispatch_eventarc.result == 'success' }}" >> "$GITHUB_OUTPUT"
+          if [[ "${{ steps.set-fallback.outputs.run_fallback }}" == "true" ]]; then
+            echo "bmt_gate_passed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "bmt_gate_passed=${{ steps.wait-verdict.outputs.verdict_passed == 'true' }}" >> "$GITHUB_OUTPUT"
+          fi
           echo "bmt_fallback_run=${{ needs.resolve_context.result != 'cancelled' && needs.dispatch_eventarc.result != 'cancelled' && (needs.resolve_context.result == 'failure' || needs.dispatch_eventarc.result == 'failure') }}" >> "$GITHUB_OUTPUT"
 
       - name: Fail job when BMT did not pass
         if: steps.outcome.outputs.bmt_gate_passed != 'true'
         run: |
-          echo "::error::BMT gate did not pass (dispatch or context failed)."
+          echo "::error::BMT gate did not pass (fallback path, timeout, or non-success final verdict)."
           exit 1
