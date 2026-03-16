@@ -13,6 +13,10 @@ import argparse
 import json
 import logging
 import os
+import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -167,6 +171,13 @@ def run_task(config: TaskConfig) -> int:
     if not _gcloud_upload_json(artifact_uri, summary):
         logger.error("Failed to upload summary artifact %s", artifact_uri)
         return 1
+
+    _task_update_check_run_progress(
+        trigger=trigger,
+        bucket_root=bucket_root,
+        workflow_run_id=workflow_run_id,
+        requested_legs=requested_legs,
+    )
 
     return exit_code
 
@@ -328,6 +339,13 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
             leg_summaries=leg_summaries,
         )
 
+    existing_check_run_id = _find_check_run_id(
+        token=github_token,
+        repository=repository,
+        sha=sha,
+        check_name=gate_status_context,
+    )
+
     if repository and sha and github_token:
         from gcp.image.github import github_checks
         from gcp.image.github_status import _finalize_check_run_resilient
@@ -337,7 +355,7 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
             repository=repository,
             sha=sha,
             status_context=gate_status_context,
-            check_run_id=None,
+            check_run_id=existing_check_run_id,
             conclusion="success" if state == "success" else "failure",
             output={
                 "title": f"BMT Complete: {'PASS' if state == 'success' else 'FAIL'}",
@@ -402,6 +420,12 @@ def _coordinator_resolve_github_token(repository: str) -> str:
         token = os.environ.get("BMT_GITHUB_TOKEN", "").strip()
     if token:
         return token
+    project = os.environ.get("GCP_PROJECT", "").strip()
+    if project:
+        _load_github_app_credentials_from_secret_manager(project)
+        token = os.environ.get("GITHUB_TOKEN", "").strip() or os.environ.get("BMT_GITHUB_TOKEN", "").strip()
+        if token:
+            return token
     if repository:
         try:
             from gcp.image.github import github_auth
@@ -410,6 +434,162 @@ def _coordinator_resolve_github_token(repository: str) -> str:
         except Exception:
             return ""
     return ""
+
+
+def _github_request_json(
+    *,
+    token: str,
+    url: str,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+) -> Any | None:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+        },
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            text = resp.read().decode("utf-8") or "null"
+            return json.loads(text)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, json.JSONDecodeError):
+        return None
+
+
+def _list_check_runs(token: str, repository: str, sha: str) -> list[dict[str, Any]]:
+    if not (token and repository and sha):
+        return []
+    url = (
+        f"https://api.github.com/repos/{repository}/commits/{sha}/check-runs"
+        f"?filter=latest&per_page=100"
+    )
+    payload = _github_request_json(token=token, url=url)
+    if not isinstance(payload, dict):
+        return []
+    runs = payload.get("check_runs")
+    if not isinstance(runs, list):
+        return []
+    return [r for r in runs if isinstance(r, dict)]
+
+
+def _find_check_run_id(token: str, repository: str, sha: str, check_name: str) -> int | None:
+    runs = _list_check_runs(token, repository, sha)
+    if not runs:
+        return None
+    for run in runs:
+        if str(run.get("name") or "") != check_name:
+            continue
+        if str(run.get("status") or "") == "in_progress":
+            rid = run.get("id")
+            if isinstance(rid, int):
+                return rid
+    for run in runs:
+        if str(run.get("name") or "") != check_name:
+            continue
+        rid = run.get("id")
+        if isinstance(rid, int):
+            return rid
+    return None
+
+
+def _secretmanager_location() -> str | None:
+    explicit = os.environ.get("BMT_SECRETS_LOCATION", "").strip()
+    if explicit:
+        return explicit
+    region = os.environ.get("GOOGLE_CLOUD_REGION", "").strip()
+    return region or None
+
+
+def _access_secret(secret_name: str, project: str, location: str | None) -> str:
+    cmd = ["gcloud", "secrets", "versions", "access", "latest", "--secret", secret_name, "--project", project]
+    if location:
+        cmd.extend(["--location", location])
+    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if r.returncode == 0:
+        return r.stdout.strip()
+    return ""
+
+
+def _load_github_app_prefix_from_secret_manager(prefix: str, project: str, location: str | None) -> None:
+    app_id = _access_secret(f"{prefix}_ID", project, location)
+    installation_id = _access_secret(f"{prefix}_INSTALLATION_ID", project, location)
+    private_key = _access_secret(f"{prefix}_PRIVATE_KEY", project, location)
+    if not (app_id and installation_id and private_key):
+        return
+    os.environ[f"{prefix}_ID"] = app_id
+    os.environ[f"{prefix}_INSTALLATION_ID"] = installation_id
+    os.environ[f"{prefix}_PRIVATE_KEY"] = private_key
+
+
+def _load_github_app_credentials_from_secret_manager(project: str) -> None:
+    location = _secretmanager_location()
+    _load_github_app_prefix_from_secret_manager("GITHUB_APP_TEST", project, location)
+    _load_github_app_prefix_from_secret_manager("GITHUB_APP_PROD", project, location)
+
+
+def _task_update_check_run_progress(
+    *,
+    trigger: dict[str, Any],
+    bucket_root: str,
+    workflow_run_id: str,
+    requested_legs: list[dict[str, Any]],
+) -> None:
+    repository = str(trigger.get("repository") or "").strip()
+    sha = str(trigger.get("sha") or "").strip()
+    if not repository or not sha:
+        return
+    status_context = str(trigger.get("status_context") or os.environ.get("BMT_STATUS_CONTEXT") or "BMT Gate")
+    token = _coordinator_resolve_github_token(repository)
+    if not token:
+        return
+
+    accepted: list[dict[str, Any]] = [leg for leg in requested_legs if leg.get("decision") == DECISION_ACCEPTED]
+    total = len(accepted)
+    if total <= 0:
+        return
+    completed = 0
+    for leg in accepted:
+        project = str(leg.get("project") or "")
+        bmt_id = str(leg.get("bmt_id") or "")
+        if not project or not bmt_id:
+            continue
+        artifact_path = summary_artifact_path(workflow_run_id, project, bmt_id)
+        artifact_uri = _bucket_uri(bucket_root, artifact_path)
+        payload, _err = _gcloud_download_json(artifact_uri)
+        if payload is not None:
+            completed += 1
+
+    try:
+        from gcp.image.github import github_checks
+
+        summary = f"Cloud BMT progress: **{completed}/{total}** tasks complete."
+        check_run_id = _find_check_run_id(token, repository, sha, status_context)
+        if check_run_id is None:
+            github_checks.create_check_run(
+                token,
+                repository,
+                sha,
+                name=status_context,
+                status="in_progress",
+                output={"title": "BMT In Progress", "summary": summary},
+            )
+            return
+        github_checks.update_check_run(
+            token,
+            repository,
+            check_run_id,
+            status="in_progress",
+            output={"title": "BMT In Progress", "summary": summary},
+        )
+    except Exception:
+        logger.exception("Task progress check update failed")
 
 
 def _coordinator_upsert_pr_comment(

@@ -181,6 +181,14 @@ cloud_run_job_standard = gcp.cloudrunv2.Job(
             containers=[
                 gcp.cloudrunv2.JobTemplateTemplateContainerArgs(
                     image=f"{cfg.cloud_run_image_uri}:latest",
+                    envs=[
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="GCP_PROJECT", value=cfg.gcp_project
+                        ),
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="BMT_SECRETS_LOCATION", value=cfg.cloud_run_region
+                        ),
+                    ],
                     resources=gcp.cloudrunv2.JobTemplateTemplateContainerResourcesArgs(
                         limits={
                             "cpu": cfg.cloud_run_cpu_standard,
@@ -217,6 +225,14 @@ cloud_run_job_heavy = gcp.cloudrunv2.Job(
             containers=[
                 gcp.cloudrunv2.JobTemplateTemplateContainerArgs(
                     image=f"{cfg.cloud_run_image_uri}:latest",
+                    envs=[
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="GCP_PROJECT", value=cfg.gcp_project
+                        ),
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="BMT_SECRETS_LOCATION", value=cfg.cloud_run_region
+                        ),
+                    ],
                     resources=gcp.cloudrunv2.JobTemplateTemplateContainerResourcesArgs(
                         limits={
                             "cpu": cfg.cloud_run_cpu_heavy,
@@ -282,6 +298,14 @@ gcp.storage.BucketIAMMember(
     "job-runner-bucket-reader",
     bucket=cfg.gcs_bucket,
     role="roles/storage.objectViewer",
+    member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
+)
+
+# Read GitHub App credentials from Secret Manager.
+gcp.projects.IAMMember(
+    "job-runner-secret-accessor",
+    project=cfg.gcp_project,
+    role="roles/secretmanager.secretAccessor",
     member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
 )
 
