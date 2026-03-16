@@ -13,12 +13,13 @@ import argparse
 import json
 import logging
 import os
-import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+from google.cloud import secretmanager
 
 from gcp.image.config.constants import DECISION_ACCEPTED, REASON_PARTIAL_MISSING
 from gcp.image.coordinator import summary_artifact_path
@@ -430,7 +431,7 @@ def _coordinator_pr_number(trigger: dict[str, Any]) -> int | None:
 def _coordinator_resolve_github_token(repository: str) -> str:
     project = os.environ.get("GCP_PROJECT", "").strip()
     if repository and project:
-        _load_github_app_credentials_from_secret_manager(project)
+        _load_github_app_credentials_from_secret_manager(project, repository=repository)
         try:
             from gcp.image.github import github_auth
 
@@ -517,25 +518,24 @@ def _secretmanager_location() -> str | None:
 
 
 def _access_secret(secret_name: str, project: str, location: str | None) -> str:
-    cmd = ["gcloud", "secrets", "versions", "access", "latest", "--secret", secret_name, "--project", project]
-    env = os.environ.copy()
     if location:
-        # Regional Secret Manager endpoint; keep canonical secret resource format.
-        env["CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER"] = (
-            f"https://secretmanager.{location}.rep.googleapis.com/"
+        name = f"projects/{project}/locations/{location}/secrets/{secret_name}/versions/latest"
+    else:
+        name = f"projects/{project}/secrets/{secret_name}/versions/latest"
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+        response = client.access_secret_version(request={"name": name})
+        payload = response.payload.data.decode("utf-8").strip()
+        return payload
+    except Exception as exc:
+        logger.warning(
+            "Secret access failed for %s (project=%s, location=%s): %s",
+            secret_name,
+            project,
+            location or "<none>",
+            exc,
         )
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
-    if r.returncode == 0:
-        return r.stdout.strip()
-    logger.warning(
-        "Secret access failed for %s (project=%s, location=%s, code=%s): %s",
-        secret_name,
-        project,
-        location or "<none>",
-        r.returncode,
-        (r.stderr or r.stdout or "").strip(),
-    )
-    return ""
+        return ""
 
 
 def _load_github_app_prefix_from_secret_manager(prefix: str, project: str, location: str | None) -> None:
@@ -549,10 +549,26 @@ def _load_github_app_prefix_from_secret_manager(prefix: str, project: str, locat
     os.environ[f"{prefix}_PRIVATE_KEY"] = private_key
 
 
-def _load_github_app_credentials_from_secret_manager(project: str) -> None:
+def _load_github_app_credentials_from_secret_manager(project: str, repository: str | None = None) -> None:
     location = _secretmanager_location()
-    _load_github_app_prefix_from_secret_manager("GITHUB_APP_TEST", project, location)
-    _load_github_app_prefix_from_secret_manager("GITHUB_APP_PROD", project, location)
+    prefixes: list[str] = []
+    if repository:
+        # Use repository mapping to load only the expected app credentials for this repo.
+        try:
+            from gcp.image.github import github_auth
+
+            cfg_path = github_auth._resolve_config_path(None)  # type: ignore[attr-defined]
+            config = github_auth.load_github_repos_config(cfg_path)
+            repo_cfg = ((config or {}).get("repositories") or {}).get(repository, {})
+            mapped = str((repo_cfg or {}).get("secret_prefix") or "").strip()
+            if mapped:
+                prefixes = [mapped]
+        except Exception:
+            prefixes = []
+    if not prefixes:
+        prefixes = ["GITHUB_APP_TEST", "GITHUB_APP_PROD"]
+    for prefix in prefixes:
+        _load_github_app_prefix_from_secret_manager(prefix, project, location)
 
 
 def _task_update_check_run_progress(

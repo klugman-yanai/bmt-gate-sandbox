@@ -166,10 +166,10 @@ act which="":
 
 # -- Docker (Cloud Run image) --------------------------------------------------
 
-# Build the BMT orchestrator container image
+# Build the BMT orchestrator container image (buildx for BuildKit/cache)
 [group('docker')]
 docker-build:
-    docker build -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
+    docker buildx build --load -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
 
 # Run the container locally with gcp/stage bind-mounted as /mnt/runtime (FUSE simulation)
 [group('docker')]
