@@ -123,14 +123,27 @@ class RunnerManager:
         preset = core.require_env("PRESET")
         run_id = core.workflow_run_id()
         root = core.workflow_runtime_root()
-        runner_path = Path("gcp/stage") / project / "runners" / preset / "kardome_runner"
-        if not runner_path.is_file():
-            gh_warning(
-                f"VM does not support this BMT: requested runner not found at {runner_path}. "
-                "No handoff leg will run for this project."
+        canonical_runner_uri = f"{root}/projects/{project}/kardome_runner"
+        # Preferred source of truth for handoff support: runtime bucket content.
+        if gcs.object_exists(canonical_runner_uri):
+            print(f"::notice::Requested runner exists in bucket: {canonical_runner_uri} (validated for handoff).")
+        else:
+            # Backward-compatible local fallbacks for older layouts.
+            local_candidates = (
+                Path("gcp/stage") / project / "runners" / preset / "kardome_runner",
+                Path("gcp/stage/projects") / project / "kardome_runner",
             )
-            return
-        print(f"::notice::Requested runner exists: {runner_path} (validated for handoff).")
+            for candidate in local_candidates:
+                if candidate.is_file():
+                    print(f"::notice::Requested runner exists in repo mirror: {candidate} (validated for handoff).")
+                    break
+            else:
+                gh_warning(
+                    "VM does not support this BMT: requested runner not found in bucket at "
+                    f"{canonical_runner_uri} (or local stage mirror fallback paths). "
+                    "No handoff leg will run for this project."
+                )
+                return
         marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
         try:
             gcs.write_object(marker_uri, "{}")

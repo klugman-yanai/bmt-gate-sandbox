@@ -189,14 +189,16 @@ def _run_one_leg(
         "--summary-out",
         str(manager_summary_path),
     ]
-    if args.human:
+    if bool(getattr(args, "human", False)):
         command.append("--human")
     env = os.environ.copy()
-    if args.leg_index is not None and args.workflow_run_id:
+    leg_index = getattr(args, "leg_index", None)
+    workflow_run_id = getattr(args, "workflow_run_id", None)
+    if leg_index is not None and workflow_run_id:
         env["BMT_STATUS_BUCKET"] = args.bucket
         env["BMT_STATUS_RUNTIME_PREFIX"] = ""
-        env["BMT_STATUS_RUN_ID"] = str(args.workflow_run_id)
-        env["BMT_STATUS_LEG_INDEX"] = str(args.leg_index)
+        env["BMT_STATUS_RUN_ID"] = str(workflow_run_id)
+        env["BMT_STATUS_LEG_INDEX"] = str(leg_index)
     orch_log = logging.getLogger(log_config.ORCHESTRATOR_LOGGER_NAME)
     orch_log.info(
         "Leg start project=%s bmt_id=%s run_id=%s",

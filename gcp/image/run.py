@@ -84,6 +84,9 @@ def run_orchestrator(config: OrchestratorConfig) -> int:
         workspace_root=str(config.workspace_root),
         run_context=config.run_context,
         summary_out=str(config.summary_out),
+        human=False,
+        leg_index=None,
+        workflow_run_id=None,
     )
 
     # root_orchestrator.main() uses parse_args internally; patch it
