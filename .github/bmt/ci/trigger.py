@@ -209,7 +209,10 @@ class TriggerManager:
         return cls(config.get_config())
 
     def write(self) -> None:
-        self._cfg.require_gcp()
+        # Trigger-only Eventarc handoff no longer depends on VM config (bmt_vm_name).
+        # Validate only fields required for writing run triggers.
+        if not (self._cfg.gcs_bucket and str(self._cfg.gcs_bucket).strip()):
+            raise RuntimeError("Required config 'gcs_bucket' is not set or empty")
         bucket = self._cfg.gcs_bucket
         github_output = core.require_env("GITHUB_OUTPUT")
         matrix_json = core.require_env("FILTERED_MATRIX_JSON")
