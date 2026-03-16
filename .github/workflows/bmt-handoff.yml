@@ -110,7 +110,6 @@ permissions:
 jobs:
   # Cloud dispatch DAG: Resolve BMT Request -> Publish Runners/Libs -> Confirm Cloud Job Start.
   resolve_bmt_request:
-    name: Resolve BMT Request
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
@@ -161,7 +160,6 @@ jobs:
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
   # Validate requested runners exist in repo (no build/upload) before cloud dispatch.
   publish_runners_libs:
-    name: Publish Runners/Libs • ${{ matrix.project }}
     needs: resolve_bmt_request
     if: needs.resolve_bmt_request.outputs.matrix_need_upload_keys != '[]'
     runs-on: ubuntu-22.04
@@ -194,7 +192,6 @@ jobs:
         run: uv run bmt validate-runner-in-repo
 
   confirm_cloud_job_start:
-    name: Confirm Cloud Job Start
     needs: [resolve_bmt_request, publish_runners_libs]
     if: >-
       !cancelled()
