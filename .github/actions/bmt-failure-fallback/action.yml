@@ -39,6 +39,10 @@ inputs:
     description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
     required: false
     default: "BMT Gate"
+  bmt_live_vm:
+    description: "VM base name fallback when selected_vm is empty (e.g. from vars.BMT_LIVE_VM). Used for stop-VM cleanup."
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -160,7 +164,7 @@ runs:
         failure_reason: ${{ steps.reason.outputs.reason }}
 
     - name: Setup GCP for cleanup
-      if: steps.failctx.outputs.trigger_written == 'true'
+      if: steps.failctx.outputs.trigger_written == 'true' || steps.x.outputs.vm_started == 'true'
       uses: ./.github/actions/setup-gcp-uv
       with:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}
@@ -184,8 +188,13 @@ runs:
       run: uv run bmt cleanup-failed-trigger-artifacts
 
     - name: Stop VM after workflow failure
-      if: steps.failctx.outputs.trigger_written == 'true'
+      if: steps.failctx.outputs.trigger_written == 'true' || steps.x.outputs.vm_started == 'true'
       env:
-        BMT_LIVE_VM: ${{ steps.x.outputs.selected_vm || vars.BMT_LIVE_VM }}
+        BMT_LIVE_VM: ${{ steps.x.outputs.selected_vm || inputs.bmt_live_vm }}
       shell: bash
-      run: gcloud compute instances stop "$BMT_LIVE_VM" --zone "$GCP_ZONE" --project "$GCP_PROJECT" || true
+      run: |
+        if [[ -z "${BMT_LIVE_VM:-}" ]]; then
+          echo "::warning::BMT_LIVE_VM empty; cannot stop VM."
+          exit 0
+        fi
+        gcloud compute instances stop "$BMT_LIVE_VM" --zone "$GCP_ZONE" --project "$GCP_PROJECT" || true
