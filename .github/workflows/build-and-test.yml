@@ -1,9 +1,8 @@
 name: CI
 
+# Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 4 jobs, no image-check.
+# checkout_snapshot → build_release + build_non_release (parallel) → bmt_handoff.
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * *"
   push:
     branches:
       - dev
@@ -17,63 +16,41 @@ on:
       - ci/check-bmt-gate
       - test/check-bmt-gate-*
       - test/workflow-optimizations
+  workflow_dispatch:
+  workflow_call: {}
 
 defaults:
   run:
     shell: bash
 
+# Artifact upload (checkout_snapshot) needs actions write.
 permissions:
   contents: read
   actions: read
 
-# One run per PR branch; cancel in-progress on new push.
 concurrency:
   group: ci-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
-# Pass rule:
-# - prepare-builds + dummy-build-release + dummy-build-non-release remain build topology checks.
 jobs:
-  prepare-builds:
-    runs-on: ubuntu-latest
+  checkout_snapshot:
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       actions: write
     outputs:
-      release_presets: ${{ steps.parse.outputs.release_presets }}
-      non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
+      artifact_size: ${{ steps.report.outputs.artifact_size }}
+      presets_release: ${{ steps.parse.outputs.presets_release }}
+      presets_nonrelease: ${{ steps.parse.outputs.presets_nonrelease }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           submodules: false
           lfs: false
-
-      - name: Parse CMakePresets.json
-        id: parse
-        run: |
-          presets=$(jq -c '
-            [ .buildPresets[]
-              | { build: .name
-                , configure: .configurePreset
-                , short: (.name | sub("-build$"; "")) }
-              | . + {
-                  is_release: (
-                    (.configure | test("_gcc_Release")) and
-                    (.configure | test("xtensa"; "i") | not) and
-                    (.configure | test("hexagon"; "i") | not)
-                  ),
-                  soft_fail: (
-                    (.configure | test("xtensa"; "i")) or
-                    (.configure | test("hexagon"; "i"))
-                  )
-                }
-            ]' CMakePresets.json)
-          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
-          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
 
       - name: Create repo snapshot
         run: |
@@ -86,87 +63,109 @@ jobs:
               -czf /tmp/repo-snapshot.tar.gz .
           mv /tmp/repo-snapshot.tar.gz repo-snapshot.tar.gz
 
+      - name: Report repo-snapshot size
+        id: report
+        run: |
+          size=$(du -h repo-snapshot.tar.gz | cut -f1)
+          echo "::notice::repo-snapshot artifact size: $size"
+          echo "artifact_size=$size" >>"$GITHUB_OUTPUT"
+
       - name: Upload repo-snapshot
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: repo-snapshot
           path: repo-snapshot.tar.gz
           retention-days: 5
 
-  dummy-build-release:
-    needs: [prepare-builds]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: write
+      - name: Parse CMakePresets.json
+        id: parse
+        run: |
+          # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
+          # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
+          presets_release=$(jq -c '
+            [ (.buildPresets // [])[]
+              | { build: .name
+                , configure: (.configurePreset // "")
+                , short: (.name | sub("-build$"; "")) }
+              | select(
+                  .configure != "" and
+                  (.configure | test("_gcc_Release")) and
+                  (.configure | test("xtensa"; "i") | not) and
+                  (.configure | test("hexagon"; "i") | not)
+                )
+            ]' CMakePresets.json)
+          presets_nonrelease=$(jq -c '
+            [ (.buildPresets // [])[]
+              | { build: .name
+                , configure: (.configurePreset // "")
+                , short: (.name | sub("-build$"; "")) }
+              | select(.configure != "" and (
+                  (.configure | test("_gcc_Release") | not) or
+                  (.configure | test("xtensa"; "i")) or
+                  (.configure | test("hexagon"; "i"))
+                ))
+              | . + {soft_fail: ((.configure | test("xtensa"; "i")) or (.configure | test("hexagon"; "i")))}
+            ]' CMakePresets.json)
+          {
+            echo "presets_release=$presets_release"
+            echo "presets_nonrelease=$presets_nonrelease"
+          } >>"$GITHUB_OUTPUT"
+
+  # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
+  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+  build_release:
+    needs: checkout_snapshot
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.checkout_snapshot.outputs.presets_release) }}
+    steps:
+      - name: Release build placeholder (bmt-gcloud)
+        run: |
+          echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT runs after this job."
+
+  # Non-release builds: run in parallel; do not block BMT.
+  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+  build_non_release:
+    needs: checkout_snapshot
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       max-parallel: 6
       matrix:
-        include: ${{ fromJson(needs.prepare-builds.outputs.release_presets) }}
-
-    env:
-      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-
+        include: ${{ fromJson(needs.checkout_snapshot.outputs.presets_nonrelease) }}
     steps:
-      - name: Download repo-snapshot
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8
-        with:
-          name: repo-snapshot
-
-      - name: Extract repo snapshot
-        run: tar -xzf repo-snapshot.tar.gz -C .
-
-      - name: Dummy build ( ${{ matrix.short }} )
+      - name: Non-release build placeholder (bmt-gcloud)
         run: |
-          echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
+          echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
-  dummy-build-non-release:
-    needs: [prepare-builds]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: write
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        include: ${{ fromJson(needs.prepare-builds.outputs.non_release_presets) }}
-
-    env:
-      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-
-    steps:
-      - name: Download repo-snapshot
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3  # v8
-        with:
-          name: repo-snapshot
-
-      - name: Extract repo snapshot
-        run: tar -xzf repo-snapshot.tar.gz -C .
-
-      - name: Dummy build ( ${{ matrix.short }} )
-        run: |
-          echo "Sandbox dummy build for ${{ matrix.short }} - no real compile."
-
-  bmt:
-    needs: [dummy-build-release]
+  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 4 jobs, build_release → bmt_handoff.
+  bmt_handoff:
+    needs: build_release
     if: >-
-      always() && (needs.dummy-build-release.result == 'success' || needs.dummy-build-release.result == 'skipped')
+      success()
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      && contains(
-        fromJson('["dev","ci/check-bmt-gate"]'),
-        (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-          && github.base_ref
-          || github.ref_name
+      && (
+        contains(
+          fromJson('["dev","ci/check-bmt-gate"]'),
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+            && github.event.pull_request.head.ref
+            || github.ref_name
+        )
+        || startsWith(
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+            && github.event.pull_request.head.ref
+            || github.ref_name,
+          'test/check-bmt-gate'
+        )
       )
     permissions:
-      actions: read
       contents: read
-      statuses: write
-      issues: write
+      actions: read
       id-token: write
-    uses: ./.github/workflows/bmt.yml
+      statuses: write
+    uses: ./.github/workflows/bmt-handoff.yml
     with:
       ci_run_id: ${{ github.run_id }}
       head_sha: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.sha || github.sha }}
@@ -174,3 +173,4 @@ jobs:
       head_event: ${{ github.event_name }}
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
     secrets: inherit
+

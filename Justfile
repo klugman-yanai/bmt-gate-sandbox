@@ -1,158 +1,194 @@
-# bmt-cloud-dev maintainer commands (run `just` for list)
+# bmt-gcloud dev tools (run `just` for list)
 
 default:
-    @just --list
+    @just --list --unsorted
 
-# Quality gates (no GCS/VM)
+# -- Pre-push ---------------------------------------------------------------
+
+[group('pre-push')]
 test:
     uv sync
     uv run python -m pytest tests/ -v
-
-lint:
-    uv sync
     ruff check .
     ruff format --check .
     basedpyright
+    command -v shellcheck >/dev/null 2>&1 || (echo "Install shellcheck (e.g. apt install shellcheck)" >&2; exit 1)
+    shellcheck --severity=warning gcp/image/scripts/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
+    uv run python -m tools repo validate-layout
 
-# Bucket sync / verify (safe to re-run: skip when already in sync; use --force to re-sync)
-sync-gcp:
-    uv run python tools/bucket_sync_gcp.py
+# -- Bucket ------------------------------------------------------------------
 
-# Pull bucket content into gcp/ (requires tools/bucket_pull_gcp.py; use sync-gcp for push)
-pull-gcp:
-    @echo "pull-gcp not implemented; use sync-gcp to push gcp/ to bucket"
-
-sync-runtime-seed:
-    uv run python tools/bucket_sync_runtime_seed.py
-
-verify-sync:
-    uv run python tools/bucket_verify_gcp_sync.py
-    uv run python tools/bucket_verify_runtime_seed_sync.py
-
-# Single deploy entrypoint: sync gcp surface to bucket and verify
+[group('bucket')]
 deploy:
-    just sync-gcp
-    just verify-sync
+    uv run python -m tools bucket deploy
 
-# Remove Python/uv bloat from GCS (dry-run by default; use --execute to delete)
+[group('bucket')]
+preflight:
+    uv run python -m tools bucket preflight
+
+# Upload WAV dataset to projects/<project>/inputs/<dataset>/ in GCS only (datasets can be 30-40 GB).
+# Source can be a .zip archive or a folder. Dataset name is auto-detected from the filename.
+# Pass --local to also mirror into gcp/remote/. Example: just upload-data sk audio/sk_false_rejects.zip
+[group('bucket')]
+upload-data project source *args:
+    uv run python -m tools bucket upload-dataset "{{ project }}" "{{ source }}" {{ args }}
+
+# Remove Python/uv bloat from GCS bucket; pass e.g. --execute to actually delete (default dry-run)
+[group('bucket')]
 clean-bloat *args:
-    uv run python tools/bucket_clean_bloat.py {{args}}
+    uv run python -m tools bucket clean-bloat {{ args }}
 
-# Layout / policy
-validate-layout:
-    uv run python tools/gcp_layout_policy.py
+# -- Data access (local fetch, manifests, FUSE mounts) -----------------------
 
-validate-repo-layout:
-    uv run python tools/repo_layout_policy.py
+# Fetch a full dataset from GCS into gcp/stage/ for local use.
+# Example: just fetch-inputs sk false_rejects
+[group('bucket')]
+fetch-inputs project dataset:
+    gcloud storage cp -r "gs://$GCS_BUCKET/projects/{{ project }}/inputs/{{ dataset }}/" \
+        "gcp/stage/projects/{{ project }}/inputs/{{ dataset }}/"
 
-# Bucket artifact ops (safe to re-run: skip when already in sync; use --force to re-upload)
-upload-runner:
-    uv run python tools/bucket_upload_runner.py
+# Fetch a single file from GCS into gcp/stage/.
+# Example: just fetch-wav projects/sk/inputs/false_rejects/ambient/cafe_001.wav
+[group('bucket')]
+fetch-wav path:
+    gcloud storage cp "gs://$GCS_BUCKET/{{ path }}" "gcp/stage/{{ path }}"
 
-upload-wavs source_dir dest_prefix="sk/inputs/false_rejects":
-    uv run python tools/bucket_upload_wavs.py --source-dir {{source_dir}} --dest-prefix {{dest_prefix}}
+# (Re-)generate dataset_manifest.json for a dataset (requires GCS_BUCKET).
+# Example: just gen-manifest sk false_rejects
+[group('bucket')]
+gen-manifest project dataset:
+    BMT_PROJECT={{ project }} BMT_DATASET={{ dataset }} uv run python -m tools.remote.gen_input_manifest
 
-validate-bucket:
-    uv run python tools/bucket_validate_contract.py
+# Mount a dataset read-only via gcsfuse into gcp/mnt/<project>-inputs/ (dev QoL, opt-in).
+# Requires gcsfuse. Example: just mount-data sk
+[group('bucket')]
+mount-data project:
+    mkdir -p gcp/mnt/{{ project }}-inputs
+    gcsfuse \
+        --only-dir="projects/{{ project }}/inputs" \
+        --file-mode=444 \
+        --dir-mode=555 \
+        --implicit-dirs \
+        --stat-cache-ttl=300s \
+        --type-cache-ttl=300s \
+        --kernel-list-cache-ttl-secs=60 \
+        "$GCS_BUCKET" gcp/mnt/{{ project }}-inputs
 
-# VM control (manual debug/maintenance/testing only; sync-vm-metadata: skip when in sync, use --force to re-sync)
-sync-vm-metadata:
-    uv run --project .github/bmt bmt sync-vm-metadata
+# Unmount a gcsfuse data mount. Example: just umount-data sk
+[group('bucket')]
+umount-data project:
+    fusermount -u gcp/mnt/{{ project }}-inputs
 
-start-vm *args:
-    uv run --project .github/bmt bmt start-vm --allow-manual-start {{args}}
+# Set GCS_BUCKET GitHub repo var from Pulumi output (e.g. after it was removed)
+[group('bucket')]
+set-bucket-var:
+    gh variable set GCS_BUCKET --body "$(cd infra/pulumi && pulumi stack output gcs_bucket)"
 
-wait-handshake workflow_run_id timeout_sec="180":
-    #!/usr/bin/env -S bash -eu
-    export GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET}"
-    export GITHUB_RUN_ID="{{workflow_run_id}}"
-    export GITHUB_OUTPUT="${PWD}/.local/wait-handshake.out"
-    export BMT_HANDSHAKE_TIMEOUT_SEC="{{timeout_sec}}"
-    export GCP_PROJECT="${GCP_PROJECT:-}"
-    export GCP_ZONE="${GCP_ZONE:-}"
-    export BMT_VM_NAME="${BMT_VM_NAME:-}"
-    mkdir -p .local
-    uv run --project .github/bmt bmt wait-handshake
+# -- Infrastructure ----------------------------------------------------------
 
-# Runtime observability
-monitor *args:
-    uv run python tools/bmt_monitor.py {{args}}
+[group('infra')]
+pulumi *args:
+    uv run python -m tools pulumi apply {{ args }}
 
-gcs-trigger run_id:
-    #!/usr/bin/env -S bash -eu
-    GCS_BUCKET="$(gh variable get GCS_BUCKET)"
-    RID="{{run_id}}"
-    ROOT="gs://$GCS_BUCKET/runtime"
-    echo "=== Trigger (workflow wrote this) ==="
-    gcloud storage cat "$ROOT/triggers/runs/$RID.json" 2>/dev/null || echo "(not found or failed)"
-    echo ""
-    echo "=== Ack (VM should write this when it picks up trigger) ==="
-    gcloud storage cat "$ROOT/triggers/acks/$RID.json" 2>/dev/null || echo "(not found - VM may not have started or watcher failed)"
+# Build VM image (dispatch trigger-image-build.yml). Pass --repo owner/name after 'build' if origin differs (e.g. just build --repo klugman-yanai/bmt-gcloud).
+[group('infra')]
+build *args:
+    uv run python -m tools build image --branch "`git rev-parse --abbrev-ref HEAD`" {{ args }}
 
-vm-serial:
-    #!/usr/bin/env -S bash -eu
-    VM="$(gh variable get BMT_VM_NAME)"
-    ZONE="$(gh variable get GCP_ZONE)"
-    PROJECT="$(gh variable get GCP_PROJECT)"
-    echo "VM=$VM zone=$ZONE"
-    gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" --project="$PROJECT"
+[group('infra')]
+packer-validate:
+    uv run python -m tools build packer-validate
 
-check-vm-gcs run_id:
-    #!/usr/bin/env -S bash -eu
-    just gcs-trigger {{run_id}}
-    echo ""
-    echo "=== VM serial (last 2KB) ==="
-    VM="$(gh variable get BMT_VM_NAME)"
-    ZONE="$(gh variable get GCP_ZONE)"
-    PROJECT="$(gh variable get GCP_PROJECT)"
-    gcloud compute instances get-serial-port-output "$VM" --zone="$ZONE" --project="$PROJECT" 2>/dev/null | tail -c 2048 || echo "(failed - check VM name/zone/project)"
+# -- Validation & debug ------------------------------------------------------
 
-# Full production CI sequence locally (sync → matrix → trigger → sync-vm-metadata → start-vm → wait-handshake).
-# Requires: GCS_BUCKET, GCP_PROJECT, GCP_ZONE, BMT_VM_NAME (and gcloud auth). Optional: BMT_PUBSUB_TOPIC for Pub/Sub.
-# Run from repo root. Saves run id to .local/prod-ci-run-id.txt for just gcs-trigger / just wait-handshake.
-prod-ci-local:
-    #!/usr/bin/env -S bash -eu
-    export GCS_BUCKET="${GCS_BUCKET:?Set GCS_BUCKET}"
-    export GCP_PROJECT="${GCP_PROJECT:-$(gh variable get GCP_PROJECT 2>/dev/null)}"
-    export GCP_ZONE="${GCP_ZONE:-$(gh variable get GCP_ZONE 2>/dev/null)}"
-    export BMT_VM_NAME="${BMT_VM_NAME:-$(gh variable get BMT_VM_NAME 2>/dev/null)}"
-    export BMT_PUBSUB_TOPIC="${BMT_PUBSUB_TOPIC:-$(gh variable get BMT_PUBSUB_TOPIC 2>/dev/null || true)}"
-    mkdir -p .local
-    just sync-gcp
-    just verify-sync
-    export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-matrix.out"
-    BMT_CONFIG_ROOT=gcp/code uv run --project .github/bmt bmt matrix
-    RUN_ID="local-$(date +%s)"
-    echo "$RUN_ID" > .local/prod-ci-run-id.txt
-    export GITHUB_RUN_ID="$RUN_ID"
-    export GITHUB_OUTPUT="$(pwd)/.local/prod-ci-trigger.out"
-    export FILTERED_MATRIX_JSON="$(grep '^matrix=' .local/prod-ci-matrix.out | cut -d= -f2-)"
-    export RUN_CONTEXT=dev
-    export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
-    uv run --project .github/bmt bmt write-run-trigger
-    just sync-vm-metadata
-    BMT_ALLOW_MANUAL_VM_START=1 just start-vm
-    just wait-handshake "$RUN_ID"
-    echo "Run id: $RUN_ID — use: just gcs-trigger $RUN_ID  or  just monitor --run-id $RUN_ID"
+[group('validate')]
+validate:
+    uv run python -m tools repo validate
 
-# Config / environment tooling (Terraform is source of truth; repo-vars from terraform output)
-terraform-export-vars:
-    uv run python tools/terraform_repo_vars.py
+# Apply repo vars from Pulumi/contract to GitHub (set BMT_PRUNE_EXTRA=1 to remove extra vars)
+[group('validate')]
+repo-vars-apply:
+    uv run python -m tools.repo.gh_repo_vars --apply
 
-terraform-export-vars-apply:
-    uv run python tools/terraform_repo_vars.py --apply
-
+[group('validate')]
 show-env:
-    uv run python tools/gh_show_env.py
+    uv run python -m tools repo show-env
 
-diff-core-main:
-    uv run python tools/diff_github_core_main.py
+[group('validate')]
+monitor:
+    uv run python -m tools bmt monitor
 
-repo-vars-check:
-    uv run python tools/gh_repo_vars.py
+# Fetch trigger and ack JSON from GCS for a run (requires GCS_BUCKET; see just show-env)
+[group('validate')]
+vm-check run_id:
+    uv run python -m tools bmt vm-check {{ run_id }}
 
-repo-vars-apply *args:
-    uv run python tools/gh_repo_vars.py --apply {{args}}
+# -- Scaffolding & release ---------------------------------------------------
 
-validate-vm-vars *args:
-    uv run python tools/gh_validate_vm_vars.py {{args}}
+[group('dev')]
+add-project project:
+    uv run python -m tools bmt add-project "{{ project }}"
+
+[group('dev')]
+release-package:
+    rm -rf .github-release/bmt/ci .github-release/bmt/config .github-release/bmt/pyproject.toml .github-release/bmt/uv.lock
+    cp -r .github/bmt/ci .github/bmt/config .github/bmt/pyproject.toml .github/bmt/uv.lock .github-release/bmt/
+    @echo "Updated .github-release/bmt/ from .github/bmt/ (ci, config, pyproject.toml, uv.lock)"
+
+# -- Local CI ----------------------------------------------------------------
+
+[group('local-ci')]
+act which="":
+    #!/usr/bin/env -S bash -eu
+    VAR_ARG=""
+    [[ -f .env ]] && VAR_ARG="--var-file .env"
+    W=".github/workflows/build-and-test.yml"
+    case "{{ which }}" in
+      handoff)
+        act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
+          --input ci_run_id="$${GITHUB_RUN_ID:-local123}" \
+          --input head_sha="$(git rev-parse HEAD)" \
+          --input head_branch="$(git branch --show-current)" \
+          --input head_event=push \
+          --input pr_number= \
+          $VAR_ARG
+        ;;
+      trigger)
+        act pull_request -W .github/workflows/ops/trigger-ci.yml -e .github/workflows/events/pull_request.json $VAR_ARG
+        ;;
+      "")
+        act workflow_dispatch -W "$W" $VAR_ARG
+        ;;
+      *)
+        act workflow_dispatch -W "$W" -j "{{ which }}" $VAR_ARG
+        ;;
+    esac
+
+# -- Docker (Cloud Run image) --------------------------------------------------
+
+# Build the BMT orchestrator container image
+[group('docker')]
+docker-build:
+    docker build -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
+
+# Run the container locally with gcp/stage bind-mounted as /mnt/runtime (FUSE simulation)
+[group('docker')]
+docker-run-test *args:
+    docker run --rm \
+        -v "$(pwd)/gcp/stage:/mnt/runtime:ro" \
+        -e BMT_CONFIG=/etc/bmt/config.json \
+        {{ args }} \
+        bmt-orchestrator:latest
+
+# Tag and push the image to Artifact Registry (requires gcloud auth configure-docker)
+[group('docker')]
+docker-push:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT=$(cd infra/pulumi && pulumi stack output gcp_project 2>/dev/null || echo "${GCP_PROJECT:-train-kws-202311}")
+    REGION="${CLOUD_RUN_REGION:-europe-west4}"
+    REPO="${ARTIFACT_REGISTRY_REPO:-bmt-images}"
+    IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/bmt-orchestrator:latest"
+    docker tag bmt-orchestrator:latest "${IMAGE}"
+    docker push "${IMAGE}"
+    echo "Pushed: ${IMAGE}"

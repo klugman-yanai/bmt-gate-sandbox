@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "repositories": {
+    "klugman-yanai/bmt-gcloud": {
+      "repo_env": "test",
+      "description": "Test sandbox repository for BMT development",
+      "secret_prefix": "GITHUB_APP_TEST",
+      "enabled": true
+    },
+    "Kardome-org/core-main": {
+      "repo_env": "prod",
+      "description": "Production core-main repository",
+      "secret_prefix": "GITHUB_APP_PROD",
+      "enabled": true
+    }
+  }
+}

@@ -1,42 +1,66 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "bmt-cloud-dev"
+name = "bmt-gcloud"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
+    "archivefile>=1.0.0",
     "bmt",
-    "click>=8.1.0",
-    "rich>=13.0",
+    "orjson>=3.10",
+    "prek>=0.3.5",
+    "pulumi-gcp>=9.15.0",
+    "pydantic>=2.12.5",
     "requests>=2.31.0",
+    "rich>=13.0",
+    "typer>=0.15.0",
     "whenever>=0.9.5",
-    "prek>=0.3.3",
 ]
 
 [tool.uv.sources]
 bmt = { workspace = true }
+# So that member .github/bmt can depend on bmt-gcloud without listing it (keeps that pyproject portable).
+bmt-gcloud = { workspace = true }
+
+# Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
+[tool.uv.workspace]
+members = [".github/bmt", "gcp/image"]
+# exclude = []   # Optional: globs to exclude from members (e.g. a dir with pyproject you don't want as member)
 
 [tool.uv]
-# Workspace root only; do not attempt to build/install a root package.
-package = false
-
-[tool.uv.workspace]
-members = [".github/bmt"]
+package = true
 
 [project.optional-dependencies]
+# Runtime extras: install with pip install -e ".[vm]" or ".[monitor]" when using root env for VM/monitor.
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
 vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 # For live BMT monitor TUI (install with: pip install -e ".[monitor]")
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# bmt is a workspace member (.github/bmt); root is intentionally non-packaged.
+# Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-vm-runtime).
+# Run a member with: uv run --package bmt … or uv run --package bmt-vm-runtime …
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gcp*", "tools*"]
 
 [tool.basedpyright]
 include = ["."]
-exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime", "local_batch", "secrets"]
+exclude = [
+    "**/.venv",
+    "**/node_modules",
+    "**/__pycache__",
+    "data",
+    "sk_runtime",
+    "local_batch",
+    "secrets",
+]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
+# Root package provides gcp, tools; bmt is installed from workspace.
 extraPaths = [".github/bmt"]
 # Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
 reportExplicitAny = false
@@ -45,14 +69,18 @@ reportUnknownMemberType = false
 reportUnknownVariableType = false
 reportUnknownArgumentType = false
 
+# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Install with: uv sync --group dev
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
+    "google-auth-stubs>=0.3.0",
     "httpx>=0.28.1",
-    "prek>=0.3.3",
-    "pyjwt>=2.11.0",
+    "jsonschema>=4.21",
+    "prek>=0.3.5",
+    "pulumi>=3.226.0",
+    "pulumi-gcp>=9.15.0",
+    "pyjwt>=2.12.1",
     "pytest>=9.0.2",
-    "pytest-cov>=7.0.0",
     "pytest-github-actions-annotate-failures>=0.4.0",
     "pytest-mock>=3.15.1",
     "pytest-randomly>=4.0.1",
@@ -61,12 +89,15 @@ dev = [
     "pytest-subprocess>=1.5.3",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
+    "ruff>=0.15.6",
+    "typer>=0.24.1",
+    "whenever>=0.9.5",
 ]
 
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=180 --timeout-method=thread --cov=.github/bmt/cli --cov=gcp/code --cov=tools --cov-report=term-missing --cov-report=xml --junitxml=junit.xml"
+addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --timeout-method=thread"
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",

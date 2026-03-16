@@ -1,0 +1,36 @@
+"""Shared utility functions for BMT GCP code."""
+
+from __future__ import annotations
+
+from whenever import Instant
+
+
+def _now_iso() -> str:
+    return Instant.now().format_iso(unit="second")
+
+
+def _now_stamp() -> str:
+    return Instant.now().format_iso(unit="second", basic=True)
+
+
+def _runtime_bucket_root(bucket: str) -> str:
+    """Bucket root: gs://<bucket>.
+
+    The bucket is a 1:1 mirror of gcp/stage/. All runtime data
+    (triggers, runners, datasets, results) lives directly under this root.
+    """
+    return f"gs://{bucket}"
+
+
+def _bucket_uri(bucket_root: str, path_or_uri: str) -> str:
+    if path_or_uri.startswith("gs://"):
+        return path_or_uri
+    return f"{bucket_root}/{path_or_uri.lstrip('/')}"
+
+
+def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+    """Parse 'gs://bucket/path/to/blob' → ('bucket', 'path/to/blob')."""
+    if not uri.startswith("gs://"):
+        raise ValueError(f"Not a GCS URI: {uri!r}")
+    parts = uri[len("gs://") :].split("/", 1)
+    return parts[0], (parts[1] if len(parts) > 1 else "")

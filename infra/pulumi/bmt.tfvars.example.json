@@ -1,0 +1,18 @@
+{
+  "gcp_project": "my-gcp-project",
+  "gcp_zone": "europe-west4-a",
+  "gcs_bucket": "my-bmt-bucket",
+  "service_account": "bmt-vm@my-gcp-project.iam.gserviceaccount.com",
+  "bmt_vm_name": "bmt-gate-blue",
+  "startup_wrapper_script_path": "../../.github/bmt/ci/resources/startup_entrypoint.sh",
+  "cloud_run_region": "europe-west4",
+  "cloud_run_job_sa_name": "bmt-job-runner",
+  "cloud_run_workflow_sa_name": "bmt-workflow-sa",
+  "artifact_registry_repo": "bmt-images",
+  "github_repo_owner": "klugman-yanai",
+  "github_repo_name": "bmt-gcloud",
+  "github_vars": {
+    "GCP_WIF_PROVIDER": "projects/123456/locations/global/workloadIdentityPools/...",
+    "BMT_DISPATCH_APP_ID": "12345"
+  }
+}

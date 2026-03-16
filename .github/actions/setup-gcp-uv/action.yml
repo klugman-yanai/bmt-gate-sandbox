@@ -31,7 +31,7 @@ runs:
 
     - name: Install uv
       if: ${{ inputs.install_uv == 'true' }}
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7
       with:
         version: "0.10.9"
         python-version: ${{ inputs.python_version }}
@@ -39,9 +39,4 @@ runs:
     - name: Sync BMT uv environment
       if: ${{ inputs.install_uv == 'true' }}
       shell: bash
-      run: uv sync --project .github/bmt
-
-    - name: Export default uv project
-      if: ${{ inputs.install_uv == 'true' }}
-      shell: bash
-      run: echo "UV_PROJECT=.github/bmt" >>"$GITHUB_ENV"
+      run: uv sync

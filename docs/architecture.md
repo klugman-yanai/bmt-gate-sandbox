@@ -1,9 +1,9 @@
 # Architecture
 
-Current architecture is trigger-and-stop with explicit storage split. See [implementation.md](implementation.md) for data flow, reliability behavior, and "not implemented" items.
+Current architecture is trigger-and-stop with explicit storage split.
 
-- `dummy-build-and-test.yml` builds and dispatches `bmt.yml`
-- `bmt.yml` uploads runtime artifacts, writes run trigger, starts VM, waits for handshake, exits
+- `dummy-build-and-test.yml` builds and dispatches `bmt-handoff.yml`
+- `bmt-handoff.yml` uploads runtime artifacts, writes run trigger, starts VM, waits for handshake, exits
 - VM watcher processes legs asynchronously and posts final status/check
 
 ## Diagrams
@@ -13,7 +13,7 @@ Current architecture is trigger-and-stop with explicit storage split. See [imple
 ```mermaid
 sequenceDiagram
     autonumber
-    participant CI as GitHub Actions bmt.yml
+    participant CI as GitHub Actions bmt-handoff.yml
     participant GCS as GCS
     participant VM as VM vm_watcher.py
     participant GH as GitHub API
@@ -91,7 +91,7 @@ Fixed roots (no parent prefix):
 
 Separation rules:
 
-1. `gcp/code` sync writes only to `code_root`.
+1. `gcp/image` sync writes only to `code_root`.
 2. Triggers, status, runners, datasets, outputs, results write only to `runtime_root`.
 3. Watcher and monitor must resolve identical runtime URIs.
 4. `gcp/` remains a 1:1 local bucket mirror with only `code/` and `runtime/` at top level.
@@ -101,11 +101,11 @@ Separation rules:
 What must match production when this repo is used as the source for CI and the bucket:
 
 | Artifact | Description |
-|----------|-------------|
-| **Workflow files** | `.github/workflows/bmt.yml`, `.github/workflows/build-and-test.yml` (when present), `.github/workflows/dummy-build-and-test.yml` (bmt-gcloud test workflow). |
-| **Composite actions** | All `.github/actions/` that run the CLI or setup: bmt-prepare, bmt-classify-handoff, bmt-handoff-run, bmt-write-summary, bmt-failure-fallback, bmt-job-setup; checkout-and-restore, restore-snapshot, setup-build-env, setup-gcp-uv. |
-| **.github/bmt** | BMT CLI used by workflows (`uv run --project .github/bmt bmt <cmd>`). |
-| **gcp/code/** | Layout synced to `gs://<bucket>/code`: bootstrap, root_orchestrator.py, vm_watcher.py, lib/, sk/, config. |
+| ---------- | ------------- |
+| **Workflow files** | `.github/workflows/bmt-handoff.yml`, `.github/workflows/build-and-test.yml` (when present), `.github/workflows/dummy-build-and-test.yml` (bmt-gcloud test workflow). |
+| **Composite actions** | All `.github/actions/` that run the CLI or setup: bmt-prepare-context, bmt-filter-handoff-matrix, bmt-handoff-run, bmt-write-summary, bmt-failure-fallback, bmt-runner-env, setup-gcp-uv. |
+| **.github/bmt** | BMT CLI used by workflows (`uv run bmt <cmd>` from repo root). |
+| **gcp/image/** | Layout synced to `gs://<bucket>/code`: vm scripts, root_orchestrator.py, vm_watcher.py, lib/, projects/&lt;project&gt;/ (bmt_manager.py, bmt_jobs.json), config. |
 | **GCS layout** | `code/` and `runtime/` roots; triggers, acks, status, snapshots, current.json under runtime. |
 | **VM bootstrap** | Startup script, uv artifact, install_deps contract; branch-protection status context (e.g. `BMT_STATUS_CONTEXT`). |
 
@@ -128,33 +128,33 @@ What must match production when this repo is used as the source for CI and the b
 ### CI
 
 | File | Role |
-|---|---|
-| `.github/scripts/ci/models.py` | Fixed code/runtime root URI helpers. |
-| `.github/scripts/ci/commands/run_trigger.py` | Trigger payload + runtime trigger write. |
-| `.github/scripts/ci/commands/start_vm.py` | Start + readiness verification. |
-| `.github/scripts/ci/commands/wait_handshake.py` | Handshake wait + diagnostics + reason codes. |
-| `.github/scripts/ci/commands/upload_runner.py` | Runtime runner upload. |
-| `.github/scripts/ci/commands/sync_vm_metadata.py` | Sync `GCS_BUCKET` and `BMT_REPO_ROOT` metadata. |
+| --- | --- |
+| `.github/bmt/ci/core.py` | Fixed code/runtime root URI helpers, trigger/ack URIs. |
+| `.github/bmt/ci/commands/run_trigger.py` | Trigger payload + runtime trigger write. |
+| `.github/bmt/ci/commands/start_vm.py` | Start + readiness verification. |
+| `.github/bmt/ci/commands/wait_handshake.py` | Handshake wait + diagnostics + reason codes. |
+| `.github/bmt/ci/commands/upload_runner.py` | Runtime runner upload. |
+| `.github/bmt/ci/commands/sync_vm_metadata.py` | Sync `GCS_BUCKET` and `BMT_REPO_ROOT` metadata. |
 
 ### VM
 
 | File | Role |
-|---|---|
-| `gcp/code/vm_watcher.py` | Trigger polling, leg orchestration, status/check publishing, pointer promotion. |
-| `gcp/code/root_orchestrator.py` | Fetch code-root assets and run per-leg manager. |
-| `gcp/code/sk/bmt_manager.py` | Run runner and upload canonical snapshot artifacts. |
-| `gcp/code/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress operations. |
+| --- | --- |
+| `gcp/image/vm_watcher.py` | Trigger polling, leg orchestration, status/check publishing, pointer promotion. |
+| `gcp/image/root_orchestrator.py` | Fetch code-root assets and run per-leg manager. |
+| `gcp/image/projects/sk/bmt_manager.py` | Run runner and upload canonical snapshot artifacts. |
+| `gcp/image/lib/status_file.py` | Runtime-prefix-aware status heartbeat/progress operations. |
 
 ### Tools
 
 | File | Role |
-|---|---|
-| `tools/bucket_sync_remote.py` | Manual code-root sync + manifest write. |
-| `tools/bucket_verify_remote_sync.py` | Verify local `gcp/code` digest vs uploaded code manifest. |
-| `tools/bucket_upload_runner.py` | Runtime runner upload helper. |
-| `tools/bucket_upload_wavs.py` | Runtime dataset upload helper. |
-| `tools/bucket_validate_contract.py` | Validate split contract (code + runtime canonical objects). |
-| `tools/bmt_monitor.py` | Runtime-prefix-aware live monitor. |
+| --- | --- |
+| `tools/remote/bucket_sync_gcp.py` | Manual code-root sync + manifest write. |
+| `tools/remote/bucket_verify_gcp_sync.py` | Verify local `gcp/image` digest vs uploaded code manifest. |
+| `tools/remote/bucket_upload_runner.py` | Runtime runner upload helper. |
+| `tools/remote/bucket_upload_wavs.py` | Runtime dataset upload helper. |
+| `tools/remote/bucket_validate_contract.py` | Validate split contract (code + runtime canonical objects). |
+| `tools/bmt/bmt_monitor.py` | Runtime-prefix-aware live monitor. |
 
 ## Trigger payload contract
 
@@ -172,13 +172,13 @@ Required fields:
 ## VM bootstrap contract
 
 - VM metadata contains `GCS_BUCKET`, `BMT_REPO_ROOT`
-- Workflow sync step writes inline `startup-script` from packaged resource `cli.resources/startup_wrapper.sh`
-- Wrapper syncs strictly from `code_root` and runs `bootstrap/startup_example.sh`
+- Workflow sync step writes inline `startup-script` from packaged resource `cli.resources/startup_entrypoint.sh`
+- Entrypoint runs baked `scripts/run_watcher.py` from local `BMT_REPO_ROOT` (via venv Python).
 - Startup resolves `uv` in this order: `BMT_UV_BIN` override, `uv` on PATH, pinned artifact `<code-root>/_tools/uv/linux-x86_64/uv` verified by `<code-root>/_tools/uv/linux-x86_64/uv.sha256`
-- Dependency install contract is code-root `pyproject.toml` + `uv.lock` (`bootstrap/install_deps.sh` uses `uv sync --extra vm --frozen`)
+- Dependency install on VM: `scripts/install_deps.py` uses **repo-root** `pyproject.toml` for a fingerprint and `pip` for install (no uv at boot). The code-root `pyproject.toml` + `uv.lock` are the declarative VM contract; see [configuration.md](configuration.md#pyproject-files).
 - `startup-script-url` mode remains optional for manual setup/cutover
 
-Rollback path: `gcp/code/bootstrap/rollback_vm_startup_to_inline.sh`
+Rollback path: `gcp/image/scripts/rollback_startup_to_inline.py`
 
 ## Workspace contract
 
@@ -198,3 +198,83 @@ Canonical source of truth:
 - `<runtime-root>/<results_prefix>/snapshots/<run_id>/ci_verdict.json`
 
 Legacy root-level `latest.json`/`last_passing.json` are no longer required by the validator.
+
+---
+
+## Implementation / data flow
+
+How the system runs today, with the current split storage contract and manual code sync.
+
+**Runtime model**
+
+1. CI uploads runner artifacts to `<runtime-root>` and writes one trigger file to `<runtime-root>/triggers/runs/<workflow_run_id>.json`.
+2. CI syncs VM metadata, starts the VM, waits for handshake ack, posts pending commit status, and exits.
+3. VM watcher polls runtime triggers, writes ack/status files, runs orchestrator per leg, updates pointers, posts final status/check run, and deletes the trigger.
+4. For PR-context runs, watcher checks PR state and head SHA:
+   - PR already closed at pickup: writes handshake/status skip metadata and exits without running legs.
+   - Trigger SHA != current PR head SHA at pickup: marks run skipped as `superseded_by_new_commit`.
+   - PR closes or a newer PR head SHA appears during execution: completes current leg, marks remaining legs skipped, finalizes check/status as cancelled (`check=neutral`, `status=error`), and skips pointer promotion.
+
+**Storage contract**
+
+- `<code-root> = gs://<bucket>/code`
+- `<runtime-root> = gs://<bucket>/runtime`
+
+Ownership: `gcp/image` is source of truth for deployable code/config/vm scripts only, manually synced to `<code-root>` (`just deploy`). `gcp/remote` is source of truth for runtime seed and is manually synced to `<runtime-root>` (`just sync-runtime-seed`). Runtime artifacts must live under `<runtime-root>` only.
+
+**Data flow**
+
+1. `run_trigger.py` writes trigger payload with `bucket`, `workflow_run_id`, `repository`, `sha`, `legs`, etc.
+2. `vm_watcher.py` discovers triggers from runtime root, writes ack/status in runtime root.
+3. `vm_watcher.py` downloads `root_orchestrator.py` from code root.
+4. `root_orchestrator.py` resolves manager/jobs by convention from code root (`projects/<project>/bmt_manager.py`, `projects/<project>/bmt_jobs.json`).
+5. `projects/<project>/bmt_manager.py`: template from code root; runner + dataset from runtime root; outputs/verdict/logs/current pointer artifacts in runtime root.
+6. Watcher updates `current.json` and snapshot retention, then posts final GitHub status/check.
+
+**Canonical runtime object layout**
+
+- `<runtime-root>/triggers/runs/<workflow_run_id>.json`
+- `<runtime-root>/triggers/acks/<workflow_run_id>.json` (includes `support_resolution_version`, `requested_legs`, `accepted_legs`, `rejected_legs`, optional `run_disposition`, `skip_reason`, `pr_state`, etc.)
+- `<runtime-root>/triggers/status/<workflow_run_id>.json` (includes optional `run_outcome`, `cancel_reason`, `cancelled_at`, `superseded_by_sha`, per-leg `skip_reason`)
+- `<runtime-root>/<project>/runners/<preset>/...`
+- `<runtime-root>/<results_prefix>/current.json`
+- `<runtime-root>/<results_prefix>/snapshots/<run_id>/latest.json`, `ci_verdict.json`, `logs/...`
+
+**Reliability behavior**
+
+- `start-vm` validates post-start readiness, not only start command acceptance.
+- `wait-handshake` verifies trigger existence first and reports root-cause categories: `trigger_missing`, `status_path_mismatch`, `vm_not_running`, `ack_unreadable`, `ack_not_written`.
+- Workflow cleanup removes current run trigger/ack/status objects on failure.
+- Handshake v2 is additive/backward-compatible.
+- VM support is authoritative: partial support runs accepted legs only; zero support returns `run_disposition=accepted_but_empty` without orchestrator execution.
+- PR closure/head-state handling is fail-open for PR-state API errors.
+- PR triggers are queueable; stale-trigger deletion/restart preflight is non-destructive for PR context.
+
+**Not implemented**
+
+- GCP SDK migration (CLI-first is still current).
+- Automatic CI code sync to `<code-root>` (manual sync is intentional for now).
+
+---
+
+## GitHub and CI
+
+**Communication flow:** `bmt-handoff.yml` validates handoff only (trigger + VM ack). Workflow success = handoff completed; **BMT outcome is VM-owned** (PR commit status `BMT_STATUS_CONTEXT` + Check Run). Handoff writes trigger, starts VM, waits for ack, exits; VM processes legs and posts final status/check. PR closed → skip or cancel; new commit → supersede (no pointer promotion). **Branch protection:** Require status check `BMT_STATUS_CONTEXT`. If handoff succeeds but status doesn’t move, debug VM auth/logs.
+
+**GitHub App (VM):** Statuses + Checks (PR comments not implemented). Check permissions: `uv run python tools/gh_app_perms.py --app-id <id> --private-key <path>`. Required: Commit statuses, Checks; Issues/Pull requests for future PR comments. Runners use `GITHUB_TOKEN`; VM uses App installation token.
+
+**CLI:** `gh pr checks --watch`, `gh run watch`, `gh run view --log`. Job summaries in workflow run; Check Run has title/summary. Triggers/acks trimmed; snapshots retained per pointer only.
+
+---
+
+## Repository structure
+
+- **`.github/workflows/`** — Workflow YAML (bmt-handoff.yml, build-and-test.yml, dummy-build-and-test.yml). **`.github/actions/`** — Composite actions only; no Python under `.github/`.
+- **`.github/bmt/`** — BMT CLI (Python) used by workflows; run with `uv run bmt <cmd>` from repo root. Config under `.github/bmt/config/`.
+- **`gcp/image/`** — VM code and config; synced to bucket `code/` root. Project config (e.g. bmt_jobs.json) under `gcp/image/projects/<project>/`.
+- **`gcp/remote/`** — Runtime seed (runner placeholders, etc.); synced to bucket `runtime/` root.
+- **`tools/`** — Local scripts (sync, upload, validate, monitor, gh/bucket helpers). Not part of production surface.
+- **`data/`** — Local wav datasets (uploaded explicitly).
+- **`tests/`**, **`docs/`** — Tests and documentation.
+
+Single deploy entrypoint: **`just deploy`** syncs gcp/image to the bucket and verifies code + runtime seed.

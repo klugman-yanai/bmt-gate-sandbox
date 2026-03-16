@@ -1,14 +1,26 @@
-# Pre-commit: https://pre-commit.com
-# Install: pre-commit install (or use prek if available)
-# Run manually: pre-commit run --all-files
+# Prek (pre-commit compatible): https://prek.j178.dev/
+# Install: prek install (or prek install -f to replace pre-commit hook)
+# Run manually: prek run --all-files
+# Requires: uv sync --group dev (ruff in dev dependency-group)
 repos:
   - repo: local
     hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
       - id: verify-gcp-bucket-sync
         name: gcp/ bucket sync check
-        entry: scripts/hooks/pre-commit-sync-gcp.sh
+        entry: tools/scripts/hooks/pre-commit-sync-gcp.sh
         language: script
         files: ^gcp/
+        pass_filenames: false
+      - id: image-build-warning
+        name: image-build path warning
+        entry: tools/scripts/hooks/pre-commit-image-build-warning.sh
+        language: script
+        files: ^(infra/packer/|gcp/image/)
         pass_filenames: false
       - id: pytest-fast
         name: pytest fast gate

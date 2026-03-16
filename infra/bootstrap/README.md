@@ -5,14 +5,18 @@ Bootstrap GitHub repo variables and secrets after Terraform apply. **Terraform i
 ## Flow
 
 1. **Apply Terraform** (see [../README.md](../README.md)):
+
    ```bash
    cd infra/terraform && terraform init && terraform apply
    ```
+
 2. **Export Terraform outputs to GitHub variables:**
+
    ```bash
    just terraform-export-vars
    # or: uv run python tools/terraform_repo_vars.py --apply
    ```
+
 3. **Set secrets manually** (not in Terraform): `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY`. Use this bootstrap script with an env file that contains them, or set via GitHub UI.
 
 ## Files

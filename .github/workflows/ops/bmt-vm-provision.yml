@@ -1,0 +1,142 @@
+name: BMT VM Provision
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_name:
+        description: "Explicit image name to pin (empty = resolve from family)"
+        required: false
+        default: ""
+      image_family:
+        description: "Image family (default: bmt-runtime)"
+        required: false
+        default: "bmt-runtime"
+      bmt_vm_name:
+        description: "VM name to create/update"
+        required: true
+      action:
+        description: "Pulumi action"
+        required: true
+        type: choice
+        options:
+          - preview
+          - up
+          - destroy
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pulumi-apply-${{ github.event.inputs.bmt_vm_name }}
+  cancel-in-progress: false
+
+jobs:
+  pulumi:
+    name: Pulumi ${{ github.event.inputs.action }}
+    runs-on: ubuntu-22.04
+    env:
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+      PULUMI_CONFIG_PASSPHRASE: ""
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup GCP
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SA_EMAIL }}
+          install_uv: "false"
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v5
+        with:
+          command: install-pulumi-cli
+
+      - name: Enforce runtime image policy
+        run: |
+          set -euo pipefail
+          expected_family="${BMT_EXPECTED_IMAGE_FAMILY:-bmt-runtime}"
+          if [[ "${{ github.event.inputs.image_family }}" != "${expected_family}" ]]; then
+            echo "::error::image_family must be '${expected_family}', got '${{ github.event.inputs.image_family }}'"
+            exit 1
+          fi
+          if [[ -n "${{ github.event.inputs.image_name }}" ]]; then
+            image_ref="${{ github.event.inputs.image_name }}"
+            image_name="${image_ref##*/}"
+            resolved_family="$(gcloud compute images describe "${image_name}" \
+              --project="${GCP_PROJECT}" \
+              --format='value(family)')"
+            if [[ "${resolved_family}" != "${expected_family}" ]]; then
+              echo "::error::image_name '${image_ref}' belongs to family '${resolved_family}', expected '${expected_family}'"
+              exit 1
+            fi
+          fi
+
+      - name: Write bmt.tfvars.json
+        working-directory: infra/pulumi
+        env:
+          BMT_VM_NAME: ${{ github.event.inputs.bmt_vm_name }}
+          IMAGE_FAMILY: ${{ github.event.inputs.image_family }}
+          IMAGE_NAME: ${{ github.event.inputs.image_name }}
+        run: |
+          python3 -c "
+          import json, os
+          with open('bmt.tfvars.json', 'w') as f:
+              json.dump({
+                  'gcp_project': os.environ['GCP_PROJECT'],
+                  'gcp_zone': os.environ['GCP_ZONE'],
+                  'gcs_bucket': os.environ['GCS_BUCKET'],
+                  'service_account': os.environ['GCP_SA_EMAIL'],
+                  'bmt_vm_name': os.environ['BMT_VM_NAME'],
+                  'image_family': os.environ.get('IMAGE_FAMILY', 'bmt-runtime'),
+                  'image_name': os.environ.get('IMAGE_NAME', ''),
+                  'startup_wrapper_script_path': '../../.github/bmt/ci/resources/startup_entrypoint.sh',
+              }, f, indent=2)
+          "
+
+      - name: Pulumi login
+        working-directory: infra/pulumi
+        run: pulumi login "gs://${{ env.GCS_BUCKET }}/pulumi/bmt-vm"
+
+      - name: Pulumi stack select
+        working-directory: infra/pulumi
+        run: pulumi stack select prod --create
+
+      - name: Pulumi install (Python deps)
+        working-directory: infra/pulumi
+        run: pulumi install
+
+      - name: Pulumi preview
+        if: github.event.inputs.action != 'destroy'
+        working-directory: infra/pulumi
+        run: pulumi preview
+
+      - name: Pulumi up
+        if: github.event.inputs.action == 'up'
+        working-directory: infra/pulumi
+        run: pulumi up --yes
+
+      - name: Update BMT_LIVE_VM repo variable after up
+        if: github.event.inputs.action == 'up'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          vm_name="${{ github.event.inputs.bmt_vm_name }}"
+          vm_base="${vm_name%-blue}"
+          vm_base="${vm_base%-green}"
+          gh variable set BMT_LIVE_VM \
+            --repo "${{ github.repository }}" \
+            --body "${vm_base}"
+          echo "Updated BMT_LIVE_VM=${vm_base} (from input ${vm_name})"
+
+      - name: Pulumi destroy
+        if: github.event.inputs.action == 'destroy'
+        working-directory: infra/pulumi
+        run: |
+          echo "::warning::Destroying VM ${{ github.event.inputs.bmt_vm_name }}"
+          pulumi destroy --yes

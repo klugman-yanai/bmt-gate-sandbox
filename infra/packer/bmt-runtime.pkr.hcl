@@ -8,10 +8,6 @@ packer {
   }
 }
 
-# ---------------------------------------------------------------------------
-# Variables — override via -var or a .pkrvars.hcl file
-# ---------------------------------------------------------------------------
-
 variable "gcp_project" { type = string }
 variable "gcp_zone" { type = string }
 variable "gcs_bucket" { type = string }
@@ -61,23 +57,22 @@ variable "bmt_repo_root" {
   default = "/opt/bmt"
 }
 
+# Path to the gcp/image/ checkout directory on the build machine.
+# Set PKR_VAR_bmt_repo_source to the gcp/image/ dir from the CI checkout.
+variable "bmt_repo_source" {
+  type    = string
+  default = ""
+}
+
 variable "keep_builder" {
   type    = bool
   default = false
 }
 
-# ---------------------------------------------------------------------------
-# Locals
-# ---------------------------------------------------------------------------
-
 locals {
   timestamp  = formatdate("YYYYMMDD-HHmmss", timestamp())
   image_name = "${var.image_family}-${local.timestamp}"
 }
-
-# ---------------------------------------------------------------------------
-# Source
-# ---------------------------------------------------------------------------
 
 source "googlecompute" "bmt_runtime" {
   project_id   = var.gcp_project
@@ -85,11 +80,11 @@ source "googlecompute" "bmt_runtime" {
   machine_type = var.machine_type
 
   source_image_family       = var.base_image_family
-  source_image_project_id   = var.base_image_project
+  source_image_project_id   = [var.base_image_project]
 
   image_name        = local.image_name
   image_family      = var.image_family
-  image_description = "BMT runtime image baked from gs://${var.gcs_bucket}/code"
+  image_description = "BMT runtime image — code baked from repo checkout (gcp/image/)"
   image_labels = {
     bmt-image-family   = replace(lower(var.image_family), "_", "-")
     bmt-image-version  = replace(lower(local.image_name), "_", "-")
@@ -111,16 +106,13 @@ source "googlecompute" "bmt_runtime" {
   skip_create_image = false
 }
 
-# ---------------------------------------------------------------------------
-# Build
-# ---------------------------------------------------------------------------
-
 build {
   name    = "bmt-runtime"
   sources = ["source.googlecompute.bmt_runtime"]
 
-  # 1. Install gcloud CLI (if missing) and sync code snapshot from GCS
+  # 1. Install gcloud CLI (if missing) and prepare bmt_repo_root for code upload.
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       # Ensure Google Cloud CLI is available (Ubuntu 22.04 base may not have it).
@@ -132,14 +124,43 @@ build {
       "  sudo apt-get update -qq && sudo apt-get install -y -qq google-cloud-cli",
       "fi",
       "sudo apt-get install -y -q google-cloud-cli-gke-gcloud-auth-plugin 2>/dev/null || true",
+      # Remove any prior installation; create the target directory owned by the SSH user so
+      # the subsequent file provisioner can write directly without sudo.
       "sudo rm -rf ${var.bmt_repo_root}",
       "sudo mkdir -p ${var.bmt_repo_root}",
-      "sudo gcloud storage rsync gs://${var.gcs_bucket}/code ${var.bmt_repo_root} --recursive",
+      "sudo chown ubuntu:ubuntu ${var.bmt_repo_root}",
+    ]
+  }
+
+  # 1b. Upload gcp/image/ from the CI checkout directly into the baked image.
+  #     This replaces the old gs://bucket/code sync; code is now part of the image,
+  #     not fetched from GCS at runtime or during bake.
+  provisioner "file" {
+    source      = "${var.bmt_repo_source}/"
+    destination = "${var.bmt_repo_root}"
+  }
+
+  # 1b. Install ffmpeg and gcsfuse (for hybrid storage / FUSE dataset mount)
+  provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
+    inline = [
+      "set -euo pipefail",
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get update -qq",
+      "sudo apt-get install -y -qq ffmpeg curl gnupg",
+      "export GCSFUSE_REPO=gcsfuse-$(lsb_release -c -s)",
+      "echo \"deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt $GCSFUSE_REPO main\" | sudo tee /etc/apt/sources.list.d/gcsfuse.list",
+      "curl -sSf https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg",
+      "sudo apt-get update -qq",
+      "sudo apt-get install -y -qq gcsfuse",
+      "sudo mkdir -p /mnt/audio_data",
+      "sudo chown -R ubuntu:ubuntu /mnt/audio_data",
     ]
   }
 
   # 2. Record glibc version for manifest.
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "GLIBC_VERSION_RAW=$(ldd --version 2>/dev/null | head -n1 || true)",
@@ -149,6 +170,7 @@ build {
 
   # 3. Install Google Cloud Ops Agent
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh",
@@ -158,8 +180,9 @@ build {
   }
 
   # 4. Install Python 3.12 and VM dependencies into a pre-baked venv.
-  #    Uses pip directly (no uv dependency at runtime; uv is only needed during image build if desired).
+  #    Deps from scripts/vm_deps.txt (single source of truth; sync code already in place).
   provisioner "shell" {
+    execute_command  = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     environment_vars = ["DEBIAN_FRONTEND=noninteractive"]
     inline = [
       "set -euo pipefail",
@@ -170,8 +193,7 @@ build {
       # Create the pre-baked venv.
       "sudo python3.12 -m venv ${var.bmt_repo_root}/.venv",
       "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet --upgrade pip",
-      # Install exact deps matching pyproject.toml vm extras.
-      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet httpx>=0.27 'google-cloud-storage>=2.16' 'google-cloud-pubsub>=2.21' 'PyJWT>=2.0' 'cryptography>=41.0'",
+      "sudo ${var.bmt_repo_root}/.venv/bin/pip install --quiet -r ${var.bmt_repo_root}/scripts/vm_deps.txt",
       # Verify imports.
       "sudo ${var.bmt_repo_root}/.venv/bin/python -c \"import jwt, cryptography, httpx, google.cloud.storage, google.cloud.pubsub_v1; print('OK')\"",
     ]
@@ -179,6 +201,7 @@ build {
 
   # 5. Write image manifest (used by SLSA provenance and startup verification)
   provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "sudo python3 - <<'PY'",
@@ -201,7 +224,7 @@ build {
       "    'image_family': '${var.image_family}',",
       "    'base_image_family': '${var.base_image_family}',",
       "    'base_image_project': '${var.base_image_project}',",
-      "    'image_source': {'bucket': '${var.gcs_bucket}', 'code_prefix': 'code/'},",
+      "    'image_source': {'type': 'repo_checkout', 'path': 'gcp/image/'},",
       "    'deps_fingerprint': digest(repo/'pyproject.toml'),",
       "    'pyproject_sha256': digest(repo/'pyproject.toml'),",
       "    'glibc_version': build_meta.get('GLIBC_VERSION', ''),",
@@ -222,16 +245,7 @@ build {
   #    Prevents cloned VMs from inheriting stale cloud-init status that can
   #    delay or block startup-script execution sequencing.
   provisioner "shell" {
-    inline = [
-      "set -euo pipefail",
-      "if command -v cloud-init >/dev/null 2>&1; then sudo cloud-init clean --logs --machine-id || sudo cloud-init clean --logs; fi",
-    ]
-  }
-
-  # 7. Reset cloud-init state before image capture.
-  #    Prevents cloned VMs from inheriting stale cloud-init status that can
-  #    delay or block startup-script execution sequencing.
-  provisioner "shell" {
+    execute_command = "chmod +x {{.Path}}; {{.Vars}} bash {{.Path}}"
     inline = [
       "set -euo pipefail",
       "if command -v cloud-init >/dev/null 2>&1; then sudo cloud-init clean --logs --machine-id || sudo cloud-init clean --logs; fi",

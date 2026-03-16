@@ -2,22 +2,21 @@
 """Generate a SLSA v1.0 provenance document for a BMT image or runner artifact.
 
 Usage:
-    # After Packer image build:
+    # After Packer image build (workflow passes builder-id and bucket from github.repository / vars.GCS_BUCKET):
     python3 generate_provenance.py image \
         --image-name bmt-runtime-20260311-120000 \
         --image-family bmt-runtime \
-        --gcs-bucket my-bmt-bucket \
-        --builder-id https://github.com/Kardome-org/bmt-gcloud/.github/workflows/bmt-image-build.yml \
-        --source-uri gs://my-bmt-bucket/code \
-        --git-sha abc123 \
+        --gcs-bucket <GCS_BUCKET> \
+        --builder-id "https://github.com/<owner>/<repo>/.github/workflows/bmt-vm-image-build.yml" \
+        --git-sha <sha> \
         --out provenance.json
 
     # After runner upload:
     python3 generate_provenance.py runner \
-        --artifact-uri gs://my-bmt-bucket/runtime/runner/runner.tar.gz \
+        --artifact-uri gs://<bucket>/runtime/runner/runner.tar.gz \
         --artifact-sha256 <hex> \
-        --builder-id https://github.com/Kardome-org/core-main/.github/workflows/build.yml \
-        --git-sha abc123 \
+        --builder-id "https://github.com/<owner>/<repo>/.github/workflows/<workflow>.yml" \
+        --git-sha <sha> \
         --out provenance.json
 
 The output is a SLSA v1.0 provenance JSON stored in GCS under:
@@ -36,8 +35,9 @@ import json
 import os
 import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
+
+from whenever import Instant
 
 # ---------------------------------------------------------------------------
 # SLSA v1.0 provenance envelope
@@ -48,7 +48,7 @@ STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 
 
 def _now_utc() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return Instant.now().format_iso(unit="second")
 
 
 def _sha256_file(path: Path) -> str:
@@ -124,12 +124,10 @@ def cmd_image(args: argparse.Namespace) -> None:
     manifest_uri = f"gs://{args.gcs_bucket}/provenance/image-manifests/{args.image_name}.json"
     manifest: dict = {}
     try:
-        raw = subprocess.check_output(
-            ["gcloud", "storage", "cat", manifest_uri], text=True
-        )
+        raw = subprocess.check_output(["gcloud", "storage", "cat", manifest_uri], text=True)
         manifest = json.loads(raw)
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-        print(f"Warning: could not read image manifest from {manifest_uri}: {exc}", file=sys.stderr)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        pass
 
     subject_digest = {
         "sha256": _sha256_str(args.image_name),  # GCE images have no content hash; use name digest
@@ -159,11 +157,9 @@ def cmd_image(args: argparse.Namespace) -> None:
 
     out_path = Path(args.out)
     out_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote image provenance: {out_path}")
 
     dest_uri = f"gs://{args.gcs_bucket}/provenance/images/{args.image_name}.slsa.json"
     subprocess.check_call(["gcloud", "storage", "cp", str(out_path), dest_uri])
-    print(f"Uploaded image provenance: {dest_uri}")
 
 
 def cmd_runner(args: argparse.Namespace) -> None:
@@ -173,7 +169,6 @@ def cmd_runner(args: argparse.Namespace) -> None:
         artifact_sha256 = _sha256_file(Path(args.artifact_local_path))
 
     if not artifact_sha256:
-        print("Provide --artifact-sha256 or --artifact-local-path", file=sys.stderr)
         sys.exit(1)
 
     # Derive bucket from artifact URI  gs://bucket/...
@@ -200,12 +195,10 @@ def cmd_runner(args: argparse.Namespace) -> None:
 
     out_path = Path(args.out)
     out_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote runner provenance: {out_path}")
 
     if bucket and args.run_id:
         dest_uri = f"gs://{bucket}/provenance/runners/{args.run_id}.slsa.json"
         subprocess.check_call(["gcloud", "storage", "cp", str(out_path), dest_uri])
-        print(f"Uploaded runner provenance: {dest_uri}")
 
 
 # ---------------------------------------------------------------------------

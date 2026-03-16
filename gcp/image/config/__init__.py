@@ -1,0 +1,1 @@
+"""BMT configuration module."""

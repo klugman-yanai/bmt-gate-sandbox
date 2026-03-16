@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/current_pointer.schema.json",
+  "title": "Results pointer (current.json)",
+  "description": "Pointer at results_prefix/current.json. Tracks latest and last_passing run_id; written by vm_watcher. Runtime artifact.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["latest", "updated_at"],
+  "properties": {
+    "latest": { "type": "string", "description": "Run id of the most recent run" },
+    "last_passing": { "type": ["string", "null"], "description": "Run id of the most recent passing run" },
+    "updated_at": { "type": "string", "description": "ISO8601 UTC timestamp of last update" }
+  }
+}

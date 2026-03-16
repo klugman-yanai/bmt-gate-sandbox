@@ -1,4 +1,4 @@
-# bmt-cloud-dev
+# bmt-gcloud
 
 **Purpose:** This repo exists so you can **reliably test production CI locally using the real VM and GCS** — no mocks. That is the main goal. Supporting that goal are:
 
@@ -11,32 +11,32 @@ Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. This 
 ## Features
 
 - **Trigger-and-stop handoff** — CI writes one run trigger, starts the VM, waits for handshake ack, then exits. The VM runs BMT legs and posts final outcome.
-- **Commit status and Check Run** — VM posts pending then success/failure commit status and creates/updates a Check Run for progress and results. Branch protection gates on the status context (`BMT_STATUS_CONTEXT`, from Terraform).
+- **Commit status and Check Run** — VM posts pending then success/failure commit status and creates/updates a Check Run for progress and results. Branch protection gates on the status context (`BMT_STATUS_CONTEXT`, from Pulumi).
 - **Pointer-based results** — `current.json` points to latest and last-passing run; per-run artifacts live under `snapshots/<run_id>/`. Baseline for gate comparison comes from last-passing snapshot.
-- **PR closure and supersede** — Closed or superseded PR runs are skipped or cancelled without promoting pointers. See [docs/communication-flow.md](docs/communication-flow.md) and [docs/architecture.md](docs/architecture.md).
+- **PR closure and supersede** — Closed or superseded PR runs are skipped or cancelled without promoting pointers. See [docs/architecture.md](docs/architecture.md).
 
 ## Safety and reliability
 
-- **Handshake validation** — Workflow waits for VM ack with clear failure reasons (`trigger_missing`, `vm_not_running`, `ack_not_written`, etc.). See [docs/implementation.md](docs/implementation.md#reliability-behavior).
+- **Handshake validation** — Workflow waits for VM ack with clear failure reasons (`trigger_missing`, `vm_not_running`, `ack_not_written`, etc.). See [docs/architecture.md](docs/architecture.md#implementation--data-flow).
 - **PR closed/superseded** — Before pickup: run skipped. During execution: current leg finishes, remaining legs skipped, signals finalized as cancelled; no pointer promotion for superseded runs.
 - **Fail-open** — PR state API errors do not block execution.
 - **Workflow cleanup** — On handshake failure, workflow removes trigger/ack/status objects.
 
 ## Dev quality of life
 
-- **Just recipes** — `just test`, `just lint`, `just sync-gcp`, `just verify-sync`, `just terraform-export-vars`, `just repo-vars-check`, `just repo-vars-apply`, `just show-env`, `just validate-vm-vars`. Run `just` for the full list.
+- **Unified CLI** — `uv run python -m tools --help` for all dev commands (bucket, pulumi, repo, build, bmt). **Just recipes** are thin wrappers: `just test`, `just deploy`, `just monitor`, etc. Run `just` for the list.
 - **GitHub CLI** — `gh pr checks --watch` to wait for BMT and other checks; `gh run watch <run_id>` to follow a workflow run.
 - **Job summaries** — Workflow runs write handoff and routing summaries to the Actions run summary.
 
-See [docs/development.md](docs/development.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
+See [docs/development.md](docs/development.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Monitoring (GitHub Actions and VM runtime)
 
 - **Handoff vs BMT outcome** — Workflow run success = handoff completed. Final BMT pass/fail is VM-owned and appears in PR **Checks** and **Comments**.
 - **Live TUI** — `just monitor` (or `just monitor --run-id <id>`) shows trigger, ack, status, and VM/GCS state; useful when handshake fails.
-- **CLI inspection** — `just gcs-trigger <run_id>`, `just vm-serial`, `just check-vm-gcs <run_id>` for trigger/ack and VM serial output.
+- **CLI inspection** — `just vm-check <run_id>` shows trigger, ack, and VM serial output for a run (read-only; does not start the VM).
 
-See [docs/communication-flow.md](docs/communication-flow.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
+See [docs/architecture.md](docs/architecture.md).
 
 ## BMT management
 
@@ -48,80 +48,64 @@ See [docs/architecture.md](docs/architecture.md#results-contract).
 
 ## Performance and cost
 
-- **VM self-stop** — VM runs with `--exit-after-run` and stops itself after one run so it does not idle.
+- **VM idle-then-terminate** — The VM runs with `--exit-after-run` and `--idle-timeout-sec` (default 600). After each run it stays up for up to that many seconds waiting for another trigger; if none arrives, it exits and the startup script stops the instance. Set `BMT_IDLE_TIMEOUT_SEC` (e.g. in VM metadata) to tune; use `0` to exit immediately after one run.
+- **Reuse RUNNING VMs** — When no TERMINATED VM is available, the workflow reuses a RUNNING VM (no stop/start): it writes the trigger only; the already-running watcher picks it up. Consecutive runs within the idle window avoid cold boot. Handshake uses `BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING` when reusing.
 - **Snapshot retention** — Only latest and last_passing snapshot dirs retained per results prefix; trigger/ack/status metadata trimmed to current + previous.
 - **No long-tail history** — Run triggers deleted after processing; debugging uses workflow logs and Check Runs.
 
-See [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md#runtime-retention-policy-hard-delete-no-quarantine).
+See [docs/architecture.md](docs/architecture.md#github-and-ci).
 
 ## Configuration
 
-**Terraform is the source of truth** for all non-secret configuration. Apply Terraform, then export repo vars from Terraform outputs. Secrets are set manually (see [infra/README.md](infra/README.md)).
+**Pulumi is the source of truth** for all non-secret configuration. Run `just pulumi` to apply infra and export repo vars. Secrets are set manually (see [infra/README.md](infra/README.md)).
 
-| Required (from Terraform) | Secrets (set manually) |
+| Required (from Pulumi) | Secrets (set manually) |
 |---------------------------|------------------------|
-| `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCP_SA_EMAIL`, `BMT_PUBSUB_SUBSCRIPTION` | `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` |
+| `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`, `GCP_SA_EMAIL` | `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY` |
 
-Required vars (e.g. `GCS_BUCKET`, `BMT_VM_NAME`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`, `BMT_PROJECTS`) are set from Terraform via `just terraform-export-vars-apply`; see [docs/configuration.md](docs/configuration.md).
-
-Useful commands: `just terraform-export-vars`, `just terraform-export-vars-apply`, `just repo-vars-check`, `just repo-vars-apply`, `just show-env`, `just validate-vm-vars`, `just sync-vm-metadata`, `just start-vm`, `just wait-handshake <workflow_run_id>`.
+Required vars (e.g. `GCS_BUCKET`, `BMT_LIVE_VM`, `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC`) are set from Pulumi; run `just pulumi` to apply infra and push repo vars to GitHub. See [docs/configuration.md](docs/configuration.md).
 
 See [docs/configuration.md](docs/configuration.md) and [infra/README.md](infra/README.md).
 
 ## GCS contract (summary)
 
 - **Roots** — `<code-root> = gs://<bucket>/code`; `<runtime-root> = gs://<bucket>/runtime`.
-- **Code root** — Deployable code/config/bootstrap from `gcp/code`; manual sync only.
+- **Code root** — Deployable code/config/bootstrap from `gcp/image`; manual sync only.
 - **Runtime root** — Triggers (`runs/`, `acks/`, `status/`), runner bundles, `current.json`, `snapshots/<run_id>/`.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/configuration.md](docs/configuration.md) for full layout.
 
 ## Local usage
 
-**Testing production CI locally with real VM/GCS:** Follow [Testing production CI locally](docs/testing-production-ci-locally.md). Set repo vars (or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_VM_NAME`), sync the mirror (`just sync-gcp`, `just verify-sync`), then run `just prod-ci-local` or the manual sequence in that doc. Use `just monitor` or `just gcs-trigger <run_id>` to inspect; verify in GCS or via Check Run. See also [docs/development.md](docs/development.md) and [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md).
+**Testing production CI locally with real VM/GCS:** Follow [Testing production CI locally](docs/development.md#testing-production-ci-locally). Set repo vars (or export `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `BMT_LIVE_VM`), run `just deploy`, then trigger a workflow (e.g. push or manual dispatch). Use `just monitor` or `just vm-check <run_id>` to inspect. See also [docs/development.md](docs/development.md) and [docs/architecture.md](docs/architecture.md).
 
-- **Local BMT batch** (no cloud): `uv run python tools/bmt_run_local.py --bmt-id ... --jobs-config ... --runner ... --runtime-root gcp/runtime --dataset-root ... --workers 4`. See [docs/development.md](docs/development.md).
-- **Bucket tools** (set `GCS_BUCKET`): `just sync-gcp`, `just verify-sync`, `just sync-runtime-seed`, `just upload-runner`, `just upload-wavs <source_dir>`, `just validate-bucket`.
+- **Local BMT batch** (no cloud): `uv run python -m tools.bmt.bmt_run_local` (env: `BMT_ID`, `BMT_JOBS_CONFIG`, `BMT_RUNNER`, `BMT_RUNTIME_ROOT`, `BMT_DATASET_ROOT`, etc.). See [docs/development.md](docs/development.md).
+- **Bucket tools** (set `GCS_BUCKET`): `uv run python -m tools.remote.bucket_sync_gcp`, `uv run python -m tools.remote.bucket_verify_gcp_sync`, `uv run python -m tools.remote.bucket_sync_runtime_seed`, `uv run python -m tools.remote.bucket_upload_runner`, `uv run python -m tools.remote.bucket_upload_wavs`, `uv run python -m tools.remote.bucket_validate_contract`.
 
 ## Repository layout
 
-- **gcp/code/** — Deployable VM code/config/templates; synced manually to `<code-root>`.
-- **gcp/runtime/** — Runtime seed (runners + placeholders); synced to `<runtime-root>`.
+- **gcp/image/** — Deployable VM code/config/templates; synced manually to `<code-root>`.
+- **gcp/remote/** — Runtime seed (runners + placeholders); synced to `<runtime-root>`.
 - **data/** — Local-only datasets; upload explicitly.
-- **infra/** — Terraform (source of truth for non-secret config), bootstrap scripts, and [infra/README.md](infra/README.md).
+- **infra/** — Pulumi (source of truth for non-secret config), bootstrap scripts, and [infra/README.md](infra/README.md).
 - **.github/** — Workflows and CI scripts.
-- **tools/** — Bucket sync, upload, validation, local BMT, Terraform export, repo-vars.
+- **tools/** — Bucket sync, upload, validation, local BMT, Pulumi export, repo-vars.
 - **.local/diagnostics/** — Ad-hoc diagnostics (gitignored).
 
 See [gcp/README.md](gcp/README.md) for canonical mirror policy.
 
 ## Documentation
 
-Full index: [docs/README.md](docs/README.md).
-
-| Doc | Description |
-|-----|--------------|
-| [README.md](README.md) | This file — **purpose** (test prod CI locally with real VM/GCS), features, config, local usage. |
-| [CLAUDE.md](CLAUDE.md) | AI/maintainer guide — purpose, code layout, time/clocks, devtools, lint/test, CI and VM layout, env vars. |
-| [docs/architecture.md](docs/architecture.md) | Trigger-and-stop, GCS contract, script map, diagrams. |
-| [docs/implementation.md](docs/implementation.md) | Data flow, reliability, limitations. |
-| [docs/development.md](docs/development.md) | Setup, testing, lint/typecheck, Justfile, deploy. |
-| [docs/configuration.md](docs/configuration.md) | Env contract, repo vars, VM metadata, secrets, bucket layout. |
-| [docs/communication-flow.md](docs/communication-flow.md) | Commit status and Check Runs; failure handling. |
-| [docs/github-app-permissions.md](docs/github-app-permissions.md) | GitHub App permissions and how to check them. |
-| [docs/github-actions-and-cli-tools.md](docs/github-actions-and-cli-tools.md) | Actions summaries, re-run, debug; `gh` CLI; retention policy. |
-| [docs/plans/future-architecture.md](docs/plans/future-architecture.md) | Planned changes (SDK, Pydantic, bmt_lib, PR comments). |
-| [docs/plans/high-level-design-improvements.md](docs/plans/high-level-design-improvements.md) | Purpose-driven design improvements (first-class local prod CI test, doc flow, production surface, test tiers). |
-| [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md) | Enabling BMT in production repo. |
-| [gcp/README.md](gcp/README.md) | Local bucket mirror policy. |
-| [gcp/code/bootstrap/README.md](gcp/code/bootstrap/README.md) | VM bootstrap and auth. |
+Full index: [docs/README.md](docs/README.md). Key: [architecture](docs/architecture.md), [configuration](docs/configuration.md), [development](docs/development.md) (incl. [test prod CI locally](docs/development.md#testing-production-ci-locally)), [adding a project](docs/adding-a-project.md), [ROADMAP](ROADMAP.md), [CONTRIBUTING](CONTRIBUTING.md). [CLAUDE.md](CLAUDE.md) — AI/maintainer guide. [gcp/README.md](gcp/README.md) — bucket mirror policy.
 
 ## Notes
 
 - Ad-hoc diagnostics: use `.local/diagnostics/` only; do not commit.
-- `uv run bmt ...` commands are for manual/local use only; `bmt.yml` drives normal CI execution.
-- Manual VM start: `just start-vm` (debug/maintenance/testing only); routine starts come from `bmt.yml`.
+- **BMT CLI from repo root:** Run `uv sync` then `uv run bmt <command>`. No `--project` is needed: the root workspace depends on the `bmt` package (`.github/bmt`), so the `bmt` script is available. In CI, the setup action runs `uv sync` from repo root, so steps use `uv run bmt ...` the same way.
+- **Shorthand scripts:** You can run `uv run bmt-matrix`, `uv run bmt-trigger`, `uv run bmt-wait`, `uv run bmt-write-context`, `uv run bmt-write-summary`, `uv run bmt-select-vm`, `uv run bmt-start-vm` instead of `uv run bmt matrix`, `uv run bmt write-run-trigger`, etc. (see `[project.scripts]` in `.github/bmt/pyproject.toml`).
+- `uv run bmt ...` commands are for manual/local use only; `bmt-handoff.yml` drives normal CI execution.
+- Manual VM start: run `uv run bmt start-vm --allow-manual-start` (debug/maintenance only); routine starts come from `bmt-handoff.yml`.
 
 ## Test vs production
 
-When moving to production: update GitHub App credentials and repo mapping (`gcp/code/config/github_repos.json`), and ensure Terraform (and thus `BMT_STATUS_CONTEXT`) matches branch protection. See [docs/plans/migration-to-production.md](docs/plans/migration-to-production.md).
+When moving to production: update GitHub App credentials and repo mapping (`gcp/image/config/github_repos.json`), and ensure Pulumi (and thus `BMT_STATUS_CONTEXT`) matches branch protection. See [docs/configuration.md](docs/configuration.md) and [docs/development.md](docs/development.md).
