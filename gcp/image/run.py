@@ -521,12 +521,18 @@ def _secretmanager_location() -> str | None:
 
 
 def _access_secret(secret_name: str, project: str, location: str | None) -> str:
-    cmd = ["gcloud", "secrets", "versions", "access", "latest", "--secret", secret_name, "--project", project]
+    base_cmd = ["gcloud", "secrets", "versions", "access", "latest", "--secret", secret_name, "--project", project]
+    cmd = [*base_cmd]
     if location:
         cmd.extend(["--location", location])
     r = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if r.returncode == 0:
         return r.stdout.strip()
+    # Fallback for global/non-regional secrets when location-scoped lookup fails.
+    if location:
+        r2 = subprocess.run(base_cmd, capture_output=True, text=True, check=False)
+        if r2.returncode == 0:
+            return r2.stdout.strip()
     return ""
 
 
