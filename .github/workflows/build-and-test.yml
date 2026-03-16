@@ -143,8 +143,8 @@ jobs:
         run: |
           echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
-  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 5 jobs, build_release → resolve_bmt_request → confirm_cloud_job_start.
-  resolve_bmt_request:
+  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 5 jobs, build_release → bmt_handoff → confirm_cloud_job_start.
+  bmt_handoff:
     name: Resolve BMT Request
     needs: build_release
     if: >-
@@ -180,13 +180,13 @@ jobs:
 
   confirm_cloud_job_start:
     name: Confirm Cloud Job Start
-    needs: resolve_bmt_request
+    needs: bmt_handoff
     if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-22.04
     steps:
       - name: Log BMT result
         run: |
-          echo "::notice::BMT dispatch confirmed: ${{ needs.resolve_bmt_request.outputs.bmt_dispatch_confirmed }}"
-          echo "::notice::BMT final state: ${{ needs.resolve_bmt_request.outputs.bmt_final_state }}"
-          echo "::notice::BMT gate passed: ${{ needs.resolve_bmt_request.outputs.bmt_gate_passed }}"
-          echo "::notice::BMT recovery path used: ${{ needs.resolve_bmt_request.outputs.bmt_recovery_used }}"
+          echo "::notice::BMT dispatch confirmed: ${{ needs.bmt_handoff.outputs.bmt_dispatch_confirmed }}"
+          echo "::notice::BMT final state: ${{ needs.bmt_handoff.outputs.bmt_final_state }}"
+          echo "::notice::BMT gate passed: ${{ needs.bmt_handoff.outputs.bmt_gate_passed }}"
+          echo "::notice::BMT recovery path used: ${{ needs.bmt_handoff.outputs.bmt_recovery_used }}"

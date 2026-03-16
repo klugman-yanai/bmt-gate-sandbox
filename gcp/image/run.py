@@ -117,6 +117,7 @@ def run_task(config: TaskConfig) -> int:
         return 1
 
     workflow_run_id = (trigger.get("workflow_run_id") or "").strip() or "?"
+    _write_cloud_start_ack(bucket_root=bucket_root, workflow_run_id=workflow_run_id, task_index=config.task_index)
     requested_legs = resolve_legs(trigger, config.repo_root)
 
     if config.task_index >= len(requested_legs):
@@ -180,6 +181,21 @@ def run_task(config: TaskConfig) -> int:
     )
 
     return exit_code
+
+
+def _write_cloud_start_ack(*, bucket_root: str, workflow_run_id: str, task_index: int) -> None:
+    """Write a lightweight ack artifact when a Cloud Run task starts."""
+    from gcp.image.utils import _now_iso
+
+    ack_uri = _bucket_uri(bucket_root, f"triggers/acks/{workflow_run_id}.json")
+    payload = {
+        "ack_type": "cloud_job_started",
+        "workflow_run_id": workflow_run_id,
+        "task_index": task_index,
+        "started_at": _now_iso(),
+    }
+    if not _gcloud_upload_json(ack_uri, payload):
+        logger.warning("Task start ack upload failed: %s", ack_uri)
 
 
 def _write_rejected_summary_artifact(
