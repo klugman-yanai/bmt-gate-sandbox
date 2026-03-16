@@ -1,7 +1,7 @@
 name: CI
 
 # Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 5 jobs, no image-check.
-# prepare-build-context → build-release + build-nonrelease (parallel) → bmt-handoff → bmt-gate-summary.
+# prepare-build-context → build-release + build-nonrelease (parallel) → bmt-cloud-dispatch → bmt-dispatch-summary.
 on:
   push:
     branches:
@@ -140,8 +140,8 @@ jobs:
         run: |
           echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
-  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 5 jobs, build-release → bmt-handoff → bmt-gate-summary.
-  bmt-handoff:
+  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 5 jobs, build-release → bmt-cloud-dispatch → bmt-dispatch-summary.
+  bmt-cloud-dispatch:
     needs: build-release
     if: >-
       success()
@@ -174,12 +174,14 @@ jobs:
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
     secrets: inherit
 
-  bmt-gate-summary:
-    needs: bmt-handoff
+  bmt-dispatch-summary:
+    needs: bmt-cloud-dispatch
     if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-22.04
     steps:
       - name: Log BMT result
         run: |
-          echo "::notice::BMT gate passed: ${{ needs.bmt-handoff.outputs.bmt_gate_passed }}"
-          echo "::notice::BMT failure fallback ran: ${{ needs.bmt-handoff.outputs.bmt_fallback_run }}"
+          echo "::notice::BMT dispatch confirmed: ${{ needs.bmt-cloud-dispatch.outputs.bmt_dispatch_confirmed }}"
+          echo "::notice::BMT final state: ${{ needs.bmt-cloud-dispatch.outputs.bmt_final_state }}"
+          echo "::notice::BMT gate passed: ${{ needs.bmt-cloud-dispatch.outputs.bmt_gate_passed }}"
+          echo "::notice::BMT recovery path used: ${{ needs.bmt-cloud-dispatch.outputs.bmt_recovery_used }}"

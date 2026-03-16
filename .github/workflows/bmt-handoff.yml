@@ -6,7 +6,7 @@ on:
     inputs:
       ci_run_id:
         description: >
-          GitHub run ID of the workflow that triggered this handoff (e.g. build-and-test).
+          GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
           Used to download runner artifacts from that run.
         required: true
         type: string
@@ -40,7 +40,7 @@ on:
     inputs:
       ci_run_id:
         description: >
-          GitHub run ID of the workflow that triggered this handoff (e.g. build-and-test).
+          GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
           Used to download runner artifacts from that run.
         required: true
         type: string
@@ -72,11 +72,20 @@ on:
         default: "[]"
     outputs:
       bmt_gate_passed:
-        description: "True only when trigger dispatch succeeded and final BMT status context is success."
-        value: ${{ jobs.report_gate.outputs.bmt_gate_passed }}
+        description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_gate_passed }}
+      bmt_dispatch_confirmed:
+        description: "True when trigger dispatch to cloud runtime is confirmed."
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_dispatch_confirmed }}
+      bmt_final_state:
+        description: "Dispatch pipeline terminal state for this workflow (dispatched_async or dispatch_failed)."
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_final_state }}
+      bmt_recovery_used:
+        description: "True if context/dispatch failed and recovery fallback path ran."
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_recovery_used }}
       bmt_fallback_run:
-        description: "True if context/dispatch failed and failure-fallback path ran."
-        value: ${{ jobs.report_gate.outputs.bmt_fallback_run }}
+        description: "Deprecated alias of bmt_recovery_used."
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_recovery_used }}
 
 concurrency:
   group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
@@ -99,9 +108,9 @@ permissions:
   actions: read
 
 jobs:
-  # Eventarc DAG: resolve_context -> validate_runners -> dispatch_eventarc -> report_gate (waits final BMT verdict).
-  resolve_context:
-    name: Resolve BMT Context
+  # Cloud dispatch DAG: prepare_dispatch -> verify_runner_assets -> dispatch_cloud_trigger -> confirm_gate_outcome.
+  prepare_dispatch:
+    name: Prepare Dispatch Context
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
@@ -115,11 +124,6 @@ jobs:
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
       matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
-      selected_vm: ${{ '' }}
-      vm_reused_running: ${{ 'false' }}
-      restart_vm: ${{ 'false' }}
-      stale_cleanup_count: ${{ '0' }}
-      vm_started: ${{ 'false' }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -154,12 +158,12 @@ jobs:
         run: uv run bmt write-context && uv run bmt filter-upload-matrix
 
       - name: Workflow summary notice
-        run: echo "::notice::Workflow will wait for final BMT status context and fail if verdict is not success."
-  # Validate requested runners exist in repo (no build/upload); write marker so handoff can request real BMT from VM.
-  validate_runners:
-    name: Validate runner • ${{ matrix.project }}
-    needs: resolve_context
-    if: needs.resolve_context.outputs.matrix_need_upload_keys != '[]'
+        run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
+  # Validate requested runners exist in repo (no build/upload) before cloud dispatch.
+  verify_runner_assets:
+    name: Verify Runner Assets • ${{ matrix.project }}
+    needs: prepare_dispatch
+    if: needs.prepare_dispatch.outputs.matrix_need_upload_keys != '[]'
     runs-on: ubuntu-22.04
     continue-on-error: true
     permissions:
@@ -167,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJson(needs.resolve_context.outputs.matrix_need_upload || '{"include":[]}') }}
+      matrix: ${{ fromJson(needs.prepare_dispatch.outputs.matrix_need_upload || '{"include":[]}') }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -189,35 +193,29 @@ jobs:
           PRESET: ${{ matrix.preset }}
         run: uv run bmt validate-runner-in-repo
 
-  dispatch_eventarc:
-    name: Dispatch Eventarc Trigger
-    needs: [resolve_context, validate_runners]
+  dispatch_cloud_trigger:
+    name: Dispatch Cloud Runtime Trigger
+    needs: [prepare_dispatch, verify_runner_assets]
     if: >-
       !cancelled()
-      && needs.resolve_context.result == 'success'
-      && (needs['validate_runners'].result == 'success' || needs['validate_runners'].result == 'skipped')
+      && needs.prepare_dispatch.result == 'success'
+      && (needs['verify_runner_assets'].result == 'success' || needs['verify_runner_assets'].result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
     outputs:
       # Step-level results for failure-fallback diagnostics
       classify_result: ${{ steps.classify.outcome || 'skipped' }}
-      handoff_result: ${{ steps.run-eventarc.outcome || 'skipped' }}
+      dispatch_result: ${{ steps.run-eventarc.outcome || 'skipped' }}
       # Classify outputs
       classify_path: ${{ steps.classify.outputs.path || 'unknown' }}
       has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
       accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
       filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
-      # Handshake-run outputs (VM ack, trigger, etc.)
-      selected_vm: ${{ steps.run-eventarc.outputs.selected_vm || '' }}
+      # Dispatch outputs
+      dispatch_confirmed: ${{ steps.run-eventarc.outputs.dispatch_confirmed || 'false' }}
+      dispatch_reason: ${{ steps.run-eventarc.outputs.dispatch_reason || '' }}
       trigger_written: ${{ steps.run-eventarc.outputs.trigger_written || 'false' }}
-      handshake_ok: ${{ steps.run-eventarc.outputs.handshake_ok || 'false' }}
-      handshake_uri: ${{ steps.run-eventarc.outputs.handshake_uri || '' }}
-      vm_started: ${{ steps.run-eventarc.outputs.vm_started || 'false' }}
-      handoff_reason: ${{ steps.run-eventarc.outputs.handoff_reason || '' }}
-      handshake_reason_code: ${{ steps.run-eventarc.outputs.handshake_reason_code || '' }}
-      handshake_reason_detail: ${{ steps.run-eventarc.outputs.handshake_reason_detail || '' }}
-      handshake_diagnostics_uri: ${{ steps.run-eventarc.outputs.handshake_diagnostics_uri || '' }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -238,8 +236,8 @@ jobs:
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
         with:
-          head_sha: ${{ needs.resolve_context.outputs.head_sha }}
-          runner_matrix: ${{ needs.resolve_context.outputs.runner_matrix }}
+          head_sha: ${{ needs.prepare_dispatch.outputs.head_sha }}
+          runner_matrix: ${{ needs.prepare_dispatch.outputs.runner_matrix }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           setup_gcp: "false"
@@ -248,46 +246,40 @@ jobs:
         shell: bash
         env:
           FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
-          RUN_CONTEXT: ${{ needs.resolve_context.outputs.run_context }}
-          HEAD_EVENT: ${{ needs.resolve_context.outputs.head_event }}
-          HEAD_SHA: ${{ needs.resolve_context.outputs.head_sha }}
-          HEAD_BRANCH: ${{ needs.resolve_context.outputs.head_branch }}
-          PR_NUMBER: ${{ needs.resolve_context.outputs.pr_number }}
+          RUN_CONTEXT: ${{ needs.prepare_dispatch.outputs.run_context }}
+          HEAD_EVENT: ${{ needs.prepare_dispatch.outputs.head_event }}
+          HEAD_SHA: ${{ needs.prepare_dispatch.outputs.head_sha }}
+          HEAD_BRANCH: ${{ needs.prepare_dispatch.outputs.head_branch }}
+          PR_NUMBER: ${{ needs.prepare_dispatch.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           uv run bmt write-context
           uv run bmt write-run-trigger
-          echo "selected_vm=" >> "$GITHUB_OUTPUT"
+          echo "dispatch_confirmed=true" >> "$GITHUB_OUTPUT"
           echo "trigger_written=true" >> "$GITHUB_OUTPUT"
-          echo "handshake_ok=true" >> "$GITHUB_OUTPUT"
-          echo "handshake_uri=" >> "$GITHUB_OUTPUT"
-          echo "vm_started=false" >> "$GITHUB_OUTPUT"
-          echo "handoff_reason=ok_eventarc_trigger_written" >> "$GITHUB_OUTPUT"
-          echo "handshake_reason_code=" >> "$GITHUB_OUTPUT"
-          echo "handshake_reason_detail=eventarc_async" >> "$GITHUB_OUTPUT"
-          echo "handshake_diagnostics_uri=" >> "$GITHUB_OUTPUT"
+          echo "dispatch_reason=ok_eventarc_trigger_written" >> "$GITHUB_OUTPUT"
 
-      - name: Write handoff summary (Eventarc trigger-only)
+      - name: Write dispatch summary (trigger confirmed)
         uses: ./.github/actions/bmt-write-summary
         with:
           mode: run_success
           repository: ${{ github.repository }}
-          head_sha: ${{ needs.resolve_context.outputs.head_sha }}
-          head_branch: ${{ needs.resolve_context.outputs.head_branch }}
-          pr_number: ${{ needs.resolve_context.outputs.pr_number }}
+          head_sha: ${{ needs.prepare_dispatch.outputs.head_sha }}
+          head_branch: ${{ needs.prepare_dispatch.outputs.head_branch }}
+          pr_number: ${{ needs.prepare_dispatch.outputs.pr_number }}
           filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
           trigger_written: "true"
           vm_started: "false"
           handshake_ok: "true"
-          handoff_state_line: "Handoff complete: trigger written to GCS; Eventarc/Workflow will execute asynchronously."
+          handoff_state_line: "Dispatch confirmed: trigger written to GCS; cloud runtime processing is in progress."
           gcp_project: ${{ env.GCP_PROJECT }}
           gcp_zone: ${{ env.GCP_ZONE }}
           gcs_bucket: ${{ env.GCS_BUCKET }}
 
-  report_gate:
-    name: Report BMT Gate Outcome
-    needs: [resolve_context, dispatch_eventarc]
+  confirm_gate_outcome:
+    name: Confirm Dispatch Outcome
+    needs: [prepare_dispatch, dispatch_cloud_trigger]
     if: always()
     runs-on: ubuntu-22.04
     permissions:
@@ -296,12 +288,14 @@ jobs:
       contents: read
     outputs:
       bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
-      bmt_fallback_run: ${{ steps.outcome.outputs.bmt_fallback_run }}
+      bmt_dispatch_confirmed: ${{ steps.outcome.outputs.bmt_dispatch_confirmed }}
+      bmt_final_state: ${{ steps.outcome.outputs.bmt_final_state }}
+      bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
     steps:
       - id: set-fallback
         run: |
-          r="${{ needs.resolve_context.result }}"
-          d="${{ needs.dispatch_eventarc.result }}"
+          r="${{ needs.prepare_dispatch.result }}"
+          d="${{ needs.dispatch_cloud_trigger.result }}"
           if [[ "$r" == "failure" || "$d" == "failure" || "$r" == "cancelled" || "$d" == "cancelled" ]]; then
             echo "run_fallback=true" >> "$GITHUB_OUTPUT"
           else
@@ -337,11 +331,11 @@ jobs:
         if: steps.set-fallback.outputs.run_fallback == 'true'
         uses: ./.github/actions/bmt-failure-fallback
         with:
-          handshake_outputs: ${{ toJson(needs.dispatch_eventarc.outputs) }}
-          setup_outputs: ${{ toJson(needs.resolve_context.outputs) }}
-          prepare_result: ${{ needs.resolve_context.result }}
-          classify_result: ${{ needs.dispatch_eventarc.outputs.classify_result }}
-          handoff_result: ${{ needs.dispatch_eventarc.outputs.handoff_result == 'skipped' && 'success' || needs.dispatch_eventarc.outputs.handoff_result }}
+          handshake_outputs: ${{ toJson(needs.dispatch_cloud_trigger.outputs) }}
+          setup_outputs: ${{ toJson(needs.prepare_dispatch.outputs) }}
+          prepare_result: ${{ needs.prepare_dispatch.result }}
+          classify_result: ${{ needs.dispatch_cloud_trigger.outputs.classify_result }}
+          handoff_result: ${{ needs.dispatch_cloud_trigger.outputs.dispatch_result == 'skipped' && 'success' || needs.dispatch_cloud_trigger.outputs.dispatch_result }}
           dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
           dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
           fallback_ref: ${{ github.sha }}
@@ -349,73 +343,21 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
           bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
 
-      - name: Set BMT constants for verdict wait
-        if: steps.set-fallback.outputs.run_fallback != 'true'
-        id: bmt-verdict-constants
-        run: |
-          STATUS_CONTEXT="${BMT_STATUS_CONTEXT}"
-          echo "status_context=$STATUS_CONTEXT" >> "$GITHUB_OUTPUT"
-          echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
-
-      - name: Wait for final BMT status context
-        if: steps.set-fallback.outputs.run_fallback != 'true'
-        id: wait-verdict
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ needs.resolve_context.outputs.head_sha }}
-          STATUS_CONTEXT: ${{ steps.bmt-verdict-constants.outputs.status_context }}
-          TIMEOUT_SEC: "5400"
-          POLL_SEC: "20"
-        shell: bash
-        run: |
-          set -euo pipefail
-          deadline=$(( $(date +%s) + TIMEOUT_SEC ))
-          verdict_state=""
-          verdict_target_url=""
-          verdict_desc=""
-          while [[ $(date +%s) -lt "$deadline" ]]; do
-            status_json="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/status")"
-            match_json="$(jq -c --arg ctx "${STATUS_CONTEXT}" '[.statuses[] | select(.context == $ctx)] | first // {}' <<<"${status_json}")"
-            verdict_state="$(jq -r '.state // ""' <<<"${match_json}")"
-            verdict_target_url="$(jq -r '.target_url // ""' <<<"${match_json}")"
-            verdict_desc="$(jq -r '.description // ""' <<<"${match_json}")"
-            if [[ -z "${verdict_state}" || "${verdict_state}" == "pending" ]]; then
-              sleep "${POLL_SEC}"
-              continue
-            fi
-            break
-          done
-
-          if [[ -z "${verdict_state}" || "${verdict_state}" == "pending" ]]; then
-            echo "::error::Timed out waiting for status context '${STATUS_CONTEXT}' on ${HEAD_SHA}."
-            echo "verdict_state=timeout" >> "$GITHUB_OUTPUT"
-            echo "verdict_passed=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          echo "::notice::BMT status context '${STATUS_CONTEXT}' resolved to '${verdict_state}'."
-          [[ -n "${verdict_desc}" ]] && echo "::notice::${verdict_desc}"
-          [[ -n "${verdict_target_url}" ]] && echo "::notice::Details: ${verdict_target_url}"
-          echo "verdict_state=${verdict_state}" >> "$GITHUB_OUTPUT"
-          echo "verdict_target_url=${verdict_target_url}" >> "$GITHUB_OUTPUT"
-          if [[ "${verdict_state}" == "success" ]]; then
-            echo "verdict_passed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "verdict_passed=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
       - id: outcome
         run: |
           if [[ "${{ steps.set-fallback.outputs.run_fallback }}" == "true" ]]; then
             echo "bmt_gate_passed=false" >> "$GITHUB_OUTPUT"
+            echo "bmt_dispatch_confirmed=false" >> "$GITHUB_OUTPUT"
+            echo "bmt_final_state=dispatch_failed" >> "$GITHUB_OUTPUT"
           else
-            echo "bmt_gate_passed=${{ steps.wait-verdict.outputs.verdict_passed == 'true' }}" >> "$GITHUB_OUTPUT"
+            echo "bmt_gate_passed=${{ needs.dispatch_cloud_trigger.outputs.dispatch_confirmed == 'true' }}" >> "$GITHUB_OUTPUT"
+            echo "bmt_dispatch_confirmed=${{ needs.dispatch_cloud_trigger.outputs.dispatch_confirmed == 'true' }}" >> "$GITHUB_OUTPUT"
+            echo "bmt_final_state=dispatched_async" >> "$GITHUB_OUTPUT"
           fi
-          echo "bmt_fallback_run=${{ needs.resolve_context.result != 'cancelled' && needs.dispatch_eventarc.result != 'cancelled' && (needs.resolve_context.result == 'failure' || needs.dispatch_eventarc.result == 'failure') }}" >> "$GITHUB_OUTPUT"
+          echo "bmt_recovery_used=${{ needs.prepare_dispatch.result != 'cancelled' && needs.dispatch_cloud_trigger.result != 'cancelled' && (needs.prepare_dispatch.result == 'failure' || needs.dispatch_cloud_trigger.result == 'failure') }}" >> "$GITHUB_OUTPUT"
 
       - name: Fail job when BMT did not pass
         if: steps.outcome.outputs.bmt_gate_passed != 'true'
         run: |
-          echo "::error::BMT gate did not pass (fallback path, timeout, or non-success final verdict)."
+          echo "::error::BMT dispatch did not complete successfully."
           exit 1
