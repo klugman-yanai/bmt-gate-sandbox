@@ -73,19 +73,19 @@ on:
     outputs:
       bmt_gate_passed:
         description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
-        value: ${{ jobs.dispatch_cloud_trigger.outputs.bmt_gate_passed }}
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_gate_passed }}
       bmt_dispatch_confirmed:
         description: "True when trigger dispatch to cloud runtime is confirmed."
-        value: ${{ jobs.dispatch_cloud_trigger.outputs.bmt_dispatch_confirmed }}
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_dispatch_confirmed }}
       bmt_final_state:
         description: "Dispatch pipeline terminal state for this workflow (dispatched_async or dispatch_failed)."
-        value: ${{ jobs.dispatch_cloud_trigger.outputs.bmt_final_state }}
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_final_state }}
       bmt_recovery_used:
         description: "True if context/dispatch failed and recovery fallback path ran."
-        value: ${{ jobs.dispatch_cloud_trigger.outputs.bmt_recovery_used }}
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_recovery_used }}
       bmt_fallback_run:
         description: "Deprecated alias of bmt_recovery_used."
-        value: ${{ jobs.dispatch_cloud_trigger.outputs.bmt_recovery_used }}
+        value: ${{ jobs.confirm_gate_outcome.outputs.bmt_recovery_used }}
 
 concurrency:
   group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
@@ -108,9 +108,9 @@ permissions:
   actions: read
 
 jobs:
-  # Cloud dispatch DAG: prepare_dispatch -> dispatch_cloud_trigger.
+  # Cloud dispatch DAG: Resolve BMT Request -> Publish Runners/Libs -> Confirm Cloud Job Start -> Confirm Dispatch Outcome.
   prepare_dispatch:
-    name: Prepare Dispatch Context
+    name: Resolve BMT Request
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
@@ -159,22 +159,63 @@ jobs:
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
-  dispatch_cloud_trigger:
-    name: Dispatch Cloud Runtime Trigger
+  # Validate requested runners exist in repo (no build/upload) before cloud dispatch.
+  verify_runner_assets:
+    name: Publish Runners/Libs • ${{ matrix.project }}
     needs: prepare_dispatch
+    if: needs.prepare_dispatch.outputs.matrix_need_upload_keys != '[]'
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    permissions:
+      id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJson(needs.prepare_dispatch.outputs.matrix_need_upload || '{"include":[]}') }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          python_version: "3.12"
+
+      - name: Validate requested runner exists in repo
+        id: validate
+        env:
+          PROJECT: ${{ matrix.project }}
+          PRESET: ${{ matrix.preset }}
+        run: uv run bmt validate-runner-in-repo
+
+  dispatch_cloud_trigger:
+    name: Confirm Cloud Job Start
+    needs: [prepare_dispatch, verify_runner_assets]
     if: >-
       !cancelled()
       && needs.prepare_dispatch.result == 'success'
+      && (needs['verify_runner_assets'].result == 'success' || needs['verify_runner_assets'].result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
-      statuses: write
-      contents: read
     outputs:
-      bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
-      bmt_dispatch_confirmed: ${{ steps.outcome.outputs.bmt_dispatch_confirmed }}
-      bmt_final_state: ${{ steps.outcome.outputs.bmt_final_state }}
-      bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
+      # Step-level results for failure-fallback diagnostics
+      classify_result: ${{ steps.classify.outcome || 'skipped' }}
+      dispatch_result: ${{ steps.run-eventarc.outcome || 'skipped' }}
+      # Classify outputs
+      classify_path: ${{ steps.classify.outputs.path || 'unknown' }}
+      has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
+      accepted_projects: ${{ steps.classify.outputs.accepted_projects || '[]' }}
+      filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
+      # Dispatch outputs
+      dispatch_confirmed: ${{ steps.run-eventarc.outputs.dispatch_confirmed || 'false' }}
+      dispatch_reason: ${{ steps.run-eventarc.outputs.dispatch_reason || '' }}
+      trigger_written: ${{ steps.run-eventarc.outputs.trigger_written || 'false' }}
     steps:
       - name: Checkout repo (for local actions)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -192,28 +233,7 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
           python_version: "3.12"
 
-      - name: Validate requested runners in repo
-        id: validate-runners
-        continue-on-error: true
-        env:
-          MATRIX_JSON: ${{ needs.prepare_dispatch.outputs.matrix_need_upload || '{"include":[]}' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          count="$(jq -r '.include | length' <<<"${MATRIX_JSON}")"
-          if [[ "${count}" == "0" ]]; then
-            echo "::notice::No runner validation required for this dispatch."
-            exit 0
-          fi
-          jq -c '.include[]' <<<"${MATRIX_JSON}" | while read -r row; do
-            export PROJECT="$(jq -r '.project' <<<"${row}")"
-            export PRESET="$(jq -r '.preset' <<<"${row}")"
-            uv run bmt validate-runner-in-repo
-          done
-
       - id: classify
-        continue-on-error: true
-        if: steps.validate-runners.outcome == 'success'
         uses: ./.github/actions/bmt-filter-handoff-matrix
         with:
           head_sha: ${{ needs.prepare_dispatch.outputs.head_sha }}
@@ -223,8 +243,6 @@ jobs:
           setup_gcp: "false"
 
       - id: run-eventarc
-        continue-on-error: true
-        if: steps.classify.outcome == 'success'
         shell: bash
         env:
           FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
@@ -243,7 +261,6 @@ jobs:
           echo "dispatch_reason=ok_eventarc_trigger_written" >> "$GITHUB_OUTPUT"
 
       - name: Write dispatch summary (trigger confirmed)
-        if: steps.run-eventarc.outcome == 'success'
         uses: ./.github/actions/bmt-write-summary
         with:
           mode: run_success
@@ -259,46 +276,66 @@ jobs:
           gcp_project: ${{ env.GCP_PROJECT }}
           gcp_zone: ${{ env.GCP_ZONE }}
           gcs_bucket: ${{ env.GCS_BUCKET }}
+
+  confirm_gate_outcome:
+    name: Confirm Dispatch Outcome
+    needs: [prepare_dispatch, dispatch_cloud_trigger]
+    if: always()
+    runs-on: ubuntu-22.04
+    permissions:
+      id-token: write
+      statuses: write
+      contents: read
+    outputs:
+      bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
+      bmt_dispatch_confirmed: ${{ steps.outcome.outputs.bmt_dispatch_confirmed }}
+      bmt_final_state: ${{ steps.outcome.outputs.bmt_final_state }}
+      bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
+    steps:
+      - id: set-fallback
+        run: |
+          r="${{ needs.prepare_dispatch.result }}"
+          d="${{ needs.dispatch_cloud_trigger.result }}"
+          if [[ "$r" == "failure" || "$d" == "failure" || "$r" == "cancelled" || "$d" == "cancelled" ]]; then
+            echo "run_fallback=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_fallback=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repo (for local actions)
+        if: steps.set-fallback.outputs.run_fallback == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+          fetch-depth: 1
+          sparse-checkout: |
+            .github
+            gcp
+
+      - uses: ./.github/actions/setup-gcp-uv
+        if: steps.set-fallback.outputs.run_fallback == 'true'
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          python_version: "3.12"
+
       - name: Set BMT constants for fallback
-        if: steps.run-eventarc.outcome != 'success'
+        if: steps.set-fallback.outputs.run_fallback == 'true'
         id: bmt-constants
         run: |
           STATUS_CONTEXT=$(uv run python -c "from gcp.image.config.constants import STATUS_CONTEXT; print(STATUS_CONTEXT)")
           echo "status_context=$STATUS_CONTEXT" >> "$GITHUB_OUTPUT"
           echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
 
-      - name: Build fallback inputs
-        if: steps.run-eventarc.outcome != 'success'
-        id: fallback-inputs
-        shell: bash
-        run: |
-          handshake_json="$(jq -nc \
-            --arg classify_path "${{ steps.classify.outputs.path || 'unknown' }}" \
-            --arg has_legs "${{ steps.classify.outputs.has_legs || 'false' }}" \
-            --arg accepted_projects "${{ steps.classify.outputs.accepted_projects || '[]' }}" \
-            --arg filtered_matrix "${{ steps.classify.outputs.filtered_matrix || '{\"include\":[]}' }}" \
-            --arg trigger_written "${{ steps.run-eventarc.outputs.trigger_written || 'false' }}" \
-            --arg dispatch_reason "${{ steps.run-eventarc.outputs.dispatch_reason || '' }}" \
-            '{classify_path:$classify_path, has_legs:$has_legs, accepted_projects:$accepted_projects, filtered_matrix:$filtered_matrix, trigger_written:$trigger_written, dispatch_reason:$dispatch_reason}')"
-          setup_json="$(jq -nc \
-            --arg head_sha "${{ needs.prepare_dispatch.outputs.head_sha }}" \
-            --arg head_branch "${{ needs.prepare_dispatch.outputs.head_branch }}" \
-            --arg head_event "${{ needs.prepare_dispatch.outputs.head_event }}" \
-            --arg pr_number "${{ needs.prepare_dispatch.outputs.pr_number }}" \
-            --arg runner_matrix "${{ needs.prepare_dispatch.outputs.runner_matrix }}" \
-            '{head_sha:$head_sha, head_branch:$head_branch, head_event:$head_event, pr_number:$pr_number, runner_matrix:$runner_matrix}')"
-          echo "handshake_outputs=${handshake_json}" >> "$GITHUB_OUTPUT"
-          echo "setup_outputs=${setup_json}" >> "$GITHUB_OUTPUT"
-
       - name: Failure fallback
-        if: steps.run-eventarc.outcome != 'success'
+        if: steps.set-fallback.outputs.run_fallback == 'true'
         uses: ./.github/actions/bmt-failure-fallback
         with:
-          handshake_outputs: ${{ steps.fallback-inputs.outputs.handshake_outputs }}
-          setup_outputs: ${{ steps.fallback-inputs.outputs.setup_outputs }}
+          handshake_outputs: ${{ toJson(needs.dispatch_cloud_trigger.outputs) }}
+          setup_outputs: ${{ toJson(needs.prepare_dispatch.outputs) }}
           prepare_result: ${{ needs.prepare_dispatch.result }}
-          classify_result: ${{ steps.classify.outcome || 'failure' }}
-          handoff_result: ${{ steps.run-eventarc.outcome || 'failure' }}
+          classify_result: ${{ needs.dispatch_cloud_trigger.outputs.classify_result }}
+          handoff_result: ${{ needs.dispatch_cloud_trigger.outputs.dispatch_result == 'skipped' && 'success' || needs.dispatch_cloud_trigger.outputs.dispatch_result }}
           dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
           dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
           fallback_ref: ${{ github.sha }}
@@ -307,19 +344,17 @@ jobs:
           bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
 
       - id: outcome
-        if: always()
         run: |
-          if [[ "${{ steps.validate-runners.outcome }}" == "success" && "${{ steps.classify.outcome }}" == "success" && "${{ steps.run-eventarc.outcome }}" == "success" ]]; then
-            echo "bmt_gate_passed=true" >> "$GITHUB_OUTPUT"
-            echo "bmt_dispatch_confirmed=true" >> "$GITHUB_OUTPUT"
-            echo "bmt_final_state=dispatched_async" >> "$GITHUB_OUTPUT"
-            echo "bmt_recovery_used=false" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "${{ steps.set-fallback.outputs.run_fallback }}" == "true" ]]; then
             echo "bmt_gate_passed=false" >> "$GITHUB_OUTPUT"
             echo "bmt_dispatch_confirmed=false" >> "$GITHUB_OUTPUT"
             echo "bmt_final_state=dispatch_failed" >> "$GITHUB_OUTPUT"
-            echo "bmt_recovery_used=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bmt_gate_passed=${{ needs.dispatch_cloud_trigger.outputs.dispatch_confirmed == 'true' }}" >> "$GITHUB_OUTPUT"
+            echo "bmt_dispatch_confirmed=${{ needs.dispatch_cloud_trigger.outputs.dispatch_confirmed == 'true' }}" >> "$GITHUB_OUTPUT"
+            echo "bmt_final_state=dispatched_async" >> "$GITHUB_OUTPUT"
           fi
+          echo "bmt_recovery_used=${{ needs.prepare_dispatch.result != 'cancelled' && needs.dispatch_cloud_trigger.result != 'cancelled' && (needs.prepare_dispatch.result == 'failure' || needs.dispatch_cloud_trigger.result == 'failure') }}" >> "$GITHUB_OUTPUT"
 
       - name: Fail job when BMT did not pass
         if: steps.outcome.outputs.bmt_gate_passed != 'true'
