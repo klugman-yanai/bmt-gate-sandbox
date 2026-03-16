@@ -257,7 +257,7 @@ def _read_task_summary_after_orchestrator(
         return None
 
 
-def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # noqa: C901
+def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # noqa: C901, PLR0915
     """Coordinator: read all leg summaries from GCS, aggregate verdicts, post GitHub status/Check Run, update pointers, cleanup.
 
     Expects GITHUB_TOKEN (or equivalent) in env for posting status and Check Run.
@@ -282,6 +282,7 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
     workflow_run_id = (trigger.get("workflow_run_id") or "").strip() or config.workflow_run_id
     repository = (trigger.get("repository") or "").strip()
     sha = (trigger.get("sha") or "").strip()
+    pr_number = _coordinator_pr_number(trigger)
 
     requested_legs = resolve_legs(trigger, config.repo_root)
     accepted_legs, _rejected = split_legs(requested_legs)
@@ -306,14 +307,16 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
     state, description = _coordinator_aggregate(leg_summaries)
     runtime_bucket_root = bucket_root
 
-    github_token = os.environ.get("GITHUB_TOKEN", "").strip()
-    if not github_token:
-        github_token = os.environ.get("BMT_GITHUB_TOKEN", "").strip()
+    github_token = _coordinator_resolve_github_token(repository)
 
-    def _token_resolver(_repo: str) -> str | None:
-        return github_token or None
+    def _token_resolver(repo: str) -> str | None:
+        if github_token:
+            return github_token
+        return _coordinator_resolve_github_token(repo)
 
-    gate_status_context = os.environ.get("BMT_STATUS_CONTEXT", "BMT Gate")
+    gate_status_context = os.environ.get("BMT_STATUS_CONTEXT", "").strip() or str(
+        trigger.get("status_context") or "BMT Gate"
+    )
     run_id = workflow_run_id
 
     log_dump_url: str | None = None
@@ -348,6 +351,8 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
             },
             token_resolver=_token_resolver,
         )
+    elif repository and sha:
+        logger.warning("Coordinator: GitHub token unavailable; skipping Check Run finalization for %s", repository)
 
     from gcp.image.coordinator import post_commit_status, update_pointers
 
@@ -363,9 +368,94 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
             gate_status_context=gate_status_context,
             token_resolver=_token_resolver,
         )
+    elif repository and sha:
+        logger.warning("Coordinator: GitHub token unavailable; skipping commit status post for %s", repository)
+
+    _coordinator_upsert_pr_comment(
+        repository=repository,
+        sha=sha,
+        pr_number=pr_number,
+        workflow_run_id=workflow_run_id,
+        state=state,
+        leg_summaries=leg_summaries,
+        log_dump_url=log_dump_url,
+        github_token=github_token,
+    )
 
     _coordinator_cleanup(bucket_root, trigger_uri, workflow_run_id)
     return 0
+
+
+def _coordinator_pr_number(trigger: dict[str, Any]) -> int | None:
+    raw = trigger.get("pull_request_number")
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    if isinstance(raw, str) and raw.strip().isdigit():
+        val = int(raw.strip())
+        return val if val > 0 else None
+    return None
+
+
+def _coordinator_resolve_github_token(repository: str) -> str:
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        token = os.environ.get("BMT_GITHUB_TOKEN", "").strip()
+    if token:
+        return token
+    if repository:
+        try:
+            from gcp.image.github import github_auth
+
+            return (github_auth.resolve_auth_for_repository(repository) or "").strip()
+        except Exception:
+            return ""
+    return ""
+
+
+def _coordinator_upsert_pr_comment(
+    *,
+    repository: str,
+    sha: str,
+    pr_number: int | None,
+    workflow_run_id: str,
+    state: str,
+    leg_summaries: list[dict[str, Any] | None],
+    log_dump_url: str | None,
+    github_token: str,
+) -> None:
+    if not repository or not sha or pr_number is None or not github_token:
+        return
+    try:
+        from gcp.image.coordinator import failed_legs_summary
+        from gcp.image.github import github_pr_comment
+        from gcp.image.verdict_aggregation import _comment_marker_for_sha, _format_bmt_comment
+
+        if state == "success":
+            result = "✅ Tests passed"
+            summary_line = "All test suites passed."
+            details_line = ""
+        else:
+            result = "❌ Tests failed"
+            summary_line = failed_legs_summary(leg_summaries)
+            details_line = "For details, open the **Checks** tab on this PR."
+            if log_dump_url:
+                details_line += f"\n\nLog dump (link expires in 3 days): {log_dump_url}"
+
+        body = _format_bmt_comment(
+            result=result,
+            summary_line=summary_line,
+            details_line=details_line,
+            repository=repository,
+            tested_sha=sha,
+            workflow_run_id=workflow_run_id,
+            pr_number=pr_number,
+        )
+        marker = _comment_marker_for_sha(sha)
+        ok = github_pr_comment.upsert_pr_comment_by_marker(github_token, repository, pr_number, marker, body)
+        if not ok:
+            logger.warning("Coordinator: failed to upsert PR comment for %s#%s", repository, pr_number)
+    except Exception:
+        logger.exception("Coordinator: PR comment upsert failed")
 
 
 def _partial_missing_summary(project: str, bmt_id: str, run_id: str) -> dict[str, Any]:
