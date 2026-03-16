@@ -140,6 +140,17 @@ class RunnerManager:
 
     def filter_upload_matrix(self) -> None:
         w = self._ctx.workflow if self._ctx else None
+        skip_publish = _ctx_str(
+            w, "bmt_skip_publish_runners", "BMT_SKIP_PUBLISH_RUNNERS"
+        ).lower() in ("1", "true", "yes")
+        if skip_publish:
+            out = {"include": []}
+            path = Path(core.require_env("GITHUB_OUTPUT"))
+            with path.open("a", encoding="utf-8") as f:
+                f.write(f"matrix_need_upload<<FILTER_EOF\n{json.dumps(out)}\nFILTER_EOF\n")
+                f.write('matrix_need_upload_keys=[]\n')
+            print("::notice::Filter upload matrix: BMT_SKIP_PUBLISH_RUNNERS=true — no publish jobs (runners assumed in bucket).")
+            return
         runner_matrix_raw = _ctx_str(w, "runner_matrix", "RUNNER_MATRIX")
         head_sha = _ctx_str(w, "head_sha", "HEAD_SHA")
         preseeded = _ctx_str(

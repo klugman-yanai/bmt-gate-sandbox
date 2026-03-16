@@ -153,7 +153,8 @@ jobs:
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           AVAILABLE_ARTIFACTS: ${{ inputs.available_artifacts || '[]' }}
-          BMT_RUNNERS_PRESEEDED_IN_GCS: "true"
+          # Skip per-runner publish/validate; sk kardome_runner is assumed already in bucket for faster iteration.
+          BMT_SKIP_PUBLISH_RUNNERS: "true"
         run: uv run bmt write-context && uv run bmt filter-upload-matrix
 
       - name: Workflow summary notice
