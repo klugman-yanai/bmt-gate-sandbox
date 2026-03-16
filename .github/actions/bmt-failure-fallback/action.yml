@@ -155,7 +155,6 @@ runs:
         accepted_projects: ${{ inputs.accepted_projects }}
         trigger_written: ${{ steps.failctx.outputs.trigger_written }}
         handshake_ok: ${{ steps.x.outputs.handshake_ok }}
-        handoff_state_line: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'Handoff failed: runtime accepted zero supported test runs.' || 'Handoff failed: runtime pickup not confirmed.' }}"
         failure_reason: ${{ steps.reason.outputs.reason }}
 
     - name: Setup GCP for cleanup

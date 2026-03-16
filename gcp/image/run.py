@@ -300,26 +300,31 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
     pr_number = _coordinator_pr_number(trigger)
 
     requested_legs = resolve_legs(trigger, config.repo_root)
-    accepted_legs, _rejected = split_legs(requested_legs)
-    if not accepted_legs:
+    accepted_legs, rejected_legs = split_legs(requested_legs)
+    no_accepted_legs = not accepted_legs
+    if no_accepted_legs:
         logger.warning("Coordinator: no accepted legs for run %s", workflow_run_id)
-        _coordinator_cleanup(bucket_root, trigger_uri, workflow_run_id)
-        return 0
-
-    leg_summaries: list[dict[str, Any] | None] = []
-    for leg in accepted_legs:
-        artifact_path = summary_artifact_path(workflow_run_id, leg.project, leg.bmt_id)
-        artifact_uri = _bucket_uri(bucket_root, artifact_path)
-        raw, _ = _gcloud_download_json(artifact_uri)
-        if raw is None:
-            logger.warning("Coordinator: missing summary for leg %s-%s", leg.project, leg.bmt_id)
-            leg_summaries.append(_partial_missing_summary(leg.project, leg.bmt_id, leg.run_id))
-        else:
-            if "status" not in raw:
-                raw["status"] = raw.get("manager_status") or ("pass" if raw.get("passed") else "fail")
-            leg_summaries.append(raw)
-
-    state, description = _coordinator_aggregate(leg_summaries)
+        leg_summaries: list[dict[str, Any] | None] = [
+            _rejected_leg_summary(rejected_leg) for rejected_leg in rejected_legs
+        ]
+        if not leg_summaries:
+            # Defensive fallback for malformed/empty trigger payloads.
+            leg_summaries = [_partial_missing_summary("?", "?", workflow_run_id)]
+        state, description = "failure", "No supported BMT legs were accepted for execution."
+    else:
+        leg_summaries = []
+        for leg in accepted_legs:
+            artifact_path = summary_artifact_path(workflow_run_id, leg.project, leg.bmt_id)
+            artifact_uri = _bucket_uri(bucket_root, artifact_path)
+            raw, _ = _gcloud_download_json(artifact_uri)
+            if raw is None:
+                logger.warning("Coordinator: missing summary for leg %s-%s", leg.project, leg.bmt_id)
+                leg_summaries.append(_partial_missing_summary(leg.project, leg.bmt_id, leg.run_id))
+            else:
+                if "status" not in raw:
+                    raw["status"] = raw.get("manager_status") or ("pass" if raw.get("passed") else "fail")
+                leg_summaries.append(raw)
+        state, description = _coordinator_aggregate(leg_summaries)
     runtime_bucket_root = bucket_root
 
     github_token = _coordinator_resolve_github_token(repository)
@@ -335,7 +340,7 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
     run_id = workflow_run_id
 
     log_dump_url: str | None = None
-    if state == "failure":
+    if state == "failure" and not no_accepted_legs:
         log_dump_url = _coordinator_log_dump_url(
             bucket_root=runtime_bucket_root,
             workspace_root=config.workspace_root,
@@ -378,7 +383,8 @@ def run_coordinator_entrypoint(config: CoordinatorEntrypointConfig) -> int:  # n
 
     from gcp.image.coordinator import post_commit_status, update_pointers
 
-    update_pointers(runtime_bucket_root, leg_summaries)
+    if not no_accepted_legs:
+        update_pointers(runtime_bucket_root, leg_summaries)
 
     if repository and sha and github_token:
         post_commit_status(
@@ -652,6 +658,25 @@ def _partial_missing_summary(project: str, bmt_id: str, run_id: str) -> dict[str
         "manager_status": "fail",
         "status": "fail",
         "manager_reason_code": REASON_PARTIAL_MISSING,
+        "manager_verdict_uri": None,
+        "manager_summary": None,
+    }
+
+
+def _rejected_leg_summary(rejected_leg: dict[str, Any]) -> dict[str, Any]:
+    """Build a summary dict for a rejected leg so coordinator can finalize status deterministically."""
+    project = str(rejected_leg.get("project") or "?")
+    bmt_id = str(rejected_leg.get("bmt_id") or "?")
+    run_id = str(rejected_leg.get("run_id") or "?")
+    reason = str(rejected_leg.get("reason") or "rejected")
+    return {
+        "project": project,
+        "bmt_id": bmt_id,
+        "run_id": run_id,
+        "passed": False,
+        "manager_status": "fail",
+        "status": "fail",
+        "manager_reason_code": reason,
         "manager_verdict_uri": None,
         "manager_summary": None,
     }

@@ -296,7 +296,6 @@ jobs:
           accepted_projects: ${{ steps.classify.outputs.accepted_projects }}
           trigger_written: "true"
           handshake_ok: "true"
-          handoff_state_line: "Dispatch confirmed: trigger written to GCS; cloud runtime processing is in progress."
 
       - name: Checkout repo (for local actions)
         if: steps.run-eventarc.outcome != 'success' || steps.verify-trigger.outcome != 'success'

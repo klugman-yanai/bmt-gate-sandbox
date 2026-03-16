@@ -191,6 +191,9 @@ cloud_run_job_standard = gcp.cloudrunv2.Job(
                         gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
                             name="BMT_SECRETS_LOCATION", value=cfg.cloud_run_region
                         ),
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="BMT_REPO_ROOT", value=f"{cfg.bmt_repo_root}/gcp/image"
+                        ),
                     ],
                     resources=gcp.cloudrunv2.JobTemplateTemplateContainerResourcesArgs(
                         limits={
@@ -237,6 +240,9 @@ cloud_run_job_heavy = gcp.cloudrunv2.Job(
                         ),
                         gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
                             name="BMT_SECRETS_LOCATION", value=cfg.cloud_run_region
+                        ),
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="BMT_REPO_ROOT", value=f"{cfg.bmt_repo_root}/gcp/image"
                         ),
                     ],
                     resources=gcp.cloudrunv2.JobTemplateTemplateContainerResourcesArgs(

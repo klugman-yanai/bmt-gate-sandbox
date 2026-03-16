@@ -46,10 +46,6 @@ inputs:
     description: GCS bucket for summary context
     required: false
     default: ""
-  handoff_state_line:
-    description: One-line handoff state for summary
-    required: false
-    default: ""
   failure_reason:
     description: Failure reason when mode is failure
     required: false
@@ -73,6 +69,5 @@ runs:
         GCP_PROJECT: ${{ inputs.gcp_project }}
         GCP_ZONE: ${{ inputs.gcp_zone }}
         GCS_BUCKET: ${{ inputs.gcs_bucket }}
-        HANDOFF_STATE_LINE: ${{ inputs.handoff_state_line }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
       run: uv run bmt write-context && uv run bmt write-handoff-summary
