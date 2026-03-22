@@ -23,7 +23,7 @@ def test_matrix_test_would_catch_missing_include_key(tmp_path: Path) -> None:
     github_output = tmp_path / "missing-include.txt"
     github_output.write_text('matrix={"wrong_key": []}', encoding="utf-8")
     outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
+    matrix = decode_output_json(outputs, "matrix")
 
     # This should fail because 'include' is missing
     assert "include" in matrix, "matrix missing 'include' key"
@@ -48,7 +48,7 @@ def test_matrix_test_would_catch_missing_project_field(tmp_path: Path) -> None:
     github_output = tmp_path / "missing-project.txt"
     github_output.write_text('matrix={"include": [{"bmt_id": "test"}]}', encoding="utf-8")
     outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
+    matrix = decode_output_json(outputs, "matrix")
 
     # This should fail because 'project' is missing
     for entry in matrix["include"]:
@@ -64,7 +64,7 @@ def test_filter_test_would_catch_wrong_projects(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
+    matrix = decode_output_json(outputs, "matrix")
 
     # This should fail because continental leaked through sk filter
     found_projects = set()

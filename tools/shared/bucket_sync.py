@@ -12,6 +12,23 @@ import re
 import subprocess
 from pathlib import Path
 
+# Files under projects/*/inputs/ that are safe to include in digests and sync.
+# Everything else under inputs/ is treated as data (WAVs, audio corpora) and skipped.
+_INPUTS_DATA_RE = re.compile(r"^projects/[^/]+/inputs/")
+_INPUTS_ALLOWLISTED_FILENAMES = frozenset({".keep", "dataset_manifest.json"})
+
+
+def is_inputs_data_path(rel: str) -> bool:
+    """True if rel is a data file under projects/*/inputs/ (not .keep or dataset_manifest.json).
+
+    Explicit guard against reading large audio corpora or FUSE-mounted datasets.
+    Called before pattern-based exclusion in local_digest() and iter_source_files().
+    """
+    if not _INPUTS_DATA_RE.match(rel):
+        return False
+    filename = rel.rsplit("/", 1)[-1] if "/" in rel else rel
+    return filename not in _INPUTS_ALLOWLISTED_FILENAMES
+
 
 def matches(patterns: tuple[str, ...], rel: str) -> bool:
     """True if rel matches any of the regex patterns."""
@@ -26,11 +43,18 @@ def local_digest(
     """Compute SHA256 digest of sorted rel|sha256|size lines for files under src.
 
     When include_artifacts is False, paths matching exclude_patterns are skipped.
+    Additionally, any data file under projects/*/inputs/ (not .keep or dataset_manifest.json)
+    is always skipped regardless of include_artifacts, to prevent reading large audio corpora
+    or FUSE-mounted datasets on every sync/commit hook invocation.
     Same algorithm as verify tools for idempotent skip check.
     """
     files: list[tuple[str, str, int]] = []
     for path in sorted(p for p in src.rglob("*") if p.is_file()):
         rel = path.relative_to(src).as_posix()
+        # Explicit guard: never read data files under projects/*/inputs/ (belt-and-suspenders
+        # against FUSE mounts or real WAVs landing in the staging area).
+        if is_inputs_data_path(rel):
+            continue
         if not include_artifacts and matches(exclude_patterns, rel):
             continue
         h = hashlib.sha256()

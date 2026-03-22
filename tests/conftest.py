@@ -36,7 +36,7 @@ def _stable_repo_cwd(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
 @pytest.fixture(autouse=True)
 def _reset_bmt_config_cache() -> None:
     # ci package does not cache config; no-op for cross-test isolation.
-    yield
+    return
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -51,17 +51,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         ):
             item.add_marker("integration")
             continue
-        if any(
-            key in name
-            for key in (
-                "test_run_trigger_guard.py",
-                "test_wait_handshake.py",
-                "test_start_vm.py",
-                "test_sync_vm_metadata.py",
-                "test_upload_runner_dedup.py",
-                "test_vm_watcher_",
-            )
-        ):
+        if "test_upload_runner_dedup.py" in name:
             item.add_marker("contract")
             continue
         item.add_marker("unit")

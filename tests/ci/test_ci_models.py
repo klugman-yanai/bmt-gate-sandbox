@@ -3,6 +3,8 @@
 import pytest
 from ci import core as models
 
+from gcp.image.config.decisions import GateDecision
+
 # ── sanitize_run_id ───────────────────────────────────────────────────────────
 
 
@@ -40,6 +42,15 @@ def test_decision_exit_accepted_is_zero():
 def test_decision_exit_rejected_nonzero():
     assert models.decision_exit(models.DECISION_REJECTED) != 0
     assert models.decision_exit(models.DECISION_TIMEOUT) != 0
+
+
+def test_decision_exit_accepts_gate_decision_enum():
+    assert models.decision_exit(GateDecision.ACCEPTED) == 0
+    assert models.decision_exit(GateDecision.REJECTED) != 0
+
+
+def test_decision_exit_unknown_string_nonzero():
+    assert models.decision_exit("not_a_real_decision") != 0
 
 
 # ── URI helpers ───────────────────────────────────────────────────────────────

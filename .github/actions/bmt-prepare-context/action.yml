@@ -85,7 +85,7 @@ runs:
           exit 1
         fi
         missing=()
-        for var in GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT GCP_ZONE BMT_LIVE_VM; do
+        for var in GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT CLOUD_RUN_REGION; do
           [[ -n "${!var:-}" ]] || missing+=("$var")
         done
         if [[ ${#missing[@]} -gt 0 ]]; then

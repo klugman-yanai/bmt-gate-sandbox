@@ -1,1 +1,1 @@
-"""GCP code root (config, vm scripts, per-project managers)."""
+"""Cloud Run runtime package with explicit runtime and legacy subpackages."""

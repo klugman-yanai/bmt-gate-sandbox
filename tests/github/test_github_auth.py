@@ -3,263 +3,159 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-from collections.abc import Iterator
-from pathlib import Path
 from unittest import mock
 
 import pytest
 
-from gcp.image.github import github_auth  # type: ignore[import-not-found]
+from gcp.image.github import github_auth
 
 
-@pytest.fixture
-def test_config() -> Iterator[str]:
-    """Create a temporary test configuration file."""
-    config_data = {
-        "version": "1.0",
-        "repositories": {
-            "test-org/test-repo": {
-                "repo_env": "test",
-                "description": "Test repository",
-                "secret_prefix": "GITHUB_APP_TEST",
-                "enabled": True,
-            },
-            "prod-org/prod-repo": {
-                "repo_env": "prod",
-                "description": "Production repository",
-                "secret_prefix": "GITHUB_APP_PROD",
-                "enabled": True,
-            },
-            "no-prefix/no-prefix-repo": {
-                "repo_env": "test",
-                "description": "Missing secret prefix",
-                "enabled": True,
-            },
-            "disabled-org/disabled-repo": {
-                "repo_env": "disabled",
-                "description": "Disabled repository",
-                "secret_prefix": "GITHUB_APP_DISABLED",
-                "enabled": False,
-            },
-        },
-    }
+class TestGithubAppProfile:
+    def test_org_repository_uses_primary_profile(self) -> None:
+        assert github_auth.github_app_profile_for_repository("Kardome-org/core-main") == "primary"
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(config_data, f)
-        config_path = f.name
+    def test_non_org_repository_uses_dev_profile(self) -> None:
+        assert github_auth.github_app_profile_for_repository("klugman-yanai/bmt-gcloud") == "dev"
 
-    yield config_path
-
-    Path(config_path).unlink(missing_ok=True)
+    def test_empty_repository_defaults_to_primary(self) -> None:
+        assert github_auth.github_app_profile_for_repository("") == "primary"
 
 
-class TestLoadGithubReposConfig:
-    """Tests for load_github_repos_config()."""
+class TestLoadGithubAppCredentials:
+    """Tests for load_github_app_credentials()."""
 
-    def test_load_valid_config(self, test_config: str) -> None:
-        config = github_auth.load_github_repos_config(test_config)
-        assert config is not None
-        assert "repositories" in config
-        assert "test-org/test-repo" in config["repositories"]
+    def test_missing_primary_credentials_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY", raising=False)
 
-    def test_load_nonexistent_config(self) -> None:
-        config = github_auth.load_github_repos_config("/nonexistent/path.json")
-        assert config is None
+        assert github_auth.load_github_app_credentials("Kardome-org/core-main") is None
 
-    def test_load_invalid_json(self) -> None:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write("not valid json {")
-            invalid_path = f.name
+    def test_partial_primary_credentials_return_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+        monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY", raising=False)
 
-        try:
-            config = github_auth.load_github_repos_config(invalid_path)
-            assert config is None
-        finally:
-            Path(invalid_path).unlink(missing_ok=True)
+        assert github_auth.load_github_app_credentials("Kardome-org/core-main") is None
 
-    def test_load_missing_repositories_key(self) -> None:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"version": "1.0"}, f)
-            invalid_path = f.name
+    def test_loads_primary_credentials(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+        monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "private-key")
 
-        try:
-            config = github_auth.load_github_repos_config(invalid_path)
-            assert config is None
-        finally:
-            Path(invalid_path).unlink(missing_ok=True)
+        credentials = github_auth.load_github_app_credentials("Kardome-org/core-main")
+
+        assert credentials is not None
+        assert credentials.app_id == "12345"
+        assert credentials.installation_id == "67890"
+        assert credentials.private_key == "private-key"
+
+    def test_primary_alias_credentials_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GH_APP_ID", "12345")
+        monkeypatch.setenv("GH_APP_INSTALLATION_ID", "67890")
+        monkeypatch.setenv("GH_APP_PRIVATE_KEY", "private-key")
+        monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY", raising=False)
+
+        credentials = github_auth.load_github_app_credentials("Kardome-org/core-main")
+
+        assert credentials is not None
+        assert credentials.app_id == "12345"
+        assert credentials.installation_id == "67890"
+        assert credentials.private_key == "private-key"
+
+    def test_primary_canonical_credentials_win_over_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_APP_ID", "canonical-id")
+        monkeypatch.setenv("GITHUB_APP_INSTALLATION_ID", "canonical-installation")
+        monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "canonical-key")
+        monkeypatch.setenv("GH_APP_ID", "alias-id")
+        monkeypatch.setenv("GH_APP_INSTALLATION_ID", "alias-installation")
+        monkeypatch.setenv("GH_APP_PRIVATE_KEY", "alias-key")
+
+        credentials = github_auth.load_github_app_credentials("Kardome-org/core-main")
+
+        assert credentials is not None
+        assert credentials.app_id == "canonical-id"
+        assert credentials.installation_id == "canonical-installation"
+        assert credentials.private_key == "canonical-key"
+
+    def test_loads_dev_credentials_for_non_org_repo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_APP_DEV_ID", "dev-id")
+        monkeypatch.setenv("GITHUB_APP_DEV_INSTALLATION_ID", "dev-installation")
+        monkeypatch.setenv("GITHUB_APP_DEV_PRIVATE_KEY", "dev-private-key")
+
+        credentials = github_auth.load_github_app_credentials("klugman-yanai/bmt-gcloud")
+
+        assert credentials is not None
+        assert credentials.app_id == "dev-id"
+        assert credentials.installation_id == "dev-installation"
+        assert credentials.private_key == "dev-private-key"
+
+    def test_dev_alias_credentials_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GH_APP_DEV_ID", "dev-id")
+        monkeypatch.setenv("GH_APP_DEV_INSTALLATION_ID", "dev-installation")
+        monkeypatch.setenv("GH_APP_DEV_PRIVATE_KEY", "dev-private-key")
+        monkeypatch.delenv("GITHUB_APP_DEV_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_DEV_INSTALLATION_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_DEV_PRIVATE_KEY", raising=False)
+
+        credentials = github_auth.load_github_app_credentials("klugman-yanai/bmt-gcloud")
+
+        assert credentials is not None
+        assert credentials.app_id == "dev-id"
+        assert credentials.installation_id == "dev-installation"
+        assert credentials.private_key == "dev-private-key"
 
 
-class TestListEnabledRepositories:
-    """Tests for list_enabled_repositories()."""
+class TestResolveGithubAppToken:
+    """Tests for resolve_github_app_token()."""
 
-    def test_list_enabled_repositories(self, test_config: str) -> None:
-        repos = github_auth.list_enabled_repositories(test_config)
-        assert repos is not None
-        assert sorted(repos) == ["no-prefix/no-prefix-repo", "prod-org/prod-repo", "test-org/test-repo"]
+    def test_missing_credentials_return_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+        monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY", raising=False)
 
-    def test_list_enabled_repositories_returns_none_without_config(self) -> None:
-        repos = github_auth.list_enabled_repositories("/nonexistent/path.json")
-        assert repos is None
-
-
-class TestResolveAuthForRepository:
-    """Tests for resolve_auth_for_repository()."""
-
-    def test_no_config_returns_none(self) -> None:
-        token = github_auth.resolve_auth_for_repository(
-            "any-repo/any-name",
-            config_path="/nonexistent/path.json",
-        )
-        assert token is None
-
-    def test_unknown_repository_returns_none(self, test_config: str) -> None:
-        token = github_auth.resolve_auth_for_repository(
-            "unknown-org/unknown-repo",
-            config_path=test_config,
-        )
-        assert token is None
-
-    def test_disabled_repository_returns_none(self, test_config: str) -> None:
-        token = github_auth.resolve_auth_for_repository(
-            "disabled-org/disabled-repo",
-            config_path=test_config,
-        )
-        assert token is None
-
-    def test_missing_secret_prefix_returns_none(self, test_config: str) -> None:
-        token = github_auth.resolve_auth_for_repository(
-            "no-prefix/no-prefix-repo",
-            config_path=test_config,
-        )
-        assert token is None
-
-    def test_missing_app_secrets_returns_none(self, test_config: str) -> None:
-        with mock.patch.dict(os.environ, {}, clear=True):
-            token = github_auth.resolve_auth_for_repository(
-                "test-org/test-repo",
-                config_path=test_config,
-            )
-            assert token is None
-
-    def test_partial_app_secrets_returns_none(self, test_config: str) -> None:
-        with mock.patch.dict(
-            os.environ,
-            {
-                "GITHUB_APP_TEST_ID": "12345",
-                "GITHUB_APP_TEST_INSTALLATION_ID": "67890",
-            },
-            clear=True,
-        ):
-            token = github_auth.resolve_auth_for_repository(
-                "test-org/test-repo",
-                config_path=test_config,
-            )
-            assert token is None
-
-    def test_empty_repository_returns_none(self, test_config: str) -> None:
-        token = github_auth.resolve_auth_for_repository("", config_path=test_config)
-        assert token is None
+        assert github_auth.resolve_github_app_token("Kardome-org/core-main") is None
 
     @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
-    def test_successful_app_auth(self, mock_get_token: mock.Mock, test_config: str) -> None:
+    def test_successful_primary_app_auth(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = "test-app-token"
-        with mock.patch.dict(
-            os.environ,
-            {
-                "GITHUB_APP_TEST_ID": "12345",
-                "GITHUB_APP_TEST_INSTALLATION_ID": "67890",
-                "GITHUB_APP_TEST_PRIVATE_KEY": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
-            },
-            clear=True,
-        ):
-            token = github_auth.resolve_auth_for_repository(
-                "test-org/test-repo",
-                config_path=test_config,
-            )
-            assert token == "test-app-token"
-            mock_get_token.assert_called_once()
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+        monkeypatch.setenv(
+            "GITHUB_APP_PRIVATE_KEY", "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+        )
+
+        token = github_auth.resolve_github_app_token("Kardome-org/core-main")
+
+        assert token == "test-app-token"
+        mock_get_token.assert_called_once_with(
+            "12345",
+            "67890",
+            "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
+        )
 
     @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
-    def test_alias_app_auth_fallback(self, mock_get_token: mock.Mock, test_config: str) -> None:
-        mock_get_token.return_value = "test-app-token"
-        with mock.patch.dict(
-            os.environ,
-            {
-                "GH_APP_TEST_ID": "12345",
-                "GH_APP_TEST_INSTALLATION_ID": "67890",
-                "GH_APP_TEST_PRIVATE_KEY": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
-            },
-            clear=True,
-        ):
-            token = github_auth.resolve_auth_for_repository(
-                "test-org/test-repo",
-                config_path=test_config,
-            )
-            assert token == "test-app-token"
-            mock_get_token.assert_called_once_with(
-                "12345",
-                "67890",
-                "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
-            )
+    def test_successful_dev_app_auth(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_get_token.return_value = "dev-app-token"
+        monkeypatch.setenv("GITHUB_APP_DEV_ID", "dev-id")
+        monkeypatch.setenv("GITHUB_APP_DEV_INSTALLATION_ID", "dev-installation")
+        monkeypatch.setenv("GITHUB_APP_DEV_PRIVATE_KEY", "dev-private-key")
+
+        token = github_auth.resolve_github_app_token("klugman-yanai/bmt-gcloud")
+
+        assert token == "dev-app-token"
+        mock_get_token.assert_called_once_with("dev-id", "dev-installation", "dev-private-key")
 
     @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
-    def test_canonical_env_precedence_over_alias(self, mock_get_token: mock.Mock, test_config: str) -> None:
-        mock_get_token.return_value = "test-app-token"
-        with mock.patch.dict(
-            os.environ,
-            {
-                "GITHUB_APP_TEST_ID": "canonical-id",
-                "GITHUB_APP_TEST_INSTALLATION_ID": "canonical-installation",
-                "GITHUB_APP_TEST_PRIVATE_KEY": "canonical-key",
-                "GH_APP_TEST_ID": "alias-id",
-                "GH_APP_TEST_INSTALLATION_ID": "alias-installation",
-                "GH_APP_TEST_PRIVATE_KEY": "alias-key",
-            },
-            clear=True,
-        ):
-            token = github_auth.resolve_auth_for_repository(
-                "test-org/test-repo",
-                config_path=test_config,
-            )
-            assert token == "test-app-token"
-            mock_get_token.assert_called_once_with("canonical-id", "canonical-installation", "canonical-key")
-
-    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
-    def test_app_auth_failure_returns_none(self, mock_get_token: mock.Mock, test_config: str) -> None:
+    def test_app_auth_failure_returns_none(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = None
-        with mock.patch.dict(
-            os.environ,
-            {
-                "GITHUB_APP_TEST_ID": "12345",
-                "GITHUB_APP_TEST_INSTALLATION_ID": "67890",
-                "GITHUB_APP_TEST_PRIVATE_KEY": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
-            },
-            clear=True,
-        ):
-            token = github_auth.resolve_auth_for_repository(
-                "test-org/test-repo",
-                config_path=test_config,
-            )
-            assert token is None
+        monkeypatch.setenv("GITHUB_APP_DEV_ID", "dev-id")
+        monkeypatch.setenv("GITHUB_APP_DEV_INSTALLATION_ID", "dev-installation")
+        monkeypatch.setenv("GITHUB_APP_DEV_PRIVATE_KEY", "dev-private-key")
 
-
-class TestResolveConfigPath:
-    """Tests for _resolve_config_path()."""
-
-    def test_explicit_path_wins(self, test_config: str) -> None:
-        resolved = github_auth._resolve_config_path(test_config)
-        assert resolved == Path(test_config)
-
-    def test_env_override_wins(self, test_config: str) -> None:
-        with mock.patch.dict(os.environ, {"BMT_GITHUB_REPOS_CONFIG": test_config}, clear=True):
-            resolved = github_auth._resolve_config_path(None)
-        assert resolved == Path(test_config)
-
-    def test_default_path_exists(self) -> None:
-        resolved = github_auth._resolve_config_path(None)
-        assert resolved.name == "github_repos.json"
+        assert github_auth.resolve_github_app_token("klugman-yanai/bmt-gcloud") is None
 
 
 class TestGetInstallationTokenFromApp:

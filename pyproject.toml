@@ -7,14 +7,15 @@ name = "bmt-gcloud"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "archivefile>=1.0.0",
     "bmt",
     "orjson>=3.10",
     "prek>=0.3.5",
+    "pulumi-gcp>=9.15.0",
     "pydantic>=2.12.5",
+    "pydantic-settings>=2.0.0",
     "requests>=2.31.0",
     "rich>=13.0",
-    "typer[all]>=0.15.0",
+    "typer>=0.15.0",
     "whenever>=0.9.5",
 ]
 
@@ -39,34 +40,26 @@ vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-vm-runtime).
-# Run a member with: uv run --package bmt … or uv run --package bmt-vm-runtime …
+# Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-runtime).
+# Run a member with: uv run --package bmt … or uv run --package bmt-runtime …
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gcp*", "tools*"]
 
-[tool.basedpyright]
-include = ["."]
+# Typecheck: `uv run ty check` (see `[tool.ty]`). IDE: Pylance/Cursor uses [pyrightconfig.json].
+[tool.ty.environment]
+python-version = "3.12"
+extra-paths = [".github/bmt"]
+
+[tool.ty.src]
 exclude = [
-    "**/.venv",
-    "**/node_modules",
-    "**/__pycache__",
     "data",
     "sk_runtime",
     "local_batch",
     "secrets",
+    # Bucket mirror; layout mirrors image but imports are not a full package tree.
+    "gcp/stage",
 ]
-venvPath = "."
-venv = ".venv"
-pythonVersion = "3.12"
-# Root package provides gcp, tools; bmt is installed from workspace.
-extraPaths = [".github/bmt"]
-# Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
-reportExplicitAny = false
-reportAny = false
-reportUnknownMemberType = false
-reportUnknownVariableType = false
-reportUnknownArgumentType = false
 
 # Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Install with: uv sync --group dev
 [dependency-groups]
@@ -76,7 +69,9 @@ dev = [
     "httpx>=0.28.1",
     "jsonschema>=4.21",
     "prek>=0.3.5",
-    "pyjwt>=2.11.0",
+    "pulumi>=3.226.0",
+    "pulumi-gcp>=9.15.0",
+    "pyjwt>=2.12.1",
     "pytest>=9.0.2",
     "pytest-github-actions-annotate-failures>=0.4.0",
     "pytest-mock>=3.15.1",
@@ -86,7 +81,8 @@ dev = [
     "pytest-subprocess>=1.5.3",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.15.0",
+    "ruff>=0.15.6",
+    "ty>=0.0.1",
     "typer>=0.24.1",
     "whenever>=0.9.5",
 ]

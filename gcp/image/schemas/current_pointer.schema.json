@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://bmt-gcloud/schemas/current_pointer.schema.json",
   "title": "Results pointer (current.json)",
-  "description": "Pointer at results_prefix/current.json. Tracks latest and last_passing run_id; written by vm_watcher. Runtime artifact.",
+  "description": "Pointer at results_prefix/current.json. Tracks latest and last_passing run_id; written by the Cloud Run coordinator. Runtime artifact.",
   "type": "object",
   "additionalProperties": true,
   "required": ["latest", "updated_at"],

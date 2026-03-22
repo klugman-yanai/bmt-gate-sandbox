@@ -1,4 +1,5 @@
 """Tests for tools.cli.build_cmd (image build orchestration)."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -16,19 +17,19 @@ def test_image_packer_validate_called():
         patch("tools.cli.build_cmd._run_packer_validate", return_value=0) as mock_pv,
         patch("tools.cli.build_cmd._dispatch_and_wait", return_value=0),
     ):
-        result = runner.invoke(app, ["image"])
+        runner.invoke(app, ["image"])
         assert mock_pv.called
 
 
-def test_image_skip_image_runs_terraform_only():
-    """--skip-image skips image build and runs terraform."""
+def test_image_skip_image_runs_pulumi_only():
+    """--skip-image skips image build and runs Pulumi."""
     with (
-        patch("tools.cli.build_cmd._run_terraform", return_value=0) as mock_tf,
+        patch("tools.cli.build_cmd._run_pulumi", return_value=0) as mock_pulumi,
         patch("tools.cli.build_cmd._run_packer_validate") as mock_pv,
     ):
-        result = runner.invoke(app, ["image", "--skip-image"])
+        runner.invoke(app, ["image", "--skip-image"])
         assert not mock_pv.called
-        assert mock_tf.called
+        assert mock_pulumi.called
 
 
 def test_image_no_wait_dispatches_only():
@@ -37,7 +38,7 @@ def test_image_no_wait_dispatches_only():
         patch("tools.cli.build_cmd._run_packer_validate", return_value=0),
         patch("tools.cli.build_cmd._dispatch_workflow") as mock_dispatch,
     ):
-        result = runner.invoke(app, ["image", "--no-wait"])
+        runner.invoke(app, ["image", "--no-wait"])
         assert mock_dispatch.called
 
 

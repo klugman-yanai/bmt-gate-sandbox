@@ -1,50 +1,30 @@
-# Documentation index
+# Documentation
 
-Start here for structure and day-to-day use.
+**Entry:** [README](../README.md) · **Security:** [SECURITY](../SECURITY.md) · **Architecture hub:** [ARCHITECTURE](../ARCHITECTURE.md)
 
-## Start here
+## By role
+
+| Role | Start here |
+| ---- | ---------- |
+| **Contributor** (code, tests, plugins) | [CONTRIBUTING](../CONTRIBUTING.md) → [development.md](development.md) |
+| **Operator** (incidents, GCS, GCP, stuck checks) | [runbook.md](runbook.md) → [configuration.md](configuration.md) |
+| **Maintainer** (risks, remediation backlog) | [bmt-architecture-deep-dive.md](bmt-architecture-deep-dive.md) → [plans/bmt-weak-points-remediation.md](plans/bmt-weak-points-remediation.md) |
+
+## By task
 
 | I want to… | Doc |
 | ---------- | --- |
-| **Test prod CI locally** with real VM/GCS | [development.md](development.md#testing-production-ci-locally) |
-| **Set up config / repo vars** | [configuration.md](configuration.md), [../infra/README.md](../infra/README.md) |
-| **Understand the pipeline** (trigger, handoff, results) | [architecture.md](architecture.md), [github-and-ci.md](github-and-ci.md) |
-| **Develop and run tests** | [development.md](development.md) |
-| **Add a new BMT project** (full: bmt-gcloud + app repo) | [adding-a-new-project.md](adding-a-new-project.md) |
-| **Add project / BMT data / manager / JSONs** (quick steps, bmt-gcloud only) | [adding-new-project-and-bmt.md](adding-new-project-and-bmt.md) |
-| **Keep sandbox and production in sync** | [sandbox-and-production.md](sandbox-and-production.md) |
+| **Understand the pipeline and CI** | [architecture.md](architecture.md), [pipeline-dag.md](pipeline-dag.md) |
+| **Upload a dataset / `just upload-data`** | [development.md](development.md#dataset-upload-just-upload-data) |
+| **Validate CI with mock runner (E2E)** | [plans/2026-03-22-e2e-ci-validation.md](plans/2026-03-22-e2e-ci-validation.md) |
+| **Test Cloud Run / local dev** | [development.md](development.md) |
+| **Set up config / repo vars** | [configuration.md](configuration.md), [infra/README.md](../infra/README.md) |
+| **Deep architecture review** (risks, weak points) | [bmt-architecture-deep-dive.md](bmt-architecture-deep-dive.md) |
+| **Add a project or BMT** | [adding-a-project.md](adding-a-project.md) |
+| **ADR index** | [adr/README.md](adr/README.md) |
 
----
+**Reference:** [architecture.md](architecture.md) · [configuration.md](configuration.md) · [development.md](development.md) · [adding-a-project.md](adding-a-project.md)
 
-## Active reference
+**Roadmap:** [ROADMAP.md](../ROADMAP.md) · [roadmap/](roadmap/) · [plans/](plans/)
 
-| Doc | Description |
-| --- | --- |
-| [architecture.md](architecture.md) | Trigger-and-stop flow, GCS contract, script map, production surface, implementation/data flow, repository structure. |
-| [configuration.md](configuration.md) | Env contract, repo vars, VM metadata, secrets, bucket layout. |
-| [development.md](development.md) | Setup, testing (unit, local BMT, pointer/snapshot, **testing prod CI locally**), lint/typecheck, Justfile, deploy. |
-| [adding-a-new-project.md](adding-a-new-project.md) | How to add a new BMT project (e.g. Skyworth): gcp/image layout, manager script, bmt_jobs.json, app-repo matrix and runner upload, .github/bmt. |
-| [adding-new-project-and-bmt.md](adding-new-project-and-bmt.md) | Concise steps: new project (scaffold, bmt_jobs), new BMT .wav data (upload), new manager logic (base class), JSON config. |
-| [github-and-ci.md](github-and-ci.md) | Communication flow, GitHub App permissions, Actions/CLI tools, workflow output (intended UX). |
-| [preflight-bucket-remote.md](preflight-bucket-remote.md) | Before making gcp/remote a mount: check bucket contents, diff code/ vs gcp/image, and next steps for wipe/mount. |
-
-## Sandbox and production
-
-| Doc | Description |
-| --- | --- |
-| [sandbox-and-production.md](sandbox-and-production.md) | Maintaining sandbox and production, sandbox mirror production, drift (core-main vs bmt-gcloud). |
-
-## Audits / reference
-
-| Doc | Description |
-| --- | --- |
-| [audits.md](audits.md) | Terraform outputs, BMT config fields, results prefix layout. |
-| [env-vars-audit.md](env-vars-audit.md) | All env vars: which are needed, which are auto-managed, which cause drift; minimal user surface. |
-
-## Plans
-
-See [docs/plans/](plans/) for architecture, migration, and design plans. Dated filenames reflect when they were written.
-
-## Archive
-
-- **[archive/](archive/)** — Ephemeral or one-off docs (merge strategies, CI branch update notes).
+**Audits:** [audits/](audits/)

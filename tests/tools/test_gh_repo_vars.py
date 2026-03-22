@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from gcp.image.config.constants import STATUS_CONTEXT
-from tools.repo import gh_repo_vars as repo_vars  # type: ignore[import-not-found]
+from tools.repo import gh_repo_vars as repo_vars
 from tools.shared.env_contract import default_contract_path
 
 
@@ -20,7 +19,7 @@ def _cp(*, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.Comple
 def test_load_contract_parses_branch_rule_checks() -> None:
     """Load real contract (Python module + branch-status-context) and assert structure."""
     contract_path = default_contract_path()
-    ordered, required, defaults, checks = repo_vars._load_contract(contract_path)
+    ordered, required, _defaults, checks = repo_vars._load_contract(contract_path)
 
     assert "GCS_BUCKET" in required
     assert "GCS_BUCKET" in ordered

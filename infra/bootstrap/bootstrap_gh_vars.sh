@@ -4,8 +4,9 @@
 # Usage:
 #   bash infra/bootstrap/bootstrap_gh_vars.sh [--env-file <path>] [--repo <owner/repo>]
 #
-# Prefer: run `just terraform-export-vars` first to set Terraform-sourced vars, then use
-# this script with an env file containing only secrets (GCP_WIF_PROVIDER, BMT_DISPATCH_APP_*).
+# Prefer: run `just pulumi` first to set Pulumi-sourced vars, then use
+# this script with an env file containing only GitHub-side secrets
+# (GCP_WIF_PROVIDER, BMT_GITHUB_APP_*, BMT_GITHUB_APP_DEV_*).
 # Or pass a full env file to set/override all vars and secrets.
 #
 # Prerequisites:
@@ -216,8 +217,10 @@ REQUIRED_VARS=(
   GCP_SA_EMAIL
   GCP_PROJECT
   GCP_ZONE
-  BMT_LIVE_VM
-  BMT_PUBSUB_SUBSCRIPTION
+  CLOUD_RUN_REGION
+  BMT_CONTROL_JOB
+  BMT_TASK_STANDARD_JOB
+  BMT_TASK_HEAVY_JOB
 )
 
 OPTIONAL_VARS=(
@@ -227,11 +230,15 @@ OPTIONAL_VARS=(
   BMT_PREEMPT_ON_PR_STALE_QUEUE
   BMT_TRIGGER_STALE_SEC
   BMT_TRIGGER_METADATA_KEEP_RECENT
-  BMT_DISPATCH_APP_ID
 )
 
 SECRET_KEYS=(
-  BMT_DISPATCH_APP_PRIVATE_KEY
+  BMT_GITHUB_APP_ID
+  BMT_GITHUB_APP_INSTALLATION_ID
+  BMT_GITHUB_APP_PRIVATE_KEY
+  BMT_GITHUB_APP_DEV_ID
+  BMT_GITHUB_APP_DEV_INSTALLATION_ID
+  BMT_GITHUB_APP_DEV_PRIVATE_KEY
 )
 
 declare -A ENTRIES

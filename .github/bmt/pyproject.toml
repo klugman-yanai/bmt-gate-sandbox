@@ -14,11 +14,10 @@ module-root = ""
 name = "bmt"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-description = "BMT CI driver: matrix discovery, trigger, VM lifecycle, and runner upload."
+description = "BMT CI driver: matrix discovery, Cloud Run handoff, and runner upload."
 dependencies = [
     "bmt-gcloud",
     "google-cloud-compute>=1.45",
-    "google-cloud-pubsub>=2.21",
     "google-cloud-storage>=2.16",
     "PyGithub>=2.0",
     "pydantic>=2.12.5",
@@ -27,7 +26,6 @@ dependencies = [
 # Optional: uv sync --group dev (when developing this package in isolation)
 [dependency-groups]
 dev = [
-    "basedpyright",
     "ruff>=0.15.0",
 ]
 
@@ -35,12 +33,8 @@ dev = [
 [project.scripts]
 bmt = "ci.driver:main"
 bmt-matrix = "ci.driver:main_matrix"
-bmt-trigger = "ci.driver:main_write_run_trigger"
-bmt-wait = "ci.driver:main_wait_handshake"
-bmt-start-vm = "ci.driver:main_start_vm"
 bmt-write-context = "ci.driver:main_write_context"
 bmt-write-summary = "ci.driver:main_write_handoff_summary"
-bmt-select-vm = "ci.driver:main_select_available_vm"
 
 [tool.ruff]
 target-version = "py312"
@@ -53,8 +47,3 @@ ignore = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
-
-[tool.basedpyright]
-typeCheckingMode = "basic"
-pythonVersion = "3.12"
-reportMissingTypeStubs = false

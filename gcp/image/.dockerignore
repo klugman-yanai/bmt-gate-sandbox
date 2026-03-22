@@ -1,0 +1,22 @@
+# Build context is repo root; exclude everything not needed in the image
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+data/
+docs/
+infra/
+tests/
+tools/
+local_batch/
+sk_runtime/
+bmt_workspace/
+secrets/
+*.md
+!gcp/image/README.md
+.env
+.local/
+gcp/stage/
+gcp/mnt/
+gcp/local/

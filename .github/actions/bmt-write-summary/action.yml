@@ -22,44 +22,24 @@ inputs:
     description: JSON filtered matrix of legs
     required: false
     default: '{"include":[]}'
-  trigger_written:
-    description: Whether run trigger was written
+  accepted_projects:
+    description: JSON array of cloud job subtask project names (e.g. ["sk"])
     required: false
-    default: "false"
-  vm_started:
-    description: Whether BMT VM was started
+    default: "[]"
+  trigger_written:
+    description: Whether run trigger was written to GCS
     required: false
     default: "false"
   handshake_ok:
-    description: Whether VM confirmed trigger
+    description: Whether dispatch was confirmed (trigger accepted by cloud runtime)
     required: false
     default: "false"
-  handshake_uri:
-    description: GCS URI of handshake ack artifact
-    required: false
-    default: ""
-  handshake_elapsed_sec:
-    description: Seconds from start of wait until ack received (for tuning timeout)
-    required: false
-    default: ""
-  vm_name:
-    description: VM name used for this handoff
-    required: false
-    default: ""
   gcp_project:
     description: GCP project for summary context
     required: false
     default: ""
-  gcp_zone:
-    description: GCP zone for summary context
-    required: false
-    default: ""
   gcs_bucket:
     description: GCS bucket for summary context
-    required: false
-    default: ""
-  handoff_state_line:
-    description: One-line handoff state for summary
     required: false
     default: ""
   failure_reason:
@@ -79,15 +59,10 @@ runs:
         HEAD_BRANCH: ${{ inputs.head_branch }}
         PR_NUMBER: ${{ inputs.pr_number }}
         FILTERED_MATRIX: ${{ inputs.filtered_matrix }}
+        ACCEPTED_PROJECTS: ${{ inputs.accepted_projects }}
         TRIGGER_WRITTEN: ${{ inputs.trigger_written }}
-        VM_STARTED: ${{ inputs.vm_started }}
         HANDSHAKE_OK: ${{ inputs.handshake_ok }}
-        HANDSHAKE_URI: ${{ inputs.handshake_uri }}
-        HANDSHAKE_ELAPSED_SEC: ${{ inputs.handshake_elapsed_sec }}
-        BMT_LIVE_VM: ${{ inputs.vm_name }}
         GCP_PROJECT: ${{ inputs.gcp_project }}
-        GCP_ZONE: ${{ inputs.gcp_zone }}
         GCS_BUCKET: ${{ inputs.gcs_bucket }}
-        HANDOFF_STATE_LINE: ${{ inputs.handoff_state_line }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
       run: uv run bmt write-context && uv run bmt write-handoff-summary

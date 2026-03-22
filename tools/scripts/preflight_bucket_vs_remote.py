@@ -21,6 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from gcp.image.config.constants import ENV_GCS_BUCKET
 from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 from tools.shared.bucket_sync import matches
 from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
@@ -72,8 +73,8 @@ def _fetch_bucket_code_listing(bucket: str) -> set[str]:
         timeout=120,
     )
     paths: set[str] = set()
-    for line in (proc.stdout or "").splitlines():
-        line = line.strip()
+    for raw in (proc.stdout or "").splitlines():
+        line = raw.strip()
         if "gs://" in line:
             m = re.search(r"gs://[^/]+/code/(.+)$", line)
             if m:
@@ -93,26 +94,75 @@ def main() -> int:
         for p in sorted(image_paths):
             print(p)
         return 0
-    bucket = (os.environ.get("GCS_BUCKET") or "").strip()
+    bucket = (os.environ.get(ENV_GCS_BUCKET) or "").strip()
     if args.report:
         if not args.report.is_file():
             print(f"::error::Report not found: {args.report}", file=sys.stderr)
             return 1
         bucket_paths = _parse_code_listing_from_report(args.report)
         if bucket_paths is None:
-            print("::error::No code/ listing found in report (run preflight_bucket_vs_remote.sh first)", file=sys.stderr)
+            print(
+                "::error::No code/ listing found in report (run preflight_bucket_vs_remote.sh first)", file=sys.stderr
+            )
             return 1
     else:
         if not bucket:
-            print("::error::Set GCS_BUCKET or pass --report", file=sys.stderr)
+            print(f"::error::Set {ENV_GCS_BUCKET} or pass --report", file=sys.stderr)
             return 1
         bucket_paths = _fetch_bucket_code_listing(bucket)
     print(f"Bucket gs://{bucket or 'report'}/code/ objects: {len(bucket_paths)}")
-    in_bucket_not_image = bucket_paths - image_paths
-    in_image_not_bucket = image_paths - bucket_paths
+    in_bucket_not_image = sorted(bucket_paths - image_paths)
+    in_image_not_bucket = sorted(image_paths - bucket_paths)
+
+    if sys.stdout.isatty():
+        try:
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich.table import Table
+
+            console = Console()
+            if in_bucket_not_image:
+                t = Table(
+                    title="In bucket code/ but NOT in gcp/image (would be dropped)",
+                    show_header=True,
+                    header_style="yellow",
+                )
+                t.add_column("Path", style="dim")
+                for p in in_bucket_not_image[:100]:
+                    t.add_row(p)
+                if len(in_bucket_not_image) > 100:
+                    t.add_row(f"... and {len(in_bucket_not_image) - 100} more", style="dim")
+                console.print(t)
+            else:
+                console.print(
+                    Panel(
+                        "All bucket code/ paths have a counterpart in gcp/image.",
+                        title="Bucket vs image",
+                        border_style="green",
+                    )
+                )
+            if in_image_not_bucket:
+                t2 = Table(
+                    title="In gcp/image but NOT in bucket (ok if never synced)", show_header=True, header_style="blue"
+                )
+                t2.add_column("Path", style="dim")
+                for p in in_image_not_bucket[:100]:
+                    t2.add_row(p)
+                if len(in_image_not_bucket) > 100:
+                    t2.add_row(f"... and {len(in_image_not_bucket) - 100} more", style="dim")
+                console.print(t2)
+        except ImportError:
+            _print_preflight_plain(in_bucket_not_image, in_image_not_bucket)
+    else:
+        _print_preflight_plain(in_bucket_not_image, in_image_not_bucket)
+    return 0
+
+
+def _print_preflight_plain(in_bucket_not_image: list[str], in_image_not_bucket: list[str]) -> None:
+    """Plain print for preflight diff (non-TTY or no Rich)."""
     if in_bucket_not_image:
         print("\nIn bucket code/ but NOT in gcp/image (would be dropped when code leaves bucket):")
-        for p in sorted(in_bucket_not_image)[:50]:
+        for p in in_bucket_not_image[:50]:
             print(f"  {p}")
         if len(in_bucket_not_image) > 50:
             print(f"  ... and {len(in_bucket_not_image) - 50} more")
@@ -120,11 +170,10 @@ def main() -> int:
         print("\nAll bucket code/ paths have a counterpart in gcp/image.")
     if in_image_not_bucket:
         print("\nIn gcp/image but NOT in bucket (ok if never synced or excluded):")
-        for p in sorted(in_image_not_bucket)[:50]:
+        for p in in_image_not_bucket[:50]:
             print(f"  {p}")
         if len(in_image_not_bucket) > 50:
             print(f"  ... and {len(in_image_not_bucket) - 50} more")
-    return 0
 
 
 if __name__ == "__main__":

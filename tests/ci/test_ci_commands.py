@@ -7,8 +7,6 @@ import os
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from tests._support.testutils import combined_output, decode_output_json, read_github_output
 
 
@@ -41,7 +39,7 @@ def test_matrix_command_runs(repo_root: Path, tmp_path: Path) -> None:
     )
     assert result.returncode == 0
     outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
+    matrix = decode_output_json(outputs, "matrix")
     assert "include" in matrix
     assert len(matrix["include"]) > 0
     for entry in matrix["include"]:
@@ -58,7 +56,7 @@ def test_matrix_command_ignores_unrelated_env(repo_root: Path, tmp_path: Path) -
     )
     assert result.returncode == 0
     outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
+    matrix = decode_output_json(outputs, "matrix")
     assert "sk" in {e["project"] for e in matrix["include"]}
 
 
@@ -78,7 +76,7 @@ def test_filter_supported_matrix_success(repo_root: Path, tmp_path: Path) -> Non
     )
     assert result.returncode == 0
     outputs = read_github_output(github_output)
-    matrix: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
+    matrix = decode_output_json(outputs, "matrix")
     assert outputs.get("has_legs") == "true"
     assert matrix["include"] == [{"project": "sk", "bmt_id": "sk-bmt"}]
 
@@ -131,11 +129,10 @@ def test_all_commands_are_registered(repo_root: Path) -> None:
         "matrix",
         "filter-supported-matrix",
         "parse-release-runners",
-        "write-run-trigger",
+        "invoke-workflow",
         "upload-runner",
-        "start-vm",
-        "sync-vm-metadata",
-        "wait-handshake",
+        "write-context",
+        "resolve-failure-context",
     ]
     for cmd in expected_commands:
         assert cmd in result.stderr, f"Command '{cmd}' not listed in usage output"
@@ -154,8 +151,7 @@ def test_matrix_output_is_valid_json(repo_root: Path, tmp_path: Path) -> None:
         env={"GITHUB_OUTPUT": str(github_output)},
     )
     outputs = read_github_output(github_output)
-    parsed: dict[str, list[dict[str, str]]] = decode_output_json(outputs, "matrix")
-    assert isinstance(parsed, dict)
+    parsed = decode_output_json(outputs, "matrix")
     assert "include" in parsed
 
 
@@ -164,21 +160,6 @@ def test_upload_runner_fails_without_required_env(repo_root: Path) -> None:
         "upload-runner",
         repo_root=repo_root,
         env={"GCS_BUCKET": "", "PROJECT": "", "PRESET": ""},
-        check=False,
-    )
-    assert result.returncode != 0
-
-
-def test_trigger_fails_with_invalid_matrix_json(repo_root: Path, tmp_path: Path) -> None:
-    result = _run(
-        "write-run-trigger",
-        repo_root=repo_root,
-        env={
-            "GCS_BUCKET": "test-bucket",
-            "GITHUB_OUTPUT": str(tmp_path / "test-out.txt"),
-            "FILTERED_MATRIX_JSON": "not-valid-json",
-            "RUN_CONTEXT": "dev",
-        },
         check=False,
     )
     assert result.returncode != 0

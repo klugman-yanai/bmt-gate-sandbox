@@ -1,0 +1,6 @@
+name: bmt-vm
+runtime:
+  name: python
+  options:
+    toolchain: uv
+description: BMT Gate infrastructure (VM, Pub/Sub, IAM)

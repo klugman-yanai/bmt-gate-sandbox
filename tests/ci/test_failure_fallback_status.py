@@ -5,10 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-
-from ci import config
+from ci import config, github as github_api_module
 from ci.handoff import HandoffManager
-from ci import github as github_api_module
 
 
 @pytest.fixture

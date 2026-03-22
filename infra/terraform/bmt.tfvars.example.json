@@ -1,8 +1,0 @@
-{
-  "gcp_project": "my-gcp-project",
-  "gcp_zone": "europe-west4-a",
-  "gcs_bucket": "my-bmt-bucket",
-  "service_account": "bmt-vm@my-gcp-project.iam.gserviceaccount.com",
-  "bmt_vm_name": "bmt-gate-blue",
-  "startup_wrapper_script_path": "../../.github/bmt/ci/resources/startup_entrypoint.sh"
-}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Enforce BMT image family policy: image_family, base_image_family, base_image_project
-# must match repo vars (or defaults). Used by bmt-vm-image-build.yml.
+# must match repo vars (or defaults). Used by bmt-image-build.yml.
 #
 # Env (from workflow vars/inputs):
 #   BMT_EXPECTED_IMAGE_FAMILY      expected image family (default: bmt-runtime)

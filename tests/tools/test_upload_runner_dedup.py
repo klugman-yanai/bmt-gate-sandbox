@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 from ci import gcs as gcs_module
-from ci.runner import RunnerManager
-from ci.runner import _sha256_file
+from ci.runner import RunnerManager, _sha256_file
 
 
 def _write(path: Path, content: bytes) -> None:
@@ -26,8 +24,6 @@ def _set_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Pat
     monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
     monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
     monkeypatch.setenv("GCP_PROJECT", "proj")
-    monkeypatch.setenv("GCP_ZONE", "zone")
-    monkeypatch.setenv("BMT_LIVE_VM", "vm")
     monkeypatch.setenv("PROJECT", "sk")
     monkeypatch.setenv("PRESET", "sk_gcc_release")
     monkeypatch.setenv("SOURCE_REF", "abc123")
@@ -41,7 +37,7 @@ def _sha(path: Path) -> str:
 
 
 def test_upload_runner_uploads_all_when_remote_meta_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    runner_dir, lib_dir = _set_env(monkeypatch, tmp_path)
+    _set_env(monkeypatch, tmp_path)
 
     monkeypatch.setattr(gcs_module, "download_json", lambda _uri: (None, "missing"))
     write_calls: list[str] = []

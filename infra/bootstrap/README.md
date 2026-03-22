@@ -1,38 +1,46 @@
-# Bootstrap (Terraform-first)
+# Bootstrap
 
-Bootstrap GitHub repo variables and secrets after Terraform apply. **Terraform is the source of truth** for all non-secret configuration.
+Bootstrap GitHub repo variables and secrets after Pulumi apply. **Pulumi is the source of truth** for all non-secret configuration.
 
 ## Flow
 
-1. **Apply Terraform** (see [../README.md](../README.md)):
+1. **Apply Pulumi** (see [../README.md](../README.md)):
 
    ```bash
-   cd infra/terraform && terraform init && terraform apply
+   just pulumi
    ```
 
-2. **Export Terraform outputs to GitHub variables:**
+2. **Pulumi exports repo variables** as part of `just pulumi`. Re-run it whenever outputs change:
 
    ```bash
-   just terraform-export-vars
-   # or: uv run python tools/terraform_repo_vars.py --apply
+   just pulumi
    ```
 
-3. **Set secrets manually** (not in Terraform): `GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`, `BMT_DISPATCH_APP_PRIVATE_KEY`. Use this bootstrap script with an env file that contains them, or set via GitHub UI.
+3. **Set secrets manually** (repo variables, including `GCP_WIF_PROVIDER`, are synced by `just pulumi` from `bmt.tfvars.json`):
+   - repo secrets: `BMT_GITHUB_APP_ID`, `BMT_GITHUB_APP_INSTALLATION_ID`, `BMT_GITHUB_APP_PRIVATE_KEY`
+   - repo secrets: `BMT_GITHUB_APP_DEV_ID`, `BMT_GITHUB_APP_DEV_INSTALLATION_ID`, `BMT_GITHUB_APP_DEV_PRIVATE_KEY`
+   - GCP Secret Manager secrets: `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`
+   - GCP Secret Manager secrets: `GITHUB_APP_DEV_ID`, `GITHUB_APP_DEV_INSTALLATION_ID`, `GITHUB_APP_DEV_PRIVATE_KEY`
+
+Use this bootstrap script with an env file that contains them, or set them via the GitHub UI.
+
+GitHub reporting selects the credential profile from the repository slug:
+- `Kardome-org/*` uses `GITHUB_APP_*`
+- non-org repos use `GITHUB_APP_DEV_*`
 
 ## Files
 
-- **`.env.example`** — Template for repo variables/secrets. Copy to `.env` and fill in **secrets only** (Terraform exports the rest).
-- **`.env.dev`** / **`.env.prod`** — Pre-filled env files for dev/prod; use with `--env-file`.
-- **`bootstrap_gh_vars.sh`** — Applies GitHub repo variables and secrets from an env file. Run after Terraform export to set secrets, or to apply all vars from a single env file.
+- **`.env.example`** — Template for repo variables/secrets. Copy to `.env` and fill in the missing values.
+- **`bootstrap_gh_vars.sh`** — Applies GitHub repo variables and secrets from an env file. Run after `just pulumi` to set secrets, or to apply all vars from a single env file.
 
 Run from repo root:
 
 ```bash
-# Apply Terraform-sourced vars first, then set secrets from env file
-just terraform-export-vars
-bash infra/bootstrap/bootstrap_gh_vars.sh --env-file infra/bootstrap/.env.dev
+# Apply Pulumi-sourced vars first, then set secrets from env file
+just pulumi
+bash infra/bootstrap/bootstrap_gh_vars.sh --env-file infra/bootstrap/.env
 
-# Or apply everything from one env file (overrides Terraform for vars present in file)
+# Or apply everything from one env file (overrides repo vars present in file)
 bash infra/bootstrap/bootstrap_gh_vars.sh --env-file infra/bootstrap/.env
 ```
 

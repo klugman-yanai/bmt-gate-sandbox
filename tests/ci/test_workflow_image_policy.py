@@ -2,22 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from tools.repo.paths import repo_root
 
 
 def test_bmt_image_build_enforces_family_policy() -> None:
-    workflow = (repo_root() / ".github" / "workflows" / "bmt-vm-image-build.yml").read_text(encoding="utf-8")
+    workflow = (repo_root() / ".github" / "workflows" / "ops" / "bmt-image-build.yml").read_text(encoding="utf-8")
     assert "Enforce image family policy" in workflow
     assert "BMT_EXPECTED_IMAGE_FAMILY" in workflow
     assert "BMT_EXPECTED_BASE_IMAGE_FAMILY" in workflow
     assert "PKR_VAR_base_image_family" in workflow
     assert "PKR_VAR_base_image_project" in workflow
-
-
-def test_bmt_vm_provision_enforces_runtime_family_policy() -> None:
-    workflow = (repo_root() / ".github" / "workflows" / "bmt-vm-provision.yml").read_text(encoding="utf-8")
-    assert "Enforce runtime image policy" in workflow
-    assert "BMT_EXPECTED_IMAGE_FAMILY" in workflow
-    assert "gcloud compute images describe" in workflow
