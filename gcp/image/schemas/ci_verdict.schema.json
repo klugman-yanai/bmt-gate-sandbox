@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/ci_verdict.schema.json",
+  "title": "CI verdict",
+  "description": "Per-run CI verdict written under snapshots/<run_id>/ci_verdict.json. Runtime artifact; source of truth for gate.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1, "description": "Artifact schema version (additive changes only within a major version)" },
+    "run_id": { "type": "string" },
+    "project_id": { "type": "string" },
+    "bmt_id": { "type": "string" },
+    "status": { "type": "string", "description": "pass or fail" },
+    "reason_code": { "type": "string" },
+    "aggregate_score": { "type": "number" },
+    "runner": { "type": "object", "description": "Runner identity from get_runner_identity()", "additionalProperties": true },
+    "gate": { "type": "object", "additionalProperties": true },
+    "timestamps": {
+      "type": "object",
+      "properties": {
+        "started_at": { "type": "string" },
+        "finished_at": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "latest_json_uri": { "type": "string" },
+        "logs_uri": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

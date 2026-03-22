@@ -1,39 +1,39 @@
 {
-  "pythonVersion": "3.10",
-  "typeCheckingMode": "standard",
-  "include": ["."],
-  "exclude": [
-    "**/__pycache__",
-    "**/.ruff_cache",
-    "**/.mypy_cache",
-    "build",
-    "dist",
-    "data",
-    "sk_runtime",
-    "local_batch",
-    "secrets",
-    ".venv",
-    "node_modules"
-  ],
-  "extraPaths": [".github/scripts"],
-  "executionEnvironments": [
-    {
-      "root": ".",
-      "extraPaths": [".github/scripts"]
-    }
-  ],
-  "venvPath": ".",
-  "venv": ".venv",
-  "reportMissingTypeStubs": "warning",
-  "reportGeneralTypeIssues": "error",
-  "reportUnusedImport": "warning",
-  "reportUnusedVariable": "warning",
-  "reportUnusedCallResult": "none",
-  "reportPrivateUsage": "warning",
-  "reportExplicitAny": false,
-  "reportAny": false,
-  "reportUnknownMemberType": false,
-  "reportUnknownVariableType": false,
-  "reportUnknownArgumentType": false,
-  "reportUnknownParameterType": false
+	"pythonVersion": "3.12",
+	"typeCheckingMode": "standard",
+	"include": ["."],
+	"exclude": [
+		"**/__pycache__",
+		"**/.ruff_cache",
+		"**/.mypy_cache",
+		"build",
+		"dist",
+		"data",
+		"sk_runtime",
+		"local_batch",
+		"secrets",
+		".venv",
+		"node_modules"
+	],
+	"extraPaths": [".github/bmt"],
+	"executionEnvironments": [
+		{
+			"root": ".",
+			"extraPaths": [".github/bmt"]
+		}
+	],
+	"venvPath": ".",
+	"venv": ".venv",
+	"reportMissingTypeStubs": "warning",
+	"reportGeneralTypeIssues": "error",
+	"reportUnusedImport": "warning",
+	"reportUnusedVariable": "warning",
+	"reportUnusedCallResult": "none",
+	"reportPrivateUsage": "warning",
+	"reportExplicitAny": false,
+	"reportAny": false,
+	"reportUnknownMemberType": false,
+	"reportUnknownVariableType": false,
+	"reportUnknownArgumentType": false,
+	"reportUnknownParameterType": false
 }

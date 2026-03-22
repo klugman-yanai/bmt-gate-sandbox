@@ -1,0 +1,167 @@
+name: BMT Image Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_family:
+        description: "Image family (default: bmt-runtime)"
+        required: false
+        default: "bmt-runtime"
+      base_image_family:
+        description: "Base image family for builder VM"
+        required: false
+        default: "ubuntu-2204-lts"
+      base_image_project:
+        description: "Base image project for builder VM"
+        required: false
+        default: "ubuntu-os-cloud"
+      machine_type:
+        description: "Builder machine type"
+        required: false
+        default: "e2-standard-4"
+  workflow_call:
+    inputs:
+      image_family:
+        required: false
+        default: "bmt-runtime"
+        type: string
+      base_image_family:
+        required: false
+        default: "ubuntu-2204-lts"
+        type: string
+      base_image_project:
+        required: false
+        default: "ubuntu-os-cloud"
+        type: string
+      machine_type:
+        required: false
+        default: "e2-standard-4"
+        type: string
+  push:
+    # Rebuild VM image when Packer or any gcp/image code changes so the image stays up to date.
+    branches:
+      - main
+      - ci/check-bmt-gate
+      - dev
+    paths:
+      - 'infra/packer/**'
+      - 'gcp/image/**'
+
+permissions:
+  contents: read
+  id-token: write  # Required for GCP Workload Identity
+
+jobs:
+  build-image:
+    name: Packer build + SLSA provenance
+    runs-on: ubuntu-22.04
+    env:
+      PKR_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
+      PKR_VAR_gcp_zone: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
+      PKR_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
+      PKR_VAR_service_account: ${{ vars.GCP_SA_EMAIL }}
+      PKR_VAR_image_family: ${{ inputs.image_family || 'bmt-runtime' }}
+      PKR_VAR_base_image_family: ${{ inputs.base_image_family || 'ubuntu-2204-lts' }}
+      PKR_VAR_base_image_project: ${{ inputs.base_image_project || 'ubuntu-os-cloud' }}
+      PKR_VAR_machine_type: ${{ inputs.machine_type || 'e2-standard-4' }}
+      # Code is baked from the repo checkout (gcp/image/), not from gs://bucket/code.
+      PKR_VAR_bmt_repo_source: ${{ github.workspace }}/gcp/image
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SA_EMAIL }}
+          python_version: "3.12"
+          install_uv: "true"
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@54678572a9eae3130016b4548482317e9f83f9f3  # main
+        with:
+          version: "1.11.0"
+
+      - name: Enforce image family policy
+        env:
+          BMT_EXPECTED_IMAGE_FAMILY: ${{ vars.BMT_EXPECTED_IMAGE_FAMILY || 'bmt-runtime' }}
+          BMT_EXPECTED_BASE_IMAGE_FAMILY: ${{ vars.BMT_EXPECTED_BASE_IMAGE_FAMILY || 'ubuntu-2204-lts' }}
+          BMT_EXPECTED_BASE_IMAGE_PROJECT: ${{ vars.BMT_EXPECTED_BASE_IMAGE_PROJECT || 'ubuntu-os-cloud' }}
+          IMAGE_FAMILY: ${{ inputs.image_family || 'bmt-runtime' }}
+          BASE_IMAGE_FAMILY: ${{ inputs.base_image_family || 'ubuntu-2204-lts' }}
+          BASE_IMAGE_PROJECT: ${{ inputs.base_image_project || 'ubuntu-os-cloud' }}
+        run: bash infra/scripts/enforce-image-family-policy.sh
+
+      - name: Packer init
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
+        run: packer init infra/packer/bmt-runtime.pkr.hcl
+
+      - name: Packer validate
+        run: packer validate infra/packer/bmt-runtime.pkr.hcl
+
+      - name: Packer build
+        id: packer
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          packer build -color=false infra/packer/bmt-runtime.pkr.hcl
+          image_name="$(jq -r '.builds[0].artifact_id' infra/packer/manifest.json | cut -d: -f2)"
+          if [[ -z "${image_name}" || "${image_name}" == "null" ]]; then
+            echo "::error::Failed to resolve image_name from infra/packer/manifest.json" >&2
+            exit 1
+          fi
+          echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SLSA provenance
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          uv run --no-project python3 infra/slsa/generate_provenance.py image \
+            --image-name "${{ steps.packer.outputs.image_name }}" \
+            --image-family "${{ inputs.image_family || 'bmt-runtime' }}" \
+            --gcs-bucket "${{ vars.GCS_BUCKET }}" \
+            --gcp-project "${{ vars.GCP_PROJECT }}" \
+            --builder-id "https://github.com/${{ github.repository }}/.github/workflows/ops/bmt-image-build.yml" \
+            --git-sha "${{ github.sha }}" \
+            --out provenance.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159  # v3.9.2
+
+      - name: Sign image provenance (SLSA L2)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          cosign sign-blob \
+            --bundle=provenance.bundle \
+            --yes \
+            provenance.json
+          gcloud storage cp provenance.bundle \
+            "gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle"
+          echo "::notice::Image provenance signed (Sigstore/Rekor) and uploaded"
+
+      - name: Upload provenance artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
+        with:
+          name: slsa-provenance-${{ steps.packer.outputs.image_name }}
+          path: |
+            provenance.json
+            provenance.bundle
+
+      - name: Summary
+        run: |
+          {
+            echo "## BMT Image Build"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Image | \`${{ steps.packer.outputs.image_name }}\` |"
+            echo "| Family | \`${{ inputs.image_family || 'bmt-runtime' }}\` |"
+            echo "| Provenance (L1) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\` |"
+            echo "| Signature (L2) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\` |"
+            echo "| Git SHA | \`${{ github.sha }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/bmt_root_results.schema.json",
+  "title": "BMT root results",
+  "description": "Per-run root orchestrator summary written to GCS as bmt_root_results.json. Runtime artifact; not versioned in the repo.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1, "description": "Artifact schema version (additive changes only within a major version)" },
+    "timestamp": { "type": "string", "description": "ISO8601 UTC timestamp" },
+    "bucket": { "type": "string", "description": "GCS bucket name" },
+    "project": { "type": "string", "description": "Project id (e.g. sk)" },
+    "bmt_id": { "type": "string", "description": "BMT id (UUID or logical name)" },
+    "run_context": { "type": "string", "description": "dev, pr, or manual" },
+    "run_id": { "type": "string", "description": "Orchestrator run id" },
+    "workspace": { "type": "string", "description": "Local workspace path on VM" },
+    "manager_exit_code": { "type": "integer", "description": "Exit code of manager process" },
+    "passed": { "type": "boolean", "description": "True if manager exited 0" },
+    "manager_status": { "type": "string", "description": "Manager status (e.g. pass, fail)" },
+    "manager_reason_code": { "type": "string", "description": "Manager reason code" },
+    "manager_verdict_uri": { "type": "string", "description": "GCS URI of ci_verdict.json for this leg" },
+    "manager_summary": {
+      "type": ["object", "null"],
+      "description": "Full manager_summary.json payload for this leg"
+    }
+  }
+}

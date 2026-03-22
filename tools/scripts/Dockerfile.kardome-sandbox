@@ -1,0 +1,37 @@
+# Sandbox image for local/sandbox runs of kardome_runner. Base must match Cloud Run
+# (Ubuntu 22.04) so libkardome.so and kardome_runner see the same glibc/libstdc++ environment.
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gnupg \
+        software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends python3.12 && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Runner + libraries
+COPY gcp/stage/projects/sk/kardome_runner /opt/kardome/kardome_runner
+COPY gcp/stage/projects/sk/lib /opt/kardome/lib
+COPY gcp/stage/projects/shared/dependencies /opt/kardome/dependencies
+
+# Shared template + sandbox runner harness
+COPY gcp/image/runtime/assets/kardome_input_template.json /opt/kardome/input_template.json
+COPY tools/scripts/kardome_sandbox_runner.py /opt/kardome/kardome_sandbox_runner.py
+
+# Test audio corpus
+COPY audio/sk /workspace/audio/sk
+
+RUN chmod +x /opt/kardome/kardome_runner
+
+ENV LD_LIBRARY_PATH="/opt/kardome/lib:/opt/kardome/dependencies"
+
+ENTRYPOINT ["python3.12", "/opt/kardome/kardome_sandbox_runner.py"]
+CMD ["--runner", "/opt/kardome/kardome_runner", "--template", "/opt/kardome/input_template.json", "--wav-root", "/workspace/audio/sk", "--out-root", "/workspace/out", "--summary-json", "/workspace/out/summary.json", "--summary-csv", "/workspace/out/summary.csv"]

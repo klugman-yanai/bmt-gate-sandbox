@@ -1,0 +1,16 @@
+# Packer
+packer/manifest.json
+packer/local.pkrvars.hcl
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/tfplan
+terraform/*.tfvars
+terraform/bmt.tfvars.json
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+
+# SLSA local outputs
+slsa/provenance.json
+slsa/provenance.bundle

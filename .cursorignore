@@ -42,6 +42,10 @@ Thumbs.db
 data/
 sk_runtime/
 .bmt_runtime/
+**.zip
+**.7z
+**.tar.gz
+**.tar
 
 # Secrets and credentials
 secrets/
@@ -52,9 +56,6 @@ gcp-key.json
 remote/sk/runners/lib/
 
 # Generated results and logs (frequently changing; canonical paths in CLAUDE.md)
-remote/sk/results/
 *.log
-bmt_root_results.json
-
 # Optional: reduce noise from Cursor's own plans/state (uncomment if desired)
 # .cursor/plans/

@@ -1,58 +1,99 @@
-
 [build-system]
-requires = ["uv_build>=0.10.7,<0.11.0"]
-build-backend = "uv_build"
-
-[tool.uv.build-backend]
-# Workspace root: minimal stub package so uv_build has one module; real CLI is in workspace member packages/bmt-cli.
-module-name = "bmt_cloud_dev"
-module-root = "."
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "bmt-cloud-dev"
+name = "bmt-gcloud"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "bmt",
-    "click>=8.1.0",
-    "rich>=13.0",
+    "orjson>=3.10",
+    "prek>=0.3.5",
+    "pulumi-gcp>=9.15.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.0.0",
     "requests>=2.31.0",
+    "rich>=13.0",
+    "typer>=0.15.0",
     "whenever>=0.9.5",
 ]
 
 [tool.uv.sources]
 bmt = { workspace = true }
+# So that member .github/bmt can depend on bmt-gcloud without listing it (keeps that pyproject portable).
+bmt-gcloud = { workspace = true }
 
+# Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
 [tool.uv.workspace]
-members = ["packages/bmt-cli"]
+members = [".github/bmt", "gcp/image"]
+# exclude = []   # Optional: globs to exclude from members (e.g. a dir with pyproject you don't want as member)
+
+[tool.uv]
+package = true
 
 [project.optional-dependencies]
+# Runtime extras: install with pip install -e ".[vm]" or ".[monitor]" when using root env for VM/monitor.
 # For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
 vm = ["PyJWT>=2.0", "cryptography>=41.0"]
 # For live BMT monitor TUI (install with: pip install -e ".[monitor]")
 monitor = ["rich>=13.0", "whenever>=0.9.0"]
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# bmt is a workspace member (.github/bmt); root no longer builds it via setuptools find.
+# Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-runtime).
+# Run a member with: uv run --package bmt … or uv run --package bmt-runtime …
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gcp*", "tools*"]
 
-[tool.basedpyright]
-include = ["."]
-exclude = ["**/.venv", "**/node_modules", "**/__pycache__", "data", "sk_runtime", "local_batch", "secrets"]
-venvPath = "."
-venv = ".venv"
-pythonVersion = "3.12"
-extraPaths = ["packages/bmt-cli"]
-# Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
-reportExplicitAny = false
-reportAny = false
-reportUnknownMemberType = false
-reportUnknownVariableType = false
-reportUnknownArgumentType = false
+# Typecheck: `uv run ty check` (see `[tool.ty]`). IDE: Pylance/Cursor uses [pyrightconfig.json].
+[tool.ty.environment]
+python-version = "3.12"
+extra-paths = [".github/bmt"]
 
+[tool.ty.src]
+exclude = [
+    "data",
+    "sk_runtime",
+    "local_batch",
+    "secrets",
+    # Bucket mirror; layout mirrors image but imports are not a full package tree.
+    "gcp/stage",
+]
+
+# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Install with: uv sync --group dev
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
-    "prek>=0.3.3",
-    "pyjwt>=2.11.0",
+    "google-auth-stubs>=0.3.0",
+    "httpx>=0.28.1",
+    "jsonschema>=4.21",
+    "prek>=0.3.5",
+    "pulumi>=3.226.0",
+    "pulumi-gcp>=9.15.0",
+    "pyjwt>=2.12.1",
     "pytest>=9.0.2",
+    "pytest-github-actions-annotate-failures>=0.4.0",
+    "pytest-mock>=3.15.1",
+    "pytest-randomly>=4.0.1",
+    "pytest-rerunfailures>=16.1",
+    "pytest-socket>=0.7.0",
+    "pytest-subprocess>=1.5.3",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.6",
+    "ty>=0.0.1",
+    "typer>=0.24.1",
+    "whenever>=0.9.5",
+]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --timeout-method=thread"
+markers = [
+    "unit: pure logic tests without subprocess/network/filesystem coupling",
+    "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
+    "integration: subprocess/filesystem orchestration tests with local fakes",
+    "live_smoke: cloud-backed smoke tests (scheduled/manual only; not for default PR fast gate)",
 ]
