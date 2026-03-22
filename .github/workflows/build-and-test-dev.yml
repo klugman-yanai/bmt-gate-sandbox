@@ -165,6 +165,7 @@ jobs:
       actions: read
       id-token: write
       statuses: write
+      pull-requests: read
     uses: ./.github/workflows/bmt-handoff.yml
     with:
       ci_run_id: ${{ github.run_id }}

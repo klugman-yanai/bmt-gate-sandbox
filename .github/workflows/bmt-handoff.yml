@@ -273,7 +273,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate dataset inputs (fail fast if no .wav files in GCS)
-        if: ${{ !(inputs.use_mock_runner == true || github.event.inputs.use_mock_runner == 'true') }}
+        if: ${{ inputs.use_mock_runner != true }}
         env:
           GCS_BUCKET: ${{ env.GCS_BUCKET }}
           ACCEPTED_PROJECTS: ${{ steps.classify.outputs.accepted_projects }}
