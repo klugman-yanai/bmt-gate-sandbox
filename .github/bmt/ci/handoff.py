@@ -220,10 +220,24 @@ class HandoffManager:
                 prefix_uri = f"gs://{bucket}/{inputs_prefix}/"
                 blobs = gcs.list_prefix(prefix_uri)
                 wav_count = sum(1 for b in blobs if b.lower().endswith(".wav"))
-                if wav_count == 0:
-                    errors.append(f"{project}/{bmt_slug}: no .wav files found at {prefix_uri}")
+                manifest_uri = f"gs://{bucket}/{inputs_prefix}/dataset_manifest.json"
+                manifest_payload, _ = gcs.download_json(manifest_uri)
+                if manifest_payload:
+                    expected_count = len(manifest_payload.get("files", []))
+                    if wav_count != expected_count:
+                        errors.append(
+                            f"{project}/{bmt_slug}: GCS has {wav_count} .wav files "
+                            f"but manifest expects {expected_count}"
+                        )
+                    else:
+                        gh_notice(
+                            f"{project}/{bmt_slug}: {wav_count} .wav file(s) match manifest ✓"
+                        )
                 else:
-                    gh_notice(f"{project}/{bmt_slug}: {wav_count} .wav file(s) at {prefix_uri}")
+                    if wav_count == 0:
+                        errors.append(f"{project}/{bmt_slug}: no .wav files found at {prefix_uri}")
+                    else:
+                        gh_notice(f"{project}/{bmt_slug}: {wav_count} .wav file(s) at {prefix_uri}")
 
         if errors:
             for e in errors:

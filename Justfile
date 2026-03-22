@@ -159,6 +159,13 @@ set-bucket-var:
 
 # -- Infrastructure ----------------------------------------------------------
 
+# Apply GCS lifecycle rules (run once after `just pulumi`; deletes orphaned imports/ after 2d, triggers/ after 7d).
+[group('infra')]
+set-lifecycle:
+    gcloud storage buckets update gs://$(cd infra/pulumi && pulumi stack output gcs_bucket) \
+        --lifecycle-file=infra/lifecycle.json \
+        --project=$(cd infra/pulumi && pulumi stack output gcp_project)
+
 [group('infra')]
 pulumi *args:
     uv run python -m tools pulumi apply {{ args }}

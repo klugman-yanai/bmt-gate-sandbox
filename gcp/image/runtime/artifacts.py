@@ -114,7 +114,11 @@ def read_existing_last_passing(results_root: Path) -> str | None:
     pointer_path = results_root / "current.json"
     if not pointer_path.is_file():
         return None
-    payload = json.loads(pointer_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(pointer_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(f"Warning: {pointer_path} contains invalid JSON; treating as no baseline")  # noqa: T201
+        return None
     last_passing = payload.get("last_passing")
     return str(last_passing).strip() if isinstance(last_passing, str) and str(last_passing).strip() else None
 

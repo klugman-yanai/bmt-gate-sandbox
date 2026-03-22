@@ -31,6 +31,7 @@ from whenever import Instant
 from tools.repo.paths import DEFAULT_STAGE_ROOT
 from tools.shared.bucket_env import bucket_from_env, bucket_root_uri
 from tools.shared.dataset_manifest import DatasetEntry, DatasetManifest
+from tools.shared.gcloud_storage import GCloudStorageError, upload_file_to_gcs
 
 
 def _gcs_ls_json(uri: str) -> list[dict[str, object]]:
@@ -93,6 +94,7 @@ class GenInputManifest:
         dataset: str,
         stage_root: Path | str = DEFAULT_STAGE_ROOT,
         dry_run: bool = False,
+        upload_to_gcs: bool = True,
     ) -> int:
         if not bucket:
             print("::error::Set GCS_BUCKET (or pass --bucket)", file=sys.stderr)
@@ -142,6 +144,15 @@ class GenInputManifest:
 
         manifest.write(out_path)
         print("Manifest written. Commit dataset_manifest.json to track the dataset.")
+
+        if upload_to_gcs:
+            dest_uri = f"{bucket_root_uri(bucket)}/{prefix}/dataset_manifest.json"
+            try:
+                upload_file_to_gcs(source=out_path, destination_uri=dest_uri)
+                print(f"Uploaded manifest → {dest_uri}")
+            except GCloudStorageError as exc:
+                print(f"Warning: failed to upload manifest to GCS: {exc}", file=sys.stderr)
+
         return 0
 
 

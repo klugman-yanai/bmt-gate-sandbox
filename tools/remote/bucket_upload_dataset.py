@@ -211,6 +211,8 @@ class BucketUploadDataset:
             )
 
         if rc == 0:
+            self._validate_upload(gcs_dest=gcs_dest, expected_count=file_count, expected_bytes=total_bytes)
+            self._regen_manifest(bucket=bucket, project=project, dataset_name=name, local_mirror=local_mirror)
             elapsed = time.monotonic() - start
             summary = f"{name} · {file_count} files · {_fmt_bytes(total_bytes)} · {_fmt_elapsed(elapsed)}\n{gcs_dest}/"
             success_panel(console, "Upload complete", summary)
@@ -268,10 +270,6 @@ class BucketUploadDataset:
             print(f"::error::{exc}", file=sys.stderr)
             return 1
 
-        print(
-            f"Tip: run 'just gen-manifest {project} {dataset_name}' to update dataset_manifest.json "
-            "and commit it so other contributors can see the file list offline."
-        )
         return 0
 
     def _upload(
@@ -304,23 +302,48 @@ class BucketUploadDataset:
 
         n_files = sum(1 for _ in source.rglob("*") if _.is_file())
         print(f"Synced {n_files} file(s) to {gcs_dest}/")
+        return 0
 
-        # Regenerate dataset_manifest.json after a successful upload.
-        bucket_name = gcs_dest.removeprefix("gs://").split("/")[0]
+    def _validate_upload(self, *, gcs_dest: str, expected_count: int, expected_bytes: int) -> None:
+        bucket_name, prefix = self._split_gs_uri(gcs_dest)
+        actual = prefix_stats(client=self.storage_client, bucket_name=bucket_name, prefix=prefix)
+        if actual.file_count != expected_count or actual.total_bytes != expected_bytes:
+            print(
+                f"Warning: GCS has {actual.file_count} files / {_fmt_bytes(actual.total_bytes)} "
+                f"but expected {expected_count} files / {_fmt_bytes(expected_bytes)}",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Verified: {actual.file_count} files / {_fmt_bytes(actual.total_bytes)} in GCS.")
+
+    def _regen_manifest(
+        self,
+        *,
+        bucket: str,
+        project: str,
+        dataset_name: str,
+        local_mirror: Path | None,
+    ) -> None:
+        import tempfile
+
+        print("Regenerating dataset manifest…")
         if local_mirror is not None:
-            print("Regenerating dataset manifest…")
             GenInputManifest().run(
-                bucket=bucket_name,
+                bucket=bucket,
                 project=project,
                 dataset=dataset_name,
                 stage_root=local_mirror,
+                upload_to_gcs=True,
             )
         else:
-            print(
-                f"Tip: run 'just gen-manifest {project} {dataset_name}' to update dataset_manifest.json "
-                "and commit it so other contributors can see the file list offline."
-            )
-        return 0
+            with tempfile.TemporaryDirectory() as tmp:
+                GenInputManifest().run(
+                    bucket=bucket,
+                    project=project,
+                    dataset=dataset_name,
+                    stage_root=tmp,
+                    upload_to_gcs=True,
+                )
 
     def _already_synced(self, source: Path, dest_uri: str) -> bool:
         local_files = [p for p in source.rglob("*") if p.is_file()]
