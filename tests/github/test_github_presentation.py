@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from gcp.image.github.presentation import (
     CheckFinalView,
     CheckProgressView,
@@ -14,6 +16,8 @@ from gcp.image.github.presentation import (
     render_started_pr_comment,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_render_started_pr_comment_is_short_and_human_readable() -> None:
     rendered = render_started_pr_comment(
@@ -26,7 +30,10 @@ def test_render_started_pr_comment_is_short_and_human_readable() -> None:
     assert "<!-- bmt-gate-comment -->" in rendered
     assert "## BMT Started" in rendered
     assert "BMTs are running for `0123456`." in rendered
-    assert 'Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">BMT Cloud Job (GCP Console)</a>' in rendered
+    assert (
+        'Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">BMT Cloud Job (GCP Console)</a>'
+        in rendered
+    )
     assert "Detailed progress: see the **BMT Gate** check" in rendered
     assert "<details>" not in rendered
     assert "| Project |" not in rendered
@@ -44,7 +51,10 @@ def test_render_final_success_pr_comment_stays_brief() -> None:
     assert "## BMT Passed" in rendered
     assert "BMTs passed for `fedcba9`." in rendered
     assert "- Status: `success`" in rendered
-    assert '- Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">BMT Cloud Job (GCP Console)</a>' in rendered
+    assert (
+        '- Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">BMT Cloud Job (GCP Console)</a>'
+        in rendered
+    )
     assert "- Full details: see the **BMT Gate** check" in rendered
     assert "Failed BMTs:" not in rendered
     assert "| Project |" not in rendered
@@ -97,9 +107,9 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     assert "- Progress: `2/5` complete" in output["summary"]
     assert "- Elapsed: `2m 5s`" in output["summary"]
     assert "- ETA: `5m 0s`" in output["summary"]
-    assert "| Project | BMT | Status | Score | Duration |" in output["summary"]
-    assert "| sk | false_rejects | Complete | 12.34 | 1m 1s |" in output["summary"]
-    assert "| sk | false_alarms | Running | — | — |" in output["summary"]
+    assert "| Project | BMT | Status | Score | Cases | Duration |" in output["summary"]
+    assert "| sk | false_rejects | Complete | 12.34 | — | 1m 1s |" in output["summary"]
+    assert "| sk | false_alarms | Running | — | — | — |" in output["summary"]
 
 
 def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
@@ -118,6 +128,7 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
                     aggregate_score=41.25,
                     reason_code="score_below_last",
                     duration_sec=65,
+                    cases_detail="22/24 ok",
                 ),
                 FinalBmtRow(
                     project="sk",
@@ -126,6 +137,7 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
                     aggregate_score=56.8,
                     reason_code="score_gte_last",
                     duration_sec=59,
+                    cases_detail="30/30 ok",
                 ),
             ],
         )
@@ -134,9 +146,9 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
     assert output["title"] == "BMT Complete: FAIL"
     assert "- Result: `failure`" in output["summary"]
     assert "- Log dump (expires in 3 days): [open](https://example.test/log-dump)" in output["summary"]
-    assert "| Project | BMT | Status | Score | Reason | Duration |" in output["summary"]
-    assert "| sk | false_rejects | FAIL | 41.25 | score dropped below baseline | 1m 5s |" in output["summary"]
-    assert "| sk | false_alarms | PASS | 56.80 | score met or exceeded baseline | 59s |" in output["summary"]
+    assert "| Project | BMT | Status | Score | Cases | Reason | Duration |" in output["summary"]
+    assert "| sk | false_rejects | FAIL | 41.25 | 22/24 ok | score dropped below baseline | 1m 5s |" in output["summary"]
+    assert "| sk | false_alarms | PASS | 56.80 | 30/30 ok | score met or exceeded baseline | 59s |" in output["summary"]
     assert "### Failure summary" in output["summary"]
     assert "- `false_rejects`: score dropped below baseline" in output["summary"]
 
@@ -159,4 +171,10 @@ def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> N
             ],
         )
     )
-    assert "| sk | false_rejects | PASS | — (mock) |" in output["summary"]
+    assert "| sk | false_rejects | PASS | — (mock) | — |" in output["summary"]
+
+
+def test_human_reason_runner_case_failures() -> None:
+    from gcp.image.github.presentation import human_reason
+
+    assert human_reason("runner_case_failures") == "runner crashed on one or more test files"

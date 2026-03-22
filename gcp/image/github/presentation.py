@@ -17,6 +17,7 @@ REASON_LABELS: dict[str, str] = {
     "runner_timeout": "the runner timed out",
     "demo_force_pass": "forced pass override (demo mode)",
     "bootstrap_without_baseline": "first run — baseline established",
+    "runner_case_failures": "runner crashed on one or more test files",
 }
 
 
@@ -47,6 +48,7 @@ class ProgressBmtRow:
     #: Set when this leg has written `summary.json` (completed task); drives Score column.
     aggregate_score: float | None = None
     execution_mode_used: str = ""
+    cases_detail: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +60,7 @@ class FinalBmtRow:
     reason_code: str
     duration_sec: int | None = None
     execution_mode_used: str = ""
+    cases_detail: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,8 +170,8 @@ def render_progress_check_output(view: CheckProgressView) -> dict[str, str]:
     lines.extend(
         [
             "",
-            "| Project | BMT | Status | Score | Duration |",
-            "|---------|-----|--------|-------|----------|",
+            "| Project | BMT | Status | Score | Cases | Duration |",
+            "|---------|-----|--------|-------|-------|----------|",
         ]
     )
     for row in view.bmts:
@@ -179,7 +182,7 @@ def render_progress_check_output(view: CheckProgressView) -> dict[str, str]:
             leg_done=leg_done,
         )
         lines.append(
-            f"| {row.project} | {row.bmt} | {_progress_status_label(row.status)} | {score_s} | {_format_duration(row.duration_sec)} |"
+            f"| {row.project} | {row.bmt} | {_progress_status_label(row.status)} | {score_s} | {row.cases_detail or '—'} | {_format_duration(row.duration_sec)} |"
         )
     return {
         "title": f"BMT Running: {view.completed_count}/{view.total_count} complete",
@@ -201,8 +204,8 @@ def render_final_check_output(view: CheckFinalView) -> dict[str, str]:
     lines.extend(
         [
             "",
-            "| Project | BMT | Status | Score | Reason | Duration |",
-            "|---------|-----|--------|-------|--------|----------|",
+            "| Project | BMT | Status | Score | Cases | Reason | Duration |",
+            "|---------|-----|--------|-------|-------|--------|----------|",
         ]
     )
     for row in view.bmts:
@@ -219,6 +222,7 @@ def render_final_check_output(view: CheckFinalView) -> dict[str, str]:
                     row.bmt,
                     _final_status_label(row.status),
                     score_s,
+                    row.cases_detail or "—",
                     human_reason(row.reason_code),
                     _format_duration(row.duration_sec),
                 ]

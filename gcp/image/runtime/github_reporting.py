@@ -5,7 +5,10 @@ import os
 from datetime import timedelta
 
 import google.auth
+import httpx
 import whenever
+from google.api_core import exceptions as google_api_exceptions
+from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import Request
 from google.cloud import storage as gcs_storage
 
@@ -79,13 +82,13 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
             external_id=plan.workflow_run_id,
             pending_legs=[(leg.project, leg.bmt_slug) for leg in plan.legs],
         )
-    except Exception:
+    except httpx.HTTPError:
         logger.exception("create_started_check_run failed workflow_run_id=%s", plan.workflow_run_id)
         return
     if plan.pr_number.isdigit():
         try:
             reporter.upsert_started_pr_comment(pr_number=int(plan.pr_number), view=view)
-        except Exception:
+        except httpx.HTTPError:
             logger.warning("upsert_started_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
     write_reporting_metadata(
         stage_root=runtime.stage_root,
@@ -127,7 +130,7 @@ def publish_progress(*, plan: ExecutionPlan, runtime: StageRuntimePaths) -> None
             view=_progress_view(plan=plan, runtime=runtime, workflow_execution_url=metadata.workflow_execution_url),
             details_url=metadata.workflow_execution_url,
         )
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("publish_progress failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
 
@@ -155,7 +158,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             view=final_view,
             details_url=workflow_url,
         )
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("finalize_check_run failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
     try:
@@ -164,7 +167,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             description=description,
             details_url=workflow_url or None,
         )
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("post_final_status failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
     if not plan.pr_number.isdigit():
@@ -177,13 +180,22 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 state=check_state,
                 links=LiveLinks(workflow_execution_url=workflow_url, log_dump_url=log_dump_url),
                 failed_bmts=[
-                    (summary.bmt_slug, human_reason(summary.reason_code))
+                    (
+                        summary.bmt_slug,
+                        human_reason(summary.reason_code)
+                        + (
+                            f" ({summary.score.metrics.get('cases_failed', '?')} of"
+                            f" {summary.score.metrics.get('case_count', '?')} cases crashed)"
+                            if summary.reason_code == "runner_case_failures"
+                            else ""
+                        ),
+                    )
                     for summary in summaries
                     if not leg_status_is_pass(summary.status)
                 ],
             ),
         )
-    except Exception:
+    except httpx.HTTPError:
         logger.warning("upsert_final_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
 
@@ -225,6 +237,7 @@ def _progress_view(
                     duration_sec=summary.duration_sec,
                     aggregate_score=summary.score.aggregate_score,
                     execution_mode_used=summary.execution_mode_used,
+                    cases_detail=_cases_detail_from_metrics(summary.score.metrics),
                 )
             )
             completed_count += 1
@@ -253,6 +266,14 @@ def _progress_view(
     )
 
 
+def _cases_detail_from_metrics(metrics: dict[str, object]) -> str:
+    cases_ok = metrics.get("cases_ok")
+    case_count = metrics.get("case_count")
+    if cases_ok is None or case_count is None:
+        return ""
+    return f"{cases_ok}/{case_count} ok"
+
+
 def _final_view(
     *, summaries: list[LegSummary], workflow_execution_url: str, log_dump_url: str | None
 ) -> CheckFinalView:
@@ -270,6 +291,7 @@ def _final_view(
                 reason_code=summary.reason_code,
                 duration_sec=summary.duration_sec,
                 execution_mode_used=summary.execution_mode_used,
+                cases_detail=_cases_detail_from_metrics(summary.score.metrics),
             )
             for summary in summaries
         ],
@@ -333,6 +355,6 @@ def _generate_signed_url(*, bucket_name: str, blob_name: str) -> str | None:
             service_account_email=service_account_email,
             access_token=credentials.token,
         )
-    except Exception:
+    except (google_api_exceptions.GoogleAPIError, google_auth_exceptions.GoogleAuthError):
         logger.warning("generate_signed_url failed bucket=%s blob=%s", bucket_name, blob_name, exc_info=True)
         return None

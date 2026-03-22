@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
+import pytest
+
 from gcp.image.config.value_types import as_results_path
 from gcp.image.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView
 from gcp.image.runtime.artifacts import write_progress, write_reporting_metadata, write_summary
@@ -20,6 +23,8 @@ from gcp.image.runtime.models import (
     StageRuntimePaths,
 )
 from tests.support.captures import CallRecorder
+
+pytestmark = pytest.mark.integration
 
 
 def _plan(*, head_event: str = "pull_request", pr_number: str = "17") -> ExecutionPlan:
@@ -301,7 +306,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
             cap.init = (repository, sha, token, status_context)
 
         def finalize_check_run(self, *, check_run_id: int | None, view, details_url: str):
-            raise RuntimeError("check update failed")
+            raise httpx.RequestError("check update failed", request=None)
 
         def post_final_status(self, *, state: str, description: str, details_url: str | None = None) -> bool:
             cap.status_state = state
@@ -310,7 +315,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
             return True
 
         def upsert_final_pr_comment(self, *, pr_number: int, view) -> None:
-            raise RuntimeError("comment update failed")
+            raise httpx.RequestError("comment update failed", request=None)
 
     def _resolve_token(repository: str) -> str:
         cap.resolved_repository = repository
@@ -374,7 +379,9 @@ def test_ensure_reporting_metadata_for_plan_creates_check_and_writes_file(tmp_pa
         def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
             cap.init = (repository, sha, token, status_context)
 
-        def create_started_check_run(self, view, *, details_url: str, external_id: str | None = None, pending_legs=None) -> int:
+        def create_started_check_run(
+            self, view, *, details_url: str, external_id: str | None = None, pending_legs=None
+        ) -> int:
             cap.create_details_url = details_url
             cap.create_external_id = external_id
             cap.pending_legs = pending_legs
@@ -435,3 +442,69 @@ def test_ensure_reporting_metadata_merges_url_when_check_id_exists_without_url(
     meta = ReportingMetadata.model_validate_json(path.read_text(encoding="utf-8"))
     assert meta.check_run_id == 77
     assert meta.workflow_execution_url == "https://env.example/wf"
+
+
+def test_publish_final_results_pr_comment_includes_case_crash_count(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """When reason_code is runner_case_failures, the PR comment detail includes case crash count."""
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=91,
+            started_at="2026-03-19T10:00:00Z",
+        ),
+    )
+
+    summaries = [
+        LegSummary(
+            project="sk",
+            bmt_slug="false_rejects",
+            bmt_id="fr-id",
+            run_id="wf-123-false_rejects",
+            status="fail",
+            reason_code="runner_case_failures",
+            plugin_ref="projects/sk/plugins/default/sha256-demo",
+            execution_mode_used="kardome_legacy_stdout",
+            score=ScorePayload(
+                aggregate_score=87.5,
+                metrics={"case_count": 24, "cases_ok": 22, "cases_failed": 2},
+            ),
+            verdict_summary={},
+            duration_sec=65,
+        ),
+    ]
+
+    cap = CallRecorder()
+
+    class FakeReporter:
+        def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
+            pass
+
+        def finalize_check_run(self, *, check_run_id, view, details_url):
+            return check_run_id, True
+
+        def post_final_status(self, *, state, description, details_url=None):
+            return True
+
+        def upsert_final_pr_comment(self, *, pr_number: int, view: FinalCommentView) -> None:
+            cap.comment_view = view
+
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "app-token")
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("gcp.image.runtime.github_reporting._write_log_dump_and_sign", lambda **_kwargs: None)
+
+    publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
+
+    assert cap.comment_view is not None
+    assert len(cap.comment_view.failed_bmts) == 1
+    bmt_name, detail = cap.comment_view.failed_bmts[0]
+    assert bmt_name == "false_rejects"
+    assert "runner crashed on one or more test files" in detail
+    assert "(2 of 24 cases crashed)" in detail
