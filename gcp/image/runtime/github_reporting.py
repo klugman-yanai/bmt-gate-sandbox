@@ -74,11 +74,19 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
     view = StartedCommentView(head_sha=plan.head_sha, links=LiveLinks(workflow_execution_url=workflow_url))
     try:
         check_run_id = reporter.create_started_check_run(
-            view, details_url=workflow_url, external_id=plan.workflow_run_id
+            view,
+            details_url=workflow_url,
+            external_id=plan.workflow_run_id,
+            pending_legs=[(leg.project, leg.bmt_slug) for leg in plan.legs],
         )
     except Exception:
         logger.exception("create_started_check_run failed workflow_run_id=%s", plan.workflow_run_id)
         return
+    if plan.pr_number.isdigit():
+        try:
+            reporter.upsert_started_pr_comment(pr_number=int(plan.pr_number), view=view)
+        except Exception:
+            logger.warning("upsert_started_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
     write_reporting_metadata(
         stage_root=runtime.stage_root,
         workflow_run_id=plan.workflow_run_id,
@@ -159,7 +167,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
     except Exception:
         logger.warning("post_final_status failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
-    if plan.head_event != "pull_request" or not plan.pr_number.isdigit():
+    if not plan.pr_number.isdigit():
         return
     try:
         reporter.upsert_final_pr_comment(

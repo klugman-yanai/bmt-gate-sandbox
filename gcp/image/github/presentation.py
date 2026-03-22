@@ -12,11 +12,11 @@ REASON_LABELS: dict[str, str] = {
     "score_above_last": "score exceeded the allowed baseline",
     "score_gte_last": "score met or exceeded baseline",
     "score_lte_last": "score stayed within the expected baseline",
-    "bootstrap_no_previous_result": "no baseline was available yet",
+    "bootstrap_no_previous_result": "first run — baseline established",
     "runner_failures": "the runner exited with a failure",
     "runner_timeout": "the runner timed out",
     "demo_force_pass": "forced pass override (demo mode)",
-    "bootstrap_without_baseline": "passed without a baseline",
+    "bootstrap_without_baseline": "first run — baseline established",
 }
 
 

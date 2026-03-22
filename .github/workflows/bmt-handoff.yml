@@ -119,6 +119,7 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
+      pull-requests: read
       id-token: write
     outputs:
       run_id: ${{ steps.prepare.outputs.run_id }}

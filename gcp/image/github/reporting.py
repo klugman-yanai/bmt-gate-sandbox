@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from gcp.image.config.bmt_domain_status import BmtProgressStatus
 from gcp.image.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
 from gcp.image.config.status import CheckConclusion, CheckStatus, CommitStatus
 from gcp.image.github import github_checks
@@ -13,6 +14,7 @@ from gcp.image.github.presentation import (
     CheckFinalView,
     CheckProgressView,
     FinalCommentView,
+    ProgressBmtRow,
     StartedCommentView,
     comment_marker,
     render_final_check_output,
@@ -48,16 +50,25 @@ class GitHubReporter:
         return self._post_commit_status(state=state, description=description, details_url=details_url)
 
     def create_started_check_run(
-        self, view: StartedCommentView, *, details_url: str, external_id: str | None = None
+        self,
+        view: StartedCommentView,
+        *,
+        details_url: str,
+        external_id: str | None = None,
+        pending_legs: list[tuple[str, str]] | None = None,
     ) -> int:
+        legs = [
+            ProgressBmtRow(project=p, bmt=b, status=BmtProgressStatus.PENDING.value)
+            for p, b in (pending_legs or [])
+        ]
         output = render_progress_check_output(
             CheckProgressView(
                 completed_count=0,
-                total_count=0,
+                total_count=len(legs),
                 elapsed_sec=None,
                 eta_sec=None,
                 links=view.links,
-                bmts=[],
+                bmts=legs,
             )
         )
         return github_checks.create_check_run(

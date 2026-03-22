@@ -374,10 +374,14 @@ def test_ensure_reporting_metadata_for_plan_creates_check_and_writes_file(tmp_pa
         def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
             cap.init = (repository, sha, token, status_context)
 
-        def create_started_check_run(self, view, *, details_url: str, external_id: str | None = None) -> int:
+        def create_started_check_run(self, view, *, details_url: str, external_id: str | None = None, pending_legs=None) -> int:
             cap.create_details_url = details_url
             cap.create_external_id = external_id
+            cap.pending_legs = pending_legs
             return 55
+
+        def upsert_started_pr_comment(self, *, pr_number: int, view: object) -> None:
+            cap.started_pr_number = pr_number
 
     monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "app-token")
     monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
@@ -386,6 +390,8 @@ def test_ensure_reporting_metadata_for_plan_creates_check_and_writes_file(tmp_pa
 
     assert cap.create_details_url == "https://console.example.com/workflows/exec"
     assert cap.create_external_id == "wf-123"
+    assert cap.pending_legs == [("sk", "false_rejects"), ("sk", "false_alarms")]
+    assert cap.started_pr_number == 17
     path = runtime.stage_root / "triggers" / "reporting" / "wf-123.json"
     assert path.is_file()
     meta = ReportingMetadata.model_validate_json(path.read_text(encoding="utf-8"))
