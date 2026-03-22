@@ -17,22 +17,7 @@ on:
       - test/check-bmt-gate-*
       - test/workflow-optimizations
   workflow_dispatch:
-    inputs:
-      use_mock_runner:
-        description: >
-          Opt-in only: mock kardome_runner for project sk (no real binary, no real scores).
-          Default off; use for cheap pipeline plumbing tests only.
-        required: false
-        type: boolean
-        default: false
-  workflow_call:
-    inputs:
-      use_mock_runner:
-        description: >
-          Opt-in only: mock kardome_runner for project sk. Default off.
-        required: false
-        type: boolean
-        default: false
+  workflow_call: {}
 
 defaults:
   run:
@@ -187,5 +172,4 @@ jobs:
       head_branch: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.ref || github.ref_name }}
       head_event: ${{ github.event_name }}
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
-      # Strict: only workflow_dispatch can opt in; push/PR have no inputs → false (never mock by default).
-      use_mock_runner: ${{ inputs.use_mock_runner == true }}
+      use_mock_runner: false
