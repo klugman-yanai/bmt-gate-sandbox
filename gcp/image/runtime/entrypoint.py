@@ -100,6 +100,7 @@ def _workflow_request_from_env(*, workflow_run_id: str) -> WorkflowRequest:
         run_context=(os.environ.get("BMT_RUN_CONTEXT") or "ci").strip(),
         accepted_projects=[str(project).strip() for project in accepted_projects if str(project).strip()],
         status_context=(os.environ.get(ENV_BMT_STATUS_CONTEXT) or STATUS_CONTEXT).strip(),
+        # Default off: real plugin/runner unless env explicitly opts in (CI sets this from workflows only when requested).
         use_mock_runner=(os.environ.get("BMT_USE_MOCK_RUNNER") or "").strip().lower() in {"1", "true", "yes"},
     )
 

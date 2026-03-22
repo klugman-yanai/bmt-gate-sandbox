@@ -44,6 +44,9 @@ class ProgressBmtRow:
     bmt: str
     status: str
     duration_sec: int | None = None
+    #: Set when this leg has written `summary.json` (completed task); drives Score column.
+    aggregate_score: float | None = None
+    execution_mode_used: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +57,7 @@ class FinalBmtRow:
     aggregate_score: float
     reason_code: str
     duration_sec: int | None = None
+    execution_mode_used: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +145,15 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
     return "\n".join(lines)
 
 
+def _score_cell_for_check(*, aggregate_score: float | None, execution_mode_used: str, leg_done: bool) -> str:
+    """Format score for GitHub Checks tab (avoid misleading 0.00 for mock runs)."""
+    if execution_mode_used == "mock":
+        return "— (mock)"
+    if leg_done and aggregate_score is not None:
+        return f"{aggregate_score:.2f}"
+    return "—"
+
+
 def render_progress_check_output(view: CheckProgressView) -> dict[str, str]:
     lines = [
         "**BMTs are running**",
@@ -154,13 +167,19 @@ def render_progress_check_output(view: CheckProgressView) -> dict[str, str]:
     lines.extend(
         [
             "",
-            "| Project | BMT | Status | Duration |",
-            "|---------|-----|--------|----------|",
+            "| Project | BMT | Status | Score | Duration |",
+            "|---------|-----|--------|-------|----------|",
         ]
     )
     for row in view.bmts:
+        leg_done = row.status in (BmtLegStatus.PASS.value, BmtLegStatus.FAIL.value)
+        score_s = _score_cell_for_check(
+            aggregate_score=row.aggregate_score,
+            execution_mode_used=row.execution_mode_used,
+            leg_done=leg_done,
+        )
         lines.append(
-            f"| {row.project} | {row.bmt} | {_progress_status_label(row.status)} | {_format_duration(row.duration_sec)} |"
+            f"| {row.project} | {row.bmt} | {_progress_status_label(row.status)} | {score_s} | {_format_duration(row.duration_sec)} |"
         )
     return {
         "title": f"BMT Running: {view.completed_count}/{view.total_count} complete",
@@ -187,6 +206,11 @@ def render_final_check_output(view: CheckFinalView) -> dict[str, str]:
         ]
     )
     for row in view.bmts:
+        score_s = _score_cell_for_check(
+            aggregate_score=row.aggregate_score,
+            execution_mode_used=row.execution_mode_used,
+            leg_done=True,
+        )
         lines.append(
             "| "
             + " | ".join(
@@ -194,7 +218,7 @@ def render_final_check_output(view: CheckFinalView) -> dict[str, str]:
                     row.project,
                     row.bmt,
                     _final_status_label(row.status),
-                    f"{row.aggregate_score:.2f}",
+                    score_s,
                     human_reason(row.reason_code),
                     _format_duration(row.duration_sec),
                 ]

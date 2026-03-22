@@ -215,6 +215,8 @@ def _progress_view(
                     bmt=summary.bmt_slug,
                     status=summary.status,
                     duration_sec=summary.duration_sec,
+                    aggregate_score=summary.score.aggregate_score,
+                    execution_mode_used=summary.execution_mode_used,
                 )
             )
             completed_count += 1
@@ -259,6 +261,7 @@ def _final_view(
                 aggregate_score=summary.score.aggregate_score,
                 reason_code=summary.reason_code,
                 duration_sec=summary.duration_sec,
+                execution_mode_used=summary.execution_mode_used,
             )
             for summary in summaries
         ],

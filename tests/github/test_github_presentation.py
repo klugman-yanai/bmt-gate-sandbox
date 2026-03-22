@@ -81,7 +81,13 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
             eta_sec=300,
             links=LiveLinks(workflow_execution_url="https://example.test/workflows/123"),
             bmts=[
-                ProgressBmtRow(project="sk", bmt="false_rejects", status="pass", duration_sec=61),
+                ProgressBmtRow(
+                    project="sk",
+                    bmt="false_rejects",
+                    status="pass",
+                    duration_sec=61,
+                    aggregate_score=12.34,
+                ),
                 ProgressBmtRow(project="sk", bmt="false_alarms", status="running", duration_sec=None),
             ],
         )
@@ -91,9 +97,9 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     assert "- Progress: `2/5` complete" in output["summary"]
     assert "- Elapsed: `2m 5s`" in output["summary"]
     assert "- ETA: `5m 0s`" in output["summary"]
-    assert "| Project | BMT | Status | Duration |" in output["summary"]
-    assert "| sk | false_rejects | Complete | 1m 1s |" in output["summary"]
-    assert "| sk | false_alarms | Running | — |" in output["summary"]
+    assert "| Project | BMT | Status | Score | Duration |" in output["summary"]
+    assert "| sk | false_rejects | Complete | 12.34 | 1m 1s |" in output["summary"]
+    assert "| sk | false_alarms | Running | — | — |" in output["summary"]
 
 
 def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
@@ -133,3 +139,24 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
     assert "| sk | false_alarms | PASS | 56.80 | score met or exceeded baseline | 59s |" in output["summary"]
     assert "### Failure summary" in output["summary"]
     assert "- `false_rejects`: score dropped below baseline" in output["summary"]
+
+
+def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> None:
+    output = render_final_check_output(
+        CheckFinalView(
+            state="success",
+            links=LiveLinks(workflow_execution_url="https://example.test/wf"),
+            bmts=[
+                FinalBmtRow(
+                    project="sk",
+                    bmt="false_rejects",
+                    status="pass",
+                    aggregate_score=0.0,
+                    reason_code="bootstrap_without_baseline",
+                    duration_sec=1,
+                    execution_mode_used="mock",
+                ),
+            ],
+        )
+    )
+    assert "| sk | false_rejects | PASS | — (mock) |" in output["summary"]

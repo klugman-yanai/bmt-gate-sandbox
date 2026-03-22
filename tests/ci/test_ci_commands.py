@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import pytest
+
+pytestmark = pytest.mark.integration
 import os
 import subprocess
 from pathlib import Path

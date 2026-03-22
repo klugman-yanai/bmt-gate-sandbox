@@ -1,30 +1,21 @@
-"""Shared pytest path/bootstrap config and canonical path fixtures."""
+"""Root conftest — session-scoped fixtures and CWD stability.
+
+Path fixtures (repo_root, gcp_code_root, github_bmt_root, repo_stage_root) live in
+tests/support/fixtures/paths.py and are re-exported here so all tests can use them
+without an explicit import.
+
+Test-layer markers (unit, integration, contract, live_smoke) are assigned by
+subdirectory conftest.py files rather than filename heuristics.
+"""
 
 from pathlib import Path
 
 import pytest
+from tests.support.fixtures.paths import gcp_code_root, github_bmt_root, repo_root, repo_stage_root
+
+__all__ = ["gcp_code_root", "github_bmt_root", "repo_root", "repo_stage_root"]
 
 _ROOT = Path(__file__).resolve().parents[1]
-
-
-@pytest.fixture(scope="session")
-def repo_root() -> Path:
-    return _ROOT
-
-
-@pytest.fixture(scope="session")
-def gcp_code_root(repo_root: Path) -> Path:
-    """VM deployable code root (gcp/image mirrors bucket code/)."""
-    path = repo_root / "gcp" / "image"
-    assert path.exists(), f"Expected gcp image root to exist: {path}"
-    return path
-
-
-@pytest.fixture(scope="session")
-def github_bmt_root(repo_root: Path) -> Path:
-    path = repo_root / ".github" / "bmt"
-    assert path.exists(), f"Expected .github/bmt root to exist: {path}"
-    return path
 
 
 @pytest.fixture(autouse=True)
@@ -37,21 +28,3 @@ def _stable_repo_cwd(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
 def _reset_bmt_config_cache() -> None:
     # ci package does not cache config; no-op for cross-test isolation.
     return
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-assign baseline test-layer markers to keep suite taxonomy consistent."""
-    for item in items:
-        name = item.nodeid
-        if "live_smoke" in name:
-            item.add_marker("live_smoke")
-            continue
-        if any(
-            key in name for key in ("test_ci_commands.py", "test_bootstrap_scripts.py", "test_devtools_exit_codes.py")
-        ):
-            item.add_marker("integration")
-            continue
-        if "test_upload_runner_dedup.py" in name:
-            item.add_marker("contract")
-            continue
-        item.add_marker("unit")

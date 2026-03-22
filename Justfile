@@ -211,12 +211,10 @@ add-bmt project bmt_slug:
 publish-bmt project bmt_slug:
     uv run python -m tools bmt publish-bmt "{{ project }}" "{{ bmt_slug }}"
 
-[private]
 [group('dev')]
-release-package:
-    rm -rf .github-release/bmt/ci .github-release/bmt/config .github-release/bmt/pyproject.toml .github-release/bmt/uv.lock
-    cp -r .github/bmt/ci .github/bmt/config .github/bmt/pyproject.toml .github/bmt/uv.lock .github-release/bmt/
-    @echo "Updated .github-release/bmt/ from .github/bmt/ (ci, config, pyproject.toml, uv.lock)"
+release:
+    uv run python scripts/assemble_release.py
+    @echo "Deploy: rsync .github-release/ → ~/kardome/core-main/.github/"
 
 # -- Local CI ----------------------------------------------------------------
 

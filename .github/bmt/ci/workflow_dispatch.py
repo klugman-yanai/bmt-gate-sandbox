@@ -66,6 +66,7 @@ class WorkflowDispatchManager:
         if not accepted_projects:
             raise RuntimeError("No accepted projects were present in FILTERED_MATRIX_JSON")
 
+        # Mock runner is off unless CI explicitly sets BMT_USE_MOCK_RUNNER (see bmt-handoff.yml).
         use_mock = (os.environ.get("BMT_USE_MOCK_RUNNER") or "").strip().lower() in (
             "1",
             "true",

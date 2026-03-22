@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from gcp.image.github import github_checks
+from tests.support.repo_policy import SAMPLE_PROJECT, repo_stage_bmt_manifest
 
 
 def _false_reject_bmt_id() -> str:
-    manifest_path = Path("gcp/stage/projects/sk/bmts/false_rejects/bmt.json")
+    manifest_path = repo_stage_bmt_manifest(SAMPLE_PROJECT, "false_rejects")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     return str(manifest["bmt_id"])
 

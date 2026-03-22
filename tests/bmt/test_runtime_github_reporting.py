@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from gcp.image.config.value_types import as_results_path
@@ -20,68 +19,7 @@ from gcp.image.runtime.models import (
     ScorePayload,
     StageRuntimePaths,
 )
-
-
-@dataclass
-class _ProgressCapture:
-    """Records calls for ``test_publish_progress_updates_the_existing_check_run``."""
-
-    init: tuple[str, str, str, str] | None = None
-    check_run_id: int | None = None
-    progress_view: CheckProgressView | None = None
-    details_url: str | None = None
-    resolved_repository: str | None = None
-
-
-@dataclass
-class _FinalResultsCapture:
-    """Records calls for ``test_publish_final_results_posts_status_and_failure_comment_with_log_dump``."""
-
-    init: tuple[str, str, str, str] | None = None
-    resolved_repository: str | None = None
-    status_state: str | None = None
-    status_description: str | None = None
-    status_details_url: str | None = None
-    finalize_check_run_id: int | None = None
-    finalize_view: CheckFinalView | None = None
-    finalize_details_url: str | None = None
-    comment_pr_number: int | None = None
-    comment_view: FinalCommentView | None = None
-
-
-@dataclass
-class _FailurePathStatusCapture:
-    """Records status for ``test_publish_final_results_still_posts_status_when_check_and_comment_fail``."""
-
-    init: tuple[str, str, str, str] | None = None
-    resolved_repository: str | None = None
-    status_state: str | None = None
-    status_description: str | None = None
-    status_details_url: str | None = None
-
-
-@dataclass
-class _EnsureMetadataSkipCapture:
-    """Flags for ``test_ensure_reporting_metadata_for_plan_skips_when_already_complete``."""
-
-    constructed: bool = False
-    create_called: bool = False
-
-
-@dataclass
-class _EnsureMetadataCreateCapture:
-    """Records ``create_started_check_run`` for ``test_ensure_reporting_metadata_for_plan_creates_check_and_writes_file``."""
-
-    init: tuple[str, str, str, str] | None = None
-    create_details_url: str | None = None
-    create_external_id: str | None = None
-
-
-@dataclass
-class _EnsureMetadataMergeCapture:
-    """Flags for ``test_ensure_reporting_metadata_merges_url_when_check_id_exists_without_url``."""
-
-    create_called: bool = False
+from tests.support.captures import CallRecorder
 
 
 def _plan(*, head_event: str = "pull_request", pr_number: str = "17") -> ExecutionPlan:
@@ -189,7 +127,7 @@ def test_publish_progress_updates_the_existing_check_run(tmp_path: Path, monkeyp
         ),
     )
 
-    cap = _ProgressCapture()
+    cap = CallRecorder()
 
     class FakeReporter:
         def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
@@ -271,7 +209,7 @@ def test_publish_final_results_posts_status_and_failure_comment_with_log_dump(
         ),
     ]
 
-    cap = _FinalResultsCapture()
+    cap = CallRecorder()
 
     class FakeReporter:
         def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
@@ -356,7 +294,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
         )
     ]
 
-    cap = _FailurePathStatusCapture()
+    cap = CallRecorder()
 
     class FakeReporter:
         def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
@@ -403,7 +341,9 @@ def test_ensure_reporting_metadata_for_plan_skips_when_already_complete(tmp_path
             started_at="2026-03-19T10:00:00Z",
         ),
     )
-    cap = _EnsureMetadataSkipCapture()
+    cap = CallRecorder()
+    cap.constructed = False
+    cap.create_called = False
 
     class FakeReporter:
         def __init__(self, *args: object, **kwargs: object) -> None:
@@ -428,7 +368,7 @@ def test_ensure_reporting_metadata_for_plan_creates_check_and_writes_file(tmp_pa
     plan = _plan()
     monkeypatch.setenv("BMT_WORKFLOW_EXECUTION_URL", "https://console.example.com/workflows/exec")
 
-    cap = _EnsureMetadataCreateCapture()
+    cap = CallRecorder()
 
     class FakeReporter:
         def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
@@ -470,7 +410,8 @@ def test_ensure_reporting_metadata_merges_url_when_check_id_exists_without_url(
             started_at="2026-03-19T10:00:00Z",
         ),
     )
-    cap = _EnsureMetadataMergeCapture()
+    cap = CallRecorder()
+    cap.create_called = False
 
     class FakeReporter:
         def create_started_check_run(self, *args: object, **kwargs: object) -> int:
