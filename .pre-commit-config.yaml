@@ -1,10 +1,15 @@
 # Prek (pre-commit compatible): https://prek.j178.dev/
 # Install: prek install (or prek install -f to replace pre-commit hook)
 # Run manually: prek run --all-files
-# Requires: uv sync --group dev (ruff in dev dependency-group)
+# Requires: uv sync (dev group includes ruff, pytest; use --no-dev to exclude)
 repos:
   - repo: local
     hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
       - id: ruff-format
         name: ruff format
         entry: uv run ruff format
@@ -24,13 +29,6 @@ repos:
         pass_filenames: false
       - id: pytest-fast
         name: pytest fast gate
-        entry: bash -lc 'uv run pytest -q -m "unit or contract"'
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit]
-      - id: pytest
-        name: pytest fast gate (alias)
         entry: bash -lc 'uv run pytest -q -m "unit or contract"'
         language: system
         pass_filenames: false

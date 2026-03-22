@@ -23,7 +23,7 @@ dependencies = [
     "pydantic>=2.12.5",
 ]
 
-# Optional: uv sync --group dev (when developing this package in isolation)
+# Optional: uv sync from repo root (dev group included by default; use --no-dev to exclude)
 [dependency-groups]
 dev = [
     "ruff>=0.15.0",

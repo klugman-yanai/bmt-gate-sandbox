@@ -61,7 +61,7 @@ exclude = [
     "gcp/stage",
 ]
 
-# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Install with: uv sync --group dev
+# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Included by default on `uv sync`; omit with `uv sync --no-dev`.
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
