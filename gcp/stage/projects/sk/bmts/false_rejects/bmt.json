@@ -4,7 +4,7 @@
   "bmt_slug": "false_rejects",
   "bmt_id": "4a5b6e82-a048-5c96-8734-2f64d2288378",
   "enabled": true,
-  "plugin_ref": "published:default:sha256-498dfda6cc4554665a1f0170f7f31db0253e71e3c0ec19eea68ab5f783f0a27c",
+  "plugin_ref": "published:default:sha256-e47e6ea5e6cf12aa057d9d6e7ba9ecc5c69151fefee87334db5ce36f4be1109a",
   "inputs_prefix": "projects/sk/inputs/false_rejects",
   "results_prefix": "projects/sk/results/false_rejects",
   "outputs_prefix": "projects/sk/outputs/false_rejects",
