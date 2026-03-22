@@ -208,14 +208,20 @@ class LegacyKardomeStdoutExecutor:
         return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=results)
 
     def _runner_env(self) -> dict[str, str]:
-        if self.config.runner_env:
-            return dict(self.config.runner_env)
         env = dict(os.environ)
         runner_dir = self.config.runner_path.parent.resolve()
         ld_dirs = [str(runner_dir)]
         lib_dir = runner_dir / "lib"
         if lib_dir.is_dir():
             ld_dirs.append(str(lib_dir))
+        # Merge extra env from plugin (e.g. deps_root) — treat runner_env as additions,
+        # not a replacement for os.environ. Accumulate extra LD_LIBRARY_PATH entries.
+        for key, val in self.config.runner_env.items():
+            if key != "LD_LIBRARY_PATH":
+                env[key] = val
+        extra_ld = self.config.runner_env.get("LD_LIBRARY_PATH", "").strip()
+        if extra_ld:
+            ld_dirs.append(extra_ld)
         existing = env.get("LD_LIBRARY_PATH", "").strip()
         env["LD_LIBRARY_PATH"] = ":".join(ld_dirs + ([existing] if existing else []))
         return env
