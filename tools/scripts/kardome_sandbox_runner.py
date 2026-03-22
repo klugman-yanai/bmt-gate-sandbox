@@ -19,6 +19,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from whenever import Instant
+
 COUNTER_RE = re.compile(r"Hi NAMUH counter = (\d+)")
 
 
@@ -170,7 +172,7 @@ def run_all(
         "ok_count": ok_count,
         "fail_count": fail_count,
         "avg_namuh": avg_namuh,
-        "started_at_epoch": time.time(),
+        "started_at_epoch": Instant.now().timestamp(),
     }
     return results, summary
 

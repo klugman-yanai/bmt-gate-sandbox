@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from gcp.image.runtime.artifacts import (
     cleanup_ephemeral_triggers,
     reporting_metadata_path,
@@ -11,6 +13,8 @@ from gcp.image.runtime.artifacts import (
     write_summary,
 )
 from gcp.image.runtime.models import ExecutionPlan, LegSummary, ReportingMetadata, ScorePayload
+
+pytestmark = pytest.mark.integration
 
 
 def test_cleanup_ephemeral_triggers_removes_expected_paths(tmp_path: Path) -> None:

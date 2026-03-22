@@ -13,6 +13,7 @@ import typer
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from gcp.image.config.constants import ENV_BMT_STATUS_CONTEXT, ENV_GCS_BUCKET, STATUS_CONTEXT
+from gcp.image.config.env_parse import is_truthy_env_value
 from gcp.image.runtime.artifacts import (
     aggregate_status,
     cleanup_ephemeral_triggers,
@@ -101,7 +102,7 @@ def _workflow_request_from_env(*, workflow_run_id: str) -> WorkflowRequest:
         accepted_projects=[str(project).strip() for project in accepted_projects if str(project).strip()],
         status_context=(os.environ.get(ENV_BMT_STATUS_CONTEXT) or STATUS_CONTEXT).strip(),
         # Default off: real plugin/runner unless env explicitly opts in (CI sets this from workflows only when requested).
-        use_mock_runner=(os.environ.get("BMT_USE_MOCK_RUNNER") or "").strip().lower() in {"1", "true", "yes"},
+        use_mock_runner=is_truthy_env_value(os.environ.get("BMT_USE_MOCK_RUNNER")),
     )
 
 

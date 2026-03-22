@@ -28,10 +28,10 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 **No.** Adding only modified `build-and-test.yml` and `bmt-handoff.yml` to core-main will cause the real workflow to fail. `bmt-handoff.yml` and the actions it uses depend on the rest of this repo:
 
-- **Missing local actions** — Handoff uses: `check-image-up-to-date`, `bmt-prepare-context`, `setup-gcp-uv`, `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary`. All must exist under `.github/actions/`.
+- **Missing local actions** — `bmt-handoff.yml` uses `bmt-prepare-context`, `setup-gcp-uv`, `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary` under `.github/actions/`. (`check-image-up-to-date` exists for optional image gates; it is not referenced by the current handoff workflow in this repo.)
 - **Missing BMT CLI** — Steps run `uv run bmt …` (write-context, filter-upload-matrix, invoke-workflow, etc.). The package lives under `.github/bmt/` (pyproject.toml, ci/, config/); core-main needs it.
 - **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
-- **Check image up to date** — The first handoff job calls `check-image-up-to-date`, which expects a workflow named `bmt-image-build.yml` and fails if image-affecting paths changed but no successful run exists. If core-main does not have that workflow, the check will fail whenever `infra/packer` or `gcp/image` change (or the action must be made optional when the workflow is absent).
+- **Check image up to date** — Composite action `check-image-up-to-date` defaults to workflow `ops/bmt-image-build.yml` (input `image_build_workflow`). Override with `bmt-image-build.yml` if your layout keeps that file at the repo root (e.g. core-main). It fails when `infra/packer` or `gcp/image` change but no successful image build run exists for the ref.
 - **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.CLOUD_RUN_REGION`, and the Workflow / job names exported by Pulumi. These must be set in core-main (or the org).
 - **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `build-release` (gates BMT), `build-nonrelease` (parallel), `decide-bmt` → `bmt`. In core-main the same graph applies with real builds.
 
@@ -42,7 +42,6 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 - **workflows/** — **`build-and-test.yml`** (main CI; structure aligned with core-main), **`bmt-handoff.yml`** (BMT handoff, called by build-and-test). **Test-only (not for core-main):** **`ops/`** — trigger-ci, trigger-image-build, bmt-image-build; **`clang-format-auto-fix.yml`**.
 - **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
 - **bmt/** — BMT CLI (`uv run bmt …`) and config used by workflows
-- **docs/** — Notes and references: `action-versions.md`, `dry-and-organization.md`
 
 ## Which workflow runs CI?
 
@@ -53,15 +52,27 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 GitHub Actions does not execute files from `.github/jobs/`. Use native `workflow_call` reusable workflows under `workflows/` for reusable job-level logic.
 
+## Repo variables vs composite inputs
+
+Repository variables (`vars.*`, synced from Pulumi) are the **source of truth**. Workflows usually map them once on a workflow or job `env:` block (for example `GCP_PROJECT: ${{ vars.GCP_PROJECT }}`). Composite actions cannot rely on `vars` the same way, so actions such as `setup-gcp-uv` take an explicit **`gcp_project`** input — pass **`${{ env.GCP_PROJECT }}`** when the job already defines `env` from `vars`. That is one value threaded through two mechanisms, not two different project IDs.
+
 ## Why `actions/setup-gcp-uv` exists
 
 `actions/setup-gcp-uv/action.yml` centralizes:
 
-1. `google-github-actions/auth` (Workload Identity Federation)
-2. `google-github-actions/setup-gcloud`
-3. Optional `astral-sh/setup-uv`
+1. `google-github-actions/auth` (Workload Identity Federation) with **`project_id`**
+2. `google-github-actions/setup-gcloud` with the same **`project_id`** and a default **`gcloud_version`** constraint for WIF
+3. Optional `astral-sh/setup-uv` with **`enable-cache: true`** for faster `uv sync`
 
-That keeps auth and toolchain versions in one place. Per-job `permissions` are still set in each workflow job.
+Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `permissions` stay in each workflow job.
+
+## GitHub Actions and Pulumi
+
+`pulumi`/GitHub var export runs via **`just pulumi`** (local or approved runner), not from default CI here — keeps state credentials and blast radius off ephemeral runners. To add **`pulumi preview`** on PRs later, you need a chosen [state backend](https://www.pulumi.com/docs/iac/concepts/state-and-backends/) and secrets policy; treat **fork PRs** as untrusted for cloud tokens.
+
+## Optional CODEOWNERS
+
+To require review for workflow edits, add a `.github/CODEOWNERS` rule (for example `/.github/workflows/ @your-org/infra-team`). This repo does not ship a team-specific file; set owners to match your org.
 
 ## Auth boundaries
 

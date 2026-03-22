@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import timedelta
+from pathlib import Path
 
 import google.auth
 import httpx
@@ -40,6 +41,53 @@ from gcp.image.runtime.models import ExecutionPlan, LegSummary, ReportingMetadat
 logger = logging.getLogger(__name__)
 
 
+def _reporting_metadata_fully_initialized(existing: ReportingMetadata | None) -> bool:
+    return bool(
+        existing and existing.check_run_id is not None and (existing.workflow_execution_url or "").strip()
+    )
+
+
+def _merge_missing_workflow_url_only(
+    *,
+    existing: ReportingMetadata | None,
+    plan: ExecutionPlan,
+    runtime: StageRuntimePaths,
+    workflow_url: str,
+) -> bool:
+    """If metadata has a check run but no URL and env provides one, persist URL and return True."""
+    if not (
+        existing
+        and existing.check_run_id is not None
+        and workflow_url
+        and not (existing.workflow_execution_url or "").strip()
+    ):
+        return False
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=existing.model_copy(update={"workflow_execution_url": workflow_url}),
+    )
+    return True
+
+
+def _persist_reporting_started(
+    *,
+    runtime: StageRuntimePaths,
+    plan: ExecutionPlan,
+    workflow_url: str,
+    check_run_id: int,
+) -> None:
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url=workflow_url,
+            check_run_id=check_run_id,
+            started_at=now_iso(),
+        ),
+    )
+
+
 def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRuntimePaths) -> None:
     """Create GitHub Check Run (in progress) and write triggers/reporting/{workflow_run_id}.json.
 
@@ -47,23 +95,15 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
     the plan when GitHub or env is unavailable (logs a warning).
     """
     existing = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
-
-    # Already fully initialised — nothing to do.
-    if existing and existing.check_run_id is not None and existing.workflow_execution_url.strip():
-        return
-
     workflow_url = (os.environ.get(ENV_BMT_WORKFLOW_EXECUTION_URL) or "").strip()
 
-    # Check run exists but URL was missing — patch it and done.
-    if existing and existing.check_run_id is not None and not existing.workflow_execution_url.strip() and workflow_url:
-        write_reporting_metadata(
-            stage_root=runtime.stage_root,
-            workflow_run_id=plan.workflow_run_id,
-            metadata=existing.model_copy(update={"workflow_execution_url": workflow_url}),
-        )
+    if _reporting_metadata_fully_initialized(existing):
+        return
+    if _merge_missing_workflow_url_only(
+        existing=existing, plan=plan, runtime=runtime, workflow_url=workflow_url
+    ):
         return
 
-    # Validate preconditions before creating a new check run.
     workflow_url, token = _reporting_preconditions(plan=plan, workflow_url=workflow_url)
     if workflow_url is None or token is None:
         return
@@ -90,14 +130,8 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
             reporter.upsert_started_pr_comment(pr_number=int(plan.pr_number), view=view)
         except httpx.HTTPError:
             logger.warning("upsert_started_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
-    write_reporting_metadata(
-        stage_root=runtime.stage_root,
-        workflow_run_id=plan.workflow_run_id,
-        metadata=ReportingMetadata(
-            workflow_execution_url=workflow_url,
-            check_run_id=check_run_id,
-            started_at=now_iso(),
-        ),
+    _persist_reporting_started(
+        runtime=runtime, plan=plan, workflow_url=workflow_url, check_run_id=check_run_id
     )
 
 
@@ -122,7 +156,13 @@ def _reporting_preconditions(*, plan: ExecutionPlan, workflow_url: str) -> tuple
 
 def publish_progress(*, plan: ExecutionPlan, runtime: StageRuntimePaths) -> None:
     reporter, metadata = _load_reporter(plan=plan, runtime=runtime)
-    if reporter is None or metadata.check_run_id is None or not metadata.workflow_execution_url:
+    if reporter is None:
+        return
+    if metadata.check_run_id is None or not metadata.workflow_execution_url:
+        logger.debug(
+            "publish_progress skipped: missing check_run_id or workflow_execution_url workflow_run_id=%s",
+            plan.workflow_run_id,
+        )
         return
     try:
         reporter.update_progress_check_run(
@@ -132,6 +172,24 @@ def publish_progress(*, plan: ExecutionPlan, runtime: StageRuntimePaths) -> None
         )
     except httpx.HTTPError:
         logger.warning("publish_progress failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
+
+
+def _aggregate_pass_and_commit_states(
+    summaries: list[LegSummary],
+) -> tuple[bool, str, str]:
+    is_pass = aggregate_status(summaries) == BmtLegStatus.PASS.value
+    check_state = CheckConclusion.SUCCESS.value if is_pass else CheckConclusion.FAILURE.value
+    commit_state = CommitStatus.SUCCESS.value if is_pass else CommitStatus.FAILURE.value
+    return is_pass, check_state, commit_state
+
+
+def _commit_status_description(summaries: list[LegSummary], *, is_pass: bool) -> str:
+    if not summaries:
+        return "No BMT legs completed."
+    n_failed = sum(1 for s in summaries if not leg_status_is_pass(s.status))
+    if is_pass:
+        return f"{len(summaries)} BMTs passed."
+    return f"{n_failed}/{len(summaries)} BMTs failed."
 
 
 def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], runtime: StageRuntimePaths) -> None:
@@ -146,20 +204,23 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
         workflow_execution_url=workflow_url,
         log_dump_url=log_dump_url,
     )
-    is_pass = aggregate_status(summaries) == BmtLegStatus.PASS.value
-    check_state = CheckConclusion.SUCCESS.value if is_pass else CheckConclusion.FAILURE.value
-    commit_state = CommitStatus.SUCCESS.value if is_pass else CommitStatus.FAILURE.value
-    n_failed = sum(1 for s in summaries if not leg_status_is_pass(s.status))
-    description = f"{len(summaries)} BMTs passed." if is_pass else f"{n_failed}/{len(summaries)} BMTs failed."
+    is_pass, check_state, commit_state = _aggregate_pass_and_commit_states(summaries)
+    description = _commit_status_description(summaries, is_pass=is_pass)
 
     try:
-        reporter.finalize_check_run(
+        _, finalized_ok = reporter.finalize_check_run(
             check_run_id=metadata.check_run_id,
             view=final_view,
             details_url=workflow_url,
         )
     except httpx.HTTPError:
         logger.warning("finalize_check_run failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
+    else:
+        if not finalized_ok:
+            logger.warning(
+                "finalize_check_run did not complete successfully workflow_run_id=%s",
+                plan.workflow_run_id,
+            )
 
     try:
         reporter.post_final_status(
@@ -179,20 +240,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 head_sha=plan.head_sha,
                 state=check_state,
                 links=LiveLinks(workflow_execution_url=workflow_url, log_dump_url=log_dump_url),
-                failed_bmts=[
-                    (
-                        summary.bmt_slug,
-                        human_reason(summary.reason_code)
-                        + (
-                            f" ({summary.score.metrics.get('cases_failed', '?')} of"
-                            f" {summary.score.metrics.get('case_count', '?')} cases crashed)"
-                            if summary.reason_code == "runner_case_failures"
-                            else ""
-                        ),
-                    )
-                    for summary in summaries
-                    if not leg_status_is_pass(summary.status)
-                ],
+                failed_bmts=_final_comment_failed_rows(summaries),
             ),
         )
     except httpx.HTTPError:
@@ -274,6 +322,21 @@ def _cases_detail_from_metrics(metrics: dict[str, object]) -> str:
     return f"{cases_ok}/{case_count} ok"
 
 
+def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for summary in summaries:
+        if leg_status_is_pass(summary.status):
+            continue
+        detail = human_reason(summary.reason_code)
+        if summary.reason_code == "runner_case_failures":
+            detail += (
+                f" ({summary.score.metrics.get('cases_failed', '?')} of"
+                f" {summary.score.metrics.get('case_count', '?')} cases crashed)"
+            )
+        rows.append((summary.bmt_slug, detail))
+    return rows
+
+
 def _final_view(
     *, summaries: list[LegSummary], workflow_execution_url: str, log_dump_url: str | None
 ) -> CheckFinalView:
@@ -309,6 +372,31 @@ def _elapsed_seconds(*, runtime: StageRuntimePaths, workflow_run_id: str) -> int
     return max(0, int(whenever.Instant.now().timestamp() - started_at.timestamp()))
 
 
+def _resolved_logs_dir_under_stage(stage_root: Path, logs_uri: str) -> Path | None:
+    """Return the logs directory if it exists and stays under ``stage_root``; else None."""
+    if not logs_uri.strip():
+        return None
+    base = stage_root.resolve()
+    try:
+        candidate = (stage_root / logs_uri).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if not candidate.is_relative_to(base):
+        return None
+    if not candidate.is_dir():
+        return None
+    return candidate
+
+
+def _append_leg_log_files_to_dump(dump_lines: list[str], summary: LegSummary, logs_root: Path) -> None:
+    for log_file in sorted(logs_root.rglob("*")):
+        if not log_file.is_file():
+            continue
+        dump_lines.append(f"===== {summary.project}/{summary.bmt_slug}: {log_file.name} =====")
+        dump_lines.append(log_file.read_text(encoding="utf-8", errors="replace"))
+        dump_lines.append("")
+
+
 def _write_log_dump_and_sign(
     *, plan: ExecutionPlan, runtime: StageRuntimePaths, summaries: list[LegSummary]
 ) -> str | None:
@@ -318,15 +406,10 @@ def _write_log_dump_and_sign(
     for summary in summaries:
         if leg_status_is_pass(summary.status) or not summary.logs_uri:
             continue
-        logs_root = runtime.stage_root / summary.logs_uri
-        if not logs_root.is_dir():
+        logs_root = _resolved_logs_dir_under_stage(runtime.stage_root, summary.logs_uri)
+        if logs_root is None:
             continue
-        for log_file in sorted(logs_root.rglob("*")):
-            if not log_file.is_file():
-                continue
-            dump_lines.append(f"===== {summary.project}/{summary.bmt_slug}: {log_file.name} =====")
-            dump_lines.append(log_file.read_text(encoding="utf-8", errors="replace"))
-            dump_lines.append("")
+        _append_leg_log_files_to_dump(dump_lines, summary, logs_root)
     if not dump_lines:
         return None
     relative_path = f"log-dumps/{plan.workflow_run_id}.txt"

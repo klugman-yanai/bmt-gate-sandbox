@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import tempfile
@@ -11,23 +10,23 @@ from pathlib import Path
 
 
 def upload_zip_wavs(zip_path: str, gcs_dest: str, tmp_dir: str | None = None) -> None:
-    zip_path = Path(zip_path)
-    if not zip_path.exists():
-        raise FileNotFoundError(zip_path)
+    path = Path(zip_path)
+    if not path.exists():
+        raise FileNotFoundError(path)
 
-    with zipfile.ZipFile(zip_path) as zf:
+    with zipfile.ZipFile(path) as zf:
         members = [n for n in zf.namelist() if n.lower().endswith(".wav")]
-        print(f"Found {len(members)} WAV files in {zip_path.name}", flush=True)
+        print(f"Found {len(members)} WAV files in {path.name}", flush=True)
 
         for name in members:
             info = zf.getinfo(name)
             size_gb = info.file_size / 1e9
-            base = os.path.basename(name)
+            base = Path(name).name
             dest = gcs_dest.rstrip("/") + "/" + base
             print(f"\n[{base}] {size_gb:.2f}GB → {dest}", flush=True)
 
             # Extract to a temp file (on same filesystem as tmp_dir for space)
-            extract_dir = tmp_dir or str(zip_path.parent)
+            extract_dir = tmp_dir or str(path.parent)
             with tempfile.NamedTemporaryFile(
                 dir=extract_dir,
                 suffix=".wav",
@@ -37,13 +36,13 @@ def upload_zip_wavs(zip_path: str, gcs_dest: str, tmp_dir: str | None = None) ->
                 tmp_path = tf.name
 
             try:
-                print(f"  Extracting...", end=" ", flush=True)
-                with zf.open(name) as src, open(tmp_path, "wb") as dst:
+                print("  Extracting...", end=" ", flush=True)
+                with zf.open(name) as src, Path(tmp_path).open("wb") as dst:
                     while chunk := src.read(4 * 1024 * 1024):  # 4MB chunks
                         dst.write(chunk)
                 print("done", flush=True)
 
-                print(f"  Uploading...", end=" ", flush=True)
+                print("  Uploading...", end=" ", flush=True)
                 result = subprocess.run(
                     ["gcloud", "storage", "cp", tmp_path, dest],
                     check=False,

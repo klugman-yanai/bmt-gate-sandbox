@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-pytestmark = pytest.mark.contract
 from ci import gcs as gcs_module
 from ci.runner import RunnerManager, _sha256_file
+
+pytestmark = pytest.mark.contract
 
 
 def _write(path: Path, content: bytes) -> None:

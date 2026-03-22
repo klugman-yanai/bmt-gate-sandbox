@@ -5,8 +5,12 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TypedDict
 
+import pytest
+
 from tools.remote.bucket_upload_dataset import BucketUploadDataset
 from tools.shared.gcs_storage_client import GcsBlobNameSize
+
+pytestmark = pytest.mark.unit
 
 
 class _CloudRunJobResult(TypedDict):

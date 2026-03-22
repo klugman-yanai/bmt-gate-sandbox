@@ -1,7 +1,12 @@
 # Prek (pre-commit compatible): https://prek.j178.dev/
-# Install: prek install (or prek install -f to replace pre-commit hook)
+# Install: prek install -t pre-commit -f && prek install -t pre-push -f
+#   (or: tools/scripts/bootstrap_dev_env.sh / just onboard)
 # Run manually: prek run --all-files
-# Requires: uv sync (dev group includes ruff, pytest; use --no-dev to exclude)
+# Requires: uv sync (dev group default; use --no-dev to exclude)
+#
+# Stages:
+#   pre-commit — fast: ruff + repo-specific guards
+#   pre-push   — ty + pytest fast gate (unit|contract)
 repos:
   - repo: local
     hooks:
@@ -27,10 +32,17 @@ repos:
         language: script
         files: ^(infra/packer/|gcp/image/)
         pass_filenames: false
+      - id: ty-check
+        name: ty check
+        entry: uv run ty check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
       - id: pytest-fast
         name: pytest fast gate
         entry: bash -lc 'uv run pytest -q -m "unit or contract"'
         language: system
         pass_filenames: false
         always_run: true
-        stages: [pre-commit]
+        stages: [pre-push]

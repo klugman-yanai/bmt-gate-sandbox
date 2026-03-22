@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
 import gcp.image.main as image_main
@@ -10,6 +11,8 @@ import gcp.image.runtime.entrypoint as runtime_entrypoint
 from gcp.image.runtime.entrypoint import run_coordinator_mode, run_plan_mode, run_task_mode
 from tools.bmt.publisher import publish_bmt
 from tools.bmt.scaffold import add_bmt, add_project
+
+pytestmark = pytest.mark.integration
 
 
 def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatch) -> None:
@@ -26,7 +29,8 @@ def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatc
     dataset_root = stage_root / "projects" / "acme" / "inputs" / "wake_word_quality"
     dataset_root.mkdir(parents=True, exist_ok=True)
     (dataset_root / "sample.wav").write_bytes(b"fake")
-    publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality")
+    # Avoid live GCS sync (GCS_BUCKET in env); this test exercises local runtime modes only.
+    publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality", sync=False)
 
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("BMT_HEAD_SHA", "0123456789abcdef0123456789abcdef01234567")

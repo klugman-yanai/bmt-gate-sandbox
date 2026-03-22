@@ -9,6 +9,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import FrameType
 
 
 class RuntimeMode(enum.Enum):
@@ -99,9 +100,10 @@ class RuntimeFacade:
 
     @staticmethod
     def _install_signal_handlers() -> None:
-        def handle_sigbus(signum: int, frame: object) -> None:
+        def handle_sigbus(signum: int, frame: FrameType | None) -> None:
             try:
-                traceback.print_stack(frame)  # type: ignore[arg-type]
+                if frame is not None:
+                    traceback.print_stack(frame)
             finally:
                 signal.signal(signal.SIGBUS, signal.SIG_DFL)
                 raise SystemExit(signum)

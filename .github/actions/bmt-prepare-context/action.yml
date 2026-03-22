@@ -51,6 +51,7 @@ runs:
       with:
         version: "0.10.9"
         python-version: "3.12"
+        enable-cache: true
 
     - name: Sync BMT uv environment
       shell: bash

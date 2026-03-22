@@ -10,6 +10,8 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+pytestmark = pytest.mark.unit
+
 
 def _load_module(module_name: str, relative_path: str):
     module_path = _REPO_ROOT / relative_path

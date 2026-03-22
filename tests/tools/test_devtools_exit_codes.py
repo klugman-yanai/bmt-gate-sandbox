@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.integration
-from pathlib import Path
 
 
 def _run_script(script: str, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:

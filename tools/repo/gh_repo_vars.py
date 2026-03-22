@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -20,6 +19,8 @@ from pathlib import Path
 from gcp.image.config.constants import ENV_GCP_PROJECT, ENV_GCP_WIF_PROVIDER
 from tools.pulumi.pulumi_repo_vars import get_expected_repo_vars_from_pulumi
 from tools.shared.bucket_env import truthy
+from tools.shared.cli_availability import command_available
+from tools.shared.contributor_docs import ContributorDocRefs
 from tools.shared.env_contract import default_contract_path, load_env_contract
 
 
@@ -342,8 +343,12 @@ def _validate_wif_provider_consistency(desired: dict[str, str]) -> list[str]:
         )
 
     provider_project_number = match.group(1)
-    if shutil.which("gcloud") is None:
-        warnings.append("gcloud not found; skipped WIF/provider project-number alignment check.")
+    if not command_available("gcloud"):
+        refs = ContributorDocRefs.discover()
+        warnings.append(
+            "gcloud not found; skipped WIF/provider project-number alignment check. "
+            f"Install the Google Cloud SDK or see {refs.configuration_rel()}."
+        )
         return warnings
 
     result = _run(["gcloud", "projects", "describe", project_id, "--format=value(projectNumber)"])

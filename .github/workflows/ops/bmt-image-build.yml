@@ -56,6 +56,10 @@ jobs:
     name: Packer build + SLSA provenance
     runs-on: ubuntu-22.04
     env:
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       PKR_VAR_gcp_project: ${{ vars.GCP_PROJECT }}
       PKR_VAR_gcp_zone: ${{ vars.GCP_ZONE || 'europe-west4-a' }}
       PKR_VAR_gcs_bucket: ${{ vars.GCS_BUCKET }}
@@ -73,13 +77,14 @@ jobs:
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_SA_EMAIL }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
           install_uv: "true"
 
       - name: Set up Packer
-        uses: hashicorp/setup-packer@54678572a9eae3130016b4548482317e9f83f9f3  # main
+        uses: hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232  # v3.1.0
         with:
           version: "1.11.0"
 
@@ -123,8 +128,8 @@ jobs:
           uv run --no-project python3 infra/slsa/generate_provenance.py image \
             --image-name "${{ steps.packer.outputs.image_name }}" \
             --image-family "${{ inputs.image_family || 'bmt-runtime' }}" \
-            --gcs-bucket "${{ vars.GCS_BUCKET }}" \
-            --gcp-project "${{ vars.GCP_PROJECT }}" \
+            --gcs-bucket "${{ env.GCS_BUCKET }}" \
+            --gcp-project "${{ env.GCP_PROJECT }}" \
             --builder-id "https://github.com/${{ github.repository }}/.github/workflows/ops/bmt-image-build.yml" \
             --git-sha "${{ github.sha }}" \
             --out provenance.json
@@ -142,7 +147,7 @@ jobs:
             --yes \
             provenance.json
           gcloud storage cp provenance.bundle \
-            "gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle"
+            "gs://${{ env.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle"
           echo "::notice::Image provenance signed (Sigstore/Rekor) and uploaded"
 
       - name: Upload provenance artifact
@@ -161,7 +166,7 @@ jobs:
             echo "|-------|-------|"
             echo "| Image | \`${{ steps.packer.outputs.image_name }}\` |"
             echo "| Family | \`${{ inputs.image_family || 'bmt-runtime' }}\` |"
-            echo "| Provenance (L1) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\` |"
-            echo "| Signature (L2) | \`gs://${{ vars.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\` |"
+            echo "| Provenance (L1) | \`gs://${{ env.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\` |"
+            echo "| Signature (L2) | \`gs://${{ env.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\` |"
             echo "| Git SHA | \`${{ github.sha }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-_TRUTHY_VALUES = frozenset({"1", "true", "yes"})
+from gcp.image.config.env_parse import is_truthy_env_value
 
 
 def get(key: str, default: str = "") -> str:
@@ -19,7 +19,7 @@ def get(key: str, default: str = "") -> str:
 
 def get_bool(key: str) -> bool:
     """Return True if env var is truthy (1, true, yes), case-insensitive."""
-    return (os.getenv(key) or "").strip().lower() in _TRUTHY_VALUES
+    return is_truthy_env_value(os.getenv(key))
 
 
 def require(key: str) -> str:

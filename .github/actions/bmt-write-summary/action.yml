@@ -26,16 +26,12 @@ inputs:
     description: JSON array of cloud job subtask project names (e.g. ["sk"])
     required: false
     default: "[]"
-  trigger_written:
-    description: Whether run trigger was written to GCS
-    required: false
-    default: "false"
   handshake_ok:
     description: Whether dispatch was confirmed (trigger accepted by cloud runtime)
     required: false
     default: "false"
   gcp_project:
-    description: GCP project for summary context
+    description: Optional; repository variable GCP_PROJECT when needed for summary context.
     required: false
     default: ""
   gcs_bucket:
@@ -60,7 +56,6 @@ runs:
         PR_NUMBER: ${{ inputs.pr_number }}
         FILTERED_MATRIX: ${{ inputs.filtered_matrix }}
         ACCEPTED_PROJECTS: ${{ inputs.accepted_projects }}
-        TRIGGER_WRITTEN: ${{ inputs.trigger_written }}
         HANDSHAKE_OK: ${{ inputs.handshake_ok }}
         GCP_PROJECT: ${{ inputs.gcp_project }}
         GCS_BUCKET: ${{ inputs.gcs_bucket }}

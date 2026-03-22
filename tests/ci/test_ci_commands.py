@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import json
-import pytest
-
-pytestmark = pytest.mark.integration
 import os
 import subprocess
 from pathlib import Path
 
-from tests._support.testutils import combined_output, decode_output_json, read_github_output
+import pytest
+
+from tests._support.testutils import (
+    assert_github_matrix_include_shape,
+    combined_output,
+    decode_output_json,
+    read_github_output,
+)
+
+pytestmark = pytest.mark.integration
 
 
 def _run(
@@ -43,10 +49,7 @@ def test_matrix_command_runs(repo_root: Path, tmp_path: Path) -> None:
     assert result.returncode == 0
     outputs = read_github_output(github_output)
     matrix = decode_output_json(outputs, "matrix")
-    assert "include" in matrix
-    assert len(matrix["include"]) > 0
-    for entry in matrix["include"]:
-        assert "project" in entry and "bmt_id" in entry
+    assert_github_matrix_include_shape(matrix)
     assert "sk" in {e["project"] for e in matrix["include"]}
 
 
@@ -155,7 +158,7 @@ def test_matrix_output_is_valid_json(repo_root: Path, tmp_path: Path) -> None:
     )
     outputs = read_github_output(github_output)
     parsed = decode_output_json(outputs, "matrix")
-    assert "include" in parsed
+    assert_github_matrix_include_shape(parsed)
 
 
 def test_upload_runner_fails_without_required_env(repo_root: Path) -> None:

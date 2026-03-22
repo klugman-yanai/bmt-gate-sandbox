@@ -24,11 +24,10 @@ There is **no supported VM-only** execution path for current production design. 
 git clone <this-repo>
 cd bmt-gcloud
 uv sync
-uv pip install -e .
 just test
 ```
 
-For full setup, lint commands, and PR expectations, see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+`uv sync` installs this workspace (including dev tools) from `pyproject.toml` / `uv.lock`—no separate editable install step. For hooks, onboarding, and lint details, see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Documentation
 

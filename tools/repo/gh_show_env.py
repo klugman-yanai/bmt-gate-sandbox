@@ -24,6 +24,7 @@ from gcp.image.config.constants import (
     ENV_GCP_WIF_PROVIDER,
     ENV_GCS_BUCKET,
 )
+from tools.shared.cli_availability import command_available
 from tools.shared.env_contract import (
     default_contract_path,
     list_context_vars,
@@ -52,19 +53,15 @@ APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (
 )
 
 
-def cmd_exists(name: str) -> bool:
-    return subprocess.run(["which", name], capture_output=True, check=False).returncode == 0
-
-
 def gh_var(name: str) -> str | None:
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(["gh", "variable", "get", name], capture_output=True, text=True, check=False)
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def gh_secret_names() -> set[str] | None:
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(["gh", "secret", "list", "--json", "name"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
@@ -77,7 +74,7 @@ def gh_secret_names() -> set[str] | None:
 
 
 def gh_repo_slug() -> str | None:
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(
         ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
@@ -127,7 +124,7 @@ def gh_required_status_contexts(repo_slug: str, branch: str) -> list[str] | None
 
 
 def gcloud_config(name: str) -> str | None:
-    if not cmd_exists("gcloud"):
+    if not command_available("gcloud"):
         return None
     result = subprocess.run(["gcloud", "config", "get-value", name], capture_output=True, text=True, check=False)
     val = result.stdout.strip()
@@ -168,7 +165,7 @@ def print_github_section(contract: dict[str, object]) -> None:
     content_parts.append(Text(f"Contract: {contract_path}", style="dim"))
     content_parts.append(Text())
 
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         content_parts.append(Text("(gh not available; run 'gh auth login' in repo to list GitHub vars)", style="dim"))
         console.print(Panel(Text.assemble(*content_parts), title="[bold]GitHub (gh)[/]", subtitle=description))
         return
@@ -246,7 +243,7 @@ def print_github_section(contract: dict[str, object]) -> None:
 
 def print_gcloud_section() -> None:
     description = "Used by: local uploads, Pulumi apply, and ad-hoc Cloud Run / Storage diagnostics."
-    if not cmd_exists("gcloud"):
+    if not command_available("gcloud"):
         console.print(Panel(Text("(gcloud not available)", style="dim"), title="[bold]gcloud[/]", subtitle=description))
         return
 

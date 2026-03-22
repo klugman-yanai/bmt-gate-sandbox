@@ -44,20 +44,22 @@ Avoid `time.time()` / `datetime.now()` for new code. CI and `gcp/` may use local
 
 ## CI / BMT CLI
 
-Entrypoint: **`uv run bmt <cmd>`** from repo root; implementation under **`.github/bmt/ci/`** (package installed via `uv pip install -e .`).
+Entrypoint: **`uv run bmt <cmd>`** from repo root; implementation under **`.github/bmt/ci/`** (workspace member `bmt` is installed by **`uv sync`** at the repo root).
 
 Workflows in **`.github/workflows/`** call into this CLI (e.g. **`bmt-handoff.yml`**: `write-context`, `filter-upload-matrix`, `invoke-workflow`, etc.). See **[.github/README.md](.github/README.md)** for workflow layout.
 
 ## Linting and type checking
 
 ```bash
-uv pip install -e .
+uv sync
 ruff check .
 ruff format --check .
 uv run ty check
 ```
 
 Config: [pyproject.toml](pyproject.toml), [pyrightconfig.json](pyrightconfig.json).
+
+**Lint / types vs. code smell:** Do not “fix” Ruff or `ty` by introducing sustained smell (for example `cast()` only to appease a `Protocol` assignment, or broad `# type: ignore` / `# noqa`). Prefer honest types: a **union of concrete classes** (or an ABC) when several implementations share a call site; structural `Protocol` typing where LSP-compatible; small factories with explicit return types; narrow single-line ignores with a one-line rationale. If the only option seems to be a cast or a blanket ignore, adjust boundaries until types are honest.
 
 **Path map:** CI → `uv run bmt` / `.github/bmt/ci/`. Bucket tools → `tools/remote/bucket_*.py`. Local BMT → `tools/bmt/`.
 
@@ -81,12 +83,41 @@ To exercise manager-style snapshot writes and **`current.json`** against a real 
 
 ## Devtools and pre-commit
 
+- **Install [uv](https://docs.astral.sh/uv/) first**, then **`just onboard`** (or `bash tools/scripts/bootstrap_dev_env.sh`): `uv sync`, **prek** hooks, **`uv run python -m tools onboard`** (Rich summary). See [CONTRIBUTING.md](CONTRIBUTING.md).
 - **`just deploy`** (with `GCS_BUCKET`) syncs `gcp/` to the bucket and verifies.
 - Pre-commit may **block** commits that touch `gcp/` unless the bucket is in sync (`SKIP_SYNC_VERIFY=1` to bypass intentionally).
 
 ```bash
 just deploy
 # GCS_BUCKET="..." uv run python -m tools.remote.bucket_sync_gcp
+```
+
+### Shell CLI preferences (agents)
+
+When searching the tree, parsing structured output, or running repo commands, **prefer** these tools if they are on `PATH`. They reduce noise (e.g. obey `.gitignore`), speed up iteration, and match common dev setups. **If a binary is missing** (minimal CI image, container, or fresh VM), use the **fallback** so scripts and instructions stay portable.
+
+| Prefer | Fallback | Role |
+| ------ | -------- | ---- |
+| **`rg`** ([ripgrep](https://github.com/BurntSushi/ripgrep)) | `grep` (with appropriate `-r` / excludes) | Recursive code and text search |
+| **`fd`** ([fd](https://github.com/sharkdp/fd)) | `find` | Files by name/path under a tree |
+| **`jq`** | _(same)_ | JSON: filter and project fields in the shell |
+| **`yq`** (mikefarah / [go-yq](https://github.com/mikefarah/yq); `yq --version` mentions `github.com/mikefarah/yq`) | `jq` on JSON, or small **Python** in-repo helpers for YAML/TOML | YAML/JSON/XML in pipelines; **not** the Python [kislyuk/yq](https://github.com/kislyuk/yq) jq-wrapper (different CLI) |
+| **`ast-grep`** | `rg` / `grep` | Structure-aware search when rules exist |
+| **`sd`** | `sed` | Non-interactive replace (mind `sed` escaping) |
+| **`uv`** | `python3 -m venv` + `pip` per [uv docs](https://docs.astral.sh/uv/) | Python env and `uv run` |
+| **`just`** | invoke the underlying `recipe` commands manually | Task runner from [Justfile](Justfile) |
+
+**Example `command --version` output** from a current dev install (not minimum requirements; re-run to verify after upgrades):
+
+```text
+ripgrep 15.1.0
+fd 10.4.2
+jq-1.8.1
+yq (https://github.com/mikefarah/yq/) version v4.52.4
+sd 1.0.0
+uv 0.10.12 (00d72dac7 2026-03-19 x86_64-unknown-linux-gnu)
+just 1.47.1
+ast-grep 0.41.1
 ```
 
 ## Architecture (short)

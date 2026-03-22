@@ -152,6 +152,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
 
       - id: filter
@@ -190,6 +191,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
 
       - name: Validate requested runner exists in repo
@@ -222,7 +224,6 @@ jobs:
       filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
       dispatch_confirmed: ${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}
       dispatch_reason: ${{ steps.invoke-workflow.outputs.dispatch_reason || '' }}
-      trigger_written: "false"
       # Public workflow outputs
       bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
       bmt_dispatch_confirmed: ${{ steps.outcome.outputs.bmt_dispatch_confirmed }}
@@ -243,6 +244,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
 
       - id: classify
@@ -252,6 +254,7 @@ jobs:
           runner_matrix: ${{ needs.resolve_bmt_request.outputs.runner_matrix }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
           setup_gcp: "false"
 
       - name: Emit dispatch context
@@ -348,7 +351,6 @@ jobs:
           pr_number: ${{ needs.resolve_bmt_request.outputs.pr_number }}
           filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
           accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects }}
-          trigger_written: "false"
           handshake_ok: "true"
 
       - name: Append dispatch status summary
@@ -383,6 +385,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
 
       - name: Set BMT constants for fallback
@@ -408,6 +411,7 @@ jobs:
           fallback_ref: ${{ github.sha }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
           bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
 
       - id: outcome

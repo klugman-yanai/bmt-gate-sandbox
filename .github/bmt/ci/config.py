@@ -69,7 +69,6 @@ _WORKFLOW_CONTEXT_ENV_KEYS = (
     "MODE",
     "ORCH_HANDSHAKE_OK",
     "ORCH_HAS_LEGS",
-    "ORCH_TRIGGER_WRITTEN",
     "PREPARE_HEAD_SHA",
     "PREPARE_PR_NUMBER",
     "PREPARE_RESULT",
@@ -77,7 +76,6 @@ _WORKFLOW_CONTEXT_ENV_KEYS = (
     "REPOSITORY",
     "RUNNER_MATRIX",
     "TARGET_URL",
-    "TRIGGER_WRITTEN",
 )
 
 
@@ -133,7 +131,6 @@ class WorkflowContext(BaseModel):
     mode: str | None = None
     orch_handshake_ok: str | None = None
     orch_has_legs: str | None = None
-    orch_trigger_written: str | None = None
     prepare_head_sha: str | None = None
     prepare_pr_number: str | None = None
     prepare_result: str | None = None
@@ -141,7 +138,6 @@ class WorkflowContext(BaseModel):
     repository: str | None = None
     runner_matrix: str | None = None
     target_url: str | None = None
-    trigger_written: str | None = None
 
 
 class BmtContext(BaseModel):

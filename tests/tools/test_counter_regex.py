@@ -6,7 +6,11 @@ not a literal-backslash pattern (\\\\d+) as was present before the fix.
 
 import importlib
 
+import pytest
+
 bmt_manager = importlib.import_module("gcp.image.runtime.legacy_kardome")
+
+pytestmark = pytest.mark.unit
 
 _SAMPLE_LINE = "Hi NAMUH counter = 42"
 _CUSTOM_LINE = "Hi WAKE counter = 99"

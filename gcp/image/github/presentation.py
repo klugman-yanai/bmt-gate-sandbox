@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from gcp.image.config.status import CheckConclusion
+from gcp.image.github.duration_format import format_duration_seconds
 
 _MARKER = "<!-- bmt-gate-comment -->"
 
@@ -190,31 +191,20 @@ def render_progress_check_output(view: CheckProgressView) -> dict[str, str]:
     }
 
 
-def render_final_check_output(view: CheckFinalView) -> dict[str, str]:
-    is_success = view.state == CheckConclusion.SUCCESS.value
-    lines = [
-        "**All BMTs passed**" if is_success else "**One or more BMTs failed**",
+def _final_check_table_lines(view: CheckFinalView) -> list[str]:
+    header = [
         "",
-        f"- Result: `{CheckConclusion.SUCCESS.value if is_success else CheckConclusion.FAILURE.value}`",
+        "| Project | BMT | Status | Score | Cases | Reason | Duration |",
+        "|---------|-----|--------|-------|-------|--------|----------|",
     ]
-    if view.links.workflow_execution_url:
-        lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
-    if view.links.log_dump_url:
-        lines.append(f"- Log dump (expires in 3 days): [open]({view.links.log_dump_url})")
-    lines.extend(
-        [
-            "",
-            "| Project | BMT | Status | Score | Cases | Reason | Duration |",
-            "|---------|-----|--------|-------|-------|--------|----------|",
-        ]
-    )
+    body: list[str] = []
     for row in view.bmts:
         score_s = _score_cell_for_check(
             aggregate_score=row.aggregate_score,
             execution_mode_used=row.execution_mode_used,
             leg_done=True,
         )
-        lines.append(
+        body.append(
             "| "
             + " | ".join(
                 [
@@ -229,11 +219,33 @@ def render_final_check_output(view: CheckFinalView) -> dict[str, str]:
             )
             + " |"
         )
-    if not is_success:
-        failed_rows = [row for row in view.bmts if not leg_status_is_pass(row.status)]
-        if failed_rows:
-            lines.extend(["", "### Failure summary", ""])
-            lines.extend(f"- `{row.bmt}`: {human_reason(row.reason_code)}" for row in failed_rows)
+    return header + body
+
+
+def _final_check_failure_summary_lines(view: CheckFinalView) -> list[str]:
+    if view.state == CheckConclusion.SUCCESS.value:
+        return []
+    failed_rows = [row for row in view.bmts if not leg_status_is_pass(row.status)]
+    if not failed_rows:
+        return []
+    out = ["", "### Failure summary", ""]
+    out.extend(f"- `{row.bmt}`: {human_reason(row.reason_code)}" for row in failed_rows)
+    return out
+
+
+def render_final_check_output(view: CheckFinalView) -> dict[str, str]:
+    is_success = view.state == CheckConclusion.SUCCESS.value
+    lines = [
+        "**All BMTs passed**" if is_success else "**One or more BMTs failed**",
+        "",
+        f"- Result: `{CheckConclusion.SUCCESS.value if is_success else CheckConclusion.FAILURE.value}`",
+    ]
+    if view.links.workflow_execution_url:
+        lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
+    if view.links.log_dump_url:
+        lines.append(f"- Log dump (expires in 3 days): [open]({view.links.log_dump_url})")
+    lines.extend(_final_check_table_lines(view))
+    lines.extend(_final_check_failure_summary_lines(view))
     return {
         "title": f"BMT Complete: {'PASS' if is_success else 'FAIL'}",
         "summary": "\n".join(lines),
@@ -260,14 +272,4 @@ def _format_eta(seconds: int | None) -> str:
 
 
 def _format_duration(seconds: int | None) -> str:
-    if seconds is None:
-        return "—"
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        minutes = seconds // 60
-        remainder = seconds % 60
-        return f"{minutes}m {remainder}s"
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    return f"{hours}h {minutes}m"
+    return format_duration_seconds(seconds)

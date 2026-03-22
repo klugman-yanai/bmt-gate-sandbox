@@ -9,7 +9,7 @@ from typing import Any
 
 import gcp.image.config.constants as _bmt_constants
 from gcp.image.config.decisions import GateDecision
-from gcp.image.config.value_types import sanitize_run_id
+from gcp.image.config.value_types import sanitize_run_id as sanitize_run_id  # noqa: F811 — re-export
 
 # Re-export gate decision strings for `from ci.core import DECISION_*` (tests, callers).
 DECISION_ACCEPTED = _bmt_constants.DECISION_ACCEPTED
@@ -30,9 +30,6 @@ DEFAULT_CONFIG_ROOT = "gcp/image"
 DEFAULT_ENV_CONTRACT_PATH = "tools/repo/vars_contract.py"
 
 # Trigger path subdirectories under {bucket_root}/triggers/
-TRIGGER_RUNS_SUBDIR = "runs"
-TRIGGER_ACKS_SUBDIR = "acks"
-TRIGGER_STATUS_SUBDIR = "status"
 TRIGGER_REPORTING_SUBDIR = "reporting"
 
 
@@ -43,21 +40,6 @@ def bucket_uri(bucket_root: str, rel_path: str) -> str:
 def bucket_root_uri(bucket: str) -> str:
     """Bucket root: gs://<bucket>. No code/ or runtime/ prefix."""
     return f"gs://{bucket}"
-
-
-def run_trigger_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
-    safe_run_id = sanitize_run_id(workflow_run_id)
-    return bucket_uri(runtime_bucket_root, f"triggers/{TRIGGER_RUNS_SUBDIR}/{safe_run_id}.json")
-
-
-def run_handshake_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
-    safe_run_id = sanitize_run_id(workflow_run_id)
-    return bucket_uri(runtime_bucket_root, f"triggers/{TRIGGER_ACKS_SUBDIR}/{safe_run_id}.json")
-
-
-def run_status_uri(runtime_bucket_root: str, workflow_run_id: str) -> str:
-    safe_run_id = sanitize_run_id(workflow_run_id)
-    return bucket_uri(runtime_bucket_root, f"triggers/{TRIGGER_STATUS_SUBDIR}/{safe_run_id}.json")
 
 
 def decision_exit(decision: str | GateDecision) -> int:

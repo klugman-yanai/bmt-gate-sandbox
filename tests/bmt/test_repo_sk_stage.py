@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from gcp.image.runtime.models import StageRuntimePaths, WorkflowRequest
 from gcp.image.runtime.planning import PlanOptions, build_plan
+
+pytestmark = pytest.mark.integration
 
 
 def test_repo_stage_sk_project_is_discoverable(repo_root) -> None:

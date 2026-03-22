@@ -14,6 +14,9 @@ inputs:
   service_account:
     description: GCP service account email for WIF
     required: true
+  gcp_project:
+    description: Same as setup-gcp-uv gcp_project input (typically env.GCP_PROJECT).
+    required: true
   setup_gcp:
     description: Whether to run setup-gcp-uv. Set to "false" when the caller already ran it in the same job.
     required: false
@@ -42,6 +45,7 @@ runs:
       with:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}
         service_account: ${{ inputs.service_account }}
+        gcp_project: ${{ inputs.gcp_project }}
         python_version: "3.12"
 
     - id: list

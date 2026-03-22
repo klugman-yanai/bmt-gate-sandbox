@@ -6,9 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from ci.handoff import HandoffManager
+
 from tests.support.fixtures.ci import mock_config, mock_github_api
 
 __all__ = ["mock_config", "mock_github_api"]  # re-export for pytest fixture discovery
+
+pytestmark = pytest.mark.unit
 
 
 def test_post_handoff_timeout_status_posts_when_not_terminal(

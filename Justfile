@@ -6,6 +6,8 @@ default:
 help:
     @printf '%s\n' \
       'Core workflow' \
+      '  just onboard                        Local setup: uv, Python 3.12, uv sync, prek hooks' \
+      '  just onboard-dry                    Dry-run preview (same as: just onboard --dry-run)' \
       '  just pulumi                         Apply infra and sync repo vars' \
       '  just deploy                         Sync staged bucket content' \
       '  just add-project <project>          Scaffold a staged project' \
@@ -20,11 +22,19 @@ help:
       '  just typecheck                      ty section-by-section (stops at first failure)' \
       '  just typecheck-section <name>     One ty section: ci | runtime | infra | tools | tests | stage' \
       '  just image                          Build and push the Cloud Run image' \
-      '  just show-env                       Print the resolved repo/runtime env contract'
+      '  just show-env                       Print the resolved repo/runtime env contract' \
+      '  just doctor                         Optional env-related vulture + pylint duplicate-code (not in `just test`)'
 
 # -- Pre-push ---------------------------------------------------------------
 
 # Sections run in priority order; each completes before the next. Stops at first failing section.
+# Optional diagnostics (not part of `just test`): dead code + duplicate-code on env-related modules.
+[group('validate')]
+doctor:
+    uv run vulture gcp/image/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
+    uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 \
+      gcp/image/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py .github/bmt/ci/workflow_dispatch.py
+
 [group('validate')]
 typecheck:
     #!/usr/bin/env bash
@@ -206,6 +216,16 @@ add-project project:
 [group('dev')]
 add-bmt project bmt_slug:
     uv run python -m tools bmt add-bmt "{{ project }}" "{{ bmt_slug }}"
+
+# One-time local setup: uv, Python 3.12, uv sync, prek hooks (no ty/pytest in the script)
+# Dry-run: `just onboard --dry-run` or `just onboard-dry` (no extra `--` before flags)
+[group('dev')]
+onboard *args:
+    bash tools/scripts/bootstrap_dev_env.sh {{ args }}
+
+[group('dev')]
+onboard-dry:
+    bash tools/scripts/bootstrap_dev_env.sh --dry-run
 
 [group('dev')]
 publish-bmt project bmt_slug:

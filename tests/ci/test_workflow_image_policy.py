@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tools.repo.paths import repo_root
+
+pytestmark = pytest.mark.unit
 
 
 def test_bmt_image_build_enforces_family_policy() -> None:

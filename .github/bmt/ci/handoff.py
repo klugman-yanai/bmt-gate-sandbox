@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import json
 import os
 from pathlib import Path
 
-from ci import config, core, gcs, github
-from ci.actions import gh_endgroup, gh_group, gh_notice, gh_warning
-from ci.core import (
-    TRIGGER_ACKS_SUBDIR,
-    TRIGGER_RUNS_SUBDIR,
-    TRIGGER_STATUS_SUBDIR,
-)
+from ci import config, gcs, github
+from ci.actions import gh_notice, gh_warning
+from ci.config import BmtContext, WorkflowContext
 
 
 def _resolve_repository_and_sha(ctx: object | None) -> tuple[str, str]:
@@ -55,9 +50,7 @@ class _HandoffEnv:
     mode: str
     head_sha: str
     pr_number: str
-    vm_handshake_ok: bool
     orch_has_legs: bool
-    trigger_written: bool
     repository: str
     head_branch: str
     filtered_matrix_raw: str
@@ -70,6 +63,8 @@ class _HandoffEnv:
     @classmethod
     def resolve(cls, ctx: object | None) -> _HandoffEnv:
         w = getattr(ctx, "workflow", None) if ctx is not None else None
+        if w is not None and isinstance(w, WorkflowContext):
+            return _handoff_env_from_workflow(w)
         if w is not None:
             return cls(
                 prepare_result=_w_attr(w, "prepare_result"),
@@ -81,9 +76,7 @@ class _HandoffEnv:
                     or os.environ.get("GITHUB_SHA", "")
                 ),
                 pr_number=(_w_attr(w, "prepare_pr_number") or _w_attr(w, "dispatch_pr_number")),
-                vm_handshake_ok=_w_attr(w, "orch_handshake_ok") == "true",
                 orch_has_legs=_w_attr(w, "orch_has_legs") == "true",
-                trigger_written=_w_attr(w, "orch_trigger_written") == "true",
                 repository=_w_attr(w, "repository") or _w_attr(w, "github_repository"),
                 head_branch=_w_attr(w, "head_branch"),
                 filtered_matrix_raw=_w_attr(w, "filtered_matrix") or '{"include":[]}',
@@ -104,9 +97,7 @@ class _HandoffEnv:
             pr_number=(
                 os.environ.get("PREPARE_PR_NUMBER") or os.environ.get("DISPATCH_PR_NUMBER") or ""
             ),
-            vm_handshake_ok=os.environ.get("ORCH_HANDSHAKE_OK") == "true",
             orch_has_legs=os.environ.get("ORCH_HAS_LEGS") == "true",
-            trigger_written=os.environ.get("ORCH_TRIGGER_WRITTEN") == "true",
             repository=(os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")),
             head_branch=(os.environ.get("HEAD_BRANCH") or "").strip(),
             filtered_matrix_raw=os.environ.get("FILTERED_MATRIX") or '{"include":[]}',
@@ -118,8 +109,32 @@ class _HandoffEnv:
         )
 
 
+def _handoff_env_from_workflow(w: WorkflowContext) -> _HandoffEnv:
+    """Build handoff env from a typed :class:`WorkflowContext` (file or validated env)."""
+    return _HandoffEnv(
+        prepare_result=(w.prepare_result or "").strip(),
+        mode=(w.mode or "").strip(),
+        head_sha=(
+            (w.prepare_head_sha or "").strip()
+            or (w.dispatch_head_sha or "").strip()
+            or (w.head_sha or "").strip()
+            or os.environ.get("GITHUB_SHA", "")
+        ),
+        pr_number=(w.prepare_pr_number or "").strip() or (w.dispatch_pr_number or "").strip(),
+        orch_has_legs=(w.orch_has_legs or "").strip() == "true",
+        repository=(w.repository or "").strip() or (w.github_repository or "").strip(),
+        head_branch=(w.head_branch or "").strip(),
+        filtered_matrix_raw=(w.filtered_matrix or "").strip() or '{"include":[]}',
+        accepted_projects_raw=(w.accepted_projects or "").strip() or "[]",
+        dispatch_confirmed=(w.handshake_ok or "").strip() == "true",
+        failure_reason=(w.failure_reason or "").strip(),
+        server=(w.github_server_url or "").strip() or "https://github.com",
+        run_id=(w.github_run_id or "").strip(),
+    )
+
+
 class HandoffManager:
-    def __init__(self, cfg: object, ctx: object | None) -> None:
+    def __init__(self, cfg: object, ctx: BmtContext | None) -> None:
         self._cfg = cfg
         self._ctx = ctx
 
@@ -139,16 +154,10 @@ class HandoffManager:
             raise RuntimeError("GITHUB_OUTPUT is not set")
         env = _HandoffEnv.resolve(self._ctx)
         mode = "no_context" if env.prepare_result == "failure" else "context"
-        vm_handshake_result = (
-            "failure" if env.orch_has_legs and not env.vm_handshake_ok else "success"
-        )
-        trigger_written = "true" if env.trigger_written else "false"
         with Path(path_str).open("a", encoding="utf-8") as f:
             f.write(f"mode={mode}\n")
             f.write(f"head_sha={env.head_sha}\n")
             f.write(f"pr_number={env.pr_number}\n")
-            f.write(f"vm_handshake_result={vm_handshake_result}\n")
-            f.write(f"trigger_written={trigger_written}\n")
 
     def post_pending_status(self) -> None:
         repository, head_sha = _resolve_repository_and_sha(self._ctx)
@@ -247,24 +256,6 @@ class HandoffManager:
                 + "\n".join(f"  - {e}" for e in errors)
             )
 
-    def cleanup_failed_trigger_artifacts(self) -> None:
-        run_id = core.workflow_run_id()
-        root = core.workflow_runtime_root()
-        for uri in (
-            core.run_trigger_uri(root, run_id),
-            core.run_handshake_uri(root, run_id),
-            core.run_status_uri(root, run_id),
-        ):
-            with contextlib.suppress(gcs.GcsError):
-                gcs.delete_object(uri)
-        gh_group("Trigger family counts after cleanup")
-        for name in (TRIGGER_RUNS_SUBDIR, TRIGGER_ACKS_SUBDIR, TRIGGER_STATUS_SUBDIR):
-            prefix = f"{root}/triggers/{name}/"
-            uris = gcs.list_prefix(prefix)
-            count = len([u for u in uris if u.endswith(".json")])
-            print(f"{prefix} {count}")
-        gh_endgroup()
-
     def write_summary(self) -> None:
         env = _HandoffEnv.resolve(self._ctx)
         repo_slug = os.environ.get("GITHUB_REPOSITORY", env.repository)
@@ -303,7 +294,7 @@ class HandoffManager:
         links_line = " · ".join(link_parts)
 
         subtasks_display = ", ".join(subtask_projects) if subtask_projects else "—"
-        ok = env.trigger_written and env.dispatch_confirmed
+        ok = env.dispatch_confirmed
         status_line = (
             f"**Cloud job:** ✅ Confirmed · **Subtasks:** {subtasks_display}"
             if ok

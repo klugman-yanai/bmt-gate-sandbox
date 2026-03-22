@@ -26,6 +26,8 @@ from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 from tools.shared.bucket_sync import matches
 from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
 
+_CODE_URI_RE = re.compile(r"gs://[^/]+/code/(.+)$")
+
 
 def _gcp_image_files(root: Path) -> set[str]:
     """Return relative paths under gcp/image that are not excluded by code sync."""
@@ -57,7 +59,7 @@ def _parse_code_listing_from_report(report_path: Path) -> set[str] | None:
                 break
             # gcloud storage ls -r outputs full URIs like gs://bucket/code/scripts/foo.sh
             if "gs://" in line:
-                m = re.search(r"gs://[^/]+/code/(.+)$", line.strip())
+                m = _CODE_URI_RE.search(line.strip())
                 if m:
                     paths.add(m.group(1).rstrip("/"))
     return paths or None
@@ -76,7 +78,7 @@ def _fetch_bucket_code_listing(bucket: str) -> set[str]:
     for raw in (proc.stdout or "").splitlines():
         line = raw.strip()
         if "gs://" in line:
-            m = re.search(r"gs://[^/]+/code/(.+)$", line)
+            m = _CODE_URI_RE.search(line)
             if m:
                 paths.add(m.group(1).rstrip("/"))
     return paths

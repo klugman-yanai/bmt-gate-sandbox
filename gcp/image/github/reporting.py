@@ -58,8 +58,7 @@ class GitHubReporter:
         pending_legs: list[tuple[str, str]] | None = None,
     ) -> int:
         legs = [
-            ProgressBmtRow(project=p, bmt=b, status=BmtProgressStatus.PENDING.value)
-            for p, b in (pending_legs or [])
+            ProgressBmtRow(project=p, bmt=b, status=BmtProgressStatus.PENDING.value) for p, b in (pending_legs or [])
         ]
         output = render_progress_check_output(
             CheckProgressView(

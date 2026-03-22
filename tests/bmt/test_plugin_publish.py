@@ -8,6 +8,8 @@ import pytest
 from tools.bmt.publisher import publish_bmt
 from tools.bmt.scaffold import add_bmt, add_project
 
+pytestmark = pytest.mark.integration
+
 
 def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_path: Path, monkeypatch) -> None:
     stage_root = tmp_path / "gcp" / "stage"
@@ -85,7 +87,7 @@ def test_publish_bmt_fails_before_sync_when_workspace_plugin_is_invalid(tmp_path
 
     monkeypatch.setattr("tools.bmt.publisher.sync_project", _fake_sync)
 
-    with pytest.raises(Exception):
+    with pytest.raises(SyntaxError, match="was never closed"):
         publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality")
 
     manifest = json.loads(

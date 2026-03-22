@@ -125,7 +125,12 @@ class RunnerManager:
         root = core.workflow_runtime_root()
         canonical_runner_uri = f"{root}/projects/{project}/kardome_runner"
         # Preferred source of truth for handoff support: runtime bucket content.
-        if gcs.object_exists(canonical_runner_uri):
+        try:
+            exists = gcs.object_exists(canonical_runner_uri)
+        except gcs.GcsError as exc:
+            print(f"::warning::Could not verify runner in GCS ({exc}); checking local fallbacks.")
+            exists = False
+        if exists:
             print(
                 f"::notice::Requested runner exists in bucket: {canonical_runner_uri} (validated for handoff)."
             )

@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
 from tools.shared.bucket_env import bucket_from_env
 from tools.shared.repo_vars import clear_repo_var_cache, repo_var
+
+pytestmark = pytest.mark.unit
 
 
 def _gh_value(_name: str) -> str:

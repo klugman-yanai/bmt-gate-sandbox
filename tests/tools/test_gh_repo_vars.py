@@ -11,6 +11,8 @@ from gcp.image.config.constants import STATUS_CONTEXT
 from tools.repo import gh_repo_vars as repo_vars
 from tools.shared.env_contract import default_contract_path
 
+pytestmark = pytest.mark.unit
+
 
 def _cp(*, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=rc, stdout=stdout, stderr=stderr)
@@ -141,7 +143,7 @@ def test_validate_wif_provider_mismatch_raises(monkeypatch: pytest.MonkeyPatch) 
         "GCP_PROJECT": "proj-a",
     }
 
-    monkeypatch.setattr(repo_vars.shutil, "which", lambda _name: "/usr/bin/gcloud")
+    monkeypatch.setattr(repo_vars, "command_available", lambda _name: True)
     monkeypatch.setattr(
         repo_vars,
         "_run",
@@ -156,6 +158,6 @@ def test_validate_wif_provider_skips_when_gcloud_missing(monkeypatch: pytest.Mon
         "GCP_WIF_PROVIDER": "projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
         "GCP_PROJECT": "proj-a",
     }
-    monkeypatch.setattr(repo_vars.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(repo_vars, "command_available", lambda _name: False)
     warnings = repo_vars._validate_wif_provider_consistency(desired)
     assert any("gcloud not found" in item for item in warnings)

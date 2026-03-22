@@ -8,7 +8,7 @@ Short guidance for **Codex** and other agents in **bmt-gcloud**.
 
 ## Where to read first
 
-- **[CLAUDE.md](CLAUDE.md)** — Full workspace rules (tools layout, time/clocks, testing, CI entrypoints, architecture summary)
+- **[CLAUDE.md](CLAUDE.md)** — Full workspace rules (tools layout, time/clocks, testing, CI entrypoints, architecture summary, **shell CLI preferences**)
 - **[docs/README.md](docs/README.md)** — Task and role index
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Setup, lint, tests, PR expectations
 - **[docs/architecture.md](docs/architecture.md)** — Canonical pipeline description

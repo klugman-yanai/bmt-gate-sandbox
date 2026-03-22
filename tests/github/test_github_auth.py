@@ -9,6 +9,8 @@ import pytest
 
 from gcp.image.github import github_auth
 
+pytestmark = pytest.mark.unit
+
 
 class TestGithubAppProfile:
     def test_org_repository_uses_primary_profile(self) -> None:
@@ -176,10 +178,10 @@ class TestGetInstallationTokenFromApp:
         assert github_auth.get_installation_token_from_app("12345", "67890", "") is None
 
     @mock.patch("gcp.image.github.github_auth.HAS_JWT", new=True)
-    @mock.patch("gcp.image.github.github_auth.jwt")
+    @mock.patch("gcp.image.github.github_auth._jwt_encode")
     @mock.patch("gcp.image.github.github_auth.urllib.request.urlopen")
-    def test_successful_token_exchange(self, mock_urlopen: mock.Mock, mock_jwt: mock.Mock) -> None:
-        mock_jwt.encode.return_value = "mock-jwt-token"
+    def test_successful_token_exchange(self, mock_urlopen: mock.Mock, mock_jwt_encode: mock.Mock) -> None:
+        mock_jwt_encode.return_value = "mock-jwt-token"
         mock_response = mock.MagicMock()
         mock_response.status = 201
         mock_response.read.return_value = json.dumps({"token": "test-installation-token"}).encode()
@@ -192,13 +194,13 @@ class TestGetInstallationTokenFromApp:
         )
 
         assert token == "test-installation-token"
-        mock_jwt.encode.assert_called_once()
+        mock_jwt_encode.assert_called_once()
 
     @mock.patch("gcp.image.github.github_auth.HAS_JWT", new=True)
-    @mock.patch("gcp.image.github.github_auth.jwt")
+    @mock.patch("gcp.image.github.github_auth._jwt_encode")
     @mock.patch("gcp.image.github.github_auth.urllib.request.urlopen")
-    def test_api_error_returns_none(self, mock_urlopen: mock.Mock, mock_jwt: mock.Mock) -> None:
-        mock_jwt.encode.return_value = "mock-jwt-token"
+    def test_api_error_returns_none(self, mock_urlopen: mock.Mock, mock_jwt_encode: mock.Mock) -> None:
+        mock_jwt_encode.return_value = "mock-jwt-token"
         from urllib.error import HTTPError
 
         mock_urlopen.side_effect = HTTPError(

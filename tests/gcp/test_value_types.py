@@ -11,6 +11,8 @@ from gcp.image.config.value_types import (
     sanitize_run_id,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_sanitize_run_id_safe_chars() -> None:
     run_id = "gh-12345-1-sk-false_reject_namuh-abc123def456"

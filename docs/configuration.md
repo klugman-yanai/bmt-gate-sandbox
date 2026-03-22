@@ -2,6 +2,8 @@
 
 This repo now has one supported execution model: direct GitHub Actions handoff to Google Workflows, then Cloud Run Jobs.
 
+**Environment variable inventory:** [env-reference.md](env-reference.md) (pipeline mapping, contracts, aliases). Refresh hints: [env-inventory-appendix.md](env-inventory-appendix.md).
+
 ## Centralized config and repo variables
 
 **Single config file:** `infra/pulumi/bmt.tfvars.json` is the source of truth for all non-secret infra and repo variables. You do not set `GCP_*` or `GCS_BUCKET` (or `GCP_WIF_PROVIDER`) in the GitHub UI for normal use.

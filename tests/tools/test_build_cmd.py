@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from tools.cli.build_cmd import app
+
+pytestmark = pytest.mark.unit
 
 runner = CliRunner()
 

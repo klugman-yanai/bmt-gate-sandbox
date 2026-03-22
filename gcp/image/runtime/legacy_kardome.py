@@ -216,9 +216,9 @@ class LegacyKardomeStdoutExecutor:
             ld_dirs.append(str(lib_dir))
         # Merge extra env from plugin (e.g. deps_root) — treat runner_env as additions,
         # not a replacement for os.environ. Accumulate extra LD_LIBRARY_PATH entries.
-        for key, val in self.config.runner_env.items():
-            if key != "LD_LIBRARY_PATH":
-                env[key] = val
+        env.update(
+            {k: v for k, v in self.config.runner_env.items() if k != "LD_LIBRARY_PATH"},
+        )
         extra_ld = self.config.runner_env.get("LD_LIBRARY_PATH", "").strip()
         if extra_ld:
             ld_dirs.append(extra_ld)

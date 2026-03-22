@@ -18,7 +18,7 @@
 | **Upload a dataset / `just upload-data`** | [development.md](development.md#dataset-upload-just-upload-data) |
 | **Validate CI with mock runner (E2E)** | [plans/2026-03-22-e2e-ci-validation.md](plans/2026-03-22-e2e-ci-validation.md) |
 | **Test Cloud Run / local dev** | [development.md](development.md) |
-| **Set up config / repo vars** | [configuration.md](configuration.md), [infra/README.md](../infra/README.md) |
+| **Set up config / repo vars** | [configuration.md](configuration.md), [env-reference.md](configuration/env-reference.md), [infra/README.md](../infra/README.md) |
 | **Deep architecture review** (risks, weak points) | [bmt-architecture-deep-dive.md](bmt-architecture-deep-dive.md) |
 | **Add a project or BMT** | [adding-a-project.md](adding-a-project.md) |
 | **ADR index** | [adr/README.md](adr/README.md) |

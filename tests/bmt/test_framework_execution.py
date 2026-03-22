@@ -12,6 +12,8 @@ from gcp.image.runtime.plugin_loader import WorkspacePluginRefError
 from tools.bmt.publisher import publish_bmt
 from tools.bmt.scaffold import add_bmt, add_project
 
+pytestmark = pytest.mark.integration
+
 
 def test_planner_discovers_enabled_bmt_and_executor_runs_plugin(tmp_path: Path) -> None:
     stage_root = tmp_path / "gcp" / "stage"

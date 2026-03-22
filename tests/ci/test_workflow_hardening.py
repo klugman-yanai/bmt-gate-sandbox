@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
+import pytest
+
 from tools.repo.paths import repo_root
+
+# `uses: ./.github/actions/my-action` or `uses: ./.github/actions/org/nested`
+_LOCAL_COMPOSITE_USES = re.compile(
+    r"^\s*uses:\s+\./\.github/actions/([^@\s#]+)",
+    re.MULTILINE,
+)
+
+pytestmark = pytest.mark.unit
 
 
 def test_reusable_workflow_calls_do_not_inherit_secrets() -> None:
@@ -54,14 +67,37 @@ def test_handoff_does_not_use_ci_side_github_reporting() -> None:
 
 
 def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
+    build_test = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
     clang_format = (repo_root() / ".github" / "workflows" / "clang-format-auto-fix.yml").read_text(encoding="utf-8")
     image_build = (repo_root() / ".github" / "workflows" / "ops" / "bmt-image-build.yml").read_text(encoding="utf-8")
 
+    assert "actions/checkout@v4" not in build_test
     assert "actions/checkout@v4" not in clang_format
     assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in clang_format
     assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in image_build
-    assert "hashicorp/setup-packer@54678572a9eae3130016b4548482317e9f83f9f3" in image_build
+    assert "hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232" in image_build
 
 
 def test_unused_bmt_runner_env_action_is_removed() -> None:
     assert not (repo_root() / ".github" / "actions" / "bmt-runner-env").exists()
+
+
+def test_local_composite_action_paths_resolve() -> None:
+    """Every `uses: ./.github/actions/...` reference must have a matching action.yml on disk."""
+    github = repo_root() / ".github"
+    missing: list[str] = []
+    for path in sorted(_github_yaml_files(github)):
+        text = path.read_text(encoding="utf-8")
+        for rel in _LOCAL_COMPOSITE_USES.findall(text):
+            rel = rel.strip().rstrip("/")
+            action_yml = github / "actions" / rel / "action.yml"
+            if not action_yml.is_file():
+                missing.append(f"{path.relative_to(repo_root())}: uses …/{rel} → missing {action_yml.relative_to(repo_root())}")
+    assert not missing, "Broken local action references:\n" + "\n".join(missing)
+
+
+def _github_yaml_files(github_dir: Path) -> list[Path]:
+    out: list[Path] = []
+    for pattern in ("*.yml", "*.yaml"):
+        out.extend(github_dir.rglob(pattern))
+    return out

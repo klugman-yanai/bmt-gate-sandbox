@@ -5,10 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
 
+import pytest
 from ci.workflow_dispatch import (
     WorkflowDispatchInvokePayload,
     WorkflowDispatchManager,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class WorkflowExecutionStubResponse(TypedDict):

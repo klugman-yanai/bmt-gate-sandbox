@@ -7,6 +7,7 @@ import os
 from typing import TypedDict
 
 from gcp.image.config.constants import DEFAULT_WORKFLOW_NAME, ENV_GCP_PROJECT, ENV_GCS_BUCKET
+from gcp.image.config.env_parse import is_truthy_env_value
 from gcp.image.github.reporting import workflow_execution_console_url
 
 from ci import config, core
@@ -67,11 +68,7 @@ class WorkflowDispatchManager:
             raise RuntimeError("No accepted projects were present in FILTERED_MATRIX_JSON")
 
         # Mock runner is off unless CI explicitly sets BMT_USE_MOCK_RUNNER (see bmt-handoff.yml).
-        use_mock = (os.environ.get("BMT_USE_MOCK_RUNNER") or "").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        use_mock = is_truthy_env_value(os.environ.get("BMT_USE_MOCK_RUNNER"))
         payload: WorkflowDispatchInvokePayload = {
             "workflow_run_id": core.workflow_run_id(),
             "bucket": cfg.gcs_bucket or core.require_env(ENV_GCS_BUCKET),

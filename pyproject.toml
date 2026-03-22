@@ -32,13 +32,6 @@ members = [".github/bmt", "gcp/image"]
 [tool.uv]
 package = true
 
-[project.optional-dependencies]
-# Runtime extras: install with pip install -e ".[vm]" or ".[monitor]" when using root env for VM/monitor.
-# For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
-vm = ["PyJWT>=2.0", "cryptography>=41.0"]
-# For live BMT monitor TUI (install with: pip install -e ".[monitor]")
-monitor = ["rich>=13.0", "whenever>=0.9.0"]
-
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
 # Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-runtime).
 # Run a member with: uv run --package bmt … or uv run --package bmt-runtime …
@@ -84,6 +77,8 @@ dev = [
     "ruff>=0.15.6",
     "ty>=0.0.1",
     "typer>=0.24.1",
+    "vulture>=2.11",
+    "pylint>=3.3.0",
     "whenever>=0.9.5",
 ]
 
@@ -95,5 +90,5 @@ markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
     "integration: subprocess/filesystem orchestration tests with local fakes",
-    "live_smoke: cloud-backed smoke tests (scheduled/manual only; not for default PR fast gate)",
+    "bmt_plugin_load: load published BMT plugins from committed gcp/stage (import side effects)",
 ]

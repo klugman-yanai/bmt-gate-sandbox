@@ -6,6 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tools.shared.contributor_docs import gcloud_cli_missing_message
+
 
 class GCloudStorageError(RuntimeError):
     """Raised when a gcloud storage command fails."""
@@ -14,7 +16,7 @@ class GCloudStorageError(RuntimeError):
 def _gcloud_binary() -> str:
     gcloud = shutil.which("gcloud")
     if gcloud is None:
-        raise GCloudStorageError("gcloud is required for dataset uploads but was not found in PATH")
+        raise GCloudStorageError(gcloud_cli_missing_message())
     return gcloud
 
 

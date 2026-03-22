@@ -3,22 +3,47 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
-
-# Optional PyJWT import (graceful degradation if not installed)
-try:
-    import jwt
-
-    HAS_JWT = True
-except ImportError:
-    HAS_JWT = False
+from typing import Protocol
 
 from gcp.image.config.constants import GITHUB_API_VERSION, HTTP_TIMEOUT, JWT_CLOCK_SKEW_SEC, JWT_LIFETIME_SEC
+
+logger = logging.getLogger(__name__)
+
+
+class _PyJWTRS256Encode(Protocol):
+    """Subset of :func:`jwt.encode` used for GitHub App JWTs."""
+
+    def __call__(
+        self,
+        payload: dict[str, int | str],
+        key: str,
+        *,
+        algorithm: str,
+    ) -> str: ...
+
+
+_jwt_encode: _PyJWTRS256Encode | None = None
+try:
+    import jwt as _jwt_module
+
+    _jwt_encode = _jwt_module.encode
+except ImportError:
+    pass
+
+HAS_JWT = _jwt_encode is not None
+
+_JWT_ENCODE_ERRORS: tuple[type[BaseException], ...] = (ValueError, TypeError, OSError)
+if HAS_JWT:
+    from jwt.exceptions import PyJWTError
+
+    _JWT_ENCODE_ERRORS = (*_JWT_ENCODE_ERRORS, PyJWTError)
 
 PRIMARY_PROFILE = "primary"
 DEV_PROFILE = "dev"
@@ -73,7 +98,52 @@ def _credential_names_for_profile(profile: str) -> tuple[str, str, str]:
     )
 
 
-def get_installation_token_from_app(  # noqa: PLR0911
+def encode_github_app_jwt_rs256(payload: dict[str, int | str], private_key: str) -> str:
+    """Encode an RS256 JWT for GitHub App API calls. Raises if PyJWT is not installed."""
+    if _jwt_encode is None:
+        raise RuntimeError("PyJWT is required")
+    return _jwt_encode(payload, private_key, algorithm="RS256")
+
+
+def _app_jwt_for_installation_exchange(app_id: str, private_key: str) -> str:
+    now = int(time.time())
+    payload = {
+        "iat": now - JWT_CLOCK_SKEW_SEC,
+        "exp": now + JWT_LIFETIME_SEC,
+        "iss": app_id,
+    }
+    return encode_github_app_jwt_rs256(payload, private_key)
+
+
+def _installation_access_token_from_jwt(jwt_token: str, installation_id: str) -> str | None:
+    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+    req = urllib.request.Request(
+        url,
+        data=b"",
+        headers=github_api_headers(jwt_token),
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+            if resp.status != 201:
+                return None
+            data = json.loads(resp.read().decode("utf-8"))
+            token = data.get("token")
+            return str(token) if isinstance(token, str) else None
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+        return None
+    except json.JSONDecodeError:
+        return None
+    except Exception as e:
+        logger.warning(
+            "unexpected error fetching GitHub App installation token: %s",
+            type(e).__name__,
+            exc_info=True,
+        )
+        return None
+
+
+def get_installation_token_from_app(
     app_id: str,
     installation_id: str,
     private_key: str,
@@ -96,36 +166,18 @@ def get_installation_token_from_app(  # noqa: PLR0911
         return None
 
     try:
-        # Generate JWT
-        now = int(time.time())
-        payload = {
-            "iat": now - JWT_CLOCK_SKEW_SEC,
-            "exp": now + JWT_LIFETIME_SEC,
-            "iss": app_id,
-        }
-        jwt_token = jwt.encode(payload, private_key, algorithm="RS256")
-
-        # Exchange JWT for installation token
-        url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
-        req = urllib.request.Request(
-            url,
-            data=b"",
-            headers=github_api_headers(jwt_token),
-            method="POST",
+        jwt_token = _app_jwt_for_installation_exchange(app_id, private_key)
+    except RuntimeError:
+        return None
+    except _JWT_ENCODE_ERRORS as e:
+        logger.warning(
+            "GitHub App JWT encode failed: %s",
+            type(e).__name__,
+            exc_info=True,
         )
+        return None
 
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
-            if resp.status != 201:
-                return None
-            data = json.loads(resp.read().decode("utf-8"))
-            return data.get("token")
-
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
-        return None
-    except (json.JSONDecodeError, KeyError):
-        return None
-    except Exception:  # Catch PyJWT errors and any other unexpected errors
-        return None
+    return _installation_access_token_from_jwt(jwt_token, installation_id)
 
 
 def load_github_app_credentials(

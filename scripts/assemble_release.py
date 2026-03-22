@@ -31,6 +31,7 @@ EXCLUDE_WORKFLOW_DIRS = {"ops"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _copy(src: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
@@ -49,6 +50,7 @@ def _copy_tree(src: Path, dest: Path) -> None:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     # 1. Clean destination

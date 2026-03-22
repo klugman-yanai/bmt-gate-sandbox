@@ -79,10 +79,6 @@ def _validate_dataset_inputs() -> None:
     HandoffManager.from_env().validate_dataset_inputs()
 
 
-def _cleanup_failed_trigger_artifacts() -> None:
-    HandoffManager.from_env().cleanup_failed_trigger_artifacts()
-
-
 def _write_handoff_summary() -> None:
     HandoffManager.from_env().write_summary()
 
@@ -113,7 +109,6 @@ def _commands() -> dict[str, Callable[[], None]]:
         "post-pending-status": _post_pending_status,
         "post-handoff-timeout-status": _post_handoff_timeout_status,
         "validate-dataset-inputs": _validate_dataset_inputs,
-        "cleanup-failed-trigger-artifacts": _cleanup_failed_trigger_artifacts,
         "write-handoff-summary": _write_handoff_summary,
         "stage-release-runner": _stage_release_runner,
         "compute-preset-info": _compute_preset_info,

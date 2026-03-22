@@ -35,6 +35,9 @@ inputs:
   service_account:
     description: GCP service account email for WIF
     required: true
+  gcp_project:
+    description: Same as setup-gcp-uv gcp_project input (typically env.GCP_PROJECT).
+    required: true
   bmt_status_context:
     description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
     required: false
@@ -61,7 +64,7 @@ runs:
         FALLBACK_REF: ${{ inputs.fallback_ref }}
       run: |
         classify_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{path: (.classify_path // "unknown"), has_legs: (.has_legs // "false"), accepted_projects: (.accepted_projects // "[]"), filtered_matrix: (.filtered_matrix // "{\"include\":[]}")}')
-        handoff_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{trigger_written: (.trigger_written // "false"), vm_started: (.vm_started // "false"), handshake_ok: (.handshake_ok // "false"), handshake_uri: (.handshake_uri // ""), handoff_reason: (.handoff_reason // "")}')
+        handoff_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{handshake_ok: (.handshake_ok // "false"), handoff_reason: (.handoff_reason // "")}')
         jq -nc \
           --arg prepare_result "$PREPARE_RESULT" \
           --argjson prepare_outputs "$SETUP_OUTPUTS" \
@@ -97,16 +100,12 @@ runs:
           echo "head_branch=$(echo "$prepare" | jq -r '.head_branch    // ""')"
           echo "head_event=$(echo "$prepare"  | jq -r '.head_event     // ""')"
           echo "pr_number=$(echo "$prepare"   | jq -r '.pr_number      // ""')"
-          echo "selected_vm=$(echo "$prepare" | jq -r '.selected_vm    // ""')"
           echo "runner_matrix=$(echo "$prepare" | jq -c '.runner_matrix // {"include":[]}')"
           echo "classify_path=$(echo "$classify"             | jq -r '.path              // "unknown"')"
           echo "classify_has_legs=$(echo "$classify"         | jq -r '.has_legs          // "false"')"
           echo "classify_accepted_projects=$(echo "$classify"| jq -c '.accepted_projects // []')"
           echo "classify_filtered_matrix=$(echo "$classify"  | jq -c '.filtered_matrix   // {"include":[]}')"
-          echo "trigger_written=$(echo "$handoff"  | jq -r '.trigger_written // "false"')"
-          echo "vm_started=$(echo "$handoff"       | jq -r '.vm_started      // "false"')"
           echo "handshake_ok=$(echo "$handoff"     | jq -r '.handshake_ok    // "false"')"
-          echo "handshake_uri=$(echo "$handoff"    | jq -r '.handshake_uri   // ""')"
           echo "handoff_reason=$(echo "$handoff"   | jq -r '.handoff_reason  // ""')"
         } >> "$GITHUB_OUTPUT"
 
@@ -119,7 +118,6 @@ runs:
         PREPARE_PR_NUMBER: ${{ steps.x.outputs.pr_number }}
         ORCH_HAS_LEGS: ${{ steps.x.outputs.classify_has_legs }}
         ORCH_HANDSHAKE_OK: ${{ steps.x.outputs.handshake_ok }}
-        ORCH_TRIGGER_WRITTEN: ${{ steps.x.outputs.trigger_written }}
         DISPATCH_HEAD_SHA: ${{ steps.x.outputs.dispatch_head_sha }}
         DISPATCH_PR_NUMBER: ${{ steps.x.outputs.dispatch_pr_number }}
       run: uv run bmt write-context && uv run bmt resolve-failure-context
@@ -153,31 +151,6 @@ runs:
         pr_number: ${{ steps.failctx.outputs.pr_number }}
         filtered_matrix: ${{ steps.x.outputs.classify_filtered_matrix }}
         accepted_projects: ${{ inputs.accepted_projects }}
-        trigger_written: ${{ steps.failctx.outputs.trigger_written }}
         handshake_ok: ${{ steps.x.outputs.handshake_ok }}
         failure_reason: ${{ steps.reason.outputs.reason }}
-
-    - name: Setup GCP for cleanup
-      if: steps.failctx.outputs.trigger_written == 'true'
-      uses: ./.github/actions/setup-gcp-uv
-      with:
-        workload_identity_provider: ${{ inputs.workload_identity_provider }}
-        service_account: ${{ inputs.service_account }}
-        install_uv: "false"
-
-    - name: Post terminal status on handoff failure
-      if: steps.failctx.outputs.trigger_written == 'true' && (steps.failctx.outputs.vm_handshake_result == 'failure' || steps.x.outputs.handoff_reason == 'no_runtime_supported_legs')
-      shell: bash
-      env:
-        REPOSITORY: ${{ github.repository }}
-        HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
-        GITHUB_TOKEN: ${{ github.token }}
-        BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
-        BMT_FAILURE_STATUS_DESCRIPTION: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: runtime accepted zero supported test runs.' || 'BMT cancelled: runtime handoff failed before pickup.' }}"
-      run: uv run bmt write-context && uv run bmt post-handoff-timeout-status
-
-    - name: Cleanup failed trigger artifacts
-      if: steps.failctx.outputs.trigger_written == 'true'
-      shell: bash
-      run: uv run bmt cleanup-failed-trigger-artifacts
 

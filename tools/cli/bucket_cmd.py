@@ -38,14 +38,14 @@ def deploy() -> None:
     console = step_console()
     if console is not None:
         console.print("[bold]Deploy[/]")
-    steps: list[tuple[str, object]] = [
+    steps: list[tuple[str, BucketSyncRuntimeSeed | BucketVerifyRuntimeSeedSync]] = [
         ("Sync runtime seed", BucketSyncRuntimeSeed()),
         ("Verify runtime seed", BucketVerifyRuntimeSeedSync()),
     ]
     for label, runner in steps:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = runner.run(bucket=bucket)  # type: ignore[union-attr]
+            rc = runner.run(bucket=bucket)
         if rc != 0:
             if buf.getvalue():
                 sys.stderr.write(buf.getvalue())
@@ -120,11 +120,35 @@ def clean_bloat(
 def upload_runner(
     runner_path: Annotated[
         Path | None,
-        typer.Option("--runner-path", help="Path to runner binary; default from BMT_RUNNER_PATH or sk default"),
+        typer.Option(
+            "--runner-path",
+            envvar="BMT_RUNNER_PATH",
+            help="Path to runner binary; default from BMT_RUNNER_PATH or sk default",
+        ),
     ] = None,
     runner_uri: Annotated[
         str | None,
-        typer.Option("--runner-uri", help="GCS object path; default from BMT_RUNNER_URI or sk default"),
+        typer.Option(
+            "--runner-uri",
+            envvar="BMT_RUNNER_URI",
+            help="GCS object path; default from BMT_RUNNER_URI or sk default",
+        ),
+    ] = None,
+    source: Annotated[
+        str | None,
+        typer.Option(
+            "--source",
+            envvar="BMT_SOURCE",
+            help="Source label for metadata (default sandbox_manual)",
+        ),
+    ] = None,
+    source_ref: Annotated[
+        str | None,
+        typer.Option(
+            "--source-ref",
+            envvar="SOURCE_REF",
+            help="Optional source ref (commit, etc.)",
+        ),
     ] = None,
     force: Annotated[
         bool,
@@ -141,14 +165,14 @@ def upload_runner(
         (os.environ.get("BMT_RUNNER_PATH") or "").strip() or "repo/staging/runners/sk_gcc_release/kardome_runner"
     )
     uri = runner_uri or ((os.environ.get("BMT_RUNNER_URI") or "").strip() or "sk/runners/sk_gcc_release/kardome_runner")
-    source = (os.environ.get("BMT_SOURCE") or "").strip() or "sandbox_manual"
-    source_ref = (os.environ.get("SOURCE_REF") or "").strip()
+    source_eff = (source or (os.environ.get("BMT_SOURCE") or "").strip() or "sandbox_manual").strip()
+    source_ref_eff = (source_ref or (os.environ.get("SOURCE_REF") or "").strip()).strip()
     rc = BucketUploadRunner().run(
         bucket=bucket,
         runner_path=path,
         runner_uri=uri,
-        source=source,
-        source_ref=source_ref,
+        source=source_eff,
+        source_ref=source_ref_eff,
         force=force,
     )
     raise typer.Exit(rc)

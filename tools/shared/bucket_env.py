@@ -10,6 +10,7 @@ Scripts organized by prefix:
 from __future__ import annotations
 
 from gcp.image.config.constants import ENV_GCS_BUCKET
+from gcp.image.config.env_parse import is_truthy_env_value
 from tools.shared.repo_vars import repo_var
 
 
@@ -25,7 +26,7 @@ def bucket_from_env() -> str:
 
 def truthy(val: str | None) -> bool:
     """True if value is a truthy env-like string (1, true, yes)."""
-    return (val or "").strip().lower() in ("1", "true", "yes")
+    return is_truthy_env_value(val)
 
 
 def bucket_root_uri(bucket: str) -> str:

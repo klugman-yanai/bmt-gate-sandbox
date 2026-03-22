@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 from typing import Any
@@ -17,15 +18,15 @@ class GcsError(RuntimeError):
     """Raised when a GCS operation fails in a non-recoverable way."""
 
 
-_client: storage.Client | None = None
+@functools.lru_cache(maxsize=1)
+def _client_singleton() -> storage.Client:
+    """Single client per process (uses default credentials, e.g. WIF in Actions)."""
+    return storage.Client()
 
 
 def _get_client() -> storage.Client:
-    """Return a single client per process (uses default credentials, e.g. WIF in Actions)."""
-    global _client
-    if _client is None:
-        _client = storage.Client()
-    return _client
+    """Return the process-wide GCS client."""
+    return _client_singleton()
 
 
 def parse_gs_uri(uri: str) -> tuple[str, str]:
@@ -104,15 +105,21 @@ def delete_object(uri: str) -> None:
 
 
 def object_exists(uri: str) -> bool:
-    """Return True if the GCS object exists."""
+    """Return True if the GCS object exists.
+
+    Raises :exc:`ValueError` for invalid ``gs://`` URIs. Propagates :exc:`GcsError` on
+    GCS/network/auth failures so callers do not treat infrastructure errors as "missing".
+    """
     try:
         bucket_name, path = parse_gs_uri(uri)
         client = _get_client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(path)
         return blob.exists()
-    except Exception:
-        return False
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise GcsError(f"Failed to check existence of {uri}: {exc}") from exc
 
 
 def upload_json(uri: str, payload: dict[str, Any]) -> None:

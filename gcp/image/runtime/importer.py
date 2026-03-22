@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import zipfile
@@ -9,6 +10,8 @@ from dataclasses import dataclass
 from typing import IO, Protocol
 
 from google.cloud import storage as gcs_storage
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +75,7 @@ class DatasetImporter:
                     dest_name = f"{destination_prefix.rstrip('/')}/{member.filename.lstrip('/')}"
                     dest_blob = bucket.blob(dest_name)
                     if dest_blob.exists():
-                        print(f"  [skip] {member.filename} (already uploaded)")  # noqa: T201
+                        logger.info("[skip] %s (already uploaded)", member.filename)
                         continue
                     with zf.open(member) as payload:
                         dest_blob.upload_from_file(payload)

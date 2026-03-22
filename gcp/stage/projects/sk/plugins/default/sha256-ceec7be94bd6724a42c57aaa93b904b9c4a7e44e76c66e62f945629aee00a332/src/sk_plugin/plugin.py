@@ -38,9 +38,7 @@ class SkPlugin(BmtPlugin):
             import os
 
             existing = os.environ.get("LD_LIBRARY_PATH", "").strip()
-            runner_env["LD_LIBRARY_PATH"] = (
-                f"{context.deps_root}:{existing}" if existing else str(context.deps_root)
-            )
+            runner_env["LD_LIBRARY_PATH"] = f"{context.deps_root}:{existing}" if existing else str(context.deps_root)
         legacy = LegacyKardomeStdoutExecutor(
             LegacyKardomeStdoutConfig(
                 runner_path=prepared_assets.runner_path or self._require_runner(context),

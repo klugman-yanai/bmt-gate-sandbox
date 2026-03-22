@@ -14,6 +14,8 @@ import pytest
 from tools.shared.bucket_sync import is_inputs_data_path, local_digest
 from tools.shared.layout_patterns import FORBIDDEN_RUNTIME_SEED
 
+pytestmark = pytest.mark.unit
+
 # ── is_inputs_data_path ────────────────────────────────────────────────────────
 
 
