@@ -16,7 +16,7 @@ Bootstrap GitHub repo variables and secrets after Pulumi apply. **Pulumi is the 
    just pulumi
    ```
 
-3. **Set secrets manually** (repo variables, including `GCP_WIF_PROVIDER`, are synced by `just pulumi` from `bmt.tfvars.json`):
+3. **Set secrets manually** (repo variables, including `GCP_WIF_PROVIDER`, are synced by `just pulumi` from `bmt.config.json`):
    - repo secrets: `BMT_GITHUB_APP_ID`, `BMT_GITHUB_APP_INSTALLATION_ID`, `BMT_GITHUB_APP_PRIVATE_KEY`
    - repo secrets: `BMT_GITHUB_APP_DEV_ID`, `BMT_GITHUB_APP_DEV_INSTALLATION_ID`, `BMT_GITHUB_APP_DEV_PRIVATE_KEY`
    - GCP Secret Manager secrets: `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`

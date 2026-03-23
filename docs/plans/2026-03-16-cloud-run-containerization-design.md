@@ -100,7 +100,7 @@ just docker-run-test   # docker run with bind mount simulating FUSE
 | Eventarc trigger | `bmt-gcs-trigger` | GCS finalize → Workflow |
 | IAM bindings | various | Least-privilege access |
 
-### Config additions (bmt.tfvars.json)
+### Config additions (bmt.config.json)
 
 ```json
 {
@@ -377,7 +377,7 @@ gcloud workflows executions list bmt-trigger-workflow --location=europe-west4
 | `gcp/image/.dockerignore` | Create | Build context exclusions |
 | `infra/pulumi/__main__.py` | Modify | Add Cloud Run, Workflows, Eventarc, AR, IAM |
 | `infra/pulumi/config.py` | Modify | Add Cloud Run config fields |
-| `infra/pulumi/bmt.tfvars.example.json` | Modify | Add example Cloud Run config |
+| `infra/pulumi/bmt.config.example.json` | Modify | Add example Cloud Run config |
 | `infra/pulumi/workflow.yaml` | Create | Workflow definition |
 | `gcp/image/main.py` | Modify | Add CLOUD_RUN_TASK_INDEX dispatch |
 | `gcp/image/entrypoint_config.py` | Modify | Add task-index-aware config loading |

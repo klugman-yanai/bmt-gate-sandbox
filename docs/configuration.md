@@ -6,7 +6,7 @@ This repo now has one supported execution model: direct GitHub Actions handoff t
 
 ## Centralized config and repo variables
 
-**Single config file:** `infra/pulumi/bmt.tfvars.json` is the source of truth for all non-secret infra and repo variables. You do not set `GCP_*` or `GCS_BUCKET` (or `GCP_WIF_PROVIDER`) in the GitHub UI for normal use.
+**Single config file:** `infra/pulumi/bmt.config.json` is the source of truth for all non-secret infra and repo variables. You do not set `GCP_*` or `GCS_BUCKET` (or `GCP_WIF_PROVIDER`) in the GitHub UI for normal use.
 
 **Apply infra and push repo vars:**
 
@@ -16,7 +16,7 @@ just pulumi
 
 That command runs Pulumi and then syncs its outputs to GitHub repo variables. So:
 
-- **User sets:** `bmt.tfvars.json` (copy from `bmt.tfvars.example.json`, set `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`, and `gcp_wif_provider`).
+- **Infra config owners set:** `bmt.config.json` (must include `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`, and `gcp_wif_provider`).
 - **Pulumi sets for you:** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `CLOUD_RUN_REGION`, `BMT_CONTROL_JOB`, `BMT_TASK_STANDARD_JOB`, `BMT_TASK_HEAVY_JOB`, `GCP_SA_EMAIL`, `GCP_WIF_PROVIDER` — all synced from config when you run `just pulumi`.
 
 Defaults in the config file (e.g. `cloud_run_region`, job names) are used by Pulumi; you only override what you need.
@@ -67,7 +67,7 @@ just show-env
 
 ## Pulumi Config
 
-`infra/pulumi/bmt.tfvars.json` must define:
+`infra/pulumi/bmt.config.json` must define:
 
 - `gcp_project`
 - `gcp_zone`
@@ -92,15 +92,15 @@ Three places touch the same logical settings; they stay consistent as follows:
 
 | Layer | Role | Source of values |
 |-------|------|-------------------|
-| **`infra/pulumi/config.py`** | Pulumi only. Loads `bmt.tfvars.json`, defines `InfraConfig` (gcp_project, gcs_bucket, service_account, cloud_run_region, gcp_wif_provider, etc.). | `infra/pulumi/bmt.tfvars.json` |
+| **`infra/pulumi/config.py`** | Pulumi only. Loads `bmt.config.json`, defines `InfraConfig` (gcp_project, gcs_bucket, service_account, cloud_run_region, gcp_wif_provider, etc.). | `infra/pulumi/bmt.config.json` |
 | **`.github/bmt/ci/config.py`** | CI only. Builds `BmtConfig` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
 | **`gcp/image/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
 
-**Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.tfvars.json → Pulumi → `just pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.tfvars.json`; CI reads what was synced.
+**Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.config.json → Pulumi → `just pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.config.json`; CI reads what was synced.
 
 **Pulumi consistency:** `infra/pulumi/config.py` uses defaults that match `gcp/image/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
 
-**`GCP_WIF_PROVIDER`:** Required in `bmt.tfvars.json` as `gcp_wif_provider` and synced by Pulumi like the other GCP_* vars. The handoff workflow needs it for OIDC auth.
+**`GCP_WIF_PROVIDER`:** Required in `bmt.config.json` as `gcp_wif_provider` and synced by Pulumi like the other GCP_* vars. The handoff workflow needs it for OIDC auth.
 
 ## Runtime Storage Contract
 
@@ -153,7 +153,7 @@ New work should not add more of these patterns; refactors that touch them should
 | Secret bodies in env | Exposure in logs and dumps | GitHub Secrets, GCP Secret Manager; env holds paths/refs only |
 | New parallel names for the same fact | Operator confusion | One name per layer; consolidate aliases in code (see GitHub App module) |
 | New undocumented `BMT_*` for local tools | Hard to discover | Typer options with `envvar=` (e.g. `tools bucket upload-runner --help`) |
-| Duplicating infra values already in `bmt.tfvars.json` | Drift vs Pulumi | `just pulumi` / repo variables |
+| Duplicating infra values already in `bmt.config.json` | Drift vs Pulumi | `just pulumi` / repo variables |
 | Constants as env | False configurability | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
 
 ## GitHub Actions precedence
@@ -173,7 +173,7 @@ Official behavior: [GitHub Docs — Workflow syntax](https://docs.github.com/en/
 | Aggregated contract (contexts) | [tools/shared/env_contract.py](../tools/shared/env_contract.py) |
 | CI typed settings (`BmtConfig`) | [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) |
 | `ENV_*` string constants | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
-| Infra file (not process env) | `infra/pulumi/bmt.tfvars.json` via [infra/pulumi/config.py](../infra/pulumi/config.py) |
+| Infra file (not process env) | `infra/pulumi/bmt.config.json` via [infra/pulumi/config.py](../infra/pulumi/config.py) |
 
 ## Infra and CI (`BmtConfig` / repo vars)
 

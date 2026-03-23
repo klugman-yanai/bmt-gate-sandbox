@@ -12,7 +12,7 @@ EXECUTABLE_MODE = 0o111
 STATUS_CONTEXT = "BMT Gate"
 
 # GCP zone: used at runtime (not overridable via env). Terraform still requires gcp_zone in
-# bmt.tfvars.json (no default there); this constant is the single value used by code/CI.
+# bmt.config.json (no default there); this constant is the single value used by code/CI.
 DEFAULT_GCP_ZONE = "europe-west4-a"
 
 # Image build / policy defaults (single source; Terraform image_family default must match DEFAULT_IMAGE_FAMILY).
@@ -107,7 +107,7 @@ ENV_BMT_FAILURE_REASON = "BMT_FAILURE_REASON"
 # Per-WAV subprocess timeout for kardome_runner (seconds). Unset or <=0 = no timeout.
 ENV_BMT_KARDOME_CASE_TIMEOUT_SEC = "BMT_KARDOME_CASE_TIMEOUT_SEC"
 
-# Pulumi config keys (bmt.tfvars.json) that map to repo vars
+# Pulumi config keys (bmt.config.json) that map to repo vars
 PULUMI_KEY_GCS_BUCKET = "gcs_bucket"
 PULUMI_KEY_GCP_PROJECT = "gcp_project"
 PULUMI_KEY_GCP_ZONE = "gcp_zone"

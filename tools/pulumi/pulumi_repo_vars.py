@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Export Pulumi stack outputs to GitHub repo variables.
 
-All infra-derived vars (including GCP_WIF_PROVIDER from bmt.tfvars.json gcp_wif_provider)
-come from Pulumi. Manual vars (e.g. BMT_STATUS_CONTEXT) can still be set via bmt.tfvars.json
+All infra-derived vars (including GCP_WIF_PROVIDER from bmt.config.json gcp_wif_provider)
+come from Pulumi. Manual vars (e.g. BMT_STATUS_CONTEXT) can still be set via bmt.config.json
 "github_vars" or directly in GitHub. Run from repo root.
 """
 
@@ -18,12 +18,12 @@ from tools.repo.vars_contract import (
     REPO_VARS_CONTRACT,
 )
 
-CONFIG_FILENAME = "bmt.tfvars.json"
+CONFIG_FILENAME = "bmt.config.json"
 ALLOWED_GITHUB_VARS = frozenset(REPO_VARS_CONTRACT.manual_vars)
 
 
 def _load_github_vars_from_tfvars() -> dict[str, str]:
-    """Load optional github_vars from bmt.tfvars.json. Only allowed keys are returned."""
+    """Load optional github_vars from bmt.config.json. Only allowed keys are returned."""
     path = pulumi_dir() / CONFIG_FILENAME
     if not path.is_file():
         return {}

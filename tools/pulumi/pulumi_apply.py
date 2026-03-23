@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pulumi login + up from bmt.tfvars.json. Exports vars to GitHub only when changes were applied.
+"""Pulumi login + up from bmt.config.json. Exports vars to GitHub only when changes were applied.
 
 Required in config: gcp_project, gcp_zone, gcs_bucket, service_account.
 """
@@ -14,7 +14,7 @@ import sys
 from tools.repo.paths import pulumi_dir
 from tools.shared.rich_minimal import step as _step_impl, step_console, success_panel
 
-CONFIG_FILENAME = "bmt.tfvars.json"
+CONFIG_FILENAME = "bmt.config.json"
 STACK_NAME = "prod"
 BACKEND_PREFIX = "pulumi/bmt-vm"
 

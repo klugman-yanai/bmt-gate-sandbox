@@ -36,7 +36,7 @@ def _pulumi_stack_output(pulumi_dir: Path, key: str) -> str | None:
 
 
 def _tfvars_str(pulumi_dir: Path, key: str) -> str | None:
-    path = pulumi_dir / "bmt.tfvars.json"
+    path = pulumi_dir / "bmt.config.json"
     if not path.is_file():
         return None
     try:

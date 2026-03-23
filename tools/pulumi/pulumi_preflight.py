@@ -14,19 +14,16 @@ from tools.repo.paths import pulumi_dir
 from tools.shared.cli_availability import command_available
 from tools.shared.contributor_docs import ContributorDocRefs, gcloud_cli_missing_message
 
-CONFIG_FILENAME = "bmt.tfvars.json"
-EXAMPLE_FILENAME = "bmt.tfvars.example.json"
+CONFIG_FILENAME = "bmt.config.json"
 REQUIRED_KEYS = ("gcp_project", "gcp_zone", "gcs_bucket", "service_account", "gcp_wif_provider")
 IMAGE_FAMILY = "bmt-runtime"
 
 
 def _load_config() -> dict:
     config_path = pulumi_dir() / CONFIG_FILENAME
-    example_path = pulumi_dir() / EXAMPLE_FILENAME
     if not config_path.is_file():
         raise FileNotFoundError(
-            f"Config not found: {config_path}. "
-            f"Copy {example_path.name} to {CONFIG_FILENAME} and set {', '.join(REQUIRED_KEYS)}."
+            f"Config not found: {config_path}. Set required keys in {CONFIG_FILENAME}: {', '.join(REQUIRED_KEYS)}."
         )
     with config_path.open(encoding="utf-8") as f:
         data = json.load(f)

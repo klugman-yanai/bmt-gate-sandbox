@@ -10,7 +10,7 @@ Pulumi now provisions the direct-Workflow Cloud Run pipeline:
 
 ## Apply order
 
-1. Set `infra/pulumi/bmt.tfvars.json` (copy from `bmt.tfvars.example.json`).
+1. Ensure `infra/pulumi/bmt.config.json` is present (managed by infra owners/automation).
 2. Build and push the Cloud Run image (if needed).
 3. Run `just pulumi` — Pulumi applies and syncs repo variables from its outputs (no separate export step).
 4. Run `just set-lifecycle` — applies GCS lifecycle rules to the bucket (one-time; safe to re-run).
@@ -19,12 +19,12 @@ Pulumi now provisions the direct-Workflow Cloud Run pipeline:
 
 ## Repo variables (synced by `just pulumi`)
 
-All of these come from Pulumi / `bmt.tfvars.json`; you do not set them in the GitHub UI:
+All of these come from Pulumi / `bmt.config.json`; you do not set them in the GitHub UI:
 
 - `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `CLOUD_RUN_REGION`
 - `BMT_CONTROL_JOB`, `BMT_TASK_STANDARD_JOB`, `BMT_TASK_HEAVY_JOB`
 - `GCP_SA_EMAIL`
-- `GCP_WIF_PROVIDER` — set `gcp_wif_provider` in `bmt.tfvars.json`; synced by `just pulumi` like the other GCP_* vars.
+- `GCP_WIF_PROVIDER` — set `gcp_wif_provider` in `bmt.config.json`; synced by `just pulumi` like the other GCP_* vars.
 
 Optional override (manual or via `github_vars` in config):
 

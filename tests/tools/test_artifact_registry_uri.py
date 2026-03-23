@@ -32,7 +32,7 @@ def test_resolve_bmt_orchestrator_image_base_defaults(tmp_path: Path) -> None:
 def test_resolve_bmt_orchestrator_image_base_from_tfvars(tmp_path: Path) -> None:
     pulumi_dir = tmp_path / "infra" / "pulumi"
     pulumi_dir.mkdir(parents=True)
-    (pulumi_dir / "bmt.tfvars.json").write_text(
+    (pulumi_dir / "bmt.config.json").write_text(
         json.dumps(
             {
                 "gcp_project": "proj-x",

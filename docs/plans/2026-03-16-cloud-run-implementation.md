@@ -190,7 +190,7 @@ Expected: Clean.
 
 **Files:**
 - Modify: `infra/pulumi/config.py:14-48` (add fields to `InfraConfig`)
-- Modify: `infra/pulumi/bmt.tfvars.example.json` (add example values)
+- Modify: `infra/pulumi/bmt.config.example.json` (add example values)
 
 **Step 1: Add Cloud Run fields to InfraConfig**
 
@@ -225,7 +225,7 @@ Also add a computed property for the image URI:
 
 **Step 2: Update example config**
 
-Update `infra/pulumi/bmt.tfvars.example.json` to include the new fields:
+Update `infra/pulumi/bmt.config.example.json` to include the new fields:
 
 ```json
 {
@@ -928,14 +928,14 @@ Expected: Clean (0 errors from basedpyright; ruff clean).
 
 ## Batch 4: Verification & Manual Operations Guide (Task 10)
 
-### Task 10: Update bmt.tfvars.json and verify end-to-end
+### Task 10: Update bmt.config.json and verify end-to-end
 
 **Files:**
-- Modify: `infra/pulumi/bmt.tfvars.json` (add Cloud Run config for real project)
+- Modify: `infra/pulumi/bmt.config.json` (add Cloud Run config for real project)
 
 **Step 1: Add Cloud Run fields to real config**
 
-Add to `infra/pulumi/bmt.tfvars.json`:
+Add to `infra/pulumi/bmt.config.json`:
 
 ```json
 {

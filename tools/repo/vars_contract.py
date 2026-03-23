@@ -74,7 +74,7 @@ REPO_VARS_CONTRACT = RepoVarsContract(
         ENV_BMT_TASK_STANDARD_JOB,
         ENV_BMT_TASK_HEAVY_JOB,
         ENV_GCP_SA_EMAIL,
-        ENV_GCP_WIF_PROVIDER,  # Required for handoff (OIDC); set gcp_wif_provider in bmt.tfvars.json, synced by Pulumi.
+        ENV_GCP_WIF_PROVIDER,  # Required for handoff (OIDC); set gcp_wif_provider in bmt.config.json, synced by Pulumi.
     ),
     optional=(),
     manual_vars=(ENV_BMT_STATUS_CONTEXT,),
