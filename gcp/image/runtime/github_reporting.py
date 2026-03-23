@@ -4,7 +4,6 @@ import logging
 import os
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 
 import google.auth
 import httpx
@@ -353,7 +352,6 @@ def _progress_view(
                     aggregate_score=summary.score.aggregate_score,
                     execution_mode_used=summary.execution_mode_used,
                     cases_detail=_cases_detail_from_metrics(summary.score.metrics),
-                    score_direction_label=_score_direction_label_from_summary(summary),
                 )
             )
             completed_count += 1
@@ -391,32 +389,7 @@ def _cases_detail_from_metrics(metrics: dict[str, object]) -> str:
     case_count = metrics.get("case_count")
     if cases_ok is None or case_count is None:
         return ""
-    return f"{cases_ok}/{case_count} passed"
-
-
-def _score_direction_label_from_summary(summary: LegSummary) -> str:
-    """Prefer ``scoring_policy.score_direction_label``; fall back to verdict summary."""
-    extra = summary.score.extra
-    if isinstance(extra, dict):
-        sp = extra.get("scoring_policy")
-        if isinstance(sp, dict):
-            lab = sp.get("score_direction_label")
-            if isinstance(lab, str) and lab.strip():
-                return lab.strip()
-    vs = summary.verdict_summary
-    if isinstance(vs, dict):
-        lab = vs.get("score_direction_label")
-        if isinstance(lab, str) and lab.strip():
-            return lab.strip()
-    return ""
-
-
-def _case_outcomes_from_summary(summary: LegSummary) -> list[dict[str, Any]]:
-    """Per-case rows from ``metrics.case_outcomes`` (any plugin)."""
-    raw = summary.score.metrics.get("case_outcomes")
-    if not isinstance(raw, list):
-        return []
-    return [x for x in raw if isinstance(x, dict)]
+    return f"{cases_ok}/{case_count} ok"
 
 
 def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, str]]:
@@ -453,8 +426,6 @@ def _final_view(
                 execution_mode_used=summary.execution_mode_used,
                 cases_detail=_cases_detail_from_metrics(summary.score.metrics),
                 score_extra=dict(summary.score.extra),
-                score_direction_label=_score_direction_label_from_summary(summary),
-                case_outcomes=_case_outcomes_from_summary(summary),
             )
             for summary in summaries
         ],
@@ -476,12 +447,13 @@ def _start_instants_for_elapsed(*, runtime: StageRuntimePaths, workflow_run_id: 
 
 
 def _elapsed_seconds(*, runtime: StageRuntimePaths, workflow_run_id: str) -> int | None:
-    """Wall time since run start for ETA (min of valid starts vs now)."""
+    """Wall seconds from the earliest valid start instant to now (for parallel ETA)."""
     starts = _start_instants_for_elapsed(runtime=runtime, workflow_run_id=workflow_run_id)
     if not starts:
         return None
-    wall_start = min(starts, key=lambda i: i.timestamp())
-    return max(0, int(_instant_now().timestamp() - wall_start.timestamp()))
+    wall_start = min(starts)
+    elapsed = (_instant_now() - wall_start).in_seconds()
+    return max(0, int(elapsed))
 
 
 def _resolved_logs_dir_under_stage(stage_root: Path, logs_uri: str) -> Path | None:

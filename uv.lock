@@ -104,6 +104,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "bmt" },
+    { name = "google-cloud-artifact-registry" },
     { name = "orjson" },
     { name = "prek" },
     { name = "pulumi-gcp" },
@@ -145,6 +146,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bmt", editable = ".github/bmt" },
+    { name = "google-cloud-artifact-registry", specifier = ">=1.14.0" },
     { name = "orjson", specifier = ">=3.10" },
     { name = "prek", specifier = ">=0.3.5" },
     { name = "pulumi-gcp", specifier = ">=9.15.0" },
@@ -408,6 +410,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b3/db/bee528001d56946bee1c66aad8116e6b503fe85ec01c858c8bb6e2f68db5/google_auth_stubs-0.3.0.tar.gz", hash = "sha256:0e8834a7130c99d4338d28892df082c64c6dc3bc57abdab9a095d93e6a3d737e", size = 13259, upload-time = "2024-08-26T17:39:49.743Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/29/1c35456566936abd17b9f6589e9ddcfe707ded7012c6aa1b30ca42516f9d/google_auth_stubs-0.3.0-py3-none-any.whl", hash = "sha256:0afb7d537956447774d98879dd5fddd0543e0a5f1b582787adb6ce392d6fdd25", size = 29869, upload-time = "2024-08-26T17:39:48.433Z" },
+]
+
+[[package]]
+name = "google-cloud-artifact-registry"
+version = "1.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpc-google-iam-v1" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/63/5f4bc66db0c95f456d7f6394f98b132f5dbdbbaac9942472ab8382037a0b/google_cloud_artifact_registry-1.20.0.tar.gz", hash = "sha256:88161c9b8ad467915f9ee1f3fa923554431f91aa15aeb87e4fdbb99affb3235b", size = 314342, upload-time = "2026-02-12T14:50:18.909Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/42/46feb7393c7f7962a40f7db679af22fa83bd9b17ba28f5a801babdd5d1ad/google_cloud_artifact_registry-1.20.0-py3-none-any.whl", hash = "sha256:a0a4ba0a6f6421260e5b6063681089e1da2a27e0598829a70d6426f623b1c4d2", size = 249267, upload-time = "2026-02-12T14:49:49.256Z" },
 ]
 
 [[package]]

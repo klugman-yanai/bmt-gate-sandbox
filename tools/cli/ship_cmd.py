@@ -17,6 +17,10 @@ from rich.table import Table
 from rich.text import Text
 
 from tools.repo.paths import repo_root
+from tools.shared.artifact_registry_uri import (
+    artifact_registry_tag_status,
+    resolve_bmt_orchestrator_image_base,
+)
 
 
 @dataclass(frozen=True)
@@ -49,7 +53,7 @@ _STEPS: tuple[_Step, ...] = (
     _Step(
         "image",
         "Container image",
-        "docker buildx load + push to Artifact Registry",
+        "docker buildx load + push to Artifact Registry (git-SHA tag for ship auto-skip)",
         "green",
     ),
 )
@@ -92,10 +96,28 @@ def _git_merge_base_with_remote_head(root: str) -> str | None:
     return None
 
 
+def _git_head_sha(root: str) -> str | None:
+    p = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if p.returncode != 0:
+        return None
+    s = p.stdout.strip()
+    return s if len(s) >= 7 else None
+
+
 def image_context_git_dirty(root: str | None = None) -> bool:
     """True if git suggests the Docker context may have changed (rebuild may be needed).
 
     Conservative: returns True when merge-base cannot be resolved (auto-skip disabled).
+
+    When this returns False, ``uv run python -m tools ship`` may still run ``just image`` unless
+    Artifact Registry already has ``bmt-orchestrator:<git HEAD>`` (queried via the Google Cloud
+    Python client library and Application Default Credentials).
 
     Does not imply the opposite: base-image tag bumps, a failed registry push, or needing a
     no-code rebuild still require running ship with --force-image.
@@ -108,9 +130,7 @@ def image_context_git_dirty(root: str | None = None) -> bool:
     if _git_nonempty_lines(["git", "diff", "--name-only", f"{mb}...HEAD", "--", *specs], cwd=r):
         return True
     # Staged + unstaged vs HEAD (single pick-up for uncommitted edits).
-    return bool(
-        _git_nonempty_lines(["git", "diff", "--name-only", "HEAD", "--", *specs], cwd=r)
-    )
+    return bool(_git_nonempty_lines(["git", "diff", "--name-only", "HEAD", "--", *specs], cwd=r))
 
 
 def _banner(console: Console) -> None:
@@ -197,8 +217,9 @@ def register_ship(root: typer.Typer) -> None:
             bool,
             typer.Option(
                 "--force-image",
-                help="Always run `just image` (default: skip image when git shows no edits under "
-                "gcp/image or gcp/__init__.py). Use after push or when the registry must refresh "
+                help="Always run `just image` (default: skip when git shows no edits under "
+                "gcp/image or gcp/__init__.py and Artifact Registry has an image tagged with "
+                "the current git HEAD commit). Use after push or when the registry must refresh "
                 "without local git diffs.",
             ),
         ] = False,
@@ -217,12 +238,44 @@ def register_ship(root: typer.Typer) -> None:
         }
         auto_skip_note: str | None = None
         if not skips["image"] and not force_image and not image_context_git_dirty(root_s):
-            skips["image"] = True
-            auto_skip_note = (
-                "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
-                "[dim]Git cannot see:[/] stale registry, failed prior push, base-image-only updates, or rebuild-for-policy. "
-                "[dim]Run[/] [cyan]just ship --force-image[/] [dim]to build and push anyway.[/]"
-            )
+            if dry_run:
+                skips["image"] = True
+                head_preview = (_git_head_sha(root_s) or "?")[:7]
+                auto_skip_note = (
+                    "[dim]image auto-skipped (dry-run):[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
+                    "[dim]Artifact Registry is not queried in dry-run;[/] run without [cyan]--dry-run[/] to check "
+                    f"[cyan]bmt-orchestrator:{head_preview}[/] [dim]before skipping the image step.[/]"
+                )
+            head_sha = _git_head_sha(root_s)
+            if not dry_run and head_sha:
+                image_base = resolve_bmt_orchestrator_image_base(repo_root())
+                ar_status = artifact_registry_tag_status(image_base=image_base, tag=head_sha)
+                if ar_status == "present":
+                    skips["image"] = True
+                    short = head_sha[:7]
+                    auto_skip_note = (
+                        "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/]; "
+                        f"Artifact Registry has [cyan]bmt-orchestrator:{short}[/].\n"
+                        "[dim]Still wrong bits?[/] base-image-only updates or policy rebuilds — "
+                        "[dim]run[/] [cyan]just ship --force-image[/][dim].[/]"
+                    )
+                elif ar_status == "absent":
+                    # Git-clean for image paths but no published tag for this commit — build/push.
+                    pass
+                else:
+                    # unavailable: ADC / network / permission — git-only skip
+                    skips["image"] = True
+                    auto_skip_note = (
+                        "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
+                        "[dim]Git cannot see:[/] stale registry, failed prior push, base-image-only updates, or rebuild-for-policy. "
+                        "[dim]Run[/] [cyan]just ship --force-image[/] [dim]to build and push anyway.[/]\n"
+                        "[dim]Artifact Registry tag check failed (credentials, network, or permission); "
+                        "only git paths were considered. Set [cyan]GOOGLE_APPLICATION_CREDENTIALS[/] "
+                        "or ADC so the Google Cloud client can verify [cyan]bmt-orchestrator:<git-sha>[/].[/]"
+                    )
+            elif not dry_run and not head_sha:
+                # Cannot resolve HEAD — run `just image` rather than guess.
+                pass
 
         active = [s for s in _STEPS if not skips[s.just_target]]
         if not active:
