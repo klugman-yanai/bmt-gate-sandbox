@@ -1,4 +1,5 @@
 """Unit tests for graceful failures in LegacyKardomeStdoutExecutor."""
+
 from __future__ import annotations
 
 import subprocess
@@ -13,7 +14,7 @@ from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKa
 pytestmark = pytest.mark.unit
 
 
-def _minimal_dirs(tmp: Path) -> tuple[Path, Path, Path, Path]:
+def _minimal_dirs(tmp: Path) -> tuple[Path, Path, Path]:
     runtime = tmp / "runtime"
     outputs = tmp / "outputs"
     logs = tmp / "logs"
@@ -118,11 +119,17 @@ def test_log_open_oserror_yields_failed_case(tmp_path: Path) -> None:
     ex = _executor_with_one_wav(tmp_path)
     real_open = Path.open
 
-    def _open(self: Path, *args: object, **kwargs: object):
-        mode = args[0] if args else kwargs.get("mode", "r")
+    def _open(
+        self: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ):
         if mode == "w" and self.suffix == ".log":
             raise OSError("permission denied")
-        return real_open(self, *args, **kwargs)
+        return real_open(self, mode, buffering, encoding, errors, newline)
 
     with patch.object(Path, "open", _open):
         result = ex.run()

@@ -195,18 +195,13 @@ def _scoring_policy_dict(extra: dict[str, Any]) -> dict[str, Any] | None:
 def _default_success_in_words(scoring_policy: dict[str, Any]) -> str:
     hint = scoring_policy.get("score_direction_hint")
     if hint == "lower_better":
-        return (
-            "Prefer lower numbers here. **Zero** is ideal when the counted events are unwanted "
-            "(e.g. false alarms)."
-        )
+        return "Prefer lower numbers here. **Zero** is ideal when the counted events are unwanted (e.g. false alarms)."
     if hint == "higher_better":
         return "Prefer higher numbers here (per-file counts vs your baseline)."
     return "See this BMT's scoring policy for what the summary number means."
 
 
-def _avg_column_direction_suffix(
-    score_extra: dict[str, Any] | None, score_direction_label: str
-) -> str:
+def _avg_column_direction_suffix(score_extra: dict[str, Any] | None, score_direction_label: str) -> str:
     """Compact direction marker for the Avg. column (Markdown-friendly)."""
     sp = _scoring_policy_dict(score_extra) if score_extra else None
     if isinstance(sp, dict):
@@ -237,9 +232,7 @@ def run_context_blurb_markdown(rows: list[FinalBmtRow]) -> str:
         "Compare **Avg.** within the same BMT over time rather than across unrelated BMT rows.*",
     ]
     if len(rows) > 1:
-        parts.append(
-            "*Different BMT rows may measure different things; treat the numbers as separate.*"
-        )
+        parts.append("*Different BMT rows may measure different things; treat the numbers as separate.*")
     parts.append("*On **Avg.**: ↓ = lower is better for that row · ↑ = higher is better.*")
     if has_policy:
         parts.append("")
@@ -385,9 +378,7 @@ def render_progress_check_output(view: CheckProgressView) -> CheckRunOutput:
     ]
     if view.links.workflow_execution_url:
         summary_lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
-    summary_lines.append(
-        "- A short context note for each BMT (metrics and ↑/↓) appears when the run completes."
-    )
+    summary_lines.append("- A short context note for each BMT (metrics and ↑/↓) appears when the run completes.")
     table = _progress_table_markdown(view)
     return {
         "title": f"BMT Running: {view.completed_count}/{view.total_count} complete",
@@ -459,9 +450,7 @@ def multi_leg_score_scope_markdown(row_count: int) -> str:
     """Fallback scope line; prefer :func:`run_context_blurb_markdown` when ``FinalBmtRow`` data exists."""
     if row_count <= 1:
         return ""
-    return (
-        "*Different BMT rows may use different metrics and directions; raw **Avg.** values are not automatically comparable.*"
-    )
+    return "*Different BMT rows may use different metrics and directions; raw **Avg.** values are not automatically comparable.*"
 
 
 def _final_check_failure_summary_lines(view: CheckFinalView) -> list[str]:
@@ -473,6 +462,61 @@ def _final_check_failure_summary_lines(view: CheckFinalView) -> list[str]:
     out = ["", "### Failure summary", ""]
     out.extend(f"- `{row.bmt}`: {human_reason(row.reason_code)}" for row in failed_rows)
     return out
+
+
+def _final_bmt_row_from_summary_dict(d: dict[str, Any]) -> FinalBmtRow:
+    """Map coordinator/gate ``summary.json``-shaped dicts into :class:`FinalBmtRow`."""
+    score_raw = d.get("score")
+    score: dict[str, Any] = score_raw if isinstance(score_raw, dict) else {}
+    metrics_raw = score.get("metrics")
+    metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
+    raw_cases = metrics.get("case_outcomes")
+    case_outcomes = [c for c in raw_cases if isinstance(c, dict)] if isinstance(raw_cases, list) else []
+    extra_raw = score.get("extra")
+    extra: dict[str, Any] = dict(extra_raw) if isinstance(extra_raw, dict) else {}
+    agg = score.get("aggregate_score")
+    aggregate_score = float(agg) if isinstance(agg, (int, float)) else 0.0
+    return FinalBmtRow(
+        project=str(d.get("project", "")),
+        bmt=str(d.get("bmt_slug") or d.get("bmt", "")),
+        status=str(d.get("status", "")),
+        aggregate_score=aggregate_score,
+        reason_code=str(d.get("reason_code", "")),
+        duration_sec=d.get("duration_sec") if isinstance(d.get("duration_sec"), int) else None,
+        execution_mode_used=str(d.get("execution_mode_used", "")),
+        cases_detail="",
+        score_extra=extra,
+        score_direction_label=str(d.get("score_direction_label", "")),
+        case_outcomes=case_outcomes,
+    )
+
+
+def render_results_table(
+    leg_summaries: list[dict[str, Any]],
+    verdict: dict[str, Any],
+    *,
+    run_id: str,
+    runtime_bucket_root: str,
+    log_dump_url: str | None,
+) -> str:
+    """Skimmable GitHub Check Run **summary** Markdown from serialized leg rows (gate / legacy paths)."""
+    vm = str(verdict.get("state", "")).upper()
+    check_state = CheckConclusion.SUCCESS.value if vm == "PASS" else CheckConclusion.FAILURE.value
+    view = CheckFinalView(
+        state=check_state,
+        links=LiveLinks(workflow_execution_url="", log_dump_url=log_dump_url),
+        bmts=[_final_bmt_row_from_summary_dict(s) for s in leg_summaries],
+    )
+    out = render_final_check_output(view)
+    summary = str(out.get("summary", ""))
+    tail: list[str] = []
+    if run_id.strip():
+        tail.append(f"- Run id: `{run_id.strip()}`")
+    if runtime_bucket_root.strip():
+        tail.append(f"- Runtime bucket root: `{runtime_bucket_root.strip()}`")
+    if not tail:
+        return summary
+    return summary + "\n\n" + "\n".join(tail)
 
 
 def render_final_check_output(view: CheckFinalView) -> CheckRunOutput:

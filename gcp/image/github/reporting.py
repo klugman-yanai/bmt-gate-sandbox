@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
+from github import Auth, Github, GithubException
+from github.GithubObject import NotSet
 
 from gcp.image.config.bmt_domain_status import BmtProgressStatus
 from gcp.image.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
 from gcp.image.config.status import CheckConclusion, CheckStatus, CommitStatus
 from gcp.image.github import github_checks
-from gcp.image.github.github_auth import github_api_headers
 from gcp.image.github.presentation import (
     CheckFinalView,
     CheckProgressView,
@@ -32,12 +32,19 @@ def workflow_execution_console_url(*, project: str, region: str, workflow_name: 
     )
 
 
+def _github_repo(token: str, repository: str) -> Any:
+    return Github(auth=Auth.Token(token), timeout=int(HTTP_TIMEOUT)).get_repo(repository)
+
+
 @dataclass(frozen=True, slots=True)
 class GitHubReporter:
     repository: str
     sha: str
     token: str
     status_context: str = STATUS_CONTEXT
+
+    def _repo(self) -> Any:
+        return _github_repo(self.token, self.repository)
 
     def post_pending_status(self, *, details_url: str | None = None) -> bool:
         return self._post_commit_status(
@@ -115,7 +122,7 @@ class GitHubReporter:
                     output={"title": "BMT Finalizing", "summary": "Publishing final results…"},
                     details_url=details_url,
                 )
-            except httpx.HTTPError:
+            except GithubException:
                 return None, False
         try:
             github_checks.update_check_run(
@@ -127,7 +134,7 @@ class GitHubReporter:
                 output=output,
                 details_url=details_url,
             )
-        except httpx.HTTPError:
+        except GithubException:
             return check_run_id, False
         return check_run_id, True
 
@@ -141,52 +148,43 @@ class GitHubReporter:
         owner, _, repo = self.repository.partition("/")
         if not owner or not repo or not self.sha or not self.token:
             return False
-        url = f"https://api.github.com/repos/{owner}/{repo}/statuses/{self.sha}"
-        payload: dict[str, Any] = {
-            "state": state,
-            "context": self.status_context,
-            "description": description[:140],
-        }
-        if details_url:
-            payload["target_url"] = details_url
-        response = httpx.post(url, json=payload, headers=github_api_headers(self.token), timeout=HTTP_TIMEOUT)
-        return bool(response.is_success)
+        try:
+            self._repo().get_commit(self.sha).create_status(
+                state,
+                target_url=details_url or NotSet,
+                description=description[:140],
+                context=self.status_context,
+            )
+        except GithubException:
+            return False
+        return True
 
     def _upsert_issue_comment(self, *, pr_number: int, body: str) -> None:
         comment_id = self._find_existing_comment(pr_number=pr_number)
         if comment_id is None:
             self._create_issue_comment(pr_number=pr_number, body=body)
             return
-        self._update_issue_comment(comment_id=comment_id, body=body)
+        self._update_issue_comment(pr_number=pr_number, comment_id=comment_id, body=body)
 
     def _find_existing_comment(self, *, pr_number: int) -> int | None:
         owner, _, repo = self.repository.partition("/")
-        url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-        response = httpx.get(
-            url, headers=github_api_headers(self.token), params={"per_page": 100}, timeout=HTTP_TIMEOUT
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, list):
+        if not owner or not repo:
             return None
-        for comment in payload:
-            if not isinstance(comment, dict):
-                continue
-            body = str(comment.get("body") or "")
-            if comment_marker() in body:
-                comment_id = comment.get("id")
-                if isinstance(comment_id, int):
-                    return comment_id
-        return None
+        try:
+            issue = self._repo().get_issue(pr_number)
+            for n, comment in enumerate(issue.get_comments()):
+                if n >= 100:
+                    break
+                if comment_marker() in (comment.body or ""):
+                    cid = comment.id
+                    if isinstance(cid, int):
+                        return cid
+            return None
+        except GithubException:
+            return None
 
     def _create_issue_comment(self, *, pr_number: int, body: str) -> None:
-        owner, _, repo = self.repository.partition("/")
-        url = f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments"
-        response = httpx.post(url, headers=github_api_headers(self.token), json={"body": body}, timeout=HTTP_TIMEOUT)
-        response.raise_for_status()
+        self._repo().get_issue(pr_number).create_comment(body)
 
-    def _update_issue_comment(self, *, comment_id: int, body: str) -> None:
-        owner, _, repo = self.repository.partition("/")
-        url = f"https://api.github.com/repos/{owner}/{repo}/issues/comments/{comment_id}"
-        response = httpx.patch(url, headers=github_api_headers(self.token), json={"body": body}, timeout=HTTP_TIMEOUT)
-        response.raise_for_status()
+    def _update_issue_comment(self, *, pr_number: int, comment_id: int, body: str) -> None:
+        self._repo().get_issue(pr_number).get_comment(comment_id).edit(body)

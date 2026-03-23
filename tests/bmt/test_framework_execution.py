@@ -30,7 +30,7 @@ def test_planner_discovers_enabled_bmt_and_executor_runs_plugin(tmp_path: Path) 
     dataset_root.mkdir(parents=True, exist_ok=True)
     (dataset_root / "sample.wav").write_bytes(b"fake")
 
-    publish_result = publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality")
+    publish_result = publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality", sync=False)
 
     plan = build_plan(
         runtime=StageRuntimePaths(stage_root=stage_root, workspace_root=workspace_root),

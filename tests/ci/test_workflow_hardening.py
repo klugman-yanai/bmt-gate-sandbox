@@ -88,11 +88,13 @@ def test_local_composite_action_paths_resolve() -> None:
     missing: list[str] = []
     for path in sorted(_github_yaml_files(github)):
         text = path.read_text(encoding="utf-8")
-        for rel in _LOCAL_COMPOSITE_USES.findall(text):
-            rel = rel.strip().rstrip("/")
+        for rel_raw in _LOCAL_COMPOSITE_USES.findall(text):
+            rel = rel_raw.strip().rstrip("/")
             action_yml = github / "actions" / rel / "action.yml"
             if not action_yml.is_file():
-                missing.append(f"{path.relative_to(repo_root())}: uses …/{rel} → missing {action_yml.relative_to(repo_root())}")
+                missing.append(
+                    f"{path.relative_to(repo_root())}: uses …/{rel} → missing {action_yml.relative_to(repo_root())}"
+                )
     assert not missing, "Broken local action references:\n" + "\n".join(missing)
 
 

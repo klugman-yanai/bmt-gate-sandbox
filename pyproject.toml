@@ -8,6 +8,8 @@ version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "bmt",
+    "PyGithub>=2.0",
+    "google-cloud-storage>=2.16",
     "google-cloud-artifact-registry>=1.14.0",
     "orjson>=3.10",
     "prek>=0.3.5",
@@ -43,7 +45,10 @@ include = ["gcp*", "tools*"]
 # Typecheck: `uv run ty check` (see `[tool.ty]`). IDE: Pylance/Cursor uses [pyrightconfig.json].
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = [".github/bmt"]
+extra-paths = [
+	".github/bmt",
+	"gcp/stage/projects/sk/plugin_workspaces/default/src",
+]
 
 [tool.ty.src]
 exclude = [

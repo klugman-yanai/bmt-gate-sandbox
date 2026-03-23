@@ -4,13 +4,14 @@ Output format per docs/architecture.md (GitHub and CI): pass/fail, scores, logs.
 appears on the PR Checks tab; branch protection can require it to pass before merge.
 """
 
-import json
+from __future__ import annotations
+
 from typing import Any, NotRequired, TypedDict
 
-import httpx
+from github import Auth, Github
+from github.GithubObject import NotSet
 
 from gcp.image.config.constants import HTTP_TIMEOUT
-from gcp.image.github.github_auth import github_api_headers
 
 # GitHub REST API documents large max for check run output fields; stay under a safe UTF-8 byte cap.
 GITHUB_CHECK_OUTPUT_FIELD_MAX_BYTES = 65535
@@ -42,10 +43,12 @@ class CheckRunOutput(TypedDict):
 def _normalize_check_output(output: CheckRunOutput | dict[str, Any]) -> dict[str, Any]:
     """Omit empty optional ``text`` / ``annotations``; GitHub accepts title + summary only."""
     out = {k: v for k, v in output.items() if v is not None}
-    if isinstance(out.get("summary"), str):
-        out["summary"] = clamp_utf8_by_bytes(out["summary"])
-    if isinstance(out.get("text"), str):
-        out["text"] = clamp_utf8_by_bytes(out["text"])
+    sum_v = out.get("summary")
+    if isinstance(sum_v, str):
+        out["summary"] = clamp_utf8_by_bytes(sum_v)
+    text_v = out.get("text")
+    if isinstance(text_v, str):
+        out["text"] = clamp_utf8_by_bytes(text_v)
     if out.get("text") == "":
         out.pop("text", None)
     if not out.get("annotations"):
@@ -53,17 +56,9 @@ def _normalize_check_output(output: CheckRunOutput | dict[str, Any]) -> dict[str
     return out
 
 
-def _check_run_id_from_create_response(response: httpx.Response) -> int:
-    try:
-        data = response.json()
-    except json.JSONDecodeError as e:
-        raise ValueError("GitHub check-runs create response was not valid JSON") from e
-    if not isinstance(data, dict):
-        raise TypeError("GitHub check-runs create response JSON must be an object")
-    raw_id = data.get("id")
-    if not isinstance(raw_id, int):
-        raise TypeError("GitHub check-runs create response missing integer id field")
-    return raw_id
+def _github_repo(token: str, repo: str) -> Any:
+    gh = Github(auth=Auth.Token(token), timeout=int(HTTP_TIMEOUT))
+    return gh.get_repo(repo)
 
 
 def create_check_run(
@@ -91,27 +86,23 @@ def create_check_run(
         Check run ID for future updates
 
     Raises:
-        httpx.HTTPError: If the GitHub API request fails
-        ValueError: If the response body is not valid JSON
-        TypeError: If the decoded JSON is not an object or ``id`` is not an integer
+        github.GithubException: If the GitHub API request fails
+        TypeError: If the check run id is missing
     """
-    url = f"https://api.github.com/repos/{repo}/check-runs"
-    headers = github_api_headers(token)
-
-    payload: dict[str, Any] = {
-        "name": name,
-        "head_sha": sha,
-        "status": status,
-        "output": _normalize_check_output(output),
-    }
-    if details_url:
-        payload["details_url"] = details_url
-    if external_id:
-        payload["external_id"] = external_id
-
-    response = httpx.post(url, json=payload, headers=headers, timeout=HTTP_TIMEOUT)
-    response.raise_for_status()
-    return _check_run_id_from_create_response(response)
+    repository = _github_repo(token, repo)
+    normalized = _normalize_check_output(output)
+    cr = repository.create_check_run(
+        name=name,
+        head_sha=sha,
+        status=status,
+        output=normalized,
+        details_url=details_url if details_url is not None else NotSet,
+        external_id=external_id if external_id is not None else NotSet,
+    )
+    rid = cr.id
+    if not isinstance(rid, int):
+        raise TypeError("GitHub check run create response missing integer id")
+    return rid
 
 
 def update_check_run(
@@ -134,20 +125,13 @@ def update_check_run(
         output: New output dict with ``title``, ``summary``, optional ``text``, or None to keep current
 
     Raises:
-        httpx.HTTPError: If the GitHub API request fails
+        github.GithubException: If the GitHub API request fails
     """
-    url = f"https://api.github.com/repos/{repo}/check-runs/{check_run_id}"
-    headers = github_api_headers(token)
-
-    payload: dict[str, Any] = {}
-    if status is not None:
-        payload["status"] = status
-    if conclusion is not None:
-        payload["conclusion"] = conclusion
-    if output is not None:
-        payload["output"] = _normalize_check_output(output)
-    if details_url is not None:
-        payload["details_url"] = details_url
-
-    response = httpx.patch(url, json=payload, headers=headers, timeout=HTTP_TIMEOUT)
-    response.raise_for_status()
+    repository = _github_repo(token, repo)
+    cr = repository.get_check_run(check_run_id)
+    cr.edit(
+        status=status if status is not None else NotSet,
+        conclusion=conclusion if conclusion is not None else NotSet,
+        output=_normalize_check_output(output) if output is not None else NotSet,
+        details_url=details_url if details_url is not None else NotSet,
+    )

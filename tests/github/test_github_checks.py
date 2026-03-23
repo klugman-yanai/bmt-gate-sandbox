@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import httpx
 import pytest
 
 from gcp.image.github import github_checks
@@ -13,11 +12,13 @@ pytestmark = pytest.mark.unit
 
 
 def test_create_check_run_requires_integer_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={})
-
-    monkeypatch.setattr(github_checks.httpx, "post", MagicMock(return_value=response))
+    mock_cr = MagicMock()
+    mock_cr.id = None
+    mock_repo = MagicMock()
+    mock_repo.create_check_run.return_value = mock_cr
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+    monkeypatch.setattr(github_checks, "Github", MagicMock(return_value=mock_gh))
 
     with pytest.raises(TypeError, match="integer id"):
         github_checks.create_check_run(
@@ -31,11 +32,13 @@ def test_create_check_run_requires_integer_id(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_create_check_run_returns_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    response = MagicMock(spec=httpx.Response)
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={"id": 4242})
-
-    monkeypatch.setattr(github_checks.httpx, "post", MagicMock(return_value=response))
+    mock_cr = MagicMock()
+    mock_cr.id = 4242
+    mock_repo = MagicMock()
+    mock_repo.create_check_run.return_value = mock_cr
+    mock_gh = MagicMock()
+    mock_gh.get_repo.return_value = mock_repo
+    monkeypatch.setattr(github_checks, "Github", MagicMock(return_value=mock_gh))
 
     assert (
         github_checks.create_check_run(

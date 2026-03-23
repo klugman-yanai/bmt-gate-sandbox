@@ -19,6 +19,7 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     ".pre-commit-config.yaml",
     ".python-version",
     "AGENTS.md",
+    "ARCHITECTURE.md",
     "CHANGELOG.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",

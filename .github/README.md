@@ -37,6 +37,21 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 **For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `gcp/image` for the fallback constant; set the repo vars; and either add `bmt-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
 
+## File release checklist (Kardome-org/core-main)
+
+Mechanical bundle: `just release` (requires `gcp/image/github/secrets/Kardome-org_core-main.pem` for a full copy), or **`just release --skip-secrets`** / **`RELEASE_SKIP_SECRETS=1`** when no local PEM (CI, or secrets-only promotion). Output: **`.github-release/`** (gitignored here). Copy into **`core-main/.github/`** as one atomic PR. **`bmt_release.json`** records **`source_sha`** from this repo for drift tracking.
+
+| Source in bmt-gcloud | On core-main | Mechanism |
+| ---------------------- | ------------- | --------- |
+| `.github/workflows/` (non-`*-dev`, non-`ops/`) + `scripts/release_templates/workflows/` | `.github/workflows/` | [assemble_release.py](../scripts/assemble_release.py) |
+| `.github/actions/*` (excl. `check-image-up-to-date`) | `.github/actions/` | assembler |
+| `.github/bmt/` (`ci/`, `pyproject.toml`, `uv.lock`, `config/README.md`) | `.github/bmt/` | assembler |
+| `scripts/release_templates/actionlint.yaml` | `.github/actionlint.yaml` | assembler |
+| `gcp/image/**` needed for `gcp.image.*` imports | repo root `gcp/` | **Not** in assembler — keep in sync with bmt-gcloud or copy minimal tree separately (see above) |
+| `bmt-gcloud` Python package for `uv sync` in `.github/bmt` | consumer resolution | Documented in [`bmt/README.md`](bmt/README.md) — git source or private index |
+
+**Secrets:** Do **not** commit `*.pem` to `core-main`. Use **GitHub Secrets** for the GitHub App private key; optional local file paths are for dev only (see [`bmt/config/README.md`](bmt/config/README.md)).
+
 ## This repo’s workflow layout
 
 - **workflows/** — **`build-and-test.yml`** (main CI; structure aligned with core-main), **`bmt-handoff.yml`** (BMT handoff, called by build-and-test). **Test-only (not for core-main):** **`ops/`** — trigger-ci, trigger-image-build, bmt-image-build; **`clang-format-auto-fix.yml`**.

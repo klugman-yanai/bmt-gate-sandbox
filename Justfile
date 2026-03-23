@@ -5,27 +5,35 @@ default:
 
 help:
     @printf '%s\n' \
-      'Core workflow' \
-      '  just onboard                        Local setup: uv, Python 3.12, uv sync, prek hooks' \
-      '  just onboard-dry                    Dry-run preview (same as: just onboard --dry-run)' \
-      '  just pulumi                         Apply infra and sync repo vars' \
-      '  just deploy                         Sync staged bucket content' \
-      '  just add-project <project>          Scaffold a staged project' \
-      '  just add-bmt <project> <bmt_slug>   Scaffold a staged BMT' \
-      '  just publish-bmt <project> <bmt>    Validate, publish, and sync a BMT plugin' \
-      '  just upload-data <project> <src>    Upload a dataset zip or WAV folder' \
-      '  just mount-project <project>        Mount the live bucket view read-only' \
-      '  just umount-project <project>       Unmount a project view' \
+      'Daily' \
+      '  just test              Full suite: pytest, ruff, ty, actionlint, shellcheck, layout' \
+      '  just ship              Pre-push gate (test → preflight → deploy → image); see --help' \
+      '  just deploy            Sync gcp/stage to GCS + verify' \
+      '  just onboard           Bootstrap: uv, Python 3.12, hooks (use: just onboard --dry-run)' \
       '' \
-      'Verification and image work' \
-      '  just test                           Run the local verification suite' \
-      '  just typecheck                      ty section-by-section (stops at first failure)' \
-      '  just typecheck-section <name>     One ty section: ci | runtime | infra | tools | tests | stage' \
-      '  just image                          Build and push the Cloud Run image' \
-      '  just show-env                       Print the resolved repo/runtime env contract' \
-      '  just doctor                         Optional env-related vulture + pylint duplicate-code (not in `just test`)' \
+      'Infra & BMT' \
+      '  just pulumi            Pulumi apply + repo vars' \
+      '  just image             Docker build + push (Artifact Registry)' \
+      '  just add-project       Scaffold staged project' \
+      '  just add-bmt / publish-bmt' \
       '' \
-      '  just ship                           Full gate: Rich UI; image skipped when git clean + Artifact Registry has HEAD tag (or --force-image)'
+      'Bucket & data' \
+      '  just upload-data       Dataset zip/folder → GCS' \
+      '  just mount-project / umount-project' \
+      '' \
+      'Other' \
+      '  just typecheck [section]   ty: all sections, or one of ci | runtime | infra | tools | tests | stage' \
+      '  just release / release-check' \
+      '  just show-env, validate, doctor' \
+      '' \
+      'Escape hatch (full CLI)' \
+      '  just tools …           Same as: uv run python -m tools …' \
+      '  just tools --help      List all subcommands (bucket, bmt, repo, …)'
+
+# Passthrough to the unified Typer CLI (see `just tools --help`).
+[group('cli')]
+tools *args:
+    uv run python -m tools {{ args }}
 
 # -- Pre-push ---------------------------------------------------------------
 
@@ -38,30 +46,33 @@ doctor:
       gcp/image/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py .github/bmt/ci/workflow_dispatch.py
 
 [group('validate')]
-typecheck:
+typecheck section="all":
     #!/usr/bin/env bash
     set -euo pipefail
     run() { printf '\n==> ty check: %s (%s)\n' "$1" "$2"; uv run ty check "$2"; }
-    run "CI" ".github/bmt"
-    run "Runtime (gcp/image)" "gcp/image"
-    run "Infra" "infra"
-    run "Tools" "tools"
-    run "Tests" "tests"
-    run "Stage mirror" "gcp/stage"
-
-[group('validate')]
-typecheck-section name:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{name}}" in
-      ci) printf '\n==> ty check: CI (.github/bmt)\n'; uv run ty check .github/bmt ;;
-      runtime|gcp) printf '\n==> ty check: Runtime (gcp/image)\n'; uv run ty check gcp/image ;;
-      infra) printf '\n==> ty check: Infra\n'; uv run ty check infra ;;
-      tools) printf '\n==> ty check: Tools\n'; uv run ty check tools ;;
-      tests) printf '\n==> ty check: Tests\n'; uv run ty check tests ;;
-      stage) printf '\n==> ty check: Stage mirror\n'; uv run ty check gcp/stage ;;
+    case "{{section}}" in
+      all)
+        run "CI" ".github/bmt"
+        run "Runtime (gcp/image)" "gcp/image"
+        run "Infra" "infra"
+        run "Tools" "tools"
+        run "Tests" "tests"
+        run "Stage mirror" "gcp/stage"
+        ;;
+      ci)
+        printf '\n==> ty check: CI (.github/bmt)\n'; uv run ty check .github/bmt ;;
+      runtime|gcp)
+        printf '\n==> ty check: Runtime (gcp/image)\n'; uv run ty check gcp/image ;;
+      infra)
+        printf '\n==> ty check: Infra\n'; uv run ty check infra ;;
+      tools)
+        printf '\n==> ty check: Tools\n'; uv run ty check tools ;;
+      tests)
+        printf '\n==> ty check: Tests\n'; uv run ty check tests ;;
+      stage)
+        printf '\n==> ty check: Stage mirror\n'; uv run ty check gcp/stage ;;
       *)
-        printf 'Unknown section %q. Use: ci | runtime | infra | tools | tests | stage\n' "{{name}}" >&2
+        printf 'Unknown section %q. Use: all | ci | runtime | infra | tools | tests | stage\n' "{{section}}" >&2
         exit 1
         ;;
     esac
@@ -224,53 +235,43 @@ add-bmt project bmt_slug:
     uv run python -m tools bmt add-bmt "{{ project }}" "{{ bmt_slug }}"
 
 # One-time local setup: uv, Python 3.12, uv sync, prek hooks (no ty/pytest in the script)
-# Dry-run: `just onboard --dry-run` or `just onboard-dry` (no extra `--` before flags)
 [group('dev')]
 onboard *args:
     bash tools/scripts/bootstrap_dev_env.sh {{ args }}
-
-[group('dev')]
-onboard-dry:
-    bash tools/scripts/bootstrap_dev_env.sh --dry-run
 
 [group('dev')]
 publish-bmt project bmt_slug:
     uv run python -m tools bmt publish-bmt "{{ project }}" "{{ bmt_slug }}"
 
 [group('dev')]
-release:
-    uv run python scripts/assemble_release.py
+release *args:
+    uv run python scripts/assemble_release.py {{ args }}
     @echo "Deploy: rsync .github-release/ → ~/kardome/core-main/.github/"
+
+# CI parity: bundle without local PEM; verify provenance; lint handoff + main CI workflows only
+# (templates like trigger-ci.yml may not pass full actionlint — see .github/README.md file-release checklist).
+[group('dev')]
+release-check:
+    uv run python scripts/assemble_release.py --skip-secrets
+    test -f .github-release/bmt_release.json
+    jq -e '.source_sha | length >= 7' .github-release/bmt_release.json
+    test -f .github-release/workflows/bmt-handoff.yml
+    command -v actionlint >/dev/null 2>&1 || (echo "Install actionlint (https://github.com/rhysd/actionlint)" >&2; exit 1)
+    # Handoff only: build-and-test.yml may hit shellcheck noise unrelated to the release bundle.
+    actionlint -config-file .github-release/actionlint.yaml \
+      .github-release/workflows/bmt-handoff.yml
 
 # -- Local CI ----------------------------------------------------------------
 
-[private]
+# Default: workflow_dispatch on build-and-test.yml. For handoff/trigger-ci, run `act` with -W yourself or see .github/README.md.
 [group('local-ci')]
-act which="":
-    #!/usr/bin/env -S bash -eu
-    VAR_ARG=""
-    [[ -f .env ]] && VAR_ARG="--var-file .env"
-    W=".github/workflows/build-and-test.yml"
-    case "{{ which }}" in
-      handoff)
-        act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
-          --input ci_run_id="$${GITHUB_RUN_ID:-local123}" \
-          --input head_sha="$(git rev-parse HEAD)" \
-          --input head_branch="$(git branch --show-current)" \
-          --input head_event=push \
-          --input pr_number= \
-          $VAR_ARG
-        ;;
-      trigger)
-        act pull_request -W .github/workflows/ops/trigger-ci.yml -e .github/workflows/events/pull_request.json $VAR_ARG
-        ;;
-      "")
-        act workflow_dispatch -W "$W" $VAR_ARG
-        ;;
-      *)
-        act workflow_dispatch -W "$W" -j "{{ which }}" $VAR_ARG
-        ;;
-    esac
+act:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -f .env ]]; then
+      exec act workflow_dispatch -W .github/workflows/build-and-test.yml --var-file .env
+    fi
+    exec act workflow_dispatch -W .github/workflows/build-and-test.yml
 
 # -- Docker (Cloud Run image) --------------------------------------------------
 

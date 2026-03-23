@@ -39,9 +39,7 @@ def test_load_observed_duration_reads_duration_sec_from_latest_json(tmp_path: Pa
     results = tmp_path / str(leg.results_path)
     snap = "run-abc"
     (results / "snapshots" / snap).mkdir(parents=True)
-    (results / "current.json").write_text(
-        json.dumps({"latest": snap, "last_passing": snap}), encoding="utf-8"
-    )
+    (results / "current.json").write_text(json.dumps({"latest": snap, "last_passing": snap}), encoding="utf-8")
     (results / "snapshots" / snap / "latest.json").write_text(
         json.dumps({"duration_sec": 412, "project": "sk"}), encoding="utf-8"
     )
@@ -85,8 +83,6 @@ def test_reporting_metadata_helpers_describe_check_and_started_at() -> None:
     assert ready.started_at_iso_or_none() is None
     assert ready.needs_started_at_backfill()
 
-    complete = ReportingMetadata(
-        workflow_execution_url="https://wf", check_run_id=1, started_at="2026-01-01T00:00:00Z"
-    )
+    complete = ReportingMetadata(workflow_execution_url="https://wf", check_run_id=1, started_at="2026-01-01T00:00:00Z")
     assert not complete.needs_started_at_backfill()
     assert complete.started_at_iso_or_none() == "2026-01-01T00:00:00Z"

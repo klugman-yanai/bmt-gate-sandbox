@@ -89,7 +89,7 @@ def test_artifact_registry_tag_status_present(monkeypatch: pytest.MonkeyPatch) -
     assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "present"
 
 
-def test_artifact_registry_tag_status_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_artifact_registry_tag_status_permission_denied(monkeypatch: pytest.MonkeyPatch) -> None:
     creds = MagicMock()
     monkeypatch.setattr(
         "tools.shared.artifact_registry_uri.google.auth.default",
@@ -98,6 +98,20 @@ def test_artifact_registry_tag_status_api_error(monkeypatch: pytest.MonkeyPatch)
 
     def _get_tag(self: object, name: str | None = None, **_: object) -> None:
         raise gexc.PermissionDenied("denied")
+
+    monkeypatch.setattr(artifactregistry_v1.ArtifactRegistryClient, "get_tag", _get_tag)
+    assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "permission_denied"
+
+
+def test_artifact_registry_tag_status_transient_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    creds = MagicMock()
+    monkeypatch.setattr(
+        "tools.shared.artifact_registry_uri.google.auth.default",
+        lambda **_: (creds, "proj-x"),
+    )
+
+    def _get_tag(self: object, name: str | None = None, **_: object) -> None:
+        raise gexc.InternalServerError("boom")
 
     monkeypatch.setattr(artifactregistry_v1.ArtifactRegistryClient, "get_tag", _get_tag)
     assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "unavailable"

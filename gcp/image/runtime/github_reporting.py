@@ -6,8 +6,8 @@ from datetime import timedelta
 from pathlib import Path
 
 import google.auth
-import httpx
 import whenever
+from github import GithubException
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import Request
@@ -113,13 +113,13 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
                 stage_root=runtime.stage_root,
                 workflow_run_id=plan.workflow_run_id,
                 metadata=existing.model_copy(
-                    update={"started_at": _backfill_started_at_iso(runtime=runtime, workflow_run_id=plan.workflow_run_id)}
+                    update={
+                        "started_at": _backfill_started_at_iso(runtime=runtime, workflow_run_id=plan.workflow_run_id)
+                    }
                 ),
             )
         return
-    if _merge_missing_workflow_url_only(
-        existing=existing, plan=plan, runtime=runtime, workflow_url=workflow_url
-    ):
+    if _merge_missing_workflow_url_only(existing=existing, plan=plan, runtime=runtime, workflow_url=workflow_url):
         return
 
     workflow_url, token = _reporting_preconditions(plan=plan, workflow_url=workflow_url)
@@ -140,17 +140,15 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
             external_id=plan.workflow_run_id,
             pending_legs=[(leg.project, leg.bmt_slug) for leg in plan.legs],
         )
-    except httpx.HTTPError:
+    except GithubException:
         logger.exception("create_started_check_run failed workflow_run_id=%s", plan.workflow_run_id)
         return
     if plan.pr_number.isdigit():
         try:
             reporter.upsert_started_pr_comment(pr_number=int(plan.pr_number), view=view)
-        except httpx.HTTPError:
+        except GithubException:
             logger.warning("upsert_started_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
-    _persist_reporting_started(
-        runtime=runtime, plan=plan, workflow_url=workflow_url, check_run_id=check_run_id
-    )
+    _persist_reporting_started(runtime=runtime, plan=plan, workflow_url=workflow_url, check_run_id=check_run_id)
 
 
 def _reporting_preconditions(*, plan: ExecutionPlan, workflow_url: str) -> tuple[str, str] | tuple[None, None]:
@@ -188,7 +186,7 @@ def publish_progress(*, plan: ExecutionPlan, runtime: StageRuntimePaths) -> None
             view=_progress_view(plan=plan, runtime=runtime, workflow_execution_url=metadata.workflow_execution_url),
             details_url=metadata.workflow_execution_url,
         )
-    except httpx.HTTPError:
+    except GithubException:
         logger.warning("publish_progress failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
 
@@ -231,7 +229,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             view=final_view,
             details_url=workflow_url,
         )
-    except httpx.HTTPError:
+    except GithubException:
         logger.warning("finalize_check_run failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
     else:
         if not finalized_ok:
@@ -240,7 +238,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 plan.workflow_run_id,
             )
 
-    # Commit statuses API uses httpx without raise_for_status; rely on return value, not exceptions.
+    # Commit status uses PyGithub; failures return False without raising.
     if not reporter.post_final_status(
         state=commit_state,
         description=description,
@@ -263,7 +261,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 failed_bmts=_final_comment_failed_rows(summaries),
             ),
         )
-    except httpx.HTTPError:
+    except GithubException:
         logger.warning("upsert_final_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
 
@@ -326,11 +324,7 @@ def _estimate_eta_sec_parallel(
     """
     if elapsed_sec is None or not plan.legs or len(rows) != len(plan.legs):
         return None
-    completed_durations = [
-        d
-        for r in rows
-        if r.has_completed_summary and (d := r.duration_sec) is not None and d > 0
-    ]
+    completed_durations = [d for r in rows if r.has_completed_summary and (d := r.duration_sec) is not None and d > 0]
     fallback = _mean_positive_durations(completed_durations)
     remainings: list[int] = []
     for leg, row in zip(plan.legs, rows, strict=True):
@@ -383,9 +377,7 @@ def _progress_view(
             )
         )
     elapsed_sec = _elapsed_seconds(runtime=runtime, workflow_run_id=plan.workflow_run_id)
-    eta_sec = _estimate_eta_sec_parallel(
-        plan=plan, runtime=runtime, rows=rows, elapsed_sec=elapsed_sec
-    )
+    eta_sec = _estimate_eta_sec_parallel(plan=plan, runtime=runtime, rows=rows, elapsed_sec=elapsed_sec)
     return CheckProgressView(
         completed_count=completed_count,
         total_count=len(plan.legs),

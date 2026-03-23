@@ -4,6 +4,8 @@ The key regression: fallback paths must produce a valid digit pattern (\\d+),
 not a literal-backslash pattern (\\\\d+) as was present before the fix.
 """
 
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -19,7 +21,7 @@ _SAMPLE_LINE = "Hi NAMUH counter = 42"
 _CUSTOM_LINE = "Hi WAKE counter = 99"
 
 
-def _regex(cfg: dict) -> object:
+def _regex(cfg: dict) -> re.Pattern[str]:
     return compile_counter_pattern(StdoutCounterParseConfig.model_validate(cfg))
 
 
@@ -79,6 +81,4 @@ def test_invalid_counter_pattern_rejected():
 
 
 def test_counter_pattern_from_parsing_dict_matches_helper():
-    assert counter_pattern_from_parsing_dict({"keyword": "NAMUH"}).pattern == _regex(
-        {"keyword": "NAMUH"}
-    ).pattern
+    assert counter_pattern_from_parsing_dict({"keyword": "NAMUH"}).pattern == _regex({"keyword": "NAMUH"}).pattern

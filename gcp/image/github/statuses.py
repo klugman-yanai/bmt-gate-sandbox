@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from typing import Any
+
+from github import Auth, Github, GithubException
 
 from gcp.image.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
 from gcp.image.config.status import CheckConclusion, CheckStatus
 from gcp.image.github import github_checks
-from gcp.image.github.github_auth import github_api_headers
+from gcp.image.github.presentation import render_results_table
 
 DEFAULT_STATUS_CONTEXT: str = STATUS_CONTEXT
 
@@ -28,28 +27,24 @@ def post_commit_status_request(
     """Post a commit status to GitHub. state: pending|success|failure|error."""
     if not token or not repository or not sha:
         return False
-    owner, _, repo = repository.partition("/")
+    _owner, _slash, repo = repository.partition("/")
     if not repo:
         return False
-    url = f"https://api.github.com/repos/{owner}/{repo}/statuses/{sha}"
-    body = {
-        "state": state,
-        "context": (context or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT,
-        "description": description[:140],
-    }
-    if target_url:
-        body["target_url"] = target_url
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers=github_api_headers(token, content_type="application/json"),
-        method="POST",
-    )
+    ctx = (context or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
+    desc = description[:140]
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
-            return 200 <= resp.status < 300
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+        gh = Github(auth=Auth.Token(token), timeout=int(HTTP_TIMEOUT))
+        r = gh.get_repo(repository)
+        kwargs: dict[str, str] = {
+            "state": state,
+            "context": ctx,
+            "description": desc,
+        }
+        if target_url:
+            kwargs["target_url"] = target_url
+        r.get_commit(sha).create_status(**kwargs)
+        return True
+    except Exception:
         return False
 
 
@@ -118,7 +113,7 @@ def _create_check_run_resilient(
                 output=output,
             )
             return check_run_id, token_in_use
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError, GithubException):
             if attempt < max_attempts:
                 token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
     return None, token_in_use
@@ -149,7 +144,7 @@ def _update_check_run_resilient(
                 output=output,
             )
             return True, token_in_use
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError, GithubException):
             if attempt < max_attempts:
                 token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
     return False, token_in_use
@@ -176,7 +171,7 @@ def _finalize_check_run_with_retry(
             repository,
             run_id,
             token_resolver=token_resolver,
-            status=CheckStatus.COMPLETED,
+            status=CheckStatus.COMPLETED.value,
             conclusion=conclusion,
             output=output,
         )
@@ -187,7 +182,7 @@ def _finalize_check_run_with_retry(
         repository,
         sha,
         name=status_context,
-        status=CheckStatus.IN_PROGRESS,
+        status=CheckStatus.IN_PROGRESS.value,
         output={
             "title": "BMT Finalizing",
             "summary": "Publishing final results…",
@@ -202,7 +197,7 @@ def _finalize_check_run_with_retry(
         repository,
         created_id,
         token_resolver=token_resolver,
-        status=CheckStatus.COMPLETED,
+        status=CheckStatus.COMPLETED.value,
         conclusion=conclusion,
         output=output,
     )
@@ -223,7 +218,9 @@ def finalize_check_run(
     check_run_id: int | None,
     token_resolver: Callable[[str], str | None],
 ) -> tuple[int | None, str, bool]:
-    conclusion = CheckConclusion.SUCCESS if state == CheckConclusion.SUCCESS.value else CheckConclusion.FAILURE
+    conclusion = (
+        CheckConclusion.SUCCESS.value if state == CheckConclusion.SUCCESS.value else CheckConclusion.FAILURE.value
+    )
     return _finalize_check_run_with_retry(
         token=github_token,
         repository=repository,
@@ -233,7 +230,7 @@ def finalize_check_run(
         conclusion=conclusion,
         output={
             "title": f"BMT Complete: {'PASS' if state == CheckConclusion.SUCCESS.value else 'FAIL'}",
-            "summary": github_checks.render_results_table(
+            "summary": render_results_table(
                 [summary for summary in leg_summaries if summary is not None],
                 {
                     "state": "PASS" if state == CheckConclusion.SUCCESS.value else "FAIL",

@@ -1,4 +1,5 @@
 """Tests for tools/scripts/kardome_sandbox_runner counter semantics."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -44,7 +45,7 @@ def test_read_counter_warns_on_replacement_char(tmp_path: Path, caplog: pytest.L
 
     caplog.set_level(logging.WARNING)
     log = tmp_path / "run.log"
-    log.write_text("Hi NAMUH counter = 1\n\uFFFD\n", encoding="utf-8")
+    log.write_text("Hi NAMUH counter = 1\n\ufffd\n", encoding="utf-8")
     assert read_counter_from_log(log, _DEFAULT_RE) == 1
     assert "encoding replacement" in caplog.text.lower()
 
@@ -52,7 +53,5 @@ def test_read_counter_warns_on_replacement_char(tmp_path: Path, caplog: pytest.L
 def test_custom_counter_pattern_via_config(tmp_path: Path) -> None:
     log = tmp_path / "run.log"
     log.write_text("SCORE 7\n", encoding="utf-8")
-    re_custom = compile_counter_pattern(
-        StdoutCounterParseConfig.model_validate({"counter_pattern": r"SCORE (\d+)"})
-    )
+    re_custom = compile_counter_pattern(StdoutCounterParseConfig.model_validate({"counter_pattern": r"SCORE (\d+)"}))
     assert read_counter_from_log(log, re_custom) == 7

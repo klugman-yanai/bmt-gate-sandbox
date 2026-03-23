@@ -1,8 +1,10 @@
 """Unit tests for SK plugin score() and evaluate() with case failures."""
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -11,10 +13,7 @@ from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult, ScoreResu
 
 pytestmark = pytest.mark.unit
 
-_SK_PLUGIN_SRC = str(
-    Path(__file__).resolve().parents[2]
-    / "gcp/stage/projects/sk/plugin_workspaces/default/src"
-)
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
 
 
 def _make_plugin():
@@ -26,7 +25,13 @@ def _make_plugin():
     return SkPlugin()
 
 
-def _case(case_id: str, namuh: float, *, status: str = "ok", error: str = "") -> CaseResult:
+def _case(
+    case_id: str,
+    namuh: float,
+    *,
+    status: Literal["ok", "failed"] = "ok",
+    error: str = "",
+) -> CaseResult:
     return CaseResult(
         case_id=case_id,
         input_path=Path(f"/data/{case_id}"),

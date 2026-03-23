@@ -22,7 +22,5 @@ def test_clamp_utf8_by_bytes_truncates_multibyte() -> None:
 
 def test_normalize_check_output_clamps_summary() -> None:
     huge = "x" * 100_000
-    normalized = github_checks._normalize_check_output(
-        {"title": "t", "summary": huge, "text": "body"}
-    )
+    normalized = github_checks._normalize_check_output({"title": "t", "summary": huge, "text": "body"})
     assert len(normalized["summary"].encode("utf-8")) <= github_checks.GITHUB_CHECK_OUTPUT_FIELD_MAX_BYTES

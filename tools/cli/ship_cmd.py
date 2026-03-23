@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -16,6 +17,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from tools.repo.core_main_workflows import run_drift_check
 from tools.repo.paths import repo_root
 from tools.shared.artifact_registry_uri import (
     artifact_registry_tag_status,
@@ -220,6 +222,9 @@ def register_ship(root: typer.Typer) -> None:
                 help="Always run `just image` (default: skip when git shows no edits under "
                 "gcp/image or gcp/__init__.py and Artifact Registry has an image tagged with "
                 "the current git HEAD commit, verified via the Artifact Registry API). "
+                "If the registry probe is unavailable (network/ADC), ship runs `just image` anyway "
+                "(fail-open). If the probe reports permission denied (IAM), ship shows an error and "
+                "still runs `just image` so you are not silently skipped. "
                 "Use after push or when the registry must refresh without local git diffs.",
             ),
         ] = False,
@@ -230,6 +235,10 @@ def register_ship(root: typer.Typer) -> None:
 
         console = _console()
         root_s = str(repo_root())
+        if skip_preflight:
+            drift_rc = run_drift_check(Path(root_s) / ".github" / "workflows", mode="preflight")
+            if drift_rc != 0:
+                raise typer.Exit(drift_rc)
         skips = {
             "test": skip_test,
             "preflight": skip_preflight,
@@ -262,17 +271,22 @@ def register_ship(root: typer.Typer) -> None:
                 elif ar_status == "absent":
                     # Git-clean for image paths but no published tag for this commit — build/push.
                     pass
-                else:
-                    # unavailable: ADC missing, API error, or invalid tag/URI — git-only skip.
-                    skips["image"] = True
+                elif ar_status == "permission_denied":
+                    # Do not treat IAM failure like "safe to skip"; still run the image step.
+                    skips["image"] = False
                     auto_skip_note = (
-                        "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
-                        "[dim]Git cannot see:[/] stale registry, failed prior push, base-image-only updates, or rebuild-for-policy. "
-                        "[dim]Run[/] [cyan]just ship --force-image[/] [dim]to build and push anyway.[/]\n"
-                        "[dim]Artifact Registry API check unavailable[/] (configure Application Default Credentials, e.g. "
-                        "[cyan]gcloud auth application-default login[/], or set [cyan]GOOGLE_APPLICATION_CREDENTIALS[/]); "
-                        "only git paths were used to decide. With ADC, ship requires a "
-                        "[cyan]bmt-orchestrator:<git-sha>[/] tag before skipping.[/]"
+                        "[red]Artifact Registry:[/] permission denied reading tags (check IAM: "
+                        "[cyan]roles/artifactregistry.reader[/] on the project or repo). "
+                        "[dim]Running[/] [cyan]just image[/] [dim]anyway — not auto-skipping based on git alone.[/]"
+                    )
+                else:
+                    # unavailable: invalid tag/URI, no ADC, or transient API error — fail-open: build/push.
+                    skips["image"] = False
+                    auto_skip_note = (
+                        "[yellow]Artifact Registry tag check unavailable[/] (invalid URI/HEAD, missing ADC, or transient API error). "
+                        "[dim]Running[/] [cyan]just image[/] [dim]so the pipeline is not silently skipped. "
+                        "Configure Application Default Credentials ([cyan]gcloud auth application-default login[/] "
+                        "or [cyan]GOOGLE_APPLICATION_CREDENTIALS[/]) for a definitive skip when the image already exists.[/]"
                     )
             elif not dry_run and not head_sha:
                 # Cannot resolve HEAD — run `just image` rather than guess.

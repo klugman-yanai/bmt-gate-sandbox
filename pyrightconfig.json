@@ -15,11 +15,17 @@
 		".venv",
 		"node_modules"
 	],
-	"extraPaths": [".github/bmt"],
+	"extraPaths": [
+		".github/bmt",
+		"gcp/stage/projects/sk/plugin_workspaces/default/src"
+	],
 	"executionEnvironments": [
 		{
 			"root": ".",
-			"extraPaths": [".github/bmt"]
+			"extraPaths": [
+				".github/bmt",
+				"gcp/stage/projects/sk/plugin_workspaces/default/src"
+			]
 		}
 	],
 	"venvPath": ".",

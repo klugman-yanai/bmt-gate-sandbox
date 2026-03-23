@@ -61,7 +61,9 @@ def aggregate_mean_ok_cases(case_results: list[CaseResult]) -> float:
     return sum(values) / len(values)
 
 
-def build_case_outcomes(case_results: list[CaseResult], *, max_error_chars: int = MAX_CASE_ERROR_CHARS) -> list[dict[str, Any]]:
+def build_case_outcomes(
+    case_results: list[CaseResult], *, max_error_chars: int = MAX_CASE_ERROR_CHARS
+) -> list[dict[str, Any]]:
     """Per-case rows for metrics, GCS ``case_digest.json``, and GitHub Checks (bounded errors)."""
     out: list[dict[str, Any]] = []
     for r in case_results:

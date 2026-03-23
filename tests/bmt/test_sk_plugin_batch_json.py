@@ -1,4 +1,5 @@
 """Hardening tests for SK plugin batch JSON path and parsing."""
+
 from __future__ import annotations
 
 import json
@@ -7,9 +8,7 @@ from pathlib import Path
 
 import pytest
 
-_SK_PLUGIN_SRC = str(
-    Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src"
-)
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
 
 pytestmark = pytest.mark.unit
 
@@ -31,7 +30,9 @@ def test_resolve_batch_results_rejects_absolute_relpath(tmp_path: Path) -> None:
     sk_plugin_mod = _import_plugin_module()
     ws = tmp_path / "ws"
     ws.mkdir()
-    assert sk_plugin_mod._resolve_batch_results_file(ws, "/tmp/out.json") is None
+    outside = tmp_path / "out.json"
+    outside.write_text("{}", encoding="utf-8")
+    assert sk_plugin_mod._resolve_batch_results_file(ws, str(outside)) is None
 
 
 def test_resolve_batch_results_rejects_parent_escape(tmp_path: Path) -> None:

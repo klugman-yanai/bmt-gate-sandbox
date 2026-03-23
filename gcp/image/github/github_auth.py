@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import urllib.error
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from whenever import Instant
+from github import GithubIntegration
 
-from gcp.image.config.constants import GITHUB_API_VERSION, HTTP_TIMEOUT, JWT_CLOCK_SKEW_SEC, JWT_LIFETIME_SEC
+from gcp.image.config.constants import HTTP_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +46,6 @@ if HAS_JWT:
 PRIMARY_PROFILE = "primary"
 DEV_PROFILE = "dev"
 ORG_OWNER = "Kardome-org"
-
-
-def github_api_headers(token: str, *, content_type: str | None = None) -> dict[str, str]:
-    """Return standard GitHub API request headers for the given bearer token."""
-    headers: dict[str, str] = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": GITHUB_API_VERSION,
-    }
-    if content_type:
-        headers["Content-Type"] = content_type
-    return headers
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,44 +91,6 @@ def encode_github_app_jwt_rs256(payload: dict[str, int | str], private_key: str)
     return _jwt_encode(payload, private_key, algorithm="RS256")
 
 
-def _app_jwt_for_installation_exchange(app_id: str, private_key: str) -> str:
-    now = Instant.now().timestamp()
-    payload = {
-        "iat": now - JWT_CLOCK_SKEW_SEC,
-        "exp": now + JWT_LIFETIME_SEC,
-        "iss": app_id,
-    }
-    return encode_github_app_jwt_rs256(payload, private_key)
-
-
-def _installation_access_token_from_jwt(jwt_token: str, installation_id: str) -> str | None:
-    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
-    req = urllib.request.Request(
-        url,
-        data=b"",
-        headers=github_api_headers(jwt_token),
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
-            if resp.status != 201:
-                return None
-            data = json.loads(resp.read().decode("utf-8"))
-            token = data.get("token")
-            return str(token) if isinstance(token, str) else None
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
-        return None
-    except json.JSONDecodeError:
-        return None
-    except Exception as e:
-        logger.warning(
-            "unexpected error fetching GitHub App installation token: %s",
-            type(e).__name__,
-            exc_info=True,
-        )
-        return None
-
-
 def get_installation_token_from_app(
     app_id: str,
     installation_id: str,
@@ -160,25 +107,30 @@ def get_installation_token_from_app(
     Returns:
         Installation token string, or None on failure
     """
-    if not HAS_JWT:
-        return None
-
     if not app_id or not installation_id or not private_key:
         return None
 
     try:
-        jwt_token = _app_jwt_for_installation_exchange(app_id, private_key)
-    except RuntimeError:
+        inst_id = int(str(installation_id).strip())
+    except ValueError:
+        logger.warning("GitHub App installation_id is not a valid integer: %r", installation_id)
         return None
-    except _JWT_ENCODE_ERRORS as e:
+
+    try:
+        integration = GithubIntegration(
+            integration_id=app_id,
+            private_key=private_key,
+            timeout=int(HTTP_TIMEOUT),
+        )
+        auth = integration.get_access_token(inst_id)
+        return str(auth.token) if auth.token else None
+    except Exception as e:
         logger.warning(
-            "GitHub App JWT encode failed: %s",
+            "GitHub App installation token via PyGithub failed: %s",
             type(e).__name__,
             exc_info=True,
         )
         return None
-
-    return _installation_access_token_from_jwt(jwt_token, installation_id)
 
 
 def load_github_app_credentials(

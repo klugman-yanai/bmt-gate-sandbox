@@ -157,13 +157,7 @@ def run_all(
         counter = read_counter_from_log(log_path, counter_re)
         counter_found = counter is not None
         ok = proc.returncode == 0 and counter_found
-        error = (
-            ""
-            if ok
-            else "counter_not_found"
-            if proc.returncode == 0
-            else f"runner_exit_{proc.returncode}"
-        )
+        error = "" if ok else "counter_not_found" if proc.returncode == 0 else f"runner_exit_{proc.returncode}"
         results.append(
             FileResult(
                 file=str(rel),

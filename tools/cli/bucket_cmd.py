@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from tools.repo.paths import TOOLS_SCRIPTS, repo_root
+from tools.repo.paths import repo_root
 from tools.shared.bucket_env import bucket_from_env
 from tools.shared.rich_minimal import step, step_console, success_panel
 
@@ -58,37 +58,26 @@ def deploy() -> None:
 
 @app.command()
 def preflight(
-    report: Annotated[
+    snapshot: Annotated[
         Path | None,
-        typer.Option("--report", help="Path to saved preflight report (.txt); skips shell script"),
+        typer.Option(
+            "--snapshot",
+            "--report",
+            help="Replay diff from a saved JSON snapshot (--report is an alias).",
+        ),
     ] = None,
     local_only: Annotated[
         bool,
-        typer.Option("--local-only", help="Only list gcp/image, no gcloud"),
+        typer.Option("--local-only", help="Only list gcp/image, no GCS"),
     ] = False,
 ) -> None:
-    """Bucket diff report (saved to .local/preflight-bucket-*.txt)."""
+    """Bucket diff vs gcp/image (JSON snapshot under .local/ on live runs)."""
+    from tools.remote.preflight_bucket import run_preflight
+
     console = step_console()
-    if report is not None or local_only:
-        script_path = repo_root() / "tools" / "scripts" / "preflight_bucket_vs_remote.py"
-        cmd = [sys.executable, str(script_path)]
-        if report is not None:
-            cmd.extend(["--report", str(report)])
-        if local_only:
-            cmd.append("--local-only")
-        rc = subprocess.run(cmd, check=False, cwd=repo_root()).returncode
-        step(console, "Preflight", ok=(rc == 0))
-        if rc == 0:
-            success_panel(console, "Preflight", "Bucket vs image check passed.")
-        raise typer.Exit(rc)
-    if console is not None:
+    if console is not None and snapshot is None and not local_only:
         console.print("[bold]Preflight[/]")
-    script = repo_root() / TOOLS_SCRIPTS / "run_preflight_bucket.sh"
-    rc = subprocess.run(
-        ["bash", str(script)],
-        check=False,
-        cwd=repo_root(),
-    ).returncode
+    rc = run_preflight(snapshot=snapshot, local_only=local_only)
     step(console, "Preflight", ok=(rc == 0))
     if rc == 0:
         success_panel(console, "Preflight", "Bucket preflight passed.")

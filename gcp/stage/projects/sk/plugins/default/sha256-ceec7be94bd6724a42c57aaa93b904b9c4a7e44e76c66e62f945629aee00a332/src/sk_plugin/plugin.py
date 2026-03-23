@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -35,12 +36,8 @@ class SkPlugin(BmtPlugin):
     def execute(self, context: ExecutionContext, prepared_assets: PreparedAssets) -> ExecutionResult:
         runner_env: dict[str, str] = {}
         if context.deps_root is not None and context.deps_root.is_dir():
-            import os
-
             existing = os.environ.get("LD_LIBRARY_PATH", "").strip()
-            runner_env["LD_LIBRARY_PATH"] = (
-                f"{context.deps_root}:{existing}" if existing else str(context.deps_root)
-            )
+            runner_env["LD_LIBRARY_PATH"] = f"{context.deps_root}:{existing}" if existing else str(context.deps_root)
         legacy = LegacyKardomeStdoutExecutor(
             LegacyKardomeStdoutConfig(
                 runner_path=prepared_assets.runner_path or self._require_runner(context),

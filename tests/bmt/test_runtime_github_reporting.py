@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import httpx
 import pytest
+from github import GithubException
 
 from gcp.image.config.value_types import as_results_path
 from gcp.image.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
@@ -308,7 +308,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
             cap.init = (repository, sha, token, status_context)
 
         def finalize_check_run(self, *, check_run_id: int | None, view, details_url: str):
-            raise httpx.RequestError("check update failed", request=None)
+            raise GithubException(500, None, None, "check update failed")
 
         def post_final_status(self, *, state: str, description: str, details_url: str | None = None) -> bool:
             cap.status_state = state
@@ -317,7 +317,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
             return True
 
         def upsert_final_pr_comment(self, *, pr_number: int, view) -> None:
-            raise httpx.RequestError("comment update failed", request=None)
+            raise GithubException(500, None, None, "comment update failed")
 
     def _resolve_token(repository: str) -> str:
         cap.resolved_repository = repository
@@ -369,9 +369,7 @@ def test_ensure_reporting_metadata_for_plan_skips_when_already_complete(tmp_path
     assert not cap.create_called
 
 
-def test_ensure_reporting_metadata_backfills_started_at_when_complete_but_missing(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_ensure_reporting_metadata_backfills_started_at_when_complete_but_missing(tmp_path: Path, monkeypatch) -> None:
     runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
     runtime.stage_root.mkdir(parents=True, exist_ok=True)
     plan = _plan()
@@ -403,9 +401,7 @@ def test_ensure_reporting_metadata_backfills_started_at_when_complete_but_missin
     assert meta.started_at
 
 
-def test_parallel_eta_maxes_only_in_flight_remaining_not_completed_duration(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_parallel_eta_maxes_only_in_flight_remaining_not_completed_duration(tmp_path: Path, monkeypatch) -> None:
     """Completed leg durations must not appear inside ``max(...)`` with in-flight estimates."""
     runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
     runtime.stage_root.mkdir(parents=True)
@@ -440,9 +436,7 @@ def test_parallel_eta_maxes_only_in_flight_remaining_not_completed_duration(
     assert _estimate_eta_sec_parallel(plan=plan, runtime=runtime, rows=rows, elapsed_sec=150) == 0
 
 
-def test_elapsed_seconds_uses_progress_when_reporting_started_at_missing(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_elapsed_seconds_uses_progress_when_reporting_started_at_missing(tmp_path: Path, monkeypatch) -> None:
     runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
     runtime.stage_root.mkdir(parents=True)
     wid = "wf-123"

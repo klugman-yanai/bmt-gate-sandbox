@@ -58,12 +58,6 @@ bash tools/scripts/bootstrap_dev_env.sh
 just onboard --dry-run
 ```
 
-Same thing without passing a flag through `just`:
-
-```bash
-just onboard-dry
-```
-
 If **prek** hooks are **already** installed from an earlier run, dry-run reports that and does not claim it would install them again. If **`core.hooksPath`** is set (hooks live outside `.git/hooks`), dry-run skips prek install quietly — that is expected when hooks are managed elsewhere.
 
 **Manual equivalent** (same end state as `just onboard`):

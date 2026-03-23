@@ -14,7 +14,7 @@ import google.auth.exceptions
 from google.api_core import exceptions as gexc
 from google.cloud import artifactregistry_v1
 
-ArtifactRegistryTagStatus = Literal["present", "absent", "unavailable"]
+ArtifactRegistryTagStatus = Literal["present", "absent", "unavailable", "permission_denied"]
 
 # Full git SHA (40 hex) or short; AR tag names must match what docker push uses.
 _GIT_SHA_TAG_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
@@ -95,7 +95,8 @@ def artifact_registry_tag_status(*, image_base: str, tag: str) -> ArtifactRegist
     Returns:
         ``present`` — ``get_tag`` succeeded for ``bmt-orchestrator:<tag>``.
         ``absent`` — tag not found (safe to build/push).
-        ``unavailable`` — could not run the check (invalid URI, no ADC, or API error).
+        ``permission_denied`` — caller lacks Artifact Registry read access (IAM).
+        ``unavailable`` — could not run the check (invalid URI, no ADC, or transient API error).
     """
     tag = tag.strip()
     if not _GIT_SHA_TAG_RE.match(tag):
@@ -115,6 +116,8 @@ def artifact_registry_tag_status(*, image_base: str, tag: str) -> ArtifactRegist
         client.get_tag(name=name)
     except gexc.NotFound:
         return "absent"
+    except gexc.PermissionDenied:
+        return "permission_denied"
     except gexc.GoogleAPICallError:
         return "unavailable"
     return "present"

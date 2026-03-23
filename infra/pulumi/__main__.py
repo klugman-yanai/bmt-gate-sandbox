@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import posixpath
+import tempfile
 from pathlib import Path
 
 import config as pulumi_config
@@ -79,7 +81,7 @@ def _job(
                             ),
                             gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
                                 name="BMT_FRAMEWORK_WORKSPACE",
-                                value="/tmp/bmt-framework",  # noqa: S108
+                                value=posixpath.join(tempfile.gettempdir(), "bmt-framework"),
                             ),
                             _secret_env("GITHUB_APP_ID"),
                             _secret_env("GITHUB_APP_INSTALLATION_ID"),

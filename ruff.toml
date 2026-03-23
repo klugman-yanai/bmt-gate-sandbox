@@ -111,6 +111,8 @@ strict = true
 max-complexity = 10
 
 [lint.per-file-ignores]
+# Release/utility scripts: print to stdout/stderr for operator feedback
+"scripts/**" = ["T20"]
 # Lazy/google.* imports: allow inside functions (PLC0415) and isort single-line (I001)
 "gcp/image/**" = ["PLC0415"]
 "tests/**" = [

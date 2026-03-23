@@ -7,19 +7,14 @@ import json
 import os
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
-from whenever import Instant
+from github import Auth, Github, GithubException
 
-from gcp.image.config.constants import JWT_CLOCK_SKEW_SEC, JWT_LIFETIME_SEC
 from gcp.image.github.github_auth import (
     DEV_PROFILE,
     HAS_JWT,
     PRIMARY_PROFILE,
-    encode_github_app_jwt_rs256,
-    github_api_headers,
     github_app_profile_for_repository,
 )
 from tools.shared.cli_availability import command_available
@@ -59,17 +54,10 @@ def get_private_key_path_from_env() -> str:
 
 
 def fetch_app_metadata(app_id: str, private_key: str) -> dict:
-    now = Instant.now().timestamp()
-    payload = {"iat": now - JWT_CLOCK_SKEW_SEC, "exp": now + JWT_LIFETIME_SEC, "iss": app_id}
-    token = encode_github_app_jwt_rs256(payload, private_key)
-
-    req = urllib.request.Request(
-        "https://api.github.com/app",
-        headers=github_api_headers(token),
-        method="GET",
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+    auth = Auth.AppAuth(int(app_id), private_key)
+    gh = Github(auth=auth, timeout=15)
+    app = gh.get_app()
+    return dict(app.raw_data)
 
 
 def extract_path(data: dict, path: str) -> dict | None:
@@ -119,8 +107,8 @@ class GhAppPerms:
 
         try:
             data = fetch_app_metadata(app_id, private_key)
-        except urllib.error.HTTPError as e:
-            print(e.read().decode(), file=sys.stderr)
+        except GithubException as e:
+            print(e.data if isinstance(e.data, dict) else str(e), file=sys.stderr)
             return 1
 
         if jq_path:

@@ -1,8 +1,10 @@
 """Unit tests for task-mode resilience when plugin execution raises."""
+
 from __future__ import annotations
 
 import pytest
 
+from gcp.image.config.value_types import as_results_path
 from gcp.image.runtime.entrypoint import _leg_summary_from_execute_failure
 from gcp.image.runtime.models import PlanLeg
 
@@ -20,7 +22,7 @@ def test_leg_summary_from_execute_failure_maps_exception() -> None:
         plugin_ref="plugins/default",
         plugin_digest="pd",
         inputs_prefix="projects/acme/inputs/sk",
-        results_prefix="projects/acme/results/sk",
+        results_path=as_results_path("projects/acme/results/sk"),
         outputs_prefix="projects/acme/outputs/sk",
     )
     summary = _leg_summary_from_execute_failure(leg=leg, exc=RuntimeError("boom"))

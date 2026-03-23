@@ -44,20 +44,22 @@ jobs:
         run: |
           # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
           # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
-          presets_release=$(jq -c '
+          presets=$(jq -c '
             [ (.buildPresets // [])[]
+              | (.configurePreset // "") as $cfg
               | { build: .name
-                , configure: .configurePreset
+                , configure: $cfg
                 , short: (.name | sub("-build$"; ""))
                 , is_release: (
-                    (.configure | test("_gcc_Release")) and
-                    ((.configure | test("xtensa"; "i")) | not) and
-                    ((.configure | test("hexagon"; "i")) | not)
+                    ($cfg | test("_gcc_Release")) and
+                    (($cfg | test("xtensa"; "i")) | not) and
+                    (($cfg | test("hexagon"; "i")) | not)
                   )
                 , soft_fail: (
-                    (.configure | test("xtensa"; "i")) or
-                    (.configure | test("hexagon"; "i"))
-                  }
+                    ($cfg | test("xtensa"; "i")) or
+                    ($cfg | test("hexagon"; "i"))
+                  )
+                }
             ]' CMakePresets.json)
           echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
           echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"

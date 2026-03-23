@@ -5,9 +5,12 @@ from __future__ import annotations
 import io
 import sys
 from contextlib import redirect_stdout
+from pathlib import Path
+from typing import Annotated
 
 import typer
 
+from tools.repo.paths import repo_root
 from tools.shared.rich_minimal import step, step_console, success_panel
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
@@ -50,3 +53,21 @@ def validate_layout() -> None:
         step(console, label, ok=True)
     success_panel(console, "Validate layout", "GCP and repo layout checks passed.")
     raise typer.Exit(0)
+
+
+@app.command("core-main-workflows")
+def core_main_workflows(
+    path: Annotated[
+        Path | None,
+        typer.Option("--path", help="Directory of workflow YAML (default: .github/workflows)."),
+    ] = None,
+    mode: Annotated[
+        str,
+        typer.Option("--mode", help="'preflight' or 'release' (wording for missing gh only)."),
+    ] = "preflight",
+) -> None:
+    """Compare local workflows to Kardome-org/core-main on branch ``dev`` (informational unless CORE_MAIN_WORKFLOW_CHECK=strict)."""
+    from tools.repo.core_main_workflows import run_drift_check
+
+    d = path or (Path(repo_root()) / ".github" / "workflows")
+    raise typer.Exit(run_drift_check(d, mode=mode))

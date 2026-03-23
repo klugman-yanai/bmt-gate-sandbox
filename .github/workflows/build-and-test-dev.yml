@@ -1,7 +1,7 @@
 name: CI
 
-# Jobs/DAG: 4 jobs, no image-check (historical ref: archive layout in git history).
-# repo_snapshot → build_release + build_non_release (parallel) → bmt_handoff.
+# Jobs/DAG: 5 jobs, no image-check (historical ref: archive layout in git history).
+# repo_snapshot → build_release + build_non_release (parallel) → evaluate_bmt_gate → bmt_handoff.
 on:
   push:
     branches:
@@ -41,8 +41,8 @@ jobs:
       actions: write
     outputs:
       artifact_size: ${{ steps.report.outputs.artifact_size }}
-      presets_release: ${{ steps.parse.outputs.presets_release }}
-      presets_nonrelease: ${{ steps.parse.outputs.presets_nonrelease }}
+      release_presets: ${{ steps.parse.outputs.release_presets }}
+      non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
     steps:
       - name: Checkout source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -83,34 +83,26 @@ jobs:
         run: |
           # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
           # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
-          presets_release=$(jq -c '
+          presets=$(jq -c '
             [ (.buildPresets // [])[]
+              | (.configurePreset // "") as $cfg
+              | select($cfg != "")
               | { build: .name
-                , configure: (.configurePreset // "")
-                , short: (.name | sub("-build$"; "")) }
-              | select(
-                  .configure != "" and
-                  (.configure | test("_gcc_Release")) and
-                  (.configure | test("xtensa"; "i") | not) and
-                  (.configure | test("hexagon"; "i") | not)
-                )
+                , configure: $cfg
+                , short: (.name | sub("-build$"; ""))
+                , is_release: (
+                    ($cfg | test("_gcc_Release")) and
+                    (($cfg | test("xtensa"; "i")) | not) and
+                    (($cfg | test("hexagon"; "i")) | not)
+                  )
+                , soft_fail: (
+                    ($cfg | test("xtensa"; "i")) or
+                    ($cfg | test("hexagon"; "i"))
+                  )
+                }
             ]' CMakePresets.json)
-          presets_nonrelease=$(jq -c '
-            [ (.buildPresets // [])[]
-              | { build: .name
-                , configure: (.configurePreset // "")
-                , short: (.name | sub("-build$"; "")) }
-              | select(.configure != "" and (
-                  (.configure | test("_gcc_Release") | not) or
-                  (.configure | test("xtensa"; "i")) or
-                  (.configure | test("hexagon"; "i"))
-                ))
-              | . + {soft_fail: ((.configure | test("xtensa"; "i")) or (.configure | test("hexagon"; "i")))}
-            ]' CMakePresets.json)
-          {
-            echo "presets_release=$presets_release"
-            echo "presets_nonrelease=$presets_nonrelease"
-          } >>"$GITHUB_OUTPUT"
+          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
+          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
 
   # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
@@ -121,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.repo_snapshot.outputs.presets_release) }}
+        include: ${{ fromJson(needs.repo_snapshot.outputs.release_presets) }}
     steps:
       - name: Release build placeholder (bmt-gcloud)
         run: |
@@ -137,33 +129,60 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix:
-        include: ${{ fromJson(needs.repo_snapshot.outputs.presets_nonrelease) }}
+        include: ${{ fromJson(needs.repo_snapshot.outputs.non_release_presets) }}
     steps:
       - name: Non-release build placeholder (bmt-gcloud)
         run: |
           echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
-  # Node/DAG: 4 jobs, build_release → bmt_handoff.
+  evaluate_bmt_gate:
+    name: Gate
+    needs: [build_release]
+    runs-on: ubuntu-22.04
+    outputs:
+      run_bmt: ${{ steps.out.outputs.run_bmt }}
+    steps:
+      - id: out
+        env:
+          BUILD_RELEASE_RESULT: ${{ needs.build_release.result }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPO_FULL: ${{ github.event.pull_request.head.repo.full_name }}
+          REF_NAME: ${{ github.ref_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          r="${BUILD_RELEASE_RESULT}"
+          if [[ "$r" != "success" && "$r" != "skipped" ]]; then
+            echo "run_bmt=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          event="${EVENT_NAME}"
+          if [[ "$event" == "pull_request" || "$event" == "pull_request_target" ]]; then
+            if [[ "${PR_HEAD_REPO_FULL}" != "${THIS_REPO}" ]]; then
+              echo "run_bmt=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            ref="${PR_HEAD_REF}"
+          else
+            ref="${REF_NAME}"
+          fi
+          case "$ref" in
+            dev|ci/check-bmt-gate)
+              echo "run_bmt=true" >> "$GITHUB_OUTPUT"
+              ;;
+            test/check-bmt-gate*)
+              echo "run_bmt=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "run_bmt=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
   bmt_handoff:
     name: Handoff
-    needs: build_release
-    if: >-
-      success()
-      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      && (
-        contains(
-          fromJson('["dev","ci/check-bmt-gate"]'),
-          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
-        )
-        || startsWith(
-          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name,
-          'test/check-bmt-gate'
-        )
-      )
+    needs: [evaluate_bmt_gate]
+    if: needs.evaluate_bmt_gate.outputs.run_bmt == 'true'
     permissions:
       contents: read
       actions: read

@@ -40,11 +40,12 @@ def test_scoring_policy_record_merges_reporting_hints() -> None:
     assert rec["reporting_hints"]["dataset_note"] == "probe"
 
 
-def test_build_case_outcomes_truncates_long_error() -> None:
+def test_build_case_outcomes_truncates_long_error(tmp_path: Path) -> None:
     from gcp.image.runtime.sdk.results import CaseResult
 
     sp = _sp()
     long_err = "x" * 3000
+    log_path = tmp_path / "f.wav.log"
     cases = [
         CaseResult(
             case_id="f.wav",
@@ -52,7 +53,7 @@ def test_build_case_outcomes_truncates_long_error() -> None:
             exit_code=1,
             status="failed",
             metrics={"namuh_count": 0.0},
-            artifacts={"log_path": "/tmp/f.wav.log"},
+            artifacts={"log_path": str(log_path)},
             error=long_err,
         )
     ]

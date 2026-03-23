@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from gcp.image.github.github_auth import DEV_PROFILE, PRIMARY_PROFILE
@@ -62,13 +64,15 @@ def test_app_id_for_profile(profile: str, env: dict[str, str], expected: str) ->
     assert app_id_for_profile(profile, env) == expected
 
 
-def test_private_key_path_three_key_chain_dev() -> None:
+def test_private_key_path_three_key_chain_dev(tmp_path: Path) -> None:
+    key = tmp_path / "key.pem"
+    key.write_text("k", encoding="utf-8")
     env = {
         "GITHUB_APP_DEV_PRIVATE_KEY_PATH": "",
         "GH_APP_DEV_PRIVATE_KEY_PATH": "",
-        "BMT_APP_PRIVATE_KEY_PATH": "/tmp/key.pem",
+        "BMT_APP_PRIVATE_KEY_PATH": str(key),
     }
-    assert private_key_path_for_profile(DEV_PROFILE, env) == "/tmp/key.pem"
+    assert private_key_path_for_profile(DEV_PROFILE, env) == str(key)
 
 
 def test_private_key_path_primary_prefers_github_named() -> None:

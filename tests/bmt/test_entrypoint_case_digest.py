@@ -26,7 +26,13 @@ def test_case_digest_payload_includes_outcomes() -> None:
                 "case_count": 2,
                 "case_outcomes": [
                     {"case_id": "a.wav", "status": "ok", "namuh_count": 1.0, "error": "", "log_name": "a.wav.log"},
-                    {"case_id": "b.wav", "status": "failed", "namuh_count": 0.0, "error": "runner_exit_1", "log_name": ""},
+                    {
+                        "case_id": "b.wav",
+                        "status": "failed",
+                        "namuh_count": 0.0,
+                        "error": "runner_exit_1",
+                        "log_name": "",
+                    },
                 ],
             },
             extra={},
@@ -38,4 +44,6 @@ def test_case_digest_payload_includes_outcomes() -> None:
     assert payload["project"] == "sk"
     assert payload["bmt_slug"] == "false_alarms"
     assert payload["run_id"] == "run1"
-    assert len(payload["cases"]) == 2
+    cases = payload["cases"]
+    assert isinstance(cases, list)
+    assert len(cases) == 2
