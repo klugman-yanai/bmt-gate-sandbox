@@ -116,8 +116,8 @@ def image_context_git_dirty(root: str | None = None) -> bool:
     Conservative: returns True when merge-base cannot be resolved (auto-skip disabled).
 
     When this returns False, ``uv run python -m tools ship`` may still run ``just image`` unless
-    Artifact Registry already has ``bmt-orchestrator:<git HEAD>`` (queried via the Google Cloud
-    Python client library and Application Default Credentials).
+    Artifact Registry already has ``bmt-orchestrator:<git HEAD>`` (via the Artifact Registry API
+    and Application Default Credentials).
 
     Does not imply the opposite: base-image tag bumps, a failed registry push, or needing a
     no-code rebuild still require running ship with --force-image.
@@ -219,8 +219,8 @@ def register_ship(root: typer.Typer) -> None:
                 "--force-image",
                 help="Always run `just image` (default: skip when git shows no edits under "
                 "gcp/image or gcp/__init__.py and Artifact Registry has an image tagged with "
-                "the current git HEAD commit). Use after push or when the registry must refresh "
-                "without local git diffs.",
+                "the current git HEAD commit, verified via the Artifact Registry API). "
+                "Use after push or when the registry must refresh without local git diffs.",
             ),
         ] = False,
     ) -> None:
@@ -263,15 +263,16 @@ def register_ship(root: typer.Typer) -> None:
                     # Git-clean for image paths but no published tag for this commit — build/push.
                     pass
                 else:
-                    # unavailable: ADC / network / permission — git-only skip
+                    # unavailable: ADC missing, API error, or invalid tag/URI — git-only skip.
                     skips["image"] = True
                     auto_skip_note = (
                         "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
                         "[dim]Git cannot see:[/] stale registry, failed prior push, base-image-only updates, or rebuild-for-policy. "
                         "[dim]Run[/] [cyan]just ship --force-image[/] [dim]to build and push anyway.[/]\n"
-                        "[dim]Artifact Registry tag check failed (credentials, network, or permission); "
-                        "only git paths were considered. Set [cyan]GOOGLE_APPLICATION_CREDENTIALS[/] "
-                        "or ADC so the Google Cloud client can verify [cyan]bmt-orchestrator:<git-sha>[/].[/]"
+                        "[dim]Artifact Registry API check unavailable[/] (configure Application Default Credentials, e.g. "
+                        "[cyan]gcloud auth application-default login[/], or set [cyan]GOOGLE_APPLICATION_CREDENTIALS[/]); "
+                        "only git paths were used to decide. With ADC, ship requires a "
+                        "[cyan]bmt-orchestrator:<git-sha>[/] tag before skipping.[/]"
                     )
             elif not dry_run and not head_sha:
                 # Cannot resolve HEAD — run `just image` rather than guess.

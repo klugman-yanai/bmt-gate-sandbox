@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Literal
 
+import google.auth
+import google.auth.exceptions
 from google.api_core import exceptions as gexc
-from google.api_core.client_options import ClientOptions
-from google.auth.exceptions import DefaultCredentialsError
 from google.cloud import artifactregistry_v1
 
-logger = logging.getLogger(__name__)
-
 ArtifactRegistryTagStatus = Literal["present", "absent", "unavailable"]
+
+# Full git SHA (40 hex) or short; AR tag names must match what docker push uses.
+_GIT_SHA_TAG_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 
 
 def _pulumi_stack_output(pulumi_dir: Path, key: str) -> str | None:
@@ -71,63 +72,49 @@ def resolve_bmt_orchestrator_image_base(repo_root: Path) -> str:
     return f"{region}-docker.pkg.dev/{project}/{repo}/bmt-orchestrator"
 
 
-def parse_orchestrator_image_base(image_base: str) -> tuple[str, str, str, str]:
-    """Split ``LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/bmt-orchestrator`` into API parts.
-
-    Returns ``(location, project, repository, package)`` for
-    :meth:`google.cloud.artifactregistry_v1.ArtifactRegistryClient.tag_path`.
-    """
-    parts = image_base.split("/")
-    if len(parts) != 4:
-        msg = f"expected LOCATION-docker.pkg.dev/PROJECT/REPO/<image>, got {image_base!r}"
-        raise ValueError(msg)
-    host, project, repository, package = parts
-    suffix = "-docker.pkg.dev"
-    if not host.endswith(suffix):
-        msg = f"expected host ending with {suffix!r}, got {host!r}"
-        raise ValueError(msg)
-    location = host[: -len(suffix)]
-    return location, project, repository, package
-
-
-def _artifact_registry_client(location: str) -> artifactregistry_v1.ArtifactRegistryClient:
-    endpoint = f"{location}-artifactregistry.googleapis.com"
-    return artifactregistry_v1.ArtifactRegistryClient(
-        client_options=ClientOptions(api_endpoint=endpoint),
-    )
+def _parse_docker_image_base(image_base: str) -> tuple[str, str, str, str]:
+    """Parse ``LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/IMAGE`` into API components."""
+    marker = "-docker.pkg.dev/"
+    if marker not in image_base:
+        raise ValueError(f"expected *-docker.pkg.dev/ host, got {image_base!r}")
+    location, tail = image_base.split(marker, 1)
+    parts = tail.split("/")
+    if len(parts) != 3:
+        raise ValueError(f"expected project/repository/image, got {image_base!r}")
+    project, repository, image_name = parts
+    if not location or not project or not repository or not image_name:
+        raise ValueError(f"empty path segment in {image_base!r}")
+    return project, location, repository, image_name
 
 
 def artifact_registry_tag_status(*, image_base: str, tag: str) -> ArtifactRegistryTagStatus:
-    """Whether ``bmt-orchestrator`` has ``tag`` in Artifact Registry, via the Python client library.
+    """Whether Artifact Registry has a Docker tag for this image (via ``google-cloud-artifact-registry``).
 
-    Uses :meth:`google.cloud.artifactregistry_v1.ArtifactRegistryClient.get_tag` (not the
-    ``gcloud`` CLI). Requires `Application Default Credentials`_ (e.g. ``GOOGLE_APPLICATION_CREDENTIALS``
-    or a supported metadata / user credential source).
-
-    .. _Application Default Credentials: https://cloud.google.com/docs/authentication/application-default-credentials
+    Uses Application Default Credentials (``google.auth.default()``), not the gcloud CLI.
 
     Returns:
-        ``present`` — tag exists.
-        ``absent`` — API reports the tag does not exist (rebuild/push needed).
-        ``unavailable`` — could not query (missing credentials, permission, network, parse error).
+        ``present`` — ``get_tag`` succeeded for ``bmt-orchestrator:<tag>``.
+        ``absent`` — tag not found (safe to build/push).
+        ``unavailable`` — could not run the check (invalid URI, no ADC, or API error).
     """
+    tag = tag.strip()
+    if not _GIT_SHA_TAG_RE.match(tag):
+        return "unavailable"
     try:
-        location, project, repository, package = parse_orchestrator_image_base(image_base)
+        project, location, repository, package = _parse_docker_image_base(image_base)
     except ValueError:
-        logger.warning("artifact registry: invalid image base %r", image_base)
+        return "unavailable"
+    try:
+        google.auth.default()
+    except google.auth.exceptions.DefaultCredentialsError:
         return "unavailable"
 
-    client = _artifact_registry_client(location)
-    name = client.tag_path(project, location, repository, package, tag)
+    name = artifactregistry_v1.ArtifactRegistryClient.tag_path(project, location, repository, package, tag)
+    client = artifactregistry_v1.ArtifactRegistryClient()
     try:
         client.get_tag(name=name)
     except gexc.NotFound:
         return "absent"
-    except (gexc.GoogleAPICallError, DefaultCredentialsError) as exc:
-        logger.info("artifact registry tag check unavailable: %s", exc)
+    except gexc.GoogleAPICallError:
         return "unavailable"
-    except OSError as exc:
-        logger.info("artifact registry tag check unavailable: %s", exc)
-        return "unavailable"
-    else:
-        return "present"
+    return "present"
