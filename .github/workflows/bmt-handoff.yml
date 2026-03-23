@@ -79,19 +79,19 @@ on:
     outputs:
       bmt_gate_passed:
         description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
-        value: ${{ jobs.confirm_cloud_job_start.outputs.bmt_gate_passed }}
+        value: ${{ jobs.start_bmt_workflow.outputs.bmt_gate_passed }}
       bmt_dispatch_confirmed:
         description: "True when trigger dispatch to cloud runtime is confirmed."
-        value: ${{ jobs.confirm_cloud_job_start.outputs.bmt_dispatch_confirmed }}
+        value: ${{ jobs.start_bmt_workflow.outputs.bmt_dispatch_confirmed }}
       bmt_final_state:
         description: "Dispatch pipeline terminal state for this workflow (dispatched_async or dispatch_failed)."
-        value: ${{ jobs.confirm_cloud_job_start.outputs.bmt_final_state }}
+        value: ${{ jobs.start_bmt_workflow.outputs.bmt_final_state }}
       bmt_recovery_used:
         description: "True if context/dispatch failed and recovery fallback path ran."
-        value: ${{ jobs.confirm_cloud_job_start.outputs.bmt_recovery_used }}
+        value: ${{ jobs.start_bmt_workflow.outputs.bmt_recovery_used }}
       bmt_fallback_run:
         description: "Deprecated alias of bmt_recovery_used."
-        value: ${{ jobs.confirm_cloud_job_start.outputs.bmt_recovery_used }}
+        value: ${{ jobs.start_bmt_workflow.outputs.bmt_recovery_used }}
 
 concurrency:
   group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
@@ -114,8 +114,9 @@ permissions:
   actions: read
 
 jobs:
-  # Cloud dispatch DAG: Resolve BMT Request -> Publish Runners/Libs -> Confirm Cloud Job Start.
-  resolve_bmt_request:
+  # Cloud dispatch DAG: Plan -> Publish -> Dispatch.
+  write_handoff_context:
+    name: Plan
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -162,14 +163,15 @@ jobs:
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           AVAILABLE_ARTIFACTS: ${{ inputs.available_artifacts || '[]' }}
-        run: uv run bmt write-context && uv run bmt filter-upload-matrix
+        run: uv run bmt handoff write-context && uv run bmt runner filter-upload-matrix
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
   # Validate requested runners exist in repo (no build/upload) before cloud dispatch.
-  publish_runners_libs:
-    needs: resolve_bmt_request
-    if: needs.resolve_bmt_request.outputs.matrix_need_upload_keys != '[]'
+  publish_runners:
+    name: Publish
+    needs: write_handoff_context
+    if: needs.write_handoff_context.outputs.matrix_need_upload_keys != '[]'
     runs-on: ubuntu-22.04
     continue-on-error: true
     permissions:
@@ -178,7 +180,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJson(needs.resolve_bmt_request.outputs.matrix_need_upload || '{"include":[]}') }}
+      matrix: ${{ fromJson(needs.write_handoff_context.outputs.matrix_need_upload || '{"include":[]}') }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -199,14 +201,15 @@ jobs:
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
-        run: uv run bmt validate-runner-in-repo
+        run: uv run bmt runner validate-in-repo
 
-  confirm_cloud_job_start:
-    needs: [resolve_bmt_request, publish_runners_libs]
+  start_bmt_workflow:
+    name: Dispatch
+    needs: [write_handoff_context, publish_runners]
     if: >-
       !cancelled()
-      && needs.resolve_bmt_request.result == 'success'
-      && (needs['publish_runners_libs'].result == 'success' || needs['publish_runners_libs'].result == 'skipped')
+      && needs.write_handoff_context.result == 'success'
+      && (needs['publish_runners'].result == 'success' || needs['publish_runners'].result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -250,8 +253,8 @@ jobs:
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
         with:
-          head_sha: ${{ needs.resolve_bmt_request.outputs.head_sha }}
-          runner_matrix: ${{ needs.resolve_bmt_request.outputs.runner_matrix }}
+          head_sha: ${{ needs.write_handoff_context.outputs.head_sha }}
+          runner_matrix: ${{ needs.write_handoff_context.outputs.runner_matrix }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
@@ -266,11 +269,11 @@ jobs:
           {
             echo "## BMT Handoff Context"
             echo ""
-            echo "- Head SHA: \`${{ needs.resolve_bmt_request.outputs.head_sha }}\`"
-            echo "- Head branch: \`${{ needs.resolve_bmt_request.outputs.head_branch }}\`"
-            echo "- Head event: \`${{ needs.resolve_bmt_request.outputs.head_event }}\`"
-            echo "- PR number: \`${{ needs.resolve_bmt_request.outputs.pr_number || 'n/a' }}\`"
-            echo "- Run context: \`${{ needs.resolve_bmt_request.outputs.run_context }}\`"
+            echo "- Head SHA: \`${{ needs.write_handoff_context.outputs.head_sha }}\`"
+            echo "- Head branch: \`${{ needs.write_handoff_context.outputs.head_branch }}\`"
+            echo "- Head event: \`${{ needs.write_handoff_context.outputs.head_event }}\`"
+            echo "- PR number: \`${{ needs.write_handoff_context.outputs.pr_number || 'n/a' }}\`"
+            echo "- Run context: \`${{ needs.write_handoff_context.outputs.run_context }}\`"
             echo "- Classify path: \`${{ steps.classify.outputs.path || 'unknown' }}\`"
             echo "- Has legs: \`${{ steps.classify.outputs.has_legs || 'false' }}\`"
             echo "- Accepted projects: \`${{ steps.classify.outputs.accepted_projects || '[]' }}\`"
@@ -298,24 +301,24 @@ jobs:
           ACCEPTED_PROJECTS: ${{ steps.classify.outputs.accepted_projects }}
         run: |
           set -euo pipefail
-          uv run bmt validate-dataset-inputs
+          uv run bmt handoff validate-dataset-inputs
 
       - id: invoke-workflow
         shell: bash
         env:
           FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
-          RUN_CONTEXT: ${{ needs.resolve_bmt_request.outputs.run_context }}
-          HEAD_EVENT: ${{ needs.resolve_bmt_request.outputs.head_event }}
-          HEAD_SHA: ${{ needs.resolve_bmt_request.outputs.head_sha }}
-          HEAD_BRANCH: ${{ needs.resolve_bmt_request.outputs.head_branch }}
-          PR_NUMBER: ${{ needs.resolve_bmt_request.outputs.pr_number }}
+          RUN_CONTEXT: ${{ needs.write_handoff_context.outputs.run_context }}
+          HEAD_EVENT: ${{ needs.write_handoff_context.outputs.head_event }}
+          HEAD_SHA: ${{ needs.write_handoff_context.outputs.head_sha }}
+          HEAD_BRANCH: ${{ needs.write_handoff_context.outputs.head_branch }}
+          PR_NUMBER: ${{ needs.write_handoff_context.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           # Only explicit boolean true enables mock (matches build-and-test strict pass-through).
           BMT_USE_MOCK_RUNNER: ${{ inputs.use_mock_runner == true && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          uv run bmt write-context
-          uv run bmt invoke-workflow
+          uv run bmt handoff write-context
+          uv run bmt dispatch invoke-workflow
 
       - name: Persist workflow execution snapshot
         if: steps.invoke-workflow.outcome == 'success'
@@ -362,9 +365,9 @@ jobs:
         with:
           mode: run_success
           repository: ${{ github.repository }}
-          head_sha: ${{ needs.resolve_bmt_request.outputs.head_sha }}
-          head_branch: ${{ needs.resolve_bmt_request.outputs.head_branch }}
-          pr_number: ${{ needs.resolve_bmt_request.outputs.pr_number }}
+          head_sha: ${{ needs.write_handoff_context.outputs.head_sha }}
+          head_branch: ${{ needs.write_handoff_context.outputs.head_branch }}
+          pr_number: ${{ needs.write_handoff_context.outputs.pr_number }}
           filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
           accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects }}
           handshake_ok: "true"
@@ -419,8 +422,8 @@ jobs:
         uses: ./.github/actions/bmt-failure-fallback
         with:
           handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
-          setup_outputs: ${{ toJson(needs.resolve_bmt_request.outputs) }}
-          prepare_result: ${{ needs.resolve_bmt_request.result }}
+          setup_outputs: ${{ toJson(needs.write_handoff_context.outputs) }}
+          prepare_result: ${{ needs.write_handoff_context.result }}
           classify_result: ${{ steps.classify.outcome || 'failure' }}
           handoff_result: ${{ steps.invoke-workflow.outcome || 'failure' }}
           accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects || '[]' }}

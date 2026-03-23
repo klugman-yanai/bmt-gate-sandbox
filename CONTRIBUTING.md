@@ -193,7 +193,7 @@ Focused subset while iterating:
 uv run python -m pytest tests/bmt tests/ci tests/infra tests/tools -q
 ```
 
-**Smoke:** `uv run bmt write-context --help`, `uv run python -m tools repo show-env` and `uv run python -m tools repo validate` when touching those areas.
+**Smoke:** `uv run bmt --help`, `uv run bmt handoff write-context --help`, `uv run python -m tools repo show-env` and `uv run python -m tools repo validate` when touching those areas.
 
 **Integration boundary (mental model):** publish staged plugin → upload dataset → invoke Workflow (CI or manual) → `triggers/plans/<workflow_run_id>.json` → task summaries → coordinator writes `current.json`.
 
@@ -216,7 +216,7 @@ uv run python -m pytest tests/ -q
 just test
 ```
 
-Optional: `uv run python -m tools repo validate`, `uv run bmt write-context --help`.
+Optional: `uv run python -m tools repo validate`, `uv run bmt handoff write-context --help`.
 
 ---
 

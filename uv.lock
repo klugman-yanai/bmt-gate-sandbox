@@ -77,6 +77,7 @@ dependencies = [
     { name = "google-cloud-storage" },
     { name = "pydantic" },
     { name = "pygithub" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -91,6 +92,7 @@ requires-dist = [
     { name = "google-cloud-storage", specifier = ">=2.16" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pygithub", specifier = ">=2.0" },
+    { name = "typer", specifier = ">=0.15.0" },
 ]
 
 [package.metadata.requires-dev]

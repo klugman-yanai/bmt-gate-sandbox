@@ -8,8 +8,12 @@ from pathlib import Path
 import pytest
 
 from gcp.image.config.value_types import ResultsPath
-from gcp.image.runtime.artifacts import load_observed_duration_sec_from_latest_snapshot
-from gcp.image.runtime.models import PlanLeg
+from gcp.image.runtime.artifacts import (
+    earliest_progress_started_at_iso,
+    load_observed_duration_sec_from_latest_snapshot,
+    parse_optional_instant_iso,
+)
+from gcp.image.runtime.models import PlanLeg, ReportingMetadata
 
 pytestmark = pytest.mark.unit
 
@@ -47,3 +51,42 @@ def test_load_observed_duration_reads_duration_sec_from_latest_json(tmp_path: Pa
 def test_load_observed_duration_returns_none_when_missing_or_invalid(tmp_path: Path) -> None:
     leg = _leg()
     assert load_observed_duration_sec_from_latest_snapshot(stage_root=tmp_path, leg=leg) is None
+
+
+def test_earliest_progress_started_at_prefers_earliest_leg(tmp_path: Path) -> None:
+    wid = "wf-1"
+    base = tmp_path / "triggers" / "progress" / wid
+    base.mkdir(parents=True)
+    (base / "sk-a.json").write_text(
+        '{"project":"sk","bmt_slug":"a","status":"running","started_at":"2026-03-20T12:00:00Z","updated_at":"2026-03-20T12:00:01Z"}',
+        encoding="utf-8",
+    )
+    (base / "sk-b.json").write_text(
+        '{"project":"sk","bmt_slug":"b","status":"running","started_at":"2026-03-20T11:59:00Z","updated_at":"2026-03-20T12:00:01Z"}',
+        encoding="utf-8",
+    )
+    assert earliest_progress_started_at_iso(stage_root=tmp_path, workflow_run_id=wid) == "2026-03-20T11:59:00Z"
+
+
+def test_parse_optional_instant_iso_accepts_valid_iso() -> None:
+    ins = parse_optional_instant_iso("2026-03-20T11:59:00Z")
+    assert ins is not None
+    assert ins.timestamp() > 0
+
+
+def test_parse_optional_instant_iso_rejects_garbage() -> None:
+    assert parse_optional_instant_iso("") is None
+    assert parse_optional_instant_iso("not-a-date") is None
+
+
+def test_reporting_metadata_helpers_describe_check_and_started_at() -> None:
+    ready = ReportingMetadata(workflow_execution_url="https://wf", check_run_id=1, started_at="")
+    assert ready.has_check_run_and_details_url()
+    assert ready.started_at_iso_or_none() is None
+    assert ready.needs_started_at_backfill()
+
+    complete = ReportingMetadata(
+        workflow_execution_url="https://wf", check_run_id=1, started_at="2026-01-01T00:00:00Z"
+    )
+    assert not complete.needs_started_at_backfill()
+    assert complete.started_at_iso_or_none() == "2026-01-01T00:00:00Z"

@@ -120,7 +120,7 @@ runs:
         ORCH_HANDSHAKE_OK: ${{ steps.x.outputs.handshake_ok }}
         DISPATCH_HEAD_SHA: ${{ steps.x.outputs.dispatch_head_sha }}
         DISPATCH_PR_NUMBER: ${{ steps.x.outputs.dispatch_pr_number }}
-      run: uv run bmt write-context && uv run bmt resolve-failure-context
+      run: uv run bmt handoff write-context && uv run bmt handoff resolve-failure-context
 
     - name: Classify failure reason
       id: reason

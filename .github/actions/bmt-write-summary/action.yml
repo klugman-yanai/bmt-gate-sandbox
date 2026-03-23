@@ -60,4 +60,4 @@ runs:
         GCP_PROJECT: ${{ inputs.gcp_project }}
         GCS_BUCKET: ${{ inputs.gcs_bucket }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
-      run: uv run bmt write-context && uv run bmt write-handoff-summary
+      run: uv run bmt handoff write-context && uv run bmt handoff write-summary

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import shutil
 from pathlib import Path
 
+from pydantic import ValidationError
 from whenever import Instant
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus, leg_status_is_pass
@@ -14,8 +16,22 @@ from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, Progres
 
 logger = logging.getLogger(__name__)
 
+# Pointer / snapshot JSON keys (bucket layout under ``gcp/stage``).
+_CURRENT_JSON_LATEST_KEY = "latest"
+_SNAPSHOT_DURATION_SEC_KEY = "duration_sec"
+
+
+def parse_optional_instant_iso(raw: str) -> Instant | None:
+    """Parse ISO-8601 wall time; invalid input becomes ``None``."""
+    with contextlib.suppress(ValueError):
+        return Instant.parse_iso(raw.strip())
+    return None
+
 
 def aggregate_status(summaries: list[LegSummary]) -> str:
+    """Overall leg verdict: fail if there are no legs (vacuous ``all()`` would wrongly pass)."""
+    if not summaries:
+        return BmtLegStatus.FAIL.value
     if all(leg_status_is_pass(summary.status) for summary in summaries):
         return BmtLegStatus.PASS.value
     return BmtLegStatus.FAIL.value
@@ -47,6 +63,10 @@ def latest_result_path(leg: PlanLeg) -> str:
 
 def verdict_result_path(leg: PlanLeg) -> str:
     return f"{snapshot_root(leg)}/ci_verdict.json"
+
+
+def case_digest_result_path(leg: PlanLeg) -> str:
+    return f"{snapshot_root(leg)}/case_digest.json"
 
 
 def load_plan(*, stage_root: Path, workflow_run_id: str) -> ExecutionPlan:
@@ -95,6 +115,30 @@ def load_optional_progress(
     return ProgressRecord.model_validate(payload)
 
 
+def earliest_progress_started_at_iso(*, stage_root: Path, workflow_run_id: str) -> str | None:
+    """Earliest leg ``started_at`` under ``triggers/progress/{workflow_run_id}/`` (by parsed instant).
+
+    Used when reporting metadata exists but ``started_at`` was never persisted (legacy or merge-only
+    writes) so check-run ETA can still compute elapsed time.
+    """
+    root = stage_root / "triggers" / "progress" / workflow_run_id
+    if not root.is_dir():
+        return None
+    candidates: list[tuple[Instant, str]] = []
+    for path in sorted(root.glob("*.json")):
+        try:
+            record = ProgressRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, ValidationError):
+            continue
+        ins = parse_optional_instant_iso(record.started_at)
+        if ins is None:
+            continue
+        candidates.append((ins, record.started_at.strip()))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda pair: pair[0].timestamp())[1]
+
+
 def write_reporting_metadata(*, stage_root: Path, workflow_run_id: str, metadata: ReportingMetadata) -> Path:
     path = stage_root / reporting_metadata_path(workflow_run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,7 +163,7 @@ def load_observed_duration_sec_from_latest_snapshot(  # noqa: PLR0911
     except json.JSONDecodeError:
         logger.warning("%s: invalid JSON; skipping duration hint", current_path)
         return None
-    latest = payload.get("latest")
+    latest = payload.get(_CURRENT_JSON_LATEST_KEY)
     if not isinstance(latest, str) or not latest.strip():
         return None
     latest_json = results_root / "snapshots" / latest / "latest.json"
@@ -130,7 +174,7 @@ def load_observed_duration_sec_from_latest_snapshot(  # noqa: PLR0911
     except json.JSONDecodeError:
         logger.warning("%s: invalid JSON; skipping duration hint", latest_json)
         return None
-    raw = snap.get("duration_sec")
+    raw = snap.get(_SNAPSHOT_DURATION_SEC_KEY)
     if isinstance(raw, int) and raw > 0:
         return raw
     if isinstance(raw, float) and raw > 0:

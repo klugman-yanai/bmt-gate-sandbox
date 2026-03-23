@@ -8,6 +8,9 @@ from gcp.image.config.status import CheckConclusion
 from gcp.image.github.duration_format import format_duration_seconds
 from gcp.image.github.github_checks import CheckRunOutput
 
+# ``case_outcomes[].status`` wire value for a passing file (matches ``CaseStatus``); never shown as the word “ok” to operators.
+_CASE_OUTCOME_STATUS_PASSED = "ok"
+
 _MARKER = "<!-- bmt-gate-comment -->"
 
 # Copy shown in GitHub Checks / PR comments (single module to keep wording aligned).
@@ -19,6 +22,8 @@ MISSING_SCORE = "—"
 MOCK_SCORE_PLACEHOLDER = "— (mock)"
 UNKNOWN_SHORT_SHA = "unknown"
 _ETA_UNKNOWN = "unknown"
+# GitHub check run API caps annotations per request; overflow remains in Markdown.
+MAX_GITHUB_CHECK_ANNOTATIONS = 50
 
 _BOOTSTRAP_FIRST_RUN = "first run — baseline established"
 REASON_LABELS: dict[str, str] = {
@@ -67,10 +72,12 @@ class ProgressBmtRow:
     bmt: str
     status: str
     duration_sec: int | None = None
-    #: Set when this leg has written `summary.json` (completed task); drives Score column.
+    #: Set when this BMT has written `summary.json` (completed task); drives the Avg. column.
     aggregate_score: float | None = None
     execution_mode_used: str = ""
     cases_detail: str = ""
+    #: From ``score.extra.scoring_policy`` / verdict; used with arrows in the Avg. column; empty when unknown or mock.
+    score_direction_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +92,9 @@ class FinalBmtRow:
     cases_detail: str = ""
     #: Mirrors :attr:`LegSummary.score.extra` (e.g. ``unavailable`` when coordinator could not load summary).
     score_extra: dict[str, Any] = field(default_factory=dict)
+    score_direction_label: str = ""
+    #: Per-case rows from ``metrics.case_outcomes`` when the plugin provides them; failure tables and annotations.
+    case_outcomes: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,20 +182,107 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
     return "\n".join(lines)
 
 
+def _scoring_policy_dict(extra: dict[str, Any]) -> dict[str, Any] | None:
+    sp = extra.get("scoring_policy")
+    return sp if isinstance(sp, dict) else None
+
+
+def _default_success_in_words(scoring_policy: dict[str, Any]) -> str:
+    hint = scoring_policy.get("score_direction_hint")
+    if hint == "lower_better":
+        return (
+            "Prefer lower numbers here. **Zero** is ideal when the counted events are unwanted "
+            "(e.g. false alarms)."
+        )
+    if hint == "higher_better":
+        return "Prefer higher numbers here (per-file counts vs your baseline)."
+    return "See this BMT's scoring policy for what the summary number means."
+
+
+def _avg_column_direction_suffix(
+    score_extra: dict[str, Any] | None, score_direction_label: str
+) -> str:
+    """Compact direction marker for the Avg. column (Markdown-friendly)."""
+    sp = _scoring_policy_dict(score_extra) if score_extra else None
+    if isinstance(sp, dict):
+        h = sp.get("score_direction_hint")
+        if h == "lower_better":
+            return "↓"
+        if h == "higher_better":
+            return "↑"
+    lab = (score_direction_label or "").strip().lower()
+    if "lower" in lab:
+        return "↓"
+    if "higher" in lab:
+        return "↑"
+    return ""
+
+
+def run_context_blurb_markdown(rows: list[FinalBmtRow]) -> str:
+    """Short context copy from ``score.extra.scoring_policy`` / ``reporting_hints`` (generic; no slug branching)."""
+    if not rows:
+        return ""
+    has_policy = any(_scoring_policy_dict(r.score_extra) for r in rows)
+    if len(rows) == 1 and not has_policy:
+        return ""
+    parts: list[str] = [
+        "*Each BMT row stands alone. Pass or fail vs your stored baseline is decided **per test file**. "
+        "**Avg.** is one summary value for that BMT (often an average across files that passed). "
+        "**Tests** is how many test files passed. "
+        "Compare **Avg.** within the same BMT over time rather than across unrelated BMT rows.*",
+    ]
+    if len(rows) > 1:
+        parts.append(
+            "*Different BMT rows may measure different things; treat the numbers as separate.*"
+        )
+    parts.append("*On **Avg.**: ↓ = lower is better for that row · ↑ = higher is better.*")
+    if has_policy:
+        parts.append("")
+        for r in rows:
+            sp = _scoring_policy_dict(r.score_extra)
+            if not sp:
+                continue
+            hints_raw = sp.get("reporting_hints")
+            hints: dict[str, Any] = hints_raw if isinstance(hints_raw, dict) else {}
+            sw = hints.get("success_in_words")
+            if isinstance(sw, str) and sw.strip():
+                body = sw.strip()
+            else:
+                body = _default_success_in_words(sp)
+            msl = hints.get("metric_short_label")
+            if isinstance(msl, str) and msl.strip():
+                body = f"{body} — *{msl.strip()}*"
+            elif isinstance(sp.get("primary_metric"), str) and str(sp["primary_metric"]).strip():
+                body = f"{body} — *metric `{sp['primary_metric']}`*"
+            parts.append(f"- **`{r.project}` / `{r.bmt}`:** {body}")
+    parts.append("")
+    return "\n".join(parts).strip() + "\n"
+
+
+def how_to_read_this_run_markdown(rows: list[FinalBmtRow]) -> str:
+    """Alias for :func:`run_context_blurb_markdown` (older name)."""
+    return run_context_blurb_markdown(rows)
+
+
 def _score_cell_for_check(
     *,
     aggregate_score: float | None,
     execution_mode_used: str,
     leg_done: bool,
     score_extra: dict[str, Any] | None = None,
+    score_direction_label: str = "",
 ) -> str:
-    """Format score for GitHub Checks tab (avoid misleading 0.00 for mock runs)."""
+    """Format the Avg. column for GitHub Checks (avoid misleading 0.00 for mock runs)."""
     if score_extra and score_extra.get("unavailable"):
         return MISSING_SCORE
     if execution_mode_used == "mock":
         return MOCK_SCORE_PLACEHOLDER
     if leg_done and aggregate_score is not None:
-        return f"{aggregate_score:.2f}"
+        cell = f"{aggregate_score:.2f}"
+        suffix = _avg_column_direction_suffix(score_extra, score_direction_label)
+        if suffix:
+            cell = f"{cell} {suffix}"
+        return cell
     return MISSING_SCORE
 
 
@@ -212,8 +309,8 @@ def _progress_status_label(status: str) -> str:
 
 def _progress_table_markdown(view: CheckProgressView) -> str:
     lines = [
-        "| Project | BMT | Status | Score | Cases | Duration |",
-        "|---------|-----|--------|-------|-------|----------|",
+        "| Project | BMT | Status | Avg. | Tests | Duration |",
+        "|---------|-----|--------|------|-------|----------|",
     ]
     for row in view.bmts:
         leg_done = row.status in (BmtLegStatus.PASS.value, BmtLegStatus.FAIL.value)
@@ -221,6 +318,8 @@ def _progress_table_markdown(view: CheckProgressView) -> str:
             aggregate_score=row.aggregate_score,
             execution_mode_used=row.execution_mode_used,
             leg_done=leg_done,
+            score_extra=None,
+            score_direction_label=row.score_direction_label,
         )
         lines.append(
             "| "
@@ -241,8 +340,8 @@ def _progress_table_markdown(view: CheckProgressView) -> str:
 
 def _final_check_table_markdown(view: CheckFinalView) -> str:
     lines = [
-        "| Project | BMT | Status | Score | Cases | Reason | Duration |",
-        "|---------|-----|--------|-------|-------|--------|----------|",
+        "| Project | BMT | Status | Avg. | Tests | Reason | Duration |",
+        "|---------|-----|--------|------|-------|--------|----------|",
     ]
     for row in view.bmts:
         score_s = _score_cell_for_check(
@@ -250,6 +349,7 @@ def _final_check_table_markdown(view: CheckFinalView) -> str:
             execution_mode_used=row.execution_mode_used,
             leg_done=True,
             score_extra=row.score_extra,
+            score_direction_label=row.score_direction_label,
         )
         lines.append(
             "| "
@@ -280,12 +380,83 @@ def render_progress_check_output(view: CheckProgressView) -> CheckRunOutput:
     ]
     if view.links.workflow_execution_url:
         summary_lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
+    summary_lines.append(
+        "- A short context note for each BMT (metrics and ↑/↓) appears when the run completes."
+    )
     table = _progress_table_markdown(view)
     return {
         "title": f"BMT Running: {view.completed_count}/{view.total_count} complete",
         "summary": "\n".join(summary_lines),
         "text": table,
     }
+
+
+def _annotation_path_segment(raw: str) -> str:
+    """Synthetic repo path segment for Check annotations (avoid slashes / control chars)."""
+    s = raw.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ")
+    for ch in ("/", "\\", "\x00"):
+        s = s.replace(ch, "_")
+    return s[:200] if len(s) > 200 else s
+
+
+def github_check_annotations_from_final_rows(rows: list[FinalBmtRow]) -> list[dict[str, Any]]:
+    """Build GitHub Checks ``output.annotations`` for failed cases (capped)."""
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        for oc in row.case_outcomes:
+            if len(out) >= MAX_GITHUB_CHECK_ANNOTATIONS:
+                return out
+            if oc.get("status") == _CASE_OUTCOME_STATUS_PASSED:
+                continue
+            cid = str(oc.get("case_id", ""))
+            msg = str(oc.get("error", "")).strip()
+            if len(msg) > 8000:
+                msg = msg[:7997] + "..."
+            path = "/".join(
+                (
+                    "bmt",
+                    _annotation_path_segment(row.project),
+                    _annotation_path_segment(row.bmt),
+                    _annotation_path_segment(cid),
+                )
+            )
+            out.append(
+                {
+                    "path": path,
+                    "start_line": 1,
+                    "end_line": 1,
+                    "annotation_level": "failure",
+                    "message": msg or "(no error message)",
+                }
+            )
+    return out
+
+
+def per_case_failure_markdown(rows: list[FinalBmtRow]) -> str:
+    """Markdown tables for cases that did not pass (execution failures stay visible)."""
+    blocks: list[str] = []
+    for row in rows:
+        failed = [c for c in row.case_outcomes if c.get("status") != _CASE_OUTCOME_STATUS_PASSED]
+        if not failed:
+            continue
+        blocks.append(f"#### `{row.project}` / `{row.bmt}`")
+        lines = ["| Case | Error | Log |", "| --- | --- | --- |"]
+        for c in failed:
+            cid = _md_table_cell(c.get("case_id", ""))
+            err = _md_table_cell(c.get("error", ""))
+            logn = _md_table_cell(c.get("log_name", ""))
+            lines.append(f"| {cid} | {err} | {logn} |")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks).strip()
+
+
+def multi_leg_score_scope_markdown(row_count: int) -> str:
+    """Fallback scope line; prefer :func:`run_context_blurb_markdown` when ``FinalBmtRow`` data exists."""
+    if row_count <= 1:
+        return ""
+    return (
+        "*Different BMT rows may use different metrics and directions; raw **Avg.** values are not automatically comparable.*"
+    )
 
 
 def _final_check_failure_summary_lines(view: CheckFinalView) -> list[str]:
@@ -312,11 +483,27 @@ def render_final_check_output(view: CheckFinalView) -> CheckRunOutput:
     if view.links.log_dump_url:
         lines.append(f"- Log dump (expires in 3 days): [open]({view.links.log_dump_url})")
     lines.extend(_final_check_failure_summary_lines(view))
-    return {
+    blurb_md = run_context_blurb_markdown(view.bmts)
+    text_parts: list[str] = []
+    if blurb_md:
+        text_parts.append(blurb_md.rstrip())
+    else:
+        scope_md = multi_leg_score_scope_markdown(len(view.bmts))
+        if scope_md:
+            text_parts.append(scope_md.rstrip())
+    text_parts.append(_final_check_table_markdown(view))
+    failure_md = per_case_failure_markdown(view.bmts)
+    if failure_md:
+        text_parts.extend(["", "### Per-case failures", "", failure_md])
+    annotations = github_check_annotations_from_final_rows(view.bmts)
+    out: dict[str, Any] = {
         "title": f"BMT Complete: {CHECK_TITLE_PASS if is_success else CHECK_TITLE_FAIL}",
         "summary": "\n".join(lines),
-        "text": _final_check_table_markdown(view),
+        "text": "\n\n".join(text_parts),
     }
+    if annotations:
+        out["annotations"] = annotations
+    return out  # type: ignore[return-value]
 
 
 def _final_status_label(status: str) -> str:

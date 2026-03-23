@@ -9,5 +9,6 @@
 | **Add a project or BMT** | [adding-a-project.md](adding-a-project.md) |
 | **Production incidents / GCS** | [runbook.md](runbook.md) |
 | **Roadmap / priorities** | [ROADMAP.md](../ROADMAP.md) |
+| **ADRs** (contracts, decisions) | [adr/README.md](adr/README.md) |
 
 Everything above is for the **Workflows + Cloud Run** pipeline; ignore legacy VM-era references if you see them in old issues or git history.

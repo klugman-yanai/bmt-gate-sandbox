@@ -34,8 +34,10 @@ def register_subcommands(target: typer.Typer) -> None:
     from tools.cli.onboard_cmd import register_onboard
     from tools.cli.pulumi_cmd import app as pulumi_app
     from tools.cli.repo_cmd import app as repo_app
+    from tools.cli.ship_cmd import register_ship
 
     register_onboard(target)
+    register_ship(target)
     target.add_typer(bucket_app, name="bucket", help="GCS bucket operations", rich_help_panel="Storage & deploy")
     target.add_typer(
         pulumi_app, name="pulumi", help="Infrastructure management (Pulumi)", rich_help_panel="Infrastructure"

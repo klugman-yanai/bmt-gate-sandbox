@@ -4,7 +4,7 @@
   "bmt_slug": "false_alarms",
   "bmt_id": "ac73397e-1162-5004-9ca2-17c969f53ee5",
   "enabled": true,
-  "plugin_ref": "published:default:sha256-fc162b018b60905aac27daf3b12f2cd0ec547c27b329ee21bdfc7d615df608f5",
+  "plugin_ref": "published:default:sha256-a6fe670c6f89134d0f8e63571aaa68e19c3ea42bd000a26f83aa3b97bc69e395",
   "inputs_prefix": "projects/sk/inputs/false_alarms",
   "results_prefix": "projects/sk/results/false_alarms",
   "outputs_prefix": "projects/sk/outputs/false_alarms",
@@ -25,6 +25,12 @@
     "enable_overrides": {
       "KWS_CONFIG.KWS_ENABLE": true,
       "BIOMETRICS_CONFIG.BIO_ENABLE": false
+    },
+    "reporting_hints": {
+      "utterances_per_file": 100,
+      "dataset_note": "Per-file keyword recognition style; aggregate is the average of per-file counters over passing cases.",
+      "metric_short_label": "false alarms per file (avg.)",
+      "success_in_words": "Lower is better: **0** means no false keyword detections on average across passing test files. Do not compare this number to false_rejects rows (different metric and direction)."
     }
   }
 }

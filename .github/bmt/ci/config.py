@@ -20,7 +20,7 @@ from gcp.image.config.constants import (
     ENV_GCS_BUCKET,
     STATUS_CONTEXT,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -33,6 +33,8 @@ __all__ = [
     "get_context_path",
     "load_context_from_file",
     "load_env",
+    "workflow_context_env_keys",
+    "workflow_field_to_env_var",
     "write_context_to_file",
 ]
 
@@ -50,33 +52,16 @@ _RUNTIME_ENV_KEYS = frozenset(
         ENV_BMT_STATUS_CONTEXT,
     }
 )
-_WORKFLOW_CONTEXT_ENV_KEYS = (
-    "ACCEPTED",
-    "ACCEPTED_PROJECTS",
-    "AVAILABLE_ARTIFACTS",
-    "BMT_RUNNERS_PRESEEDED_IN_GCS",
-    "BMT_SKIP_PUBLISH_RUNNERS",
-    "DISPATCH_HEAD_SHA",
-    "DISPATCH_PR_NUMBER",
-    "FAILURE_REASON",
-    "FILTERED_MATRIX",
-    "GITHUB_REPOSITORY",
-    "GITHUB_RUN_ID",
-    "GITHUB_SERVER_URL",
-    "HANDSHAKE_OK",
-    "HEAD_BRANCH",
-    "HEAD_SHA",
-    "MODE",
-    "ORCH_HANDSHAKE_OK",
-    "ORCH_HAS_LEGS",
-    "PREPARE_HEAD_SHA",
-    "PREPARE_PR_NUMBER",
-    "PREPARE_RESULT",
-    "PR_NUMBER",
-    "REPOSITORY",
-    "RUNNER_MATRIX",
-    "TARGET_URL",
-)
+
+
+def workflow_field_to_env_var(field_name: str) -> str:
+    """Map :class:`WorkflowContext` field name to GitHub Actions env var (UPPER_SNAKE)."""
+    return "_".join(part.upper() for part in field_name.split("_"))
+
+
+def workflow_context_env_keys() -> frozenset[str]:
+    """Env vars that populate :class:`WorkflowContext` — derived from the model (SSOT)."""
+    return frozenset(workflow_field_to_env_var(name) for name in WorkflowContext.model_fields)
 
 
 class BmtConfig(BaseSettings):
@@ -171,7 +156,7 @@ def context_from_env(runtime: Mapping[str, str] | None = None) -> BmtContext:
     env = dict(runtime) if runtime is not None else dict(os.environ)
     workflow_data = {
         env_key.lower(): str(env[env_key]).strip()
-        for env_key in _WORKFLOW_CONTEXT_ENV_KEYS
+        for env_key in workflow_context_env_keys()
         if str(env.get(env_key, "")).strip()
     }
     workflow = WorkflowContext.model_validate(workflow_data) if workflow_data else None
@@ -190,8 +175,8 @@ def load_context_from_file(path: Path | str) -> BmtContext | None:
         return None
     try:
         return BmtContext.model_validate(payload)
-    except Exception:
-        return None
+    except ValidationError as exc:
+        raise RuntimeError(f"Invalid BMT context file {context_path}: {exc}") from exc
 
 
 def write_context_to_file(path: Path | str, context: BmtContext) -> None:

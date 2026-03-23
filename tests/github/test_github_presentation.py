@@ -10,6 +10,9 @@ from gcp.image.github.presentation import (
     LiveLinks,
     ProgressBmtRow,
     StartedCommentView,
+    how_to_read_this_run_markdown,
+    multi_leg_score_scope_markdown,
+    run_context_blurb_markdown,
     render_final_check_output,
     render_final_pr_comment,
     render_progress_check_output,
@@ -108,10 +111,90 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     assert "- Elapsed: `2m 5s`" in output["summary"]
     assert "- ETA: `5m 0s`" in output["summary"]
     assert "| Project |" not in output["summary"]
+    assert "context note" in output["summary"].lower()
     text = output["text"]
-    assert "| Project | BMT | Status | Score | Cases | Duration |" in text
+    assert "| Project | BMT | Status | Avg. | Tests | Duration |" in text
     assert "| sk | false_rejects | Complete | 12.34 | — | 1m 1s |" in text
     assert "| sk | false_alarms | Running | — | — | — |" in text
+
+
+def test_render_final_check_output_includes_score_scope_when_multiple_legs() -> None:
+    output = render_final_check_output(
+        CheckFinalView(
+            state="success",
+            links=LiveLinks(workflow_execution_url="https://example.test/wf"),
+            bmts=[
+                FinalBmtRow(
+                    project="sk",
+                    bmt="false_rejects",
+                    status="pass",
+                    aggregate_score=10.0,
+                    reason_code="bootstrap_without_baseline",
+                    duration_sec=1,
+                ),
+                FinalBmtRow(
+                    project="sk",
+                    bmt="false_alarms",
+                    status="pass",
+                    aggregate_score=2.0,
+                    reason_code="bootstrap_without_baseline",
+                    duration_sec=2,
+                ),
+            ],
+        )
+    )
+    assert "Each BMT row stands alone" in output["text"]
+    assert "separate" in output["text"].lower()
+
+
+def test_multi_leg_score_scope_markdown_empty_for_single() -> None:
+    assert multi_leg_score_scope_markdown(1) == ""
+
+
+def test_run_context_blurb_includes_hints_from_scoring_policy() -> None:
+    md = run_context_blurb_markdown(
+        [
+            FinalBmtRow(
+                project="sk",
+                bmt="false_alarms",
+                status="pass",
+                aggregate_score=0.0,
+                reason_code="score_lte_last",
+                score_extra={
+                    "scoring_policy": {
+                        "score_direction_hint": "lower_better",
+                        "primary_metric": "namuh_count",
+                        "reporting_hints": {
+                            "success_in_words": "Zero false alarms is ideal here.",
+                            "metric_short_label": "false alarms per file (avg.)",
+                        },
+                    }
+                },
+            ),
+            FinalBmtRow(
+                project="sk",
+                bmt="false_rejects",
+                status="pass",
+                aggregate_score=99.0,
+                reason_code="score_gte_last",
+                score_extra={
+                    "scoring_policy": {
+                        "score_direction_hint": "higher_better",
+                        "primary_metric": "namuh_count",
+                        "reporting_hints": {
+                            "success_in_words": "Higher keyword hits are better.",
+                            "metric_short_label": "hits per file (avg.)",
+                        },
+                    }
+                },
+            ),
+        ]
+    )
+    assert "Each BMT row stands alone" in md
+    assert "`sk` / `false_alarms`" in md
+    assert "Zero false alarms is ideal here." in md
+    assert "`sk` / `false_rejects`" in md
+    assert "Higher keyword hits are better." in md
 
 
 def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
@@ -130,7 +213,7 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
                     aggregate_score=41.25,
                     reason_code="score_below_last",
                     duration_sec=65,
-                    cases_detail="22/24 ok",
+                    cases_detail="22/24 passed",
                 ),
                 FinalBmtRow(
                     project="sk",
@@ -139,7 +222,7 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
                     aggregate_score=56.8,
                     reason_code="score_gte_last",
                     duration_sec=59,
-                    cases_detail="30/30 ok",
+                    cases_detail="30/30 passed",
                 ),
             ],
         )
@@ -152,9 +235,9 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
     assert "### Failure summary" in output["summary"]
     assert "- `false_rejects`: score dropped below baseline" in output["summary"]
     text = output["text"]
-    assert "| Project | BMT | Status | Score | Cases | Reason | Duration |" in text
-    assert "| sk | false_rejects | FAIL | 41.25 | 22/24 ok | score dropped below baseline | 1m 5s |" in text
-    assert "| sk | false_alarms | PASS | 56.80 | 30/30 ok | score met or exceeded baseline | 59s |" in text
+    assert "| Project | BMT | Status | Avg. | Tests | Reason | Duration |" in text
+    assert "| sk | false_rejects | FAIL | 41.25 | 22/24 passed | score dropped below baseline | 1m 5s |" in text
+    assert "| sk | false_alarms | PASS | 56.80 | 30/30 passed | score met or exceeded baseline | 59s |" in text
 
 
 def test_render_final_check_output_unavailable_score_not_shown_as_numeric() -> None:
@@ -217,6 +300,71 @@ def test_human_reason_plugin_execute_failed() -> None:
     from gcp.image.github.presentation import human_reason
 
     assert "execute" in human_reason("plugin_execute_failed").lower()
+
+
+def test_render_final_check_output_per_case_failures_and_annotations() -> None:
+    output = render_final_check_output(
+        CheckFinalView(
+            state="failure",
+            links=LiveLinks(workflow_execution_url="https://example.test/wf"),
+            bmts=[
+                FinalBmtRow(
+                    project="sk",
+                    bmt="false_alarms",
+                    status="fail",
+                    aggregate_score=2.0,
+                    reason_code="runner_case_failures",
+                    duration_sec=10,
+                    cases_detail="5/6 passed",
+                    score_direction_label="lower better",
+                    case_outcomes=[
+                        {
+                            "case_id": "bad.wav",
+                            "status": "failed",
+                            "namuh_count": 0.0,
+                            "error": "runner_exit_139",
+                            "log_name": "bad.wav.log",
+                        },
+                    ],
+                ),
+            ],
+        )
+    )
+    assert "### Per-case failures" in output["text"]
+    assert "bad.wav" in output["text"]
+    assert "runner_exit_139" in output["text"]
+    assert "2.00 ↓" in output["text"]
+    assert "annotations" in output
+    assert output["annotations"][0]["path"].startswith("bmt/sk/false_alarms/")
+    assert output["annotations"][0]["annotation_level"] == "failure"
+
+
+def test_github_check_annotations_cap_at_50() -> None:
+    from gcp.image.github.presentation import (
+        MAX_GITHUB_CHECK_ANNOTATIONS,
+        github_check_annotations_from_final_rows,
+    )
+
+    many = [
+        {
+            "case_id": f"c{i}.wav",
+            "status": "failed",
+            "namuh_count": 0.0,
+            "error": "e",
+            "log_name": "",
+        }
+        for i in range(60)
+    ]
+    row = FinalBmtRow(
+        project="sk",
+        bmt="x",
+        status="fail",
+        aggregate_score=0.0,
+        reason_code="runner_case_failures",
+        case_outcomes=many,
+    )
+    ann = github_check_annotations_from_final_rows([row])
+    assert len(ann) == MAX_GITHUB_CHECK_ANNOTATIONS
 
 
 def test_human_reason_unknown_code_is_explicit() -> None:

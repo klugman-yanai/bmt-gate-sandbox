@@ -12,20 +12,44 @@ import httpx
 from gcp.image.config.constants import HTTP_TIMEOUT
 from gcp.image.github.github_auth import github_api_headers
 
+# GitHub REST API documents large max for check run output fields; stay under a safe UTF-8 byte cap.
+GITHUB_CHECK_OUTPUT_FIELD_MAX_BYTES = 65535
+
+
+def clamp_utf8_by_bytes(text: str, max_bytes: int = GITHUB_CHECK_OUTPUT_FIELD_MAX_BYTES) -> str:
+    """Truncate ``text`` so its UTF-8 encoding does not exceed ``max_bytes`` (valid Unicode suffix)."""
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    truncated = raw[:max_bytes]
+    while truncated:
+        try:
+            return truncated.decode("utf-8")
+        except UnicodeDecodeError:
+            truncated = truncated[:-1]
+    return ""
+
 
 class CheckRunOutput(TypedDict):
-    """GitHub Checks API ``output`` object (``text`` is optional)."""
+    """GitHub Checks API ``output`` object (``text`` and ``annotations`` optional)."""
 
     title: str
     summary: str
     text: NotRequired[str]
+    annotations: NotRequired[list[dict[str, Any]]]
 
 
 def _normalize_check_output(output: CheckRunOutput | dict[str, Any]) -> dict[str, Any]:
-    """Omit empty optional ``text``; GitHub accepts title + summary only."""
+    """Omit empty optional ``text`` / ``annotations``; GitHub accepts title + summary only."""
     out = {k: v for k, v in output.items() if v is not None}
+    if isinstance(out.get("summary"), str):
+        out["summary"] = clamp_utf8_by_bytes(out["summary"])
+    if isinstance(out.get("text"), str):
+        out["text"] = clamp_utf8_by_bytes(out["text"])
     if out.get("text") == "":
         out.pop("text", None)
+    if not out.get("annotations"):
+        out.pop("annotations", None)
     return out
 
 

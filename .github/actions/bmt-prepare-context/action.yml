@@ -118,4 +118,4 @@ runs:
       env:
         BMT_OUTPUT_FORMAT: bmt
         BMT_OUTPUT_KEY: runner_matrix
-      run: uv run bmt parse-release-runners
+      run: uv run bmt matrix parse-release-runners

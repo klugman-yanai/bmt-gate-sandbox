@@ -20,8 +20,7 @@ pytestmark = pytest.mark.integration
 
 
 def _run(
-    cmd: str,
-    *,
+    *cmd: str,
     repo_root: Path,
     env: dict[str, str] | None = None,
     check: bool = True,
@@ -30,7 +29,7 @@ def _run(
     if env:
         full_env.update(env)
     return subprocess.run(
-        ["uv", "run", "bmt", cmd],
+        ["uv", "run", "bmt", *cmd],
         check=check,
         capture_output=True,
         text=True,
@@ -43,6 +42,7 @@ def test_matrix_command_runs(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     result = _run(
         "matrix",
+        "build",
         repo_root=repo_root,
         env={"GITHUB_OUTPUT": str(github_output)},
     )
@@ -57,6 +57,7 @@ def test_matrix_command_ignores_unrelated_env(repo_root: Path, tmp_path: Path) -
     github_output = tmp_path / "github_output.txt"
     result = _run(
         "matrix",
+        "build",
         repo_root=repo_root,
         env={"UNRELATED_FILTER": "sk", "GITHUB_OUTPUT": str(github_output)},
     )
@@ -71,7 +72,8 @@ def test_filter_supported_matrix_success(repo_root: Path, tmp_path: Path) -> Non
     runner_matrix = {"include": [{"project": "sk"}, {"project": "missing"}]}
     full_matrix = {"include": [{"project": "sk", "bmt_id": "sk-bmt"}]}
     result = _run(
-        "filter-supported-matrix",
+        "matrix",
+        "filter-supported",
         repo_root=repo_root,
         env={
             "GITHUB_OUTPUT": str(github_output),
@@ -92,7 +94,8 @@ def test_filter_supported_matrix_fails_when_no_uploaded_supported_projects(repo_
     runner_matrix = {"include": [{"project": "sk"}]}
     full_matrix = {"include": [{"project": "sk", "bmt_id": "sk-bmt"}]}
     result = _run(
-        "filter-supported-matrix",
+        "matrix",
+        "filter-supported",
         repo_root=repo_root,
         env={
             "GITHUB_OUTPUT": str(github_output),
@@ -109,6 +112,7 @@ def test_filter_supported_matrix_fails_when_no_uploaded_supported_projects(repo_
 def test_matrix_command_fails_without_github_output(repo_root: Path) -> None:
     result = _run(
         "matrix",
+        "build",
         repo_root=repo_root,
         env={"GITHUB_OUTPUT": ""},
         check=False,
@@ -121,6 +125,7 @@ def test_matrix_command_fails_with_invalid_presets_file(repo_root: Path, tmp_pat
     github_output = tmp_path / "github_output.txt"
     result = _run(
         "matrix",
+        "build",
         repo_root=repo_root,
         env={"BMT_PRESETS_FILE": "/nonexistent/path", "GITHUB_OUTPUT": str(github_output)},
         check=False,
@@ -128,24 +133,16 @@ def test_matrix_command_fails_with_invalid_presets_file(repo_root: Path, tmp_pat
     assert result.returncode != 0
 
 
-def test_all_commands_are_registered(repo_root: Path) -> None:
-    result = _run("nonexistent-command", repo_root=repo_root, check=False)
-    assert result.returncode != 0
-    expected_commands = [
-        "matrix",
-        "filter-supported-matrix",
-        "parse-release-runners",
-        "invoke-workflow",
-        "upload-runner",
-        "write-context",
-        "resolve-failure-context",
-    ]
-    for cmd in expected_commands:
-        assert cmd in result.stderr, f"Command '{cmd}' not listed in usage output"
+def test_help_lists_command_groups(repo_root: Path) -> None:
+    result = _run("--help", repo_root=repo_root)
+    assert result.returncode == 0
+    out = result.stdout + result.stderr
+    for name in ("matrix", "runner", "handoff", "dispatch", "preset", "meta"):
+        assert name in out, f"Expected Typer group {name!r} in help"
 
 
 def test_unknown_command_fails(repo_root: Path) -> None:
-    result = _run("nonexistent-command", repo_root=repo_root, check=False)
+    result = _run("not-a-registered-group", repo_root=repo_root, check=False)
     assert result.returncode != 0
 
 
@@ -153,6 +150,7 @@ def test_matrix_output_is_valid_json(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     _run(
         "matrix",
+        "build",
         repo_root=repo_root,
         env={"GITHUB_OUTPUT": str(github_output)},
     )
@@ -163,7 +161,8 @@ def test_matrix_output_is_valid_json(repo_root: Path, tmp_path: Path) -> None:
 
 def test_upload_runner_fails_without_required_env(repo_root: Path) -> None:
     result = _run(
-        "upload-runner",
+        "runner",
+        "upload",
         repo_root=repo_root,
         env={"GCS_BUCKET": "", "PROJECT": "", "PRESET": ""},
         check=False,

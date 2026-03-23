@@ -120,6 +120,19 @@ class ReportingMetadata(BaseModel):
     check_run_id: int | None = None
     started_at: str = ""
 
+    def has_check_run_and_details_url(self) -> bool:
+        """True when GitHub check run exists and workflow console URL is persisted."""
+        return self.check_run_id is not None and bool(self.workflow_execution_url.strip())
+
+    def started_at_iso_or_none(self) -> str | None:
+        """Non-empty ``started_at`` after strip, or ``None``."""
+        t = (self.started_at or "").strip()
+        return t or None
+
+    def needs_started_at_backfill(self) -> bool:
+        """Ready for progress updates but missing wall-clock start (legacy / partial writes)."""
+        return self.has_check_run_and_details_url() and self.started_at_iso_or_none() is None
+
 
 class ProgressRecord(BaseModel):
     project: str

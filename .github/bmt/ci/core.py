@@ -9,7 +9,9 @@ from typing import Any
 
 import gcp.image.config.constants as _bmt_constants
 from gcp.image.config.decisions import GateDecision
-from gcp.image.config.value_types import sanitize_run_id as sanitize_run_id  # noqa: F811 — re-export
+from gcp.image.config.value_types import (
+    sanitize_run_id as sanitize_run_id,  # noqa: F811 — re-export
+)
 
 # Re-export gate decision strings for `from ci.core import DECISION_*` (tests, callers).
 DECISION_ACCEPTED = _bmt_constants.DECISION_ACCEPTED

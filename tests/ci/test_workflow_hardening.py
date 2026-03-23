@@ -30,7 +30,7 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
     trigger_ci = (repo_root() / ".github" / "workflows" / "ops" / "trigger-ci.yml").read_text(encoding="utf-8")
 
-    assert "confirm_cloud_job_start:" in handoff
+    assert "start_bmt_workflow:" in handoff
     assert "statuses: write" in handoff
     assert "      contents: read" in handoff
     assert "      actions: write" not in handoff

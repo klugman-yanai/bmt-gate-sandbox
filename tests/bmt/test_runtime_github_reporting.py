@@ -9,6 +9,7 @@ from gcp.image.config.value_types import as_results_path
 from gcp.image.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView
 from gcp.image.runtime.artifacts import write_progress, write_reporting_metadata, write_summary
 from gcp.image.runtime.github_reporting import (
+    _elapsed_seconds,
     ensure_reporting_metadata_for_plan,
     publish_final_results,
     publish_progress,
@@ -365,6 +366,74 @@ def test_ensure_reporting_metadata_for_plan_skips_when_already_complete(tmp_path
     ensure_reporting_metadata_for_plan(plan=plan, runtime=runtime)
 
     assert not cap.create_called
+
+
+def test_ensure_reporting_metadata_backfills_started_at_when_complete_but_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=99,
+            started_at="",
+        ),
+    )
+    cap = CallRecorder()
+    cap.create_called = False
+
+    class FakeReporter:
+        def create_started_check_run(self, *args: object, **kwargs: object) -> int:
+            cap.create_called = True
+            return 1
+
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
+
+    ensure_reporting_metadata_for_plan(plan=plan, runtime=runtime)
+
+    assert not cap.create_called
+    path = runtime.stage_root / "triggers" / "reporting" / "wf-123.json"
+    meta = ReportingMetadata.model_validate_json(path.read_text(encoding="utf-8"))
+    assert meta.started_at
+
+
+def test_elapsed_seconds_uses_progress_when_reporting_started_at_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True)
+    wid = "wf-123"
+    prog = tmp_path / "stage" / "triggers" / "progress" / wid
+    prog.mkdir(parents=True)
+    (prog / "sk-false_rejects.json").write_text(
+        ProgressRecord(
+            project="sk",
+            bmt_slug="false_rejects",
+            status="running",
+            started_at="2020-01-01T00:00:00Z",
+            updated_at="2020-01-01T00:00:01Z",
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=wid,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/wf",
+            check_run_id=1,
+            started_at="",
+        ),
+    )
+    import whenever
+
+    fixed_now = whenever.Instant.parse_iso("2020-01-01T01:00:00Z")
+    monkeypatch.setattr("gcp.image.runtime.github_reporting._instant_now", lambda: fixed_now)
+    assert _elapsed_seconds(runtime=runtime, workflow_run_id=wid) == 3600
 
 
 def test_ensure_reporting_metadata_for_plan_creates_check_and_writes_file(tmp_path: Path, monkeypatch) -> None:

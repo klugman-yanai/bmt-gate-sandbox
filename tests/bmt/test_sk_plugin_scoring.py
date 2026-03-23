@@ -50,6 +50,15 @@ def _make_context(*, comparison: str = "lte", tolerance: float = 0.25):
     return ctx
 
 
+def test_lte_plugin_config_yields_lower_better_direction() -> None:
+    plugin = _make_plugin()
+    result = _exec_result(_case("a.wav", 1))
+    score = plugin.score(result, None, _make_context(comparison="lte"))
+    assert score.extra["scoring_policy"]["score_direction_hint"] == "lower_better"
+    verdict = plugin.evaluate(score, None, _make_context(comparison="lte"))
+    assert verdict.summary.get("score_direction_label") == "lower better"
+
+
 class TestScoreAggregation:
     def test_all_ok_cases_average_correctly(self) -> None:
         plugin = _make_plugin()
@@ -59,6 +68,10 @@ class TestScoreAggregation:
         assert score.metrics["case_count"] == 2
         assert score.metrics["cases_ok"] == 2
         assert score.metrics["cases_failed"] == 0
+        assert len(score.metrics["case_outcomes"]) == 2
+        assert score.extra["scoring_policy"]["reducer"] == "mean_ok_cases"
+        assert score.extra["scoring_policy"]["schema_version"] == "2"
+        assert score.extra["scoring_policy"]["score_direction_hint"] == "lower_better"
 
     def test_failed_cases_excluded_from_average(self) -> None:
         plugin = _make_plugin()
@@ -74,6 +87,8 @@ class TestScoreAggregation:
         assert score.metrics["cases_ok"] == 2
         assert score.metrics["cases_failed"] == 1
         assert score.metrics["cases_failed_ids"] == ["b.wav"]
+        outcomes = score.metrics["case_outcomes"]
+        assert any(o["case_id"] == "b.wav" and o["status"] == "failed" for o in outcomes)
 
     def test_all_cases_failed_score_is_zero(self) -> None:
         plugin = _make_plugin()

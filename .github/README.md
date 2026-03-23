@@ -13,13 +13,13 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 | **`workflows/ops/trigger-image-build.yml`** | Trigger image build |
 | **`workflows/clang-format-auto-fix.yml`** | Formatting automation |
 
-**BMT CLI:** `uv run bmt …` — package under **`bmt/`** (`ci/`, `config/`).
+**BMT CLI:** `uv run bmt …` — package under **[`.github/bmt/`](bmt/)** (`ci/`, `config/`). See [`bmt/README.md`](bmt/README.md) for install name `bmt` vs import package `ci`.
 
 ## Production deliverables (Kardome-org/core-main, dev branch)
 
 **core-main** already has `build-and-test.yml`, `clang-format-auto-fix.yml`, and a deprecated `code-owner-enforcement.yml` (must remain). To add the BMT gate to production you only need:
 
-1. **Modifications to `build-and-test.yml`** — BMT-related jobs (e.g. decide-bmt, bmt calling handoff).
+1. **Modifications to `build-and-test.yml`** — BMT-related jobs (e.g. `evaluate_bmt_gate`, `bmt_handoff` calling handoff).
 2. **`bmt-handoff.yml`** — Reusable workflow invoked by build-and-test for the BMT gate.
 
 **All other workflow files in this repo are for bmt-gcloud testing only** and are not part of the production set: `ops/*` (trigger-ci, trigger-image-build, bmt-image-build), `clang-format-auto-fix.yml`, etc. Do not add them to core-main.
@@ -33,7 +33,7 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 - **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
 - **Check image up to date** — Composite action `check-image-up-to-date` defaults to workflow `ops/bmt-image-build.yml` (input `image_build_workflow`). Override with `bmt-image-build.yml` if your layout keeps that file at the repo root (e.g. core-main). It fails when `infra/packer` or `gcp/image` change but no successful image build run exists for the ref.
 - **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.CLOUD_RUN_REGION`, and the Workflow / job names exported by Pulumi. These must be set in core-main (or the org).
-- **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `build-release` (gates BMT), `build-nonrelease` (parallel), `decide-bmt` → `bmt`. In core-main the same graph applies with real builds.
+- **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `build_release` (gates BMT), `build_non_release` (parallel), `evaluate_bmt_gate` → `bmt_handoff`. In core-main the same graph applies with real builds.
 
 **For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `gcp/image` for the fallback constant; set the repo vars; and either add `bmt-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
 
@@ -41,7 +41,7 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 - **workflows/** — **`build-and-test.yml`** (main CI; structure aligned with core-main), **`bmt-handoff.yml`** (BMT handoff, called by build-and-test). **Test-only (not for core-main):** **`ops/`** — trigger-ci, trigger-image-build, bmt-image-build; **`clang-format-auto-fix.yml`**.
 - **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
-- **bmt/** — BMT CLI (`uv run bmt …`) and config used by workflows
+- **`.github/bmt/`** — BMT CLI (`uv run bmt …`) and config used by workflows ([`README.md`](bmt/README.md))
 
 ## Which workflow runs CI?
 
@@ -72,11 +72,10 @@ Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `pe
 
 ## Optional CODEOWNERS
 
-To require review for workflow edits, add a `.github/CODEOWNERS` rule (for example `/.github/workflows/ @your-org/infra-team`). This repo does not ship a team-specific file; set owners to match your org.
+To require review for specific paths (e.g. workflows or `gcp/image/`), add a `.github/CODEOWNERS` file and enable **Require review from Code Owners** on protected branches. See [About code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
 
 ## Auth boundaries
 
 - **WIF + service account** authenticate workflow jobs to GCP.
 - **github.token / GITHUB_TOKEN** is only used in workflow paths that call GitHub APIs directly (for example gh workflow run, gh variable set, or fallback status posting).
 - **GitHub App credentials** are runtime-only and are loaded by the **Cloud Run** runtime after dispatch; they are not part of the reusable workflow contract.
-

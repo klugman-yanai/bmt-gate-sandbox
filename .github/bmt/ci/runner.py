@@ -13,25 +13,12 @@ from whenever import Instant
 
 from ci import config, core, gcs
 from ci.actions import gh_notice, gh_warning, write_github_output
-
-_SLSA_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
-_SLSA_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
-_SLSA_BUILD_TYPE = "https://kardome.com/bmt/runner-upload/v1"
-
-
-def _ctx_str(w: Any, attr: str, env_var: str, default: str = "") -> str:
-    if w is not None:
-        return (getattr(w, attr, None) or default).strip()
-    return (os.environ.get(env_var) or default).strip()
+from ci.config import BmtConfig, BmtContext, WorkflowContext
+from ci.runner_provenance import write_runner_provenance
+from ci.workflow_env import read_workflow_str
 
 
 def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any] | None:
-    """Return runner meta dict if found in GCS; else None.
-
-    Actual path (VM bmt_jobs, stage sync): projects/{project}/ with runner at
-    projects/sk/kardome_runner and meta at projects/sk/runner_meta.json or
-    projects/sk/runner_latest_meta.json.
-    """
     for name in ("runner_meta.json", "runner_latest_meta.json"):
         payload, _ = gcs.download_json(f"{root}/projects/{project}/{name}")
         if isinstance(payload, dict):
@@ -47,70 +34,8 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _write_runner_provenance(
-    bucket: str,
-    root: str,
-    dest_prefix: str,
-    local_files: list[dict[str, Any]],
-    source_ref: str,
-    project: str,
-    preset: str,
-) -> None:
-    now = Instant.now().format_iso(unit="second")
-    run_id = os.environ.get("GITHUB_RUN_ID", "")
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
-    git_sha = os.environ.get("GITHUB_SHA", "")
-    builder_id = (
-        f"https://github.com/{repository}/.github/workflows/build-and-test.yml"
-        if repository
-        else _SLSA_BUILD_TYPE
-    )
-    provenance = {
-        "_type": _SLSA_STATEMENT_TYPE,
-        "subject": [
-            {"name": f"{root}/{dest_prefix}/{r['name']}", "digest": {"sha256": str(r["sha256"])}}
-            for r in local_files
-        ],
-        "predicateType": _SLSA_PREDICATE_TYPE,
-        "predicate": {
-            "buildDefinition": {
-                "buildType": _SLSA_BUILD_TYPE,
-                "externalParameters": {
-                    "source_ref": source_ref,
-                    "project": project,
-                    "preset": preset,
-                },
-                "resolvedDependencies": [
-                    {"uri": f"https://github.com/{repository}", "digest": {"gitCommit": git_sha}}
-                ]
-                if git_sha
-                else [],
-            },
-            "runDetails": {
-                "builder": {"id": builder_id},
-                "metadata": {
-                    "invocationId": run_id,
-                    "startedOn": now,
-                    "finishedOn": now,
-                    "github_repository": repository,
-                    "github_run_id": run_id,
-                    "gcs_bucket": bucket,
-                    "dest_prefix": dest_prefix,
-                },
-            },
-        },
-    }
-    dest = f"{root}/{dest_prefix}/runner.slsa.json"
-    try:
-        gcs.write_object(dest, json.dumps(provenance, indent=2) + "\n")
-    except gcs.GcsError as exc:
-        print(f"::warning::Failed to upload runner provenance: {exc}")
-        return
-    print(f"Uploaded runner provenance (SLSA v1.0) -> {dest}")
-
-
 class RunnerManager:
-    def __init__(self, cfg: Any, ctx: Any) -> None:
+    def __init__(self, cfg: BmtConfig, ctx: BmtContext | None) -> None:
         self._cfg = cfg
         self._ctx = ctx
 
@@ -118,13 +43,15 @@ class RunnerManager:
     def from_env(cls) -> RunnerManager:
         return cls(config.get_config(), config.get_context())
 
+    def _w(self) -> WorkflowContext | None:
+        return self._ctx.workflow if self._ctx else None
+
     def validate_in_repo(self) -> None:
         project = core.require_env("PROJECT")
         preset = core.require_env("PRESET")
         run_id = core.workflow_run_id()
         root = core.workflow_runtime_root()
         canonical_runner_uri = f"{root}/projects/{project}/kardome_runner"
-        # Preferred source of truth for handoff support: runtime bucket content.
         try:
             exists = gcs.object_exists(canonical_runner_uri)
         except gcs.GcsError as exc:
@@ -135,7 +62,6 @@ class RunnerManager:
                 f"::notice::Requested runner exists in bucket: {canonical_runner_uri} (validated for handoff)."
             )
         else:
-            # Backward-compatible local fallbacks for older layouts.
             local_candidates = (
                 Path("gcp/stage") / project / "runners" / preset / "kardome_runner",
                 Path("gcp/stage/projects") / project / "kardome_runner",
@@ -161,8 +87,8 @@ class RunnerManager:
         print(f"Marked project {project} as validated for handoff -> {marker_uri}")
 
     def filter_upload_matrix(self) -> None:
-        w = self._ctx.workflow if self._ctx else None
-        skip_publish = _ctx_str(
+        w = self._w()
+        skip_publish = read_workflow_str(
             w, "bmt_skip_publish_runners", "BMT_SKIP_PUBLISH_RUNNERS"
         ).lower() in ("1", "true", "yes")
         if skip_publish:
@@ -175,13 +101,17 @@ class RunnerManager:
                 "::notice::Filter upload matrix: BMT_SKIP_PUBLISH_RUNNERS=true — no publish jobs (runners assumed in bucket)."
             )
             return
-        runner_matrix_raw = _ctx_str(w, "runner_matrix", "RUNNER_MATRIX")
-        head_sha = _ctx_str(w, "head_sha", "HEAD_SHA")
-        preseeded = _ctx_str(
+        runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
+        head_sha = read_workflow_str(w, "head_sha", "HEAD_SHA")
+        preseeded = read_workflow_str(
             w, "bmt_runners_preseeded_in_gcs", "BMT_RUNNERS_PRESEEDED_IN_GCS"
         ).lower() in ("1", "true", "yes")
-        available_artifacts_raw = _ctx_str(w, "available_artifacts", "AVAILABLE_ARTIFACTS", "[]")
-        github_run_id = _ctx_str(w, "github_run_id", "GITHUB_RUN_ID") or core.workflow_run_id()
+        available_artifacts_raw = read_workflow_str(
+            w, "available_artifacts", "AVAILABLE_ARTIFACTS", "[]"
+        )
+        github_run_id = (
+            read_workflow_str(w, "github_run_id", "GITHUB_RUN_ID") or core.workflow_run_id()
+        )
         if not runner_matrix_raw or not head_sha:
             raise RuntimeError("RUNNER_MATRIX and HEAD_SHA are required")
         matrix = json.loads(runner_matrix_raw)
@@ -265,7 +195,6 @@ class RunnerManager:
         if lib_dir is not None and not lib_dir.is_dir():
             lib_dir = None
         root = core.bucket_root_uri(bucket)
-        # Match VM bmt_jobs: runner at projects/sk/kardome_runner, meta at projects/sk/
         dest_prefix = f"projects/{project}"
         meta_dest = f"{root}/{dest_prefix}/runner_meta.json"
         runner_binary = runner_dir / "kardome_runner"
@@ -324,7 +253,7 @@ class RunnerManager:
             print(
                 f"Runner upload skipped: no content changes for {project}/{preset} ({', '.join(skipped) if skipped else 'none'})"
             )
-            _write_runner_provenance(
+            write_runner_provenance(
                 bucket, root, dest_prefix, local_files, source_ref, project, preset
             )
             return
@@ -345,9 +274,7 @@ class RunnerManager:
         except gcs.GcsError as exc:
             raise RuntimeError(f"Failed to upload runner_meta.json: {exc}") from exc
         print(f"Uploaded runner_meta.json -> {meta_dest}")
-        _write_runner_provenance(
-            bucket, root, dest_prefix, local_files, source_ref, project, preset
-        )
+        write_runner_provenance(bucket, root, dest_prefix, local_files, source_ref, project, preset)
         print(f"Runner upload complete: {len(uploaded)} changed file(s) for {project}/{preset}")
 
     def upload_runner_to_gcs(self) -> None:
@@ -365,8 +292,8 @@ class RunnerManager:
         uploaded_projects = {
             u.split("/")[-1].replace(".json", "").strip() for u in uris if u.endswith(".json")
         }
-        w = self._ctx.workflow if self._ctx else None
-        runner_matrix_raw = _ctx_str(w, "runner_matrix", "RUNNER_MATRIX")
+        w = self._w()
+        runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
         if runner_matrix_raw:
             try:
                 runner_matrix = json.loads(runner_matrix_raw)
@@ -392,13 +319,13 @@ class RunnerManager:
         gh_notice(f"Runners uploaded for projects: {accepted}")
 
     def summarize_matrix_handshake(self) -> None:
-        w = self._ctx.workflow if self._ctx else None
-        runner_matrix_raw = _ctx_str(w, "runner_matrix", "RUNNER_MATRIX", "{}")
-        filtered_raw = _ctx_str(w, "filtered_matrix", "FILTERED_MATRIX", "{}")
+        w = self._w()
+        runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX", "{}")
+        filtered_raw = read_workflow_str(w, "filtered_matrix", "FILTERED_MATRIX", "{}")
         if not runner_matrix_raw or not filtered_raw:
             raise RuntimeError("RUNNER_MATRIX and FILTERED_MATRIX are required")
         json.loads(runner_matrix_raw)
-        accepted_raw = _ctx_str(w, "accepted", "ACCEPTED", "[]")
+        accepted_raw = read_workflow_str(w, "accepted", "ACCEPTED", "[]")
         accepted = json.loads(accepted_raw)
         filtered_matrix = json.loads(filtered_raw)
         bmt_jobs = sorted(

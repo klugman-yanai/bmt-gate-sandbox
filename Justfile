@@ -23,7 +23,9 @@ help:
       '  just typecheck-section <name>     One ty section: ci | runtime | infra | tools | tests | stage' \
       '  just image                          Build and push the Cloud Run image' \
       '  just show-env                       Print the resolved repo/runtime env contract' \
-      '  just doctor                         Optional env-related vulture + pylint duplicate-code (not in `just test`)'
+      '  just doctor                         Optional env-related vulture + pylint duplicate-code (not in `just test`)' \
+      '' \
+      '  just ship                           Full gate: Rich UI; image skipped if no gcp/image git diff (use --force-image)'
 
 # -- Pre-push ---------------------------------------------------------------
 
@@ -63,6 +65,10 @@ typecheck-section name:
         exit 1
         ;;
     esac
+
+[group('pre-push')]
+ship *args:
+    uv run python -m tools ship {{ args }}
 
 [group('pre-push')]
 test:

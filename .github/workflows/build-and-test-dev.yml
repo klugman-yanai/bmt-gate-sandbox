@@ -1,7 +1,7 @@
 name: CI
 
 # Jobs/DAG: 4 jobs, no image-check (historical ref: archive layout in git history).
-# checkout_snapshot → build_release + build_non_release (parallel) → bmt_handoff.
+# repo_snapshot → build_release + build_non_release (parallel) → bmt_handoff.
 on:
   push:
     branches:
@@ -23,7 +23,7 @@ defaults:
   run:
     shell: bash
 
-# Artifact upload (checkout_snapshot) needs actions write.
+# Artifact upload (repo_snapshot) needs actions write.
 permissions:
   contents: read
   actions: read
@@ -33,7 +33,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checkout_snapshot:
+  repo_snapshot:
+    name: Snapshot
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -114,12 +115,13 @@ jobs:
   # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build_release:
-    needs: checkout_snapshot
+    name: Release
+    needs: repo_snapshot
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.checkout_snapshot.outputs.presets_release) }}
+        include: ${{ fromJson(needs.repo_snapshot.outputs.presets_release) }}
     steps:
       - name: Release build placeholder (bmt-gcloud)
         run: |
@@ -128,13 +130,14 @@ jobs:
   # Non-release builds: run in parallel; do not block BMT.
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build_non_release:
-    needs: checkout_snapshot
+    name: Non-Release
+    needs: repo_snapshot
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       max-parallel: 6
       matrix:
-        include: ${{ fromJson(needs.checkout_snapshot.outputs.presets_nonrelease) }}
+        include: ${{ fromJson(needs.repo_snapshot.outputs.presets_nonrelease) }}
     steps:
       - name: Non-release build placeholder (bmt-gcloud)
         run: |
@@ -142,6 +145,7 @@ jobs:
 
   # Node/DAG: 4 jobs, build_release → bmt_handoff.
   bmt_handoff:
+    name: Handoff
     needs: build_release
     if: >-
       success()

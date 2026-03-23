@@ -23,6 +23,11 @@ from gcp.image.runtime.sdk.results import (
     VerdictResult,
 )
 from gcp.image.runtime.stdout_counter_parse import StdoutCounterParseConfig
+from sk_plugin.sk_scoring_policy import (
+    aggregate_mean_ok_cases,
+    build_case_outcomes,
+    scoring_policy_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,15 @@ def _resolve_batch_results_file(workspace_root: Path, results_relpath: str) -> P
 class SkPlugin(BmtPlugin):
     plugin_name = "default"
     api_version = "v1"
+
+    @staticmethod
+    def _verdict_direction_fields(context: ExecutionContext) -> dict[str, Any]:
+        sp = scoring_policy_record(context.bmt_manifest.plugin_config)
+        return {
+            "comparison": sp["comparison"],
+            "score_direction_hint": sp["score_direction_hint"],
+            "score_direction_label": sp["score_direction_label"],
+        }
 
     def prepare(self, context: ExecutionContext) -> PreparedAssets:
         return PreparedAssets(
@@ -134,9 +148,13 @@ class SkPlugin(BmtPlugin):
     ) -> ScoreResult:
         ok_cases = [r for r in execution_result.case_results if r.status == "ok"]
         failed_cases = [r for r in execution_result.case_results if r.status != "ok"]
-        values = [r.metrics.get("namuh_count", 0.0) for r in ok_cases]
-        aggregate = sum(float(v) for v in values) / len(values) if values else 0.0
-        extra: dict[str, Any] = {"baseline_present": baseline is not None}
+        aggregate = aggregate_mean_ok_cases(execution_result.case_results)
+        case_outcomes = build_case_outcomes(execution_result.case_results)
+        policy = scoring_policy_record(context.bmt_manifest.plugin_config)
+        extra: dict[str, Any] = {
+            "baseline_present": baseline is not None,
+            "scoring_policy": policy,
+        }
         if execution_result.raw_summary.get("sk_plugin_execute_exception"):
             extra["sk_plugin_execute_exception"] = True
         return ScoreResult(
@@ -146,6 +164,7 @@ class SkPlugin(BmtPlugin):
                 "cases_ok": len(ok_cases),
                 "cases_failed": len(failed_cases),
                 "cases_failed_ids": [r.case_id for r in failed_cases],
+                "case_outcomes": case_outcomes,
             },
             extra=extra,
         )
@@ -159,6 +178,7 @@ class SkPlugin(BmtPlugin):
         comparison = str(context.bmt_manifest.plugin_config.get("comparison", "gte")).strip().lower()
         tolerance = float(context.bmt_manifest.plugin_config.get("tolerance_abs", 0.25) or 0.25)
 
+        direction = self._verdict_direction_fields(context)
         case_count = int(score_result.metrics.get("case_count", 0) or 0)
         if case_count == 0:
             return VerdictResult(
@@ -167,8 +187,8 @@ class SkPlugin(BmtPlugin):
                 reason_code="no_dataset_cases",
                 summary={
                     "aggregate_score": score_result.aggregate_score,
-                    "comparison": comparison,
                     "case_count": 0,
+                    **direction,
                 },
             )
 
@@ -180,9 +200,9 @@ class SkPlugin(BmtPlugin):
                 reason_code="plugin_execute_failed",
                 summary={
                     "aggregate_score": score_result.aggregate_score,
-                    "comparison": comparison,
                     "cases_failed": cases_failed,
                     "cases_failed_ids": score_result.metrics.get("cases_failed_ids", []),
+                    **direction,
                 },
             )
 
@@ -194,9 +214,9 @@ class SkPlugin(BmtPlugin):
                 reason_code="runner_case_failures",
                 summary={
                     "aggregate_score": score_result.aggregate_score,
-                    "comparison": comparison,
                     "cases_failed": cases_failed,
                     "cases_failed_ids": score_result.metrics.get("cases_failed_ids", []),
+                    **direction,
                 },
             )
 
@@ -207,8 +227,8 @@ class SkPlugin(BmtPlugin):
                 reason_code="bootstrap_without_baseline",
                 summary={
                     "aggregate_score": score_result.aggregate_score,
-                    "comparison": comparison,
                     "baseline_score": None,
+                    **direction,
                 },
             )
         if comparison == "lte":
@@ -222,8 +242,8 @@ class SkPlugin(BmtPlugin):
             summary={
                 "aggregate_score": score_result.aggregate_score,
                 "baseline_score": baseline.aggregate_score,
-                "comparison": comparison,
                 "tolerance_abs": tolerance,
+                **direction,
             },
         )
 

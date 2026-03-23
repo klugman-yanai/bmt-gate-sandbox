@@ -22,7 +22,8 @@ concurrency:
 
 jobs:
   # ─────────────────────── 1) Parse presets, split release / non-release ──
-  prepare-builds:
+  repo_snapshot:
+    name: Snapshot
     runs-on: ubuntu-22.04
     outputs:
       release_presets: ${{ steps.parse.outputs.release_presets }}
@@ -57,13 +58,14 @@ jobs:
           echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
 
   # ─────────────────────── 2a) Build release presets (gates BMT) ────────────
-  build-release:
-    needs: prepare-builds
+  build_release:
+    name: Release
+    needs: repo_snapshot
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.prepare-builds.outputs.release_presets) }}
+        include: ${{ fromJson(needs.repo_snapshot.outputs.release_presets) }}
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
@@ -163,13 +165,14 @@ jobs:
           df -h
 
   # ─────────────────────── 2b) Build non-release presets ───────────────────
-  build-non-release:
-    needs: prepare-builds
+  build_non_release:
+    name: Non-Release
+    needs: repo_snapshot
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.prepare-builds.outputs.non_release_presets) }}
+        include: ${{ fromJson(needs.repo_snapshot.outputs.non_release_presets) }}
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
@@ -274,15 +277,16 @@ jobs:
         run: rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx 2>/dev/null || true; df -h
 
   # ─────────────────────── 3) Decide whether to run BMT ────────────────────
-  decide-bmt:
-    needs: [build-release]
+  evaluate_bmt_gate:
+    name: Gate
+    needs: [build_release]
     runs-on: ubuntu-22.04
     outputs:
       run_bmt: ${{ steps.out.outputs.run_bmt }}
     steps:
       - id: out
         run: |
-          r="${{ needs.build-release.result }}"
+          r="${{ needs.build_release.result }}"
           same_repo="${{ github.event.pull_request.head.repo.full_name == github.repository }}"
           base_ref="${{ github.base_ref || github.ref_name }}"
           if [[ "$r" != "success" && "$r" != "skipped" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
@@ -291,9 +295,10 @@ jobs:
           echo "run_bmt=true" >> "$GITHUB_OUTPUT"
 
   # ─────────────────────── 4) BMT handoff (when release build ok, same repo, base=dev) ─
-  bmt:
-    needs: [decide-bmt]
-    if: needs.decide-bmt.outputs.run_bmt == 'true'
+  bmt_handoff:
+    name: Handoff
+    needs: [evaluate_bmt_gate]
+    if: needs.evaluate_bmt_gate.outputs.run_bmt == 'true'
     permissions:
       contents: read
       actions: read

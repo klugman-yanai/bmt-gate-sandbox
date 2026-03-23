@@ -93,12 +93,12 @@ def _project_set_from_include(payload: dict[str, Any], label: str) -> list[str]:
 
 
 class MatrixManager:
-    def __init__(self, _cfg: Any = None) -> None:
-        pass
-
     @classmethod
     def from_env(cls) -> MatrixManager:
         return cls()
+
+    def __init__(self) -> None:
+        pass
 
     def build(self) -> None:
         github_output = core.require_env("GITHUB_OUTPUT")

@@ -17,6 +17,7 @@ from gcp.image.config.constants import ENV_BMT_STATUS_CONTEXT, ENV_GCS_BUCKET, S
 from gcp.image.config.env_parse import is_truthy_env_value
 from gcp.image.runtime.artifacts import (
     aggregate_status,
+    case_digest_result_path,
     cleanup_ephemeral_triggers,
     latest_result_path,
     load_plan,
@@ -110,6 +111,22 @@ def _bucket_uri(relative_path: str) -> str:
     return f"gs://{bucket}/{relative_path.lstrip('/')}"
 
 
+def _case_digest_payload(summary: LegSummary) -> dict[str, object]:
+    """Structured per-case outcomes for ``case_digest.json`` (mirrors ``metrics.case_outcomes`` when present)."""
+    cases = summary.score.metrics.get("case_outcomes")
+    if not isinstance(cases, list):
+        cases = []
+    return {
+        "schema_version": 1,
+        "project": summary.project,
+        "bmt_slug": summary.bmt_slug,
+        "run_id": summary.run_id,
+        "execution_mode_used": summary.execution_mode_used,
+        "reason_code": summary.reason_code,
+        "cases": cases,
+    }
+
+
 def _workflow_request_from_env(*, workflow_run_id: str) -> WorkflowRequest:
     accepted_projects_raw = (os.environ.get("BMT_ACCEPTED_PROJECTS_JSON") or "[]").strip()
     try:
@@ -158,6 +175,7 @@ _VERDICT_FIELDS = frozenset(
         "aggregate_score",
         "metrics",
         "extra",
+        "case_digest_uri",
     }
 )
 
@@ -173,6 +191,12 @@ def _write_snapshot_artifacts(
     latest_relative = latest_result_path(leg)
     verdict_relative = verdict_result_path(leg)
     logs_relative = f"{leg.results_path}/snapshots/{leg.run_id}/logs"
+    digest_relative = case_digest_result_path(leg)
+    digest_path = runtime.stage_root / digest_relative
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    digest_path.write_text(json.dumps(_case_digest_payload(summary), indent=2) + "\n", encoding="utf-8")
+    case_digest_uri = _bucket_uri(digest_relative)
+
     latest_payload = {
         "project": summary.project,
         "bmt_slug": summary.bmt_slug,
@@ -188,6 +212,7 @@ def _write_snapshot_artifacts(
         "extra": summary.score.extra,
         "verdict_summary": summary.verdict_summary,
         "duration_sec": summary.duration_sec,
+        "case_digest_uri": case_digest_uri,
     }
     verdict_payload = {k: v for k, v in latest_payload.items() if k in _VERDICT_FIELDS}
     latest_path = runtime.stage_root / latest_relative
@@ -206,6 +231,7 @@ def _write_snapshot_artifacts(
             "ci_verdict_uri": _bucket_uri(verdict_relative),
             "summary_uri": _bucket_uri(summary_relative),
             "logs_uri": logs_relative,
+            "case_digest_uri": case_digest_uri,
         }
     )
 

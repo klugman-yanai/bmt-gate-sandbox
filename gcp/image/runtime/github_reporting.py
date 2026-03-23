@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import google.auth
 import httpx
@@ -30,22 +31,28 @@ from gcp.image.github.presentation import (
 from gcp.image.github.reporting import GitHubReporter
 from gcp.image.runtime.artifacts import (
     aggregate_status,
+    earliest_progress_started_at_iso,
     load_observed_duration_sec_from_latest_snapshot,
     load_optional_progress,
     load_optional_reporting_metadata,
     now_iso,
+    parse_optional_instant_iso,
     summary_path,
     write_reporting_metadata,
 )
-from gcp.image.runtime.models import ExecutionPlan, LegSummary, ReportingMetadata, StageRuntimePaths
+from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ReportingMetadata, StageRuntimePaths
 
 logger = logging.getLogger(__name__)
 
 
-def _reporting_metadata_fully_initialized(existing: ReportingMetadata | None) -> bool:
-    return bool(
-        existing and existing.check_run_id is not None and (existing.workflow_execution_url or "").strip()
-    )
+def _instant_now() -> whenever.Instant:
+    """Wall clock for ETA elapsed time; separated for tests."""
+    return whenever.Instant.now()
+
+
+def _backfill_started_at_iso(*, runtime: StageRuntimePaths, workflow_run_id: str) -> str:
+    """Prefer earliest leg progress start; fall back to wall clock now."""
+    return earliest_progress_started_at_iso(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id) or now_iso()
 
 
 def _merge_missing_workflow_url_only(
@@ -63,10 +70,13 @@ def _merge_missing_workflow_url_only(
         and not (existing.workflow_execution_url or "").strip()
     ):
         return False
+    updates: dict[str, object] = {"workflow_execution_url": workflow_url}
+    if existing.started_at_iso_or_none() is None:
+        updates["started_at"] = _backfill_started_at_iso(runtime=runtime, workflow_run_id=plan.workflow_run_id)
     write_reporting_metadata(
         stage_root=runtime.stage_root,
         workflow_run_id=plan.workflow_run_id,
-        metadata=existing.model_copy(update={"workflow_execution_url": workflow_url}),
+        metadata=existing.model_copy(update=updates),
     )
     return True
 
@@ -98,7 +108,15 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
     existing = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
     workflow_url = (os.environ.get(ENV_BMT_WORKFLOW_EXECUTION_URL) or "").strip()
 
-    if _reporting_metadata_fully_initialized(existing):
+    if existing is not None and existing.has_check_run_and_details_url():
+        if existing.needs_started_at_backfill():
+            write_reporting_metadata(
+                stage_root=runtime.stage_root,
+                workflow_run_id=plan.workflow_run_id,
+                metadata=existing.model_copy(
+                    update={"started_at": _backfill_started_at_iso(runtime=runtime, workflow_run_id=plan.workflow_run_id)}
+                ),
+            )
         return
     if _merge_missing_workflow_url_only(
         existing=existing, plan=plan, runtime=runtime, workflow_url=workflow_url
@@ -223,14 +241,16 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 plan.workflow_run_id,
             )
 
-    try:
-        reporter.post_final_status(
-            state=commit_state,
-            description=description,
-            details_url=workflow_url or None,
+    # Commit statuses API uses httpx without raise_for_status; rely on return value, not exceptions.
+    if not reporter.post_final_status(
+        state=commit_state,
+        description=description,
+        details_url=workflow_url or None,
+    ):
+        logger.warning(
+            "post_final_status returned failure (non-2xx or missing prerequisites) workflow_run_id=%s",
+            plan.workflow_run_id,
         )
-    except httpx.HTTPError:
-        logger.warning("post_final_status failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
     if not plan.pr_number.isdigit():
         return
@@ -269,6 +289,29 @@ def _load_reporter(
     )
 
 
+def _mean_positive_durations(durations: list[int]) -> int | None:
+    if not durations:
+        return None
+    return int(sum(durations) / len(durations))
+
+
+def _leg_eta_seconds(
+    *,
+    leg: PlanLeg,
+    row: ProgressBmtRow,
+    runtime: StageRuntimePaths,
+    fallback_sec: int | None,
+) -> int | None:
+    """Single-leg remaining-time estimate: current duration, snapshot history, or cohort average."""
+    d = row.duration_sec
+    if d is not None and d > 0:
+        return d
+    hist = load_observed_duration_sec_from_latest_snapshot(stage_root=runtime.stage_root, leg=leg)
+    if hist is not None and hist > 0:
+        return hist
+    return fallback_sec
+
+
 def _estimate_eta_sec_parallel(
     *,
     plan: ExecutionPlan,
@@ -279,31 +322,17 @@ def _estimate_eta_sec_parallel(
     """Parallel Cloud Run tasks finish when the slowest leg finishes: ETA ~ max(estimates) - elapsed."""
     if elapsed_sec is None or not plan.legs or len(rows) != len(plan.legs):
         return None
-    completed_positive: list[int] = []
-    for row in rows:
-        if row.duration_sec is not None and row.duration_sec > 0:
-            completed_positive.append(row.duration_sec)
-    fallback: int | None = None
-    if completed_positive:
-        fallback = int(sum(completed_positive) / len(completed_positive))
+    completed = [d for r in rows if (d := r.duration_sec) is not None and d > 0]
+    fallback = _mean_positive_durations(completed)
     per_leg_est: list[int] = []
     for leg, row in zip(plan.legs, rows, strict=True):
-        d = row.duration_sec
-        if d is not None and d > 0:
-            per_leg_est.append(d)
-            continue
-        hist = load_observed_duration_sec_from_latest_snapshot(stage_root=runtime.stage_root, leg=leg)
-        if hist is not None and hist > 0:
-            per_leg_est.append(hist)
-            continue
-        if fallback is not None:
-            per_leg_est.append(fallback)
-            continue
-        return None
+        est = _leg_eta_seconds(leg=leg, row=row, runtime=runtime, fallback_sec=fallback)
+        if est is None:
+            return None
+        per_leg_est.append(est)
     if not per_leg_est:
         return None
-    wall = max(per_leg_est)
-    return max(0, int(wall - elapsed_sec))
+    return max(0, int(max(per_leg_est) - elapsed_sec))
 
 
 def _progress_view(
@@ -324,6 +353,7 @@ def _progress_view(
                     aggregate_score=summary.score.aggregate_score,
                     execution_mode_used=summary.execution_mode_used,
                     cases_detail=_cases_detail_from_metrics(summary.score.metrics),
+                    score_direction_label=_score_direction_label_from_summary(summary),
                 )
             )
             completed_count += 1
@@ -361,7 +391,32 @@ def _cases_detail_from_metrics(metrics: dict[str, object]) -> str:
     case_count = metrics.get("case_count")
     if cases_ok is None or case_count is None:
         return ""
-    return f"{cases_ok}/{case_count} ok"
+    return f"{cases_ok}/{case_count} passed"
+
+
+def _score_direction_label_from_summary(summary: LegSummary) -> str:
+    """Prefer ``scoring_policy.score_direction_label``; fall back to verdict summary."""
+    extra = summary.score.extra
+    if isinstance(extra, dict):
+        sp = extra.get("scoring_policy")
+        if isinstance(sp, dict):
+            lab = sp.get("score_direction_label")
+            if isinstance(lab, str) and lab.strip():
+                return lab.strip()
+    vs = summary.verdict_summary
+    if isinstance(vs, dict):
+        lab = vs.get("score_direction_label")
+        if isinstance(lab, str) and lab.strip():
+            return lab.strip()
+    return ""
+
+
+def _case_outcomes_from_summary(summary: LegSummary) -> list[dict[str, Any]]:
+    """Per-case rows from ``metrics.case_outcomes`` (any plugin)."""
+    raw = summary.score.metrics.get("case_outcomes")
+    if not isinstance(raw, list):
+        return []
+    return [x for x in raw if isinstance(x, dict)]
 
 
 def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, str]]:
@@ -398,21 +453,35 @@ def _final_view(
                 execution_mode_used=summary.execution_mode_used,
                 cases_detail=_cases_detail_from_metrics(summary.score.metrics),
                 score_extra=dict(summary.score.extra),
+                score_direction_label=_score_direction_label_from_summary(summary),
+                case_outcomes=_case_outcomes_from_summary(summary),
             )
             for summary in summaries
         ],
     )
 
 
-def _elapsed_seconds(*, runtime: StageRuntimePaths, workflow_run_id: str) -> int | None:
+def _start_instants_for_elapsed(*, runtime: StageRuntimePaths, workflow_run_id: str) -> list[whenever.Instant]:
+    """Wall-clock start candidates: reporting metadata and earliest leg progress."""
     metadata = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
-    if metadata is None or not metadata.started_at:
+    raw_candidates = [
+        x
+        for x in (
+            metadata.started_at_iso_or_none() if metadata is not None else None,
+            earliest_progress_started_at_iso(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id),
+        )
+        if x is not None
+    ]
+    return [i for r in raw_candidates if (i := parse_optional_instant_iso(r)) is not None]
+
+
+def _elapsed_seconds(*, runtime: StageRuntimePaths, workflow_run_id: str) -> int | None:
+    """Wall time since run start for ETA (min of valid starts vs now)."""
+    starts = _start_instants_for_elapsed(runtime=runtime, workflow_run_id=workflow_run_id)
+    if not starts:
         return None
-    try:
-        started_at = whenever.Instant.parse_iso(metadata.started_at)
-    except ValueError:
-        return None
-    return max(0, int(whenever.Instant.now().timestamp() - started_at.timestamp()))
+    wall_start = min(starts, key=lambda i: i.timestamp())
+    return max(0, int(_instant_now().timestamp() - wall_start.timestamp()))
 
 
 def _resolved_logs_dir_under_stage(stage_root: Path, logs_uri: str) -> Path | None:
