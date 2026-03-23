@@ -141,6 +141,12 @@ def dispatch_invoke_workflow() -> None:
     WorkflowDispatchManager.from_env().invoke()
 
 
+@dispatch_app.command("cancel-pr-execution")
+def dispatch_cancel_pr_execution() -> None:
+    """Cancel active Google Workflow execution recorded for a PR."""
+    WorkflowDispatchManager.from_env().cancel_pr_execution()
+
+
 @preset_app.command("stage-release-runner")
 def preset_stage_release_runner() -> None:
     """Stage release runner paths for upload job."""

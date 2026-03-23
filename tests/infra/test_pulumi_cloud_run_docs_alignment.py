@@ -101,6 +101,9 @@ def test_pulumi_stack_keeps_job_overrides_role_and_secret_level_access() -> None
     main_py = (_REPO_ROOT / "infra" / "pulumi" / "__main__.py").read_text(encoding="utf-8")
 
     assert 'role="roles/run.jobsExecutorWithOverrides"' in main_py
+    assert '"github-wif-invokes-control-job"' in main_py
+    assert 'role="roles/workflows.editor"' in main_py
+    assert '"github-wif-workflow-editor"' in main_py
     assert 'role="roles/run.invoker"' not in main_py
     assert "gcp.eventarc.Trigger(" not in main_py
     assert "gcp.compute.Instance(" not in main_py

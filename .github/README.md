@@ -4,17 +4,18 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 ## Workflow matrix (this repo)
 
-Only **four** workflow YAML files live at **`.github/workflows/*.yml`**: **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. Everything else is under **`workflows/internal/`** (dev/ops tooling in this repo). The **release bundle** (`.github-release/`) mirrors that: three root YAMLs from `.github/workflows/` plus **`workflows/internal/`** populated from **`scripts/release_templates/workflows/`** (e.g. **`trigger-ci.yml`**, **`code-owner-enforcement.yml`**).
+Only **four** workflow YAML files live at **`.github/workflows/*.yml`**: **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. Everything else is under **`workflows/internal/`** (dev/ops tooling in this repo). The **release bundle** (`.github-release/`) ships root workflows from `.github/workflows/` (excluding `*-dev.yml`) plus **`workflows/internal/`** from **`scripts/release_templates/workflows/`** only (e.g. **`trigger-ci.yml`** for **core-main**, **`code-owner-enforcement.yml`**). The in-repo **`internal/trigger-ci.yml`** (dev thin trigger) is **not** copied into the bundle.
 
 | Workflow | Purpose |
 | -------- | ------- |
-| **`workflows/build-and-test-dev.yml`** | **This repo’s CI** on `push` / `pull_request` (and `workflow_dispatch` / `workflow_call`); calls **`bmt-handoff.yml`** when `bmt_handoff.if` passes |
-| **`workflows/build-and-test.yml`** | Reusable CI for **core-main** (and manual runs): `workflow_dispatch` + `workflow_call` only — thin **`trigger-ci.yml`** (template or copy) supplies `push` / `pull_request_target` |
+| **`workflows/build-and-test-dev.yml`** | Reusable CI: **`workflow_dispatch`** + **`workflow_call`** only — same shape as **`build-and-test.yml`**. PR-driven runs use **`internal/trigger-ci.yml`** (`pull_request` into `dev` / `ci/check-bmt-gate` / `test/*`) which **`workflow_call`s** this file at the PR head ref; calls **`bmt-handoff.yml`** when `bmt_handoff.if` passes |
+| **`workflows/build-and-test.yml`** | Reusable CI for **core-main** (and manual runs): `workflow_dispatch` + `workflow_call` only — release **`trigger-ci.yml`** template supplies `pull_request_target` + `workflow_dispatch` on **`dev`** |
 | **`workflows/bmt-handoff.yml`** | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`) |
 | **`workflows/clang-format-auto-fix.yml`** | C/C++ format automation on selected branches |
 | **`workflows/internal/bmt-handoff-dev.yml`** | `workflow_dispatch` wrapper: calls **`bmt-handoff.yml`** with **`use_mock_runner: true`** |
 | **`workflows/internal/validate-release-bundle.yml`** | Validates **`scripts/assemble_release.py`** output on path-filtered `push` / `pull_request` |
-| **`workflows/internal/trigger-ci.yml`** | Manual: `gh workflow run` **build-and-test** on a chosen ref |
+| **`workflows/internal/trigger-ci.yml`** | Thin trigger (mirrors release template): **`pull_request`** + **`workflow_dispatch`** → **`workflow_call`** **`build-and-test-dev.yml`** at head ref |
+| **`workflows/internal/trigger-ci-dispatch.yml`** | Manual: `gh workflow run` **`build-and-test-dev.yml`** on a chosen ref and watch the run |
 | **`workflows/internal/bmt-image-build.yml`** | Packer image build; also on path-filtered `push` |
 | **`workflows/internal/trigger-image-build.yml`** | Manual: dispatch image build on a branch |
 
@@ -38,7 +39,7 @@ Only **four** workflow YAML files live at **`.github/workflows/*.yml`**: **`buil
 - **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
 - **Check image up to date** — Composite action `check-image-up-to-date` takes **`image_build_workflow`** (default **`internal/bmt-image-build.yml`** in this repo). On core-main, pass **`bmt-image-build.yml`** if the image workflow lives at the workflows root. It fails when `infra/packer` or `gcp/image` change but no successful image build run exists for the ref.
 - **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.CLOUD_RUN_REGION`, and the Workflow / job names exported by Pulumi. These must be set in core-main (or the org).
-- **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `repo_snapshot` → `build_release` ∥ `build_non_release` → `bmt_handoff` (when `if` passes). Handoff runs for same-repo PRs whose **base** is `dev` or `ci/check-bmt-gate` (any head branch), and for non-PR runs on those branches. Runner `runner-*` artifact names are listed inside handoff **Plan**, not in a separate CI job. In core-main the same graph applies with real builds.
+- **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `repo_snapshot` → `build_release` ∥ `build_non_release` → `bmt_handoff` (when `if` passes). In **this repo**, `bmt_handoff.if` uses **head ref** allowlisting (`dev`, `ci/check-bmt-gate`, `test/check-bmt-gate*`, other `test/*`) in PR-driven CI. Runner `runner-*` artifact names are listed inside handoff **Plan**, not in a separate CI job. In core-main the same graph applies with real builds.
 
 **For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `gcp/image` for the fallback constant; set the repo vars; and either add `bmt-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
 
@@ -60,26 +61,25 @@ Mechanical bundle: `just release` (requires `gcp/image/github/secrets/Kardome-or
 
 ## This repo’s workflow layout
 
-- **workflows/** — **Root (release-shaped):** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. **`internal/`** — dev-only: handoff mock, validate-release-bundle, trigger-ci, bmt-image-build, trigger-image-build.
+- **workflows/** — **Root (release-shaped):** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. **`internal/`** — dev-only: handoff mock, validate-release-bundle, **`trigger-ci`** (thin), **`trigger-ci-dispatch`**, bmt-image-build, trigger-image-build.
 - **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
 - **`.github/bmt/`** — BMT CLI (`uv run bmt …`) and config used by workflows ([`README.md`](bmt/README.md))
 
 ## Which workflow runs CI?
 
-- **bmt-gcloud (this repo):** Day-to-day CI is **`build-and-test-dev.yml`** (`push`, `pull_request`, `workflow_dispatch`, `workflow_call`). It is **not** wired through **`pull_request_target`**.
-- **Production (core-main):** After release copy, CI is driven by **`internal/trigger-ci.yml`** (source: **`scripts/release_templates/workflows/trigger-ci.yml`**) on `push` / `pull_request_target` to **`dev`**, which **`workflow_call`s** **`build-and-test.yml`** at the PR head ref. **`build-and-test.yml`** then calls **`bmt-handoff.yml`** when eligible.
-- **Manual / sandbox:** **`internal/trigger-ci.yml`** dispatches **`build-and-test.yml`** on an arbitrary ref — separate from the template’s event-driven **`trigger-ci.yml`**.
+- **bmt-gcloud (this repo):** **`internal/trigger-ci.yml`** is the event entry (`pull_request` into `dev` / `ci/check-bmt-gate` / `test/*`, plus **`workflow_dispatch`**). It **`workflow_call`s** **`build-and-test-dev.yml`** at the PR head ref — same **thin-trigger → reusable CI** pattern as production, but **`pull_request`** (same-repo) instead of **`pull_request_target`**. Optional: **`internal/trigger-ci-dispatch.yml`** to dispatch **`build-and-test-dev.yml`** on any ref via **`gh`**. **`build-and-test-dev.yml`** also accepts direct **`workflow_dispatch`** / **`workflow_call`**.
+- **Production (core-main):** After release copy, CI is driven by bundle **`internal/trigger-ci.yml`** (source: **`scripts/release_templates/workflows/trigger-ci.yml`**) on **`pull_request_target`** to **`dev`** (and **`workflow_dispatch`**), which **`workflow_call`s** **`build-and-test.yml`** at the PR head ref. No **`push`** to **`dev`** — direct pushes to **`dev`** are assumed forbidden. **`build-and-test.yml`** then calls **`bmt-handoff.yml`** when eligible.
 
 ## Workflow and job triggers (inventory)
 
-**Reusable workflow context:** For `workflow_call`, the **`github` context in the called workflow matches the caller** ([docs](https://docs.github.com/en/actions/reference/reusable-workflows-reference#github-context)). Expressions in **`build-and-test.yml`** that use `github.event_name` / `github.event.pull_request` therefore see the **caller’s** event (e.g. `pull_request_target` from the template trigger).
+**Reusable workflow context:** For `workflow_call`, the **`github` context in the called workflow matches the caller** ([docs](https://docs.github.com/en/actions/reference/reusable-workflows-reference#github-context)). Expressions in **`build-and-test.yml`** / **`build-and-test-dev.yml`** that use `github.event_name` / `github.event.pull_request` therefore see the **caller’s** event (e.g. `pull_request_target` from the release thin trigger, or `pull_request` from the in-repo thin trigger).
 
 ### `build-and-test.yml`
 
 | Trigger | Notes |
 | ------- | ----- |
 | `workflow_dispatch` | Manual |
-| `workflow_call` | Invoked by template **`trigger-ci`**, **`internal/trigger-ci`**, or other callers |
+| `workflow_call` | Invoked by release-template **`trigger-ci`** (core-main), or other callers |
 
 **Job gate — `bmt_handoff`:** runs only if `build_release` succeeded or was skipped **and** (same-repo PR or not a PR) **and** either PR (`pull_request` or `pull_request_target`) with **`base_ref`** in `dev` \| `ci/check-bmt-gate`, or non-PR with **`ref_name`** in `dev` \| `ci/check-bmt-gate`. Checkouts honor **`pull_request_target`** head repo/SHA when that event applies.
 
@@ -87,12 +87,12 @@ Mechanical bundle: `just release` (requires `gcp/image/github/secrets/Kardome-or
 
 | Trigger | Notes |
 | ------- | ----- |
-| `push` | Branches: `dev`, `ci/check-bmt-gate`, `test/check-bmt-gate-*`, `test/workflow-optimizations`, `test/*` |
-| `pull_request` | Same branch set (aligned with `push`) |
-| `workflow_dispatch` | Manual |
-| `workflow_call` | Reusable entry |
+| `workflow_dispatch` | Manual (or via **`internal/trigger-ci-dispatch`** dispatching this workflow file) |
+| `workflow_call` | Invoked by in-repo **`internal/trigger-ci.yml`** (PR or manual thin trigger) |
 
-**Job gate — `bmt_handoff`:** same fork rule as above; branch eligibility uses **head ref** (`head.ref` or `ref_name`): `dev`, `ci/check-bmt-gate`, `test/check-bmt-gate*` prefix, or other **`test/*`** heads per the workflow expression. Checkouts use **`pull_request`** + head SHA.
+PR merge gate: **`internal/trigger-ci.yml`** — **`pull_request`** with base branches `dev`, `ci/check-bmt-gate`, `test/*` (no **`push`**; direct pushes to **`dev`** assumed forbidden).
+
+**Job gate — `bmt_handoff`:** same fork rule as above; branch eligibility uses **head ref** (`head.ref` or `ref_name`): `dev`, `ci/check-bmt-gate`, `test/check-bmt-gate*` prefix, or other **`test/*`** heads per the workflow expression. Checkouts use **`pull_request`** + head SHA when the caller event is a PR.
 
 ### `bmt-handoff.yml`
 
@@ -123,12 +123,13 @@ Mechanical bundle: `just release` (requires `gcp/image/github/secrets/Kardome-or
 | `workflow_dispatch` / `workflow_call` | Packer inputs |
 | `push` | Branches: `main`, `ci/check-bmt-gate`, `dev`; **paths:** `infra/packer/**`, `gcp/image/**` |
 
-### `internal/trigger-image-build.yml` / `internal/trigger-ci.yml`
+### `internal/trigger-image-build.yml` / `internal/trigger-ci.yml` / `internal/trigger-ci-dispatch.yml`
 
 | Workflow | Trigger |
 | -------- | ------- |
 | **`internal/trigger-image-build.yml`** | `workflow_dispatch` (optional `branch` input; dispatches image build on that ref) |
-| **`internal/trigger-ci.yml`** | `workflow_dispatch` (required `ref`; dispatches **`build-and-test.yml`**) |
+| **`internal/trigger-ci.yml`** | **`pull_request`** (bases: `dev`, `ci/check-bmt-gate`, `test/*`) + **`workflow_dispatch`** → **`workflow_call`** **`build-and-test-dev.yml`** |
+| **`internal/trigger-ci-dispatch.yml`** | **`workflow_dispatch`** (required `ref`; **`gh workflow run`** **`build-and-test-dev.yml`**) |
 
 ### `clang-format-auto-fix.yml`
 
@@ -145,15 +146,16 @@ Shipped to **`.github-release/workflows/internal/trigger-ci.yml`**. On core-main
 
 | Trigger | Notes |
 | ------- | ----- |
-| `push` | Branch: **`dev`** |
+| `workflow_dispatch` | Manual |
 | `pull_request_target` | Branch: **`dev`** — default-branch workflow context; pair with care for untrusted forks |
+| `push` | _none_ (aligns with no direct pushes to **`dev`**) |
 
-Calls **`./.github/workflows/build-and-test.yml@${{ github.event_name == 'pull_request_target' && github.head_ref || github.ref_name }}`** so the **called** workflow file comes from the PR head on `pull_request_target`. Not active in bmt-gcloud until the template is present under **`.github/workflows/internal/`** (or copied from a release bundle).
+Calls **`./.github/workflows/build-and-test.yml@${{ github.event_name == 'pull_request_target' && github.head_ref || github.ref_name }}`** so the **called** workflow file comes from the PR head on `pull_request_target`. **bmt-gcloud** uses a **parallel** in-repo **`internal/trigger-ci.yml`** (see above) that calls **`build-and-test-dev.yml`** with **`pull_request`** instead — it is **not** part of the assembler output.
 
 ### Security / semantics (summary)
 
 - **`pull_request_target`** appears in the **release template** only; combining it with **`uses: …@head_ref`** matches “workflow definition from head, runner/token context from base.” **`bmt_handoff`** also excludes forks via **`head.repo.full_name == github.repository`** where applicable.
-- **No root `trigger-ci.yml`** in this repo’s **`.github/workflows/`** (event-driven **`trigger-ci`** lives in the **release template** → **`internal/`** in the bundle). Avoid duplicating that and the **manual** **`internal/trigger-ci.yml`** (bmt-gcloud dev copy) without documenting the split (this section).
+- **No root `trigger-ci.yml`** in this repo’s **`.github/workflows/`**. **Two** `internal/trigger-ci.yml` meanings: (1) **in-repo** thin trigger for **`build-and-test-dev.yml`**; (2) **bundle / core-main** file from **`scripts/release_templates/workflows/trigger-ci.yml`** for **`build-and-test.yml`**. The assembler ships only (2); see **`assemble_release.py`** docstring.
 
 ## Why there is no `.github/jobs/`
 

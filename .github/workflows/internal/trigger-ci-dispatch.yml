@@ -1,0 +1,53 @@
+# Manual: `gh workflow run` (or Actions UI) to run **build-and-test-dev.yml** on an arbitrary ref and watch the run.
+# Prefer `internal/trigger-ci.yml` for normal PR-driven CI (thin trigger → workflow_call).
+name: Dispatch CI on ref
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or ref to run build-and-test-dev from"
+        required: true
+        default: "ci/check-bmt-gate"
+
+permissions:
+  contents: read
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dispatch:
+    name: Dispatch CI from source branch
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch build-and-test-dev on ref
+        id: dispatch
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref }}"
+          workflow_file="build-and-test-dev.yml"
+
+          gh workflow run "$workflow_file" --repo "${{ github.repository }}" --ref "$ref"
+
+          for _ in {1..10}; do
+            sleep 5
+            run_id="$(gh run list --workflow "$workflow_file" --repo "${{ github.repository }}" --branch "$ref" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+          done
+
+          if [[ -z "${run_id:-}" ]]; then
+            echo "::error::Triggered CI run not found for $workflow_file on $ref. Check Actions tab."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Watch CI run
+        run: gh run watch "${{ steps.dispatch.outputs.run_id }}" --repo "${{ github.repository }}" --exit-status

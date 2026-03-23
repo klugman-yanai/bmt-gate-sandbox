@@ -36,6 +36,8 @@ workflow_sa = gcp.serviceaccount.Account(
     project=cfg.gcp_project,
 )
 
+github_wif_member = f"serviceAccount:{cfg.service_account}"
+
 
 def _secret_env(name: str) -> gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs:
     return gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
@@ -152,6 +154,15 @@ bmt_workflow = gcp.workflows.Workflow(
     source_contents=workflow_source,
 )
 
+gcp.workflows.WorkflowIamMember(
+    "github-wif-workflow-editor",
+    project=cfg.gcp_project,
+    region=cfg.cloud_run_region,
+    workflow=bmt_workflow.name,
+    role="roles/workflows.editor",
+    member=github_wif_member,
+)
+
 gcp.storage.BucketIAMMember(
     "job-runner-bucket-writer",
     bucket=cfg.gcs_bucket,
@@ -181,6 +192,15 @@ for member_name, job in {
         role="roles/run.jobsExecutorWithOverrides",
         member=pulumi.Output.concat("serviceAccount:", workflow_sa.email),
     )
+
+gcp.cloudrunv2.JobIamMember(
+    "github-wif-invokes-control-job",
+    name=cloud_run_job_control.name,
+    location=cfg.cloud_run_region,
+    project=cfg.gcp_project,
+    role="roles/run.jobsExecutorWithOverrides",
+    member=github_wif_member,
+)
 
 gcp.storage.BucketIAMMember(
     "workflow-sa-bucket-reader",

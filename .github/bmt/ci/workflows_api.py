@@ -44,3 +44,15 @@ def start_execution(
     if not isinstance(payload, dict):
         raise WorkflowsApiError("Workflow execution response was not a JSON object")
     return payload
+
+
+def cancel_execution(*, execution_name: str) -> None:
+    """Cancel a running Cloud Workflow execution by full resource name."""
+    name = execution_name.strip()
+    if not name:
+        raise WorkflowsApiError("execution_name is required")
+    session = _session()
+    url = f"https://workflowexecutions.googleapis.com/v1/{name}:cancel"
+    response = session.post(url, json={}, timeout=60)
+    if not response.ok:
+        raise WorkflowsApiError(f"POST {url} failed: {response.status_code} {response.text}")

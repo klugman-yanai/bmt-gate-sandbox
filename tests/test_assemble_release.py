@@ -27,10 +27,18 @@ def test_assemble_release_skip_secrets() -> None:
     assert len(data["source_sha"]) >= 7
     assert data["skip_secrets"] is True
     wf = REPO / ".github-release" / "workflows"
-    assert (wf / "bmt-handoff.yml").is_file()
-    assert (wf / "build-and-test.yml").is_file()
-    assert (wf / "clang-format-auto-fix.yml").is_file()
     assert (wf / "internal" / "trigger-ci.yml").is_file()
     assert (wf / "internal" / "code-owner-enforcement.yml").is_file()
-    root_yml = list(wf.glob("*.yml"))
-    assert len(root_yml) == 3, f"expected 3 root workflows, got {[p.name for p in root_yml]}"
+    root_names = {p.name for p in wf.glob("*.yml")}
+    required_root = frozenset(
+        {
+            "bmt-handoff.yml",
+            "build-and-test.yml",
+            "clang-format-auto-fix.yml",
+        }
+    )
+    missing = required_root - root_names
+    assert not missing, (
+        f"missing root workflows {sorted(missing)}; "
+        f"have {sorted(root_names)} (extra root YAMLs are allowed)"
+    )

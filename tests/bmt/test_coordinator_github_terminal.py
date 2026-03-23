@@ -74,6 +74,42 @@ def test_coordinator_finally_invokes_github_failure_when_publish_does_not_comple
     assert hook == ["publish", "publish", "failure"]
 
 
+def test_coordinator_publish_crash_still_invokes_failure_publisher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If publish crashes, finally path must still close pending GitHub state via failure publisher."""
+    stage_root = tmp_path / "stage"
+    stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _empty_plan(workflow_run_id="wf-publish-crash")
+    write_plan(stage_root=stage_root, plan=plan)
+    write_reporting_metadata(
+        stage_root=stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/1",
+            check_run_id=42,
+            started_at="2026-03-19T10:00:00Z",
+            github_publish_complete=False,
+        ),
+    )
+    calls: list[str] = []
+
+    def _raise_publish(**_kwargs: object) -> None:
+        calls.append("publish")
+        raise RuntimeError("injected publish crash")
+
+    def _track_failure(**_kwargs: object) -> None:
+        calls.append("failure")
+
+    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_final_results", _raise_publish)
+    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _track_failure)
+    monkeypatch.setattr("gcp.image.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
+
+    with pytest.raises(RuntimeError, match="injected publish crash"):
+        run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root)
+    assert calls == ["publish", "publish", "failure"]
+
+
 def test_runtime_mode_finalize_failure_string() -> None:
     assert RuntimeMode("finalize-failure") == RuntimeMode.FINALIZE_FAILURE
 

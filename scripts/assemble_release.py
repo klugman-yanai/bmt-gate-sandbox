@@ -4,12 +4,18 @@ Pulls from two sources:
   - .github/          authoritative CI code (bmt package, actions, workflows)
   - scripts/release_templates/  files with no dev equivalent (trigger-ci.yml, actionlint.yaml)
 
+Thin-trigger split (same pattern, different files):
+  - **In-repo bmt-gcloud:** `.github/workflows/internal/trigger-ci.yml` is the **dev** thin trigger
+    (`pull_request` → `build-and-test-dev.yml` at head ref). It is **not** copied into the bundle.
+  - **Bundle / core-main:** `.github-release/workflows/internal/trigger-ci.yml` comes **only** from
+    `scripts/release_templates/workflows/trigger-ci.yml` (`pull_request_target` → `build-and-test.yml`).
+
 Workflows in .github/workflows/ ship EXCEPT:
   - *-dev.yml files (dev-only; excluded by naming convention)
   - internal/ subdirectory in source (dev-only operational workflows; not copied into the bundle)
 
-Release layout mirrors the repo: only **build-and-test.yml**, **bmt-handoff.yml**, and **clang-format-auto-fix.yml**
-at **`.github-release/workflows/*.yml`**. Template workflows (**trigger-ci.yml**, **code-owner-enforcement.yml**, …)
+Release layout mirrors the repo: root **`.github-release/workflows/*.yml`** includes at least **build-and-test.yml**,
+**bmt-handoff.yml**, and **clang-format-auto-fix.yml** (other non-dev-suffixed root workflows may be present). Template workflows (**trigger-ci.yml**, **code-owner-enforcement.yml**, …)
 ship under **`.github-release/workflows/internal/`**. The template **clang-format-auto-fix.yml** is skipped here because
 the copy from `.github/workflows/` root is authoritative.
 

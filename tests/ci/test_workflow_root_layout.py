@@ -12,6 +12,7 @@ pytestmark = pytest.mark.unit
 # Operational and dev-only workflows live under internal/.
 _ALLOWED_ROOT_WORKFLOW_YML = frozenset(
     {
+        "bmt-cancel-on-pr-close.yml",
         "build-and-test-dev.yml",
         "build-and-test.yml",
         "bmt-handoff.yml",

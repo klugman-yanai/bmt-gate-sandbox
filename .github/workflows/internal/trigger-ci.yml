@@ -1,53 +1,25 @@
-# Optional: run CI using workflow files from a *specific* branch (e.g. run build-and-test from a branch other than default).
-# This workflow dispatches build-and-test.yml on the requested ref and watches the triggered run.
+# Thin trigger — same *shape* as the release template, but for bmt-gcloud:
+# - `pull_request` (not `pull_request_target`): same-repo PRs; bases below match build-and-test-dev.
+# - `workflow_dispatch`: manual runs from the selected ref.
+# Calls `build-and-test-dev.yml` at the PR head (or dispatch ref) so job definitions come from the branch under test.
+# The bundle’s `internal/trigger-ci.yml` is still the **template** copy (pull_request_target → build-and-test.yml) for core-main.
 name: Trigger CI (from branch)
 
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "Branch or ref to run build-and-test from"
-        required: true
-        default: "test/check-bmt-gate-big-bang"
+  pull_request:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+      - test/*
 
 permissions:
   contents: read
-  actions: write
-
-defaults:
-  run:
-    shell: bash
+  actions: read
 
 jobs:
-  dispatch:
-    name: Dispatch CI from source branch
+  ci:
+    name: Run CI from source branch
     runs-on: ubuntu-22.04
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Dispatch build-and-test on ref
-        id: dispatch
-        run: |
-          set -euo pipefail
-          ref="${{ github.event.inputs.ref }}"
-          workflow_file="build-and-test.yml"
-
-          gh workflow run "$workflow_file" --repo "${{ github.repository }}" --ref "$ref"
-
-          for _ in {1..10}; do
-            sleep 5
-            run_id="$(gh run list --workflow "$workflow_file" --repo "${{ github.repository }}" --branch "$ref" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
-            if [[ -n "$run_id" ]]; then
-              break
-            fi
-          done
-
-          if [[ -z "${run_id:-}" ]]; then
-            echo "::error::Triggered CI run not found for $workflow_file on $ref. Check Actions tab."
-            exit 1
-          fi
-
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-
-      - name: Watch CI run
-        run: gh run watch "${{ steps.dispatch.outputs.run_id }}" --repo "${{ github.repository }}" --exit-status
+    uses: ./.github/workflows/build-and-test-dev.yml@${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+    secrets: inherit

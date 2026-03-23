@@ -1,6 +1,6 @@
 # Merged CI: real builds (from .github-packaged) + BMT handoff (gated by release build).
 # Copy to core-main/.github/workflows/build-and-test.yml
-# push/pull_request_target are in trigger-ci.yml so CI runs from the PR/source branch (see trigger-ci.yml).
+# Event-driven entry: release template internal/trigger-ci.yml (pull_request_target + workflow_dispatch).
 
 name: CI
 
