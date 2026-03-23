@@ -12,11 +12,11 @@ from gcp.image.github.presentation import (
     StartedCommentView,
     how_to_read_this_run_markdown,
     multi_leg_score_scope_markdown,
-    run_context_blurb_markdown,
     render_final_check_output,
     render_final_pr_comment,
     render_progress_check_output,
     render_started_pr_comment,
+    run_context_blurb_markdown,
 )
 
 pytestmark = pytest.mark.unit
@@ -99,6 +99,7 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
                     bmt="false_rejects",
                     status="pass",
                     duration_sec=61,
+                    has_completed_summary=True,
                     aggregate_score=12.34,
                 ),
                 ProgressBmtRow(project="sk", bmt="false_alarms", status="running", duration_sec=None),

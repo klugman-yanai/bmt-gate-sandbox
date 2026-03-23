@@ -71,7 +71,12 @@ class ProgressBmtRow:
     project: str
     bmt: str
     status: str
+    #: Wall seconds for this leg: final duration when :attr:`has_completed_summary` is True; otherwise
+    #: from ``triggers/progress`` (often unset until the task finishes) — not used as a total-time
+    #: estimate for ETA while the leg is still in flight.
     duration_sec: int | None = None
+    #: True when ``triggers/summaries/...`` exists for this leg (terminal pass/fail for this run).
+    has_completed_summary: bool = False
     #: Set when this BMT has written `summary.json` (completed task); drives the Avg. column.
     aggregate_score: float | None = None
     execution_mode_used: str = ""

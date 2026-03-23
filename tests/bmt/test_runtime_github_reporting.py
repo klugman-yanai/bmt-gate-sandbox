@@ -6,10 +6,11 @@ import httpx
 import pytest
 
 from gcp.image.config.value_types import as_results_path
-from gcp.image.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView
+from gcp.image.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
 from gcp.image.runtime.artifacts import write_progress, write_reporting_metadata, write_summary
 from gcp.image.runtime.github_reporting import (
     _elapsed_seconds,
+    _estimate_eta_sec_parallel,
     ensure_reporting_metadata_for_plan,
     publish_final_results,
     publish_progress,
@@ -400,6 +401,43 @@ def test_ensure_reporting_metadata_backfills_started_at_when_complete_but_missin
     path = runtime.stage_root / "triggers" / "reporting" / "wf-123.json"
     meta = ReportingMetadata.model_validate_json(path.read_text(encoding="utf-8"))
     assert meta.started_at
+
+
+def test_parallel_eta_maxes_only_in_flight_remaining_not_completed_duration(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Completed leg durations must not appear inside ``max(...)`` with in-flight estimates."""
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True)
+    plan = _plan()
+
+    def _hist(*, stage_root: Path, leg: PlanLeg) -> int | None:
+        if leg.bmt_slug == "false_alarms":
+            return 100
+        return None
+
+    monkeypatch.setattr(
+        "gcp.image.runtime.github_reporting.load_observed_duration_sec_from_latest_snapshot",
+        _hist,
+    )
+    rows = [
+        ProgressBmtRow(
+            project="sk",
+            bmt="false_rejects",
+            status="pass",
+            duration_sec=300,
+            has_completed_summary=True,
+        ),
+        ProgressBmtRow(
+            project="sk",
+            bmt="false_alarms",
+            status="running",
+            duration_sec=None,
+            has_completed_summary=False,
+        ),
+    ]
+    # In-flight est=100 from snapshot; elapsed 150 -> remaining 0 (old code gave max(300,100)-150=150).
+    assert _estimate_eta_sec_parallel(plan=plan, runtime=runtime, rows=rows, elapsed_sec=150) == 0
 
 
 def test_elapsed_seconds_uses_progress_when_reporting_started_at_missing(

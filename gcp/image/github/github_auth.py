@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
+
+from whenever import Instant
 
 from gcp.image.config.constants import GITHUB_API_VERSION, HTTP_TIMEOUT, JWT_CLOCK_SKEW_SEC, JWT_LIFETIME_SEC
 
@@ -106,7 +107,7 @@ def encode_github_app_jwt_rs256(payload: dict[str, int | str], private_key: str)
 
 
 def _app_jwt_for_installation_exchange(app_id: str, private_key: str) -> str:
-    now = int(time.time())
+    now = Instant.now().timestamp()
     payload = {
         "iat": now - JWT_CLOCK_SKEW_SEC,
         "exp": now + JWT_LIFETIME_SEC,

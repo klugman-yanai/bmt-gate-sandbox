@@ -294,17 +294,18 @@ def _mean_positive_durations(durations: list[int]) -> int | None:
     return int(sum(durations) / len(durations))
 
 
-def _leg_eta_seconds(
+def _leg_incomplete_total_seconds(
     *,
     leg: PlanLeg,
-    row: ProgressBmtRow,
     runtime: StageRuntimePaths,
     fallback_sec: int | None,
 ) -> int | None:
-    """Single-leg remaining-time estimate: current duration, snapshot history, or cohort average."""
-    d = row.duration_sec
-    if d is not None and d > 0:
-        return d
+    """Estimated total wall time for a leg still running (parallel ETA: not ``row.duration_sec``).
+
+    Uses snapshot history from prior runs, then mean duration of legs already completed in *this* run.
+    Intentionally ignores in-progress ``duration_sec`` so a future partial heartbeat cannot be mistaken
+    for a full-leg estimate.
+    """
     hist = load_observed_duration_sec_from_latest_snapshot(stage_root=runtime.stage_root, leg=leg)
     if hist is not None and hist > 0:
         return hist
@@ -318,20 +319,30 @@ def _estimate_eta_sec_parallel(
     rows: list[ProgressBmtRow],
     elapsed_sec: int | None,
 ) -> int | None:
-    """Parallel Cloud Run tasks finish when the slowest leg finishes: ETA ~ max(estimates) - elapsed."""
+    """Wall-clock seconds remaining until the slowest *in-flight* leg finishes (parallel tasks).
+
+    Per-leg remaining ≈ max(0, est_total - elapsed); overall ETA ≈ max of those remainings. Completed
+    legs contribute 0. Requires wall ``elapsed_sec`` (see :func:`_elapsed_seconds`).
+    """
     if elapsed_sec is None or not plan.legs or len(rows) != len(plan.legs):
         return None
-    completed = [d for r in rows if (d := r.duration_sec) is not None and d > 0]
-    fallback = _mean_positive_durations(completed)
-    per_leg_est: list[int] = []
+    completed_durations = [
+        d
+        for r in rows
+        if r.has_completed_summary and (d := r.duration_sec) is not None and d > 0
+    ]
+    fallback = _mean_positive_durations(completed_durations)
+    remainings: list[int] = []
     for leg, row in zip(plan.legs, rows, strict=True):
-        est = _leg_eta_seconds(leg=leg, row=row, runtime=runtime, fallback_sec=fallback)
+        if row.has_completed_summary:
+            continue
+        est = _leg_incomplete_total_seconds(leg=leg, runtime=runtime, fallback_sec=fallback)
         if est is None:
             return None
-        per_leg_est.append(est)
-    if not per_leg_est:
-        return None
-    return max(0, int(max(per_leg_est) - elapsed_sec))
+        remainings.append(max(0, est - elapsed_sec))
+    if not remainings:
+        return 0
+    return max(remainings)
 
 
 def _progress_view(
@@ -349,6 +360,7 @@ def _progress_view(
                     bmt=summary.bmt_slug,
                     status=summary.status,
                     duration_sec=summary.duration_sec,
+                    has_completed_summary=True,
                     aggregate_score=summary.score.aggregate_score,
                     execution_mode_used=summary.execution_mode_used,
                     cases_detail=_cases_detail_from_metrics(summary.score.metrics),
@@ -433,7 +445,13 @@ def _final_view(
 
 
 def _start_instants_for_elapsed(*, runtime: StageRuntimePaths, workflow_run_id: str) -> list[whenever.Instant]:
-    """Wall-clock start candidates: reporting metadata and earliest leg progress."""
+    """Wall-clock start candidates for ``elapsed_sec``.
+
+    We take the **minimum** of all valid instants: (1) ``started_at`` in
+    ``triggers/reporting/{run}.json`` when the check run was created, and (2) the earliest
+    ``started_at`` among ``triggers/progress/{run}/*.json`` so legacy runs without reporting
+    ``started_at`` still get a sane elapsed. If both exist, the earlier time wins.
+    """
     metadata = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
     raw_candidates = [
         x

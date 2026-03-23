@@ -7,10 +7,11 @@ import json
 import os
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+from whenever import Instant
 
 from gcp.image.config.constants import JWT_CLOCK_SKEW_SEC, JWT_LIFETIME_SEC
 from gcp.image.github.github_auth import (
@@ -58,7 +59,7 @@ def get_private_key_path_from_env() -> str:
 
 
 def fetch_app_metadata(app_id: str, private_key: str) -> dict:
-    now = int(time.time())
+    now = Instant.now().timestamp()
     payload = {"iat": now - JWT_CLOCK_SKEW_SEC, "exp": now + JWT_LIFETIME_SEC, "iss": app_id}
     token = encode_github_app_jwt_rs256(payload, private_key)
 
