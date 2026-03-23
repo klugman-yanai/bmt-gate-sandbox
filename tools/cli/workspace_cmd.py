@@ -69,7 +69,7 @@ def workspace_preflight(
         bool,
         typer.Option(
             "--with-image",
-            help="After bucket checks, run `just image` when git + Artifact Registry do not auto-skip "
+            help="After bucket checks, run `tools build orchestrator-image` when git + Artifact Registry do not auto-skip "
             "(ignored with --local-only or --snapshot).",
         ),
     ] = False,
@@ -77,8 +77,8 @@ def workspace_preflight(
         bool,
         typer.Option(
             "--force-image",
-            help="Always run `just image` after bucket checks (implies --with-image; same semantics as "
-            "`just ship --force-image`; ignored with --local-only or --snapshot).",
+            help="Always run `tools build orchestrator-image` after bucket checks (implies --with-image; same semantics as "
+            "`tools ship --force-image`; ignored with --local-only or --snapshot).",
         ),
     ] = False,
 ) -> None:

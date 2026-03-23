@@ -1,4 +1,4 @@
-"""When to skip ``just image`` (git + Artifact Registry), shared by ship and workspace preflight."""
+"""When to skip ``tools build orchestrator-image`` (git + Artifact Registry), shared by ship and workspace preflight."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def evaluate_image_skip(
             "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/]; "
             f"Artifact Registry has [cyan]bmt-orchestrator:{short}[/].\n"
             "[dim]Still wrong bits?[/] base-image-only updates or policy rebuilds — "
-            "[dim]run[/] [cyan]just ship --force-image[/] [dim]or[/] [cyan]just workspace preflight --with-image --force-image[/][dim].[/]"
+            "[dim]run[/] [cyan]tools ship --force-image[/] [dim]or[/] [cyan]just workspace preflight --with-image --force-image[/][dim].[/]"
         )
     if ar_status == "absent":
         return False, None
@@ -107,21 +107,25 @@ def evaluate_image_skip(
         return False, (
             "[red]Artifact Registry:[/] permission denied reading tags (check IAM: "
             "[cyan]roles/artifactregistry.reader[/] on the project or repo). "
-            "[dim]Running[/] [cyan]just image[/] [dim]anyway — not auto-skipping based on git alone.[/]"
+            "[dim]Running[/] [cyan]tools build orchestrator-image[/] [dim]anyway — not auto-skipping based on git alone.[/]"
         )
     return False, (
         "[yellow]Artifact Registry tag check unavailable[/] (invalid URI/HEAD, missing ADC, or transient API error). "
-        "[dim]Running[/] [cyan]just image[/] [dim]so the pipeline is not silently skipped. "
+        "[dim]Running[/] [cyan]tools build orchestrator-image[/] [dim]so the pipeline is not silently skipped. "
         "Configure Application Default Credentials ([cyan]gcloud auth application-default login[/] "
         "or [cyan]GOOGLE_APPLICATION_CREDENTIALS[/]) for a definitive skip when the image already exists.[/]"
     )
 
 
 def run_just_image() -> int:
-    """Run ``just image`` from repo root; return exit code."""
+    """Build and push the Cloud Run orchestrator image (``tools build orchestrator-image``); return exit code."""
     import shutil
 
-    exe = shutil.which("just")
-    if not exe:
+    uv = shutil.which("uv")
+    if not uv:
         return 127
-    return subprocess.run([exe, "image"], cwd=repo_root(), check=False).returncode
+    return subprocess.run(
+        [uv, "run", "python", "-m", "tools", "build", "orchestrator-image"],
+        cwd=repo_root(),
+        check=False,
+    ).returncode

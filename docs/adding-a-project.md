@@ -1,114 +1,83 @@
 # Adding a project or BMT
 
-Everything lives in the **stage scaffold** under `gcp/stage/` (mirrored to the bucket). Scaffolding uses one Just recipe, **`just stage`**, with subcommands **`project`**, **`bmt`**, and **`publish`** (same as `uv run python -m tools bmt stage …`). The steps below match what CI expects.
+For a compact ordered checklist, run **`just workflow`**. For repo hints (`.venv`, `gcp/stage/projects/`), run **`just status`** (alias: **`just workflow-status`**).
 
-Each benchmark has a **folder name** under `bmts/` (e.g. `example`, `my_second_bmt`). The manifest inside it is always named **`bmt.json`**—so paths look like `bmts/<folder>/bmt.json`, not “bmt inside bmt.”
+**Unfamiliar commands?** See **[contributor-commands.md](contributor-commands.md)** and **[local-bmt-testing.md](local-bmt-testing.md)** (run checks before **`just publish`**).
+
+Everything under **`gcp/stage/`** is mirrored to your GCS bucket. Prefer **`just add`** (scaffold + optional BMT + optional dataset), **`just test-local`**, **`just publish`** (builds the plugin and sets **`enabled`: true** unless you pass **`--no-enable`**), then **`just sync-to-bucket`**. Lower-level Typer commands remain **`just stage …`** and **`just workspace …`**.
+
+Each benchmark has a **folder** under `bmts/` (e.g. `example`, `my_second_bmt`). The manifest is always **`bmt.json`** inside that folder.
 
 ---
 
 ## New project
 
-Use one **project name** everywhere (lowercase, digits, underscores; must start with a letter). Below it is `myproject`—swap it for yours.
+Use one **project name** (lowercase, digits, underscores; starts with a letter). Replace `myproject` with yours.
 
-### 1. Create the scaffold
+### 1. Scaffold (and optionally BMT + WAVs)
 
 ```bash
-just stage project myproject
+just add myproject
+# optional in one go:
+# just add myproject --bmt=my_second_bmt --data=/path/to/dataset.zip
 ```
 
-This adds `gcp/stage/projects/myproject/` with a default plugin workspace, `bmts/example/bmt.json`, and placeholders.
+Same as **`just stage project`** when you only create the tree; **`--bmt`** matches **`just stage bmt`**; **`--data`** matches **`just upload-wav`** (zip, directory, or `.tar`/`.tar.gz`/`.tgz`; for **7z**, extract first).
 
 ### 2. Edit the scaffold
 
-- Plugin code: `gcp/stage/projects/myproject/plugin_workspaces/default/`
-- Change only what you need for parsing, scoring, and evaluation; leave orchestration and reporting to the framework.
+- Plugin: `gcp/stage/projects/myproject/plugin_workspaces/default/`
+- Manifests: `gcp/stage/projects/myproject/bmts/<folder>/bmt.json`
 
-### 3. Upload data
-
-```bash
-just upload-data myproject /path/to/dataset.zip
-# optional: --dataset <name>
-```
-
-### 4. Publish the default BMT’s plugin
+### 3. Quick checks before publish
 
 ```bash
-just stage publish myproject example
+just test-local
+just tools bmt verify myproject example
 ```
 
-`example` is the default BMT name the scaffold created. This updates the manifest and can sync to GCS depending on your env.
+See **[local-bmt-testing.md](local-bmt-testing.md)**.
 
-### 5. Turn the BMT on
-
-The scaffold ships `bmts/example/bmt.json` with `"enabled": false` so nothing runs before you are ready.
-
-Edit `gcp/stage/projects/myproject/bmts/example/bmt.json` and set:
-
-```json
-"enabled": true
-```
-
-### 6. Push the stage tree to the bucket
-
-CI reads the bucket, not only your laptop. After you change `bmt.json` (or any stage file), sync:
+### 4. Publish the plugin
 
 ```bash
-# from repo root, with bucket configured (see docs/configuration.md)
-just workspace deploy
+just publish myproject example
+# if only one BMT exists under gcp/stage/projects/, you can use: just publish
 ```
 
-### 7. CI
+This updates **`plugin_ref`**, sets **`enabled`: true** by default, and syncs the project subtree to GCS unless **`--no-sync`**.
 
-After the bucket has the updated manifest, the next BMT run that includes this project can pick up the enabled BMT—no extra registry step.
+### 5. Sync the full `gcp/` tree to the bucket
+
+```bash
+just sync-to-bucket
+# same as: just workspace deploy
+```
+
+### 6. CI
+
+Once the bucket matches, the next BMT run that includes this project can pick up the enabled leg.
 
 ---
 
 ## New BMT (second benchmark, same project)
 
-### 1. Add another BMT
-
 ```bash
-just stage bmt myproject my_second_bmt
+just add myproject --bmt=my_second_bmt
 ```
 
-### 2. Edit the manifest
-
-`gcp/stage/projects/myproject/bmts/my_second_bmt/bmt.json`
-
-The scaffold fills `inputs_prefix`, `results_prefix`, and `outputs_prefix`. Adjust if your layout differs; keep `plugin_ref` as a workspace ref until you publish.
-
-### 3. Publish
-
-```bash
-just stage publish myproject my_second_bmt
-```
-
-### 4. Upload data
-
-Same `just upload-data` pattern as in [New project](#new-project), pointed at this BMT’s inputs.
-
-### 5. Enable and sync
-
-Set `"enabled": true` in that `bmt.json`, then `just workspace deploy` (or your usual sync).
+Edit `gcp/stage/projects/myproject/bmts/my_second_bmt/bmt.json`, upload WAVs (**`just add myproject --bmt=my_second_bmt --data=…`** or **`just upload-wav`**), then **`just test-local`**, **`just publish myproject my_second_bmt`**, **`just sync-to-bucket`**.
 
 ---
 
 ## Plugin code (reminder)
 
 - Work in `gcp/stage/projects/<project>/plugin_workspaces/<plugin>/`.
-- Published manifests should point at immutable bundles under `projects/<project>/plugins/<plugin>/sha256-<digest>/...` after publish.
+- After publish, `bmt.json` should reference an immutable bundle under `projects/<project>/plugins/...`.
 
 ---
 
-## Dataset upload (short)
+## See also
 
-- Prefer a **zip** (or folder of WAVs): `just upload-data` puts files under `projects/<project>/inputs/...` in the bucket.
-- Inspect what landed: `just mount myproject` → read-only view under `gcp/mnt/projects/myproject/`.
-
----
-
-## Do not use for new work
-
-- New `gcp/image/projects/<project>/bmt_manager.py` files
-- Restoring `bmt_jobs.json`-style flows
-- Old trigger-file / VM-era patterns
+- [configuration.md](configuration.md) — `GCS_BUCKET` and related env
+- [architecture.md](architecture.md) — runtime pipeline

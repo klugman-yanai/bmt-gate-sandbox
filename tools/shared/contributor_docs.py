@@ -20,6 +20,7 @@ class ContributorDocRefs:
     readme: Path
     docs_index: Path
     configuration: Path
+    adding_a_project: Path
 
     @classmethod
     def discover(cls) -> ContributorDocRefs:
@@ -30,6 +31,7 @@ class ContributorDocRefs:
             readme=r / "README.md",
             docs_index=r / "docs" / "README.md",
             configuration=r / "docs" / "configuration.md",
+            adding_a_project=r / "docs" / "adding-a-project.md",
         )
 
     def _rel(self, path: Path) -> str:
@@ -38,6 +40,10 @@ class ContributorDocRefs:
     def configuration_rel(self) -> str:
         """Repo-relative path to docs/configuration.md (for stderr one-liners)."""
         return self._rel(self.configuration)
+
+    def adding_a_project_rel(self) -> str:
+        """Repo-relative path to docs/adding-a-project.md."""
+        return self._rel(self.adding_a_project)
 
     def setup_reminder_line(self) -> str:
         """One stderr line: onboarding + quick start + docs index (repo-relative paths)."""

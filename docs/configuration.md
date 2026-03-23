@@ -62,7 +62,7 @@ Optional local inspection helpers also use:
 Print the current expected environment with:
 
 ```bash
-just show-env
+just tools repo show-env
 ```
 
 ## Pulumi Config
@@ -321,7 +321,7 @@ uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 \
   gcp/image/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py .github/bmt/ci/workflow_dispatch.py
 ```
 
-Or use `just doctor` from the repo root.
+Or use `just tools doctor` from the repo root.
 
 These checks are **optional** for contributors; the default gate remains `just test` (pytest, ruff, `ty`, etc.).
 

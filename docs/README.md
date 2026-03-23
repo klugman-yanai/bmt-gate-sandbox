@@ -7,6 +7,8 @@
 | **System architecture** (pipeline, diagrams, maintainer notes) | [architecture.md](architecture.md) |
 | **Configuration / env / Pulumi** | [configuration.md](configuration.md) |
 | **Add a project or BMT** | [adding-a-project.md](adding-a-project.md) |
+| **Checks before publish** | [local-bmt-testing.md](local-bmt-testing.md) |
+| **What `just add` / `just publish` / `upload-wav` / `workspace` mean** | [contributor-commands.md](contributor-commands.md) |
 | **Production incidents / GCS** | [runbook.md](runbook.md) |
 | **Roadmap / priorities** | [ROADMAP.md](../ROADMAP.md) |
 | **ADRs** (contracts, decisions) | [adr/README.md](adr/README.md) |

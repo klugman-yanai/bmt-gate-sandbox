@@ -106,7 +106,7 @@ STEPS: tuple[PreflightStep, ...] = (
     ),
     PreflightStep(
         name="github",
-        just_on_fail="just show-env",
+        just_on_fail="just tools repo show-env",
         title="GitHub CLI + App secrets",
         blurb="gh auth + Actions secrets for this repo profile (see docs/configuration.md)",
     ),
@@ -294,7 +294,7 @@ def _emit_result(
             Panel(
                 Text.from_markup(
                     "[dim]Run without[/] [cyan]--dry-run[/] [dim]to execute. "
-                    "Fix hints appear on failure ([cyan]just workspace pulumi[/], [cyan]just show-env[/], …).[/]"
+                    "Fix hints appear on failure ([cyan]just tools workspace pulumi[/], [cyan]just tools repo show-env[/], …).[/]"
                 ),
                 border_style="dim",
             )

@@ -25,24 +25,32 @@ def test_tools_help() -> None:
     result = runner.invoke(_tools_app(), ["--help"])
     assert result.exit_code == 0
     out = result.stdout
-    for group in ("bucket", "pulumi", "repo", "build", "bmt", "workspace"):
+    for group in ("bucket", "pulumi", "repo", "build", "bmt", "workspace", "workflow", "add", "publish"):
         assert group in out
+    assert "release-check" in out
+    assert "set-lifecycle" in out
+    assert "doctor" in out
+    assert "typecheck" in out
 
 
 def test_bucket_help() -> None:
     """bucket --help shows deploy, preflight, clean-bloat, and project sync helpers."""
     result = runner.invoke(_tools_app(), ["bucket", "--help"])
     assert result.exit_code == 0
-    assert "deploy" in result.stdout
-    assert "project-sync" in result.stdout
+    out = result.stdout
+    assert "deploy" in out
+    assert "project-sync" in out
+    assert "upload-wav" in out
 
 
 def test_build_help() -> None:
-    """build --help shows image and packer-validate."""
+    """build --help shows orchestrator-image, VM image dispatch, and packer-validate."""
     result = runner.invoke(_tools_app(), ["build", "--help"])
     assert result.exit_code == 0
-    assert "image" in result.stdout
-    assert "packer-validate" in result.stdout
+    out = result.stdout
+    assert "orchestrator-image" in out
+    assert "image" in out
+    assert "packer-validate" in out
 
 
 def test_workspace_help() -> None:
@@ -79,3 +87,4 @@ def test_python_m_tools_help_entrypoint_smoke() -> None:
     )
     assert result.returncode == 0
     assert "bucket" in result.stdout
+    assert "workflow" in result.stdout

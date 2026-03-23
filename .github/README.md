@@ -45,7 +45,7 @@ Only **four** workflow YAML files live at **`.github/workflows/*.yml`**: **`buil
 
 ## File release checklist (Kardome-org/core-main)
 
-Mechanical bundle: `just release` (requires `gcp/image/github/secrets/Kardome-org_core-main.pem` for a full copy), or **`just release --skip-secrets`** / **`RELEASE_SKIP_SECRETS=1`** when no local PEM (CI, or secrets-only promotion). Output: **`.github-release/`** (gitignored here). Copy into **`core-main/.github/`** as one atomic PR. **`bmt_release.json`** records **`source_sha`** from this repo for drift tracking.
+Mechanical bundle: **`just tools release`** (requires `gcp/image/github/secrets/Kardome-org_core-main.pem` for a full copy), or **`just tools release --skip-secrets`** / **`RELEASE_SKIP_SECRETS=1`** when no local PEM (CI, or secrets-only promotion). Output: **`.github-release/`** (gitignored here). Copy into **`core-main/.github/`** as one atomic PR. **`bmt_release.json`** records **`source_sha`** from this repo for drift tracking.
 
 | Source in bmt-gcloud | On core-main | Mechanism |
 | ---------------------- | ------------- | --------- |

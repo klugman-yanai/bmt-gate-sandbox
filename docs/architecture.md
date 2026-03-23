@@ -49,7 +49,7 @@ Canonical runtime artifacts:
 
 - author in [`gcp/stage/projects/<project>/plugin_workspaces`](gcp/stage)
 - publish immutable plugin bundles with `just stage publish`
-- upload datasets with `just upload-data`
+- upload WAV datasets with `just upload-wav`
 - inspect the live bucket with `just mount <project>`
 
 The old VM watcher, root orchestrator, and per-project `bmt_manager.py` inheritance stack have been removed from the active codebase. The supported execution path is the direct Workflow -> Cloud Run runtime only.

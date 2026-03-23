@@ -1,4 +1,4 @@
-"""Full pre-push pipeline with Rich-staged reports: `uv run python -m tools ship` or `just ship`."""
+"""Full pre-push pipeline with Rich-staged reports: `uv run python -m tools ship` (also `just tools ship`)."""
 
 from __future__ import annotations
 
@@ -24,13 +24,14 @@ from tools.repo.paths import repo_root
 
 @dataclass(frozen=True)
 class _Step:
-    """``key`` matches ship skip flags; ``just_argv`` is passed to the ``just`` executable."""
+    """``key`` matches ship skip flags; run via ``just <argv>`` or ``uv run python -m tools <argv>``."""
 
     key: str
-    just_argv: tuple[str, ...]
+    argv: tuple[str, ...]
     title: str
     blurb: str
     border: str  # rich color name
+    via_uv_tools: bool = False
 
 
 _STEP_TEST = _Step(
@@ -43,32 +44,39 @@ _STEP_TEST = _Step(
 
 _STEP_DEPLOY = _Step(
     "deploy",
-    ("workspace", "deploy"),
-    "Runtime seed deploy",
-    "Sync gcp/stage runtime seed to bucket + verify",
+    ("sync-to-bucket",),
+    "Upload to GCS bucket",
+    "Same as workspace deploy: local gcp/ → bucket + verify",
     "yellow",
 )
 
 _STEP_IMAGE = _Step(
     "image",
-    ("image",),
+    ("build", "orchestrator-image"),
     "Container image",
     "docker buildx load + push to Artifact Registry (git-SHA tag for ship auto-skip)",
     "green",
+    via_uv_tools=True,
 )
 
 
+def _step_command_display(step: _Step) -> str:
+    if step.via_uv_tools:
+        return f"uv run python -m tools {' '.join(step.argv)}"
+    return f"just {' '.join(step.argv)}"
+
+
 def _step_preflight(*, image_skipped: bool, force_image: bool) -> _Step:
-    argv: list[str] = ["workspace", "preflight"]
+    argv_l: list[str] = ["workspace", "preflight"]
     if not image_skipped:
-        argv.append("--with-image")
+        argv_l.append("--with-image")
         if force_image:
-            argv.append("--force-image")
+            argv_l.append("--force-image")
     return _Step(
         "preflight",
-        tuple(argv),
+        tuple(argv_l),
         "Bucket preflight",
-        "Diff / checks vs GCS; `just image` when git + registry warrant (see `workspace preflight --help`)",
+        "Diff / checks vs GCS; tools build orchestrator-image when git + registry warrant",
         "magenta",
     )
 
@@ -114,7 +122,7 @@ def _banner(console: Console) -> None:
     title.append("bmt-gcloud", style="bold dim")
     body = Text.from_markup(
         "[dim]Full gate before push:[/] [cyan]just test[/] → [magenta]workspace preflight[/] "
-        "[dim](folds in[/] [green]image[/] [dim]when needed)[/] → [yellow]workspace deploy[/]\n"
+        "[dim](folds in[/] [green]orchestrator image[/] [dim]when needed)[/] → [yellow]sync-to-bucket[/]\n"
         "[dim]With[/] [cyan]--skip-preflight[/][dim],[/] [green]image[/] [dim]runs as its own step when not auto-skipped.[/]\n"
         "[dim]External library docs (e.g. Context7) are separate from this pipeline.[/]"
     )
@@ -131,10 +139,8 @@ def _banner(console: Console) -> None:
 
 
 def _step_panel(step: _Step, index: int, total: int) -> Panel:
-    jc = " ".join(step.just_argv)
-    head = Text.from_markup(
-        f"[bold]{step.title}[/]\n[dim]{step.blurb}[/]\n[dim]Command:[/] [cyan]just {jc}[/]"
-    )
+    cmd = _step_command_display(step)
+    head = Text.from_markup(f"[bold]{step.title}[/]\n[dim]{step.blurb}[/]\n[dim]Command:[/] [cyan]{cmd}[/]")
     return Panel(
         head,
         title=f"[bold {step.border}]Step {index}/{total} · {step.key}[/]",
@@ -144,8 +150,8 @@ def _step_panel(step: _Step, index: int, total: int) -> Panel:
     )
 
 
-def _run_just(
-    argv: tuple[str, ...],
+def _run_step(
+    step: _Step,
     *,
     dry_run: bool,
     console: Console,
@@ -157,18 +163,26 @@ def _run_just(
         time.sleep(pause)
         console.print("  [dim italic]dry-run — not executed[/]\n")
         return 0, pause
+    root = repo_root()
+    t0 = time.monotonic()
+    if step.via_uv_tools:
+        uv = shutil.which("uv")
+        if not uv:
+            console.print("[red]error:[/] [cyan]uv[/] not on PATH (needed for Cloud Run image build).")
+            return 127, 0.0
+        rc = subprocess.run(
+            [uv, "run", "python", "-m", "tools", *step.argv],
+            cwd=root,
+            check=False,
+        ).returncode
+        return rc, time.monotonic() - t0
     exe = shutil.which("just")
     if not exe:
         console.print(
-            "[red]error:[/] [cyan]just[/] not on PATH. Install just or use the underlying commands from the Justfile."
+            "[red]error:[/] [cyan]just[/] not on PATH. Install just or use [cyan]uv run python -m tools[/] directly."
         )
         return 127, 0.0
-    t0 = time.monotonic()
-    rc = subprocess.run(
-        [exe, *argv],
-        cwd=repo_root(),
-        check=False,
-    ).returncode
+    rc = subprocess.run([exe, *step.argv], cwd=root, check=False).returncode
     return rc, time.monotonic() - t0
 
 
@@ -182,25 +196,28 @@ def register_ship(root: typer.Typer) -> None:
     def ship_command(
         dry_run: Annotated[
             bool,
-            typer.Option("--dry-run", help="Print stages and skip executing just recipes."),
+            typer.Option("--dry-run", help="Print stages without running commands."),
         ] = False,
-        skip_test: Annotated[bool, typer.Option("--skip-test", help="Skip `just test`.")] = False,
+        skip_test: Annotated[bool, typer.Option("--skip-test", help="Skip the `just test` step.")] = False,
         skip_preflight: Annotated[
             bool,
             typer.Option("--skip-preflight", help="Skip `just workspace preflight`."),
         ] = False,
-        skip_deploy: Annotated[bool, typer.Option("--skip-deploy", help="Skip `just workspace deploy`.")] = False,
-        skip_image: Annotated[bool, typer.Option("--skip-image", help="Skip `just image` (always).")] = False,
+        skip_deploy: Annotated[bool, typer.Option("--skip-deploy", help="Skip `just sync-to-bucket` (same as workspace deploy).")] = False,
+        skip_image: Annotated[
+            bool,
+            typer.Option("--skip-image", help="Skip `tools build orchestrator-image` (always)."),
+        ] = False,
         force_image: Annotated[
             bool,
             typer.Option(
                 "--force-image",
-                help="Always run `just image` (default: skip when git shows no edits under "
+                help="Always run `tools build orchestrator-image` (default: skip when git shows no edits under "
                 "gcp/image or gcp/__init__.py and Artifact Registry has an image tagged with "
                 "the current git HEAD commit, verified via the Artifact Registry API). "
-                "If the registry probe is unavailable (network/ADC), ship runs `just image` anyway "
+                "If the registry probe is unavailable (network/ADC), ship runs the image build anyway "
                 "(fail-open). If the probe reports permission denied (IAM), ship shows an error and "
-                "still runs `just image` so you are not silently skipped. "
+                "still runs the image build so you are not silently skipped. "
                 "Use after push or when the registry must refresh without local git diffs.",
             ),
         ] = False,
@@ -253,8 +270,8 @@ def register_ship(root: typer.Typer) -> None:
         total = len(active)
         for i, step in enumerate(active, start=1):
             console.print(_step_panel(step, i, total))
-            rc, elapsed = _run_just(
-                step.just_argv,
+            rc, elapsed = _run_step(
+                step,
                 dry_run=dry_run,
                 console=console,
                 pause_key=step.key,
@@ -302,7 +319,7 @@ def register_ship(root: typer.Typer) -> None:
             foot.append("You can push when ready; pre-push hooks still run ty + fast pytest.", style="dim")
         else:
             foot.append("Fix the failing stage and re-run: ", style="bold yellow")
-            foot.append("just ship", style="cyan")
+            foot.append("tools ship", style="cyan")
 
         console.print()
         console.print(

@@ -188,6 +188,72 @@ def packer_validate() -> None:
     raise typer.Exit(rc)
 
 
+def _docker_build_orchestrator_local() -> int:
+    root = repo_root()
+    return subprocess.run(
+        [
+            "docker",
+            "buildx",
+            "build",
+            "--load",
+            "-t",
+            "bmt-orchestrator:latest",
+            "-f",
+            str(root / "gcp/image/Dockerfile"),
+            ".",
+        ],
+        cwd=root,
+        check=False,
+    ).returncode
+
+
+def _docker_push_orchestrator_registry() -> int:
+    """Tag and push bmt-orchestrator:latest to Artifact Registry (mirrors former Justfile docker-push)."""
+    root = repo_root()
+    pulumi_dir = root / "infra" / "pulumi"
+    p = subprocess.run(
+        ["pulumi", "stack", "output", "gcp_project"],
+        cwd=pulumi_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    project = (p.stdout.strip() if p.returncode == 0 else "") or os.environ.get("GCP_PROJECT", "train-kws-202311")
+    region = os.environ.get("CLOUD_RUN_REGION", "europe-west4")
+    ar_repo = os.environ.get("ARTIFACT_REGISTRY_REPO", "bmt-images")
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    base = f"{region}-docker.pkg.dev/{project}/{ar_repo}/bmt-orchestrator"
+    for args in (
+        ["docker", "tag", "bmt-orchestrator:latest", f"{base}:latest"],
+        ["docker", "tag", "bmt-orchestrator:latest", f"{base}:{sha}"],
+    ):
+        rc = subprocess.run(args, cwd=root, check=False).returncode
+        if rc != 0:
+            return rc
+    for target in (f"{base}:latest", f"{base}:{sha}"):
+        rc = subprocess.run(["docker", "push", target], cwd=root, check=False).returncode
+        if rc != 0:
+            return rc
+    typer.echo(f"Pushed: {base}:latest and :{sha}")
+    return 0
+
+
+@app.command("orchestrator-image")
+def orchestrator_image_cmd() -> None:
+    """Cloud Run image: docker buildx (gcp/image/Dockerfile) + push to Artifact Registry with git-SHA tag."""
+    rc = _docker_build_orchestrator_local()
+    if rc != 0:
+        raise typer.Exit(rc)
+    rc = _docker_push_orchestrator_registry()
+    raise typer.Exit(rc)
+
+
 @app.command()
 def image(
     branch: Annotated[str, typer.Option(help="Git branch to build from")] = "",

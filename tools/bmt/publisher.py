@@ -58,6 +58,7 @@ def publish_bmt(
     project: str,
     bmt_slug: str,
     sync: bool = True,
+    enable: bool = True,
 ) -> PublishResult:
     resolved_stage_root = _stage_root(stage_root)
     plugin_name = validate_workspace_plugin(stage_root=resolved_stage_root, project=project, bmt_slug=bmt_slug)
@@ -67,6 +68,8 @@ def publish_bmt(
     manifest_path = _manifest_path(resolved_stage_root, project, bmt_slug)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["plugin_ref"] = result.plugin_ref
+    if enable:
+        manifest["enabled"] = True
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     if sync:

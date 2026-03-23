@@ -13,7 +13,7 @@ Pulumi now provisions the direct-Workflow Cloud Run pipeline:
 1. Ensure `infra/pulumi/bmt.config.json` is present (managed by infra owners/automation).
 2. Build and push the Cloud Run image (if needed).
 3. Run `just workspace pulumi` — Pulumi applies and syncs repo variables from its outputs (no separate export step).
-4. Run `just set-lifecycle` — applies GCS lifecycle rules to the bucket (one-time; safe to re-run).
+4. Run `just tools set-lifecycle` — applies GCS lifecycle rules to the bucket (one-time; safe to re-run).
    Automatically deletes orphaned staging archives (`imports/` prefix) after 2 days and stale
    trigger artifacts (`triggers/` prefix) after 7 days.
 

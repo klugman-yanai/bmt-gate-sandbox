@@ -34,7 +34,7 @@ just onboard
 just test
 ```
 
-[`CONTRIBUTING.md`](CONTRIBUTING.md) has the full setup story (hooks, lint, tests).
+Run **`just`** (no arguments) for the **typical workflow** steps; **`just list`** prints the full recipe table. **`just tools`** is the full Typer CLI (includes maintainer commands such as `release`). [`CONTRIBUTING.md`](CONTRIBUTING.md) has the full setup story (hooks, lint, tests).
 
 ## Architecture (summary)
 
@@ -53,6 +53,7 @@ There is **no** supported legacy VM-only path for current production.
 | **Architecture** | [docs/architecture.md](docs/architecture.md) |
 | **Configuration / env** | [docs/configuration.md](docs/configuration.md) |
 | **Add a project / BMT** | [docs/adding-a-project.md](docs/adding-a-project.md) |
+| **Before publish (local checks)** | [docs/local-bmt-testing.md](docs/local-bmt-testing.md) |
 | **Ops / incidents** | [docs/runbook.md](docs/runbook.md) |
 | **Roadmap** | [ROADMAP.md](ROADMAP.md) |
 | **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
@@ -78,12 +79,10 @@ See **[docs/configuration.md](docs/configuration.md)** and **[infra/README.md](i
 
 ## Contributor workflow (high level)
 
-1. `just stage project <project>`
-2. `just stage bmt <project> <benchmark>`
-3. Edit staged plugins under `gcp/stage/projects/<project>/plugin_workspaces/...`
-4. `just upload-data <project> <zip-or-folder> [--dataset <name>]`
-5. `just stage publish <project> <benchmark>`
-6. Enable the BMT manifest; CI discovers new legs
+1. `just add <project> [--bmt=<benchmark>] [--data=<zip-or-dir>]` (or use `just stage project` / `stage bmt` / `upload-wav` separately)
+2. Edit staged plugins under `gcp/stage/projects/<project>/plugin_workspaces/...`
+3. `just test-local` then `just tools bmt verify <project> <benchmark>` (see [docs/local-bmt-testing.md](docs/local-bmt-testing.md))
+4. `just publish` (or `just publish <project> <benchmark>`; enables `bmt.json` by default)
+5. `just sync-to-bucket` (full `gcp/` mirror; same as `just workspace deploy`)
 
-Other useful commands: `just workspace deploy`, `just workspace pulumi`, `just show-env`, `just mount` /
-`just unmount`.
+Other useful commands: `just mount` / `just unmount`. Infra and Cloud Run image work lives under **`just tools`** (e.g. `workspace pulumi`, `repo show-env`, `ship`, `build orchestrator-image`).

@@ -70,16 +70,43 @@ def stage_publish(
         bool,
         typer.Option("--no-sync", help="Only publish locally; skip syncing the project subtree to GCS"),
     ] = False,
+    no_enable: Annotated[
+        bool,
+        typer.Option("--no-enable", help="Leave enabled unchanged in bmt.json (default: set enabled true)"),
+    ] = False,
 ) -> None:
     """Validate, build an immutable plugin bundle for this BMT, and sync to GCS (unless --no-sync)."""
     from tools.bmt.publisher import publish_bmt as publish_bmt_impl
 
-    result = publish_bmt_impl(project=project, bmt_slug=benchmark, sync=not no_sync)
+    result = publish_bmt_impl(
+        project=project,
+        bmt_slug=benchmark,
+        sync=not no_sync,
+        enable=not no_enable,
+    )
     typer.echo(result.plugin_ref)
     raise typer.Exit(0)
 
 
 app.add_typer(stage, name="stage")
+
+
+@app.command("verify")
+def bmt_verify(
+    project: Annotated[str, typer.Argument(help="Staged project name (gcp/stage/projects/<name>/).")],
+    benchmark: Annotated[
+        str,
+        typer.Argument(help="BMT folder under bmts/ (must match bmt_slug in bmt.json)."),
+    ],
+) -> None:
+    """Load workspace plugin + manifests locally (no GCS). Use before ``tools publish``."""
+    from tools.bmt.publisher import validate_workspace_plugin
+    from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
+
+    root = repo_root() / DEFAULT_STAGE_ROOT
+    validate_workspace_plugin(stage_root=root, project=project, bmt_slug=benchmark)
+    typer.echo(f"OK — workspace plugin for {project}/{benchmark} loads.")
+    raise typer.Exit(0)
 
 
 @app.command("symlink-deps")

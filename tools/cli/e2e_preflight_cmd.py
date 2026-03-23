@@ -34,7 +34,7 @@ def register_e2e_preflight(root: typer.Typer) -> None:
             ),
         ] = False,
     ) -> None:
-        """Staged checks for Actions/handoff readiness; on failure suggests a `just` fix (like `just ship`)."""
+        """Staged checks for Actions/handoff readiness; on failure suggests a fix (e.g. `just tools ship`)."""
         rc = run_e2e_preflight(
             skip_bucket=skip_bucket,
             with_tests=with_tests,

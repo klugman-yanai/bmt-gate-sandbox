@@ -22,7 +22,7 @@ Supported published paths:
 
 1. Edit staged manifests/plugin workspaces in `gcp/stage`.
 2. Publish immutable plugin bundles.
-3. Sync the staged project subtree (`just workspace deploy` when using a real bucket).
+3. Upload local `gcp/` to the bucket (`just sync-to-bucket` when using a real bucket; same as `just workspace deploy`).
 4. Mount `gcp/mnt` only when you need to inspect live bucket state.
 
 Do not treat `gcp/mnt` as an authoring surface. It is observational only.

@@ -167,8 +167,8 @@ def upload_runner(
     raise typer.Exit(rc)
 
 
-@app.command("upload-dataset")
-def upload_dataset(
+@app.command("upload-wav")
+def upload_wav(
     project: Annotated[
         str,
         typer.Argument(help="Project name (e.g. sk)"),

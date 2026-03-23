@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import subprocess
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -31,6 +33,35 @@ def show_env() -> None:
     from tools.repo.gh_show_env import GhShowEnv
 
     raise typer.Exit(GhShowEnv().run())
+
+
+@app.command("test-local")
+def test_local() -> None:
+    """Fast checks before ``just publish``: pytest (tools tests) + ruff on BMT CLI code."""
+    uv = shutil.which("uv")
+    if not uv:
+        typer.echo("error: uv not on PATH", err=True)
+        raise typer.Exit(127)
+    root = repo_root()
+    rc = subprocess.run(
+        [uv, "run", "python", "-m", "pytest", "tests/tools", "-q"],
+        cwd=root,
+        check=False,
+    ).returncode
+    if rc != 0:
+        raise typer.Exit(rc)
+    rc2 = subprocess.run(
+        [uv, "run", "ruff", "check", "tools/bmt", "tools/cli"],
+        cwd=root,
+        check=False,
+    ).returncode
+    if rc2 != 0:
+        raise typer.Exit(rc2)
+    typer.echo(
+        "OK — before `just publish`, run `just tools bmt verify <project> <bmt_folder>` "
+        "and read docs/local-bmt-testing.md."
+    )
+    raise typer.Exit(0)
 
 
 @app.command("validate-layout")

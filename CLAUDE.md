@@ -36,7 +36,7 @@ Avoid `time.time()` / `datetime.now()` for new code. CI and `gcp/` may use local
 | `tools/repo/` | Layout policies, GitHub/repo vars, paths |
 | `tools/pulumi/` | Pulumi → GitHub vars |
 
-**CLI:** `uv run python -m tools --help` (Typer). **Just** recipes are preferred wrappers (`just workspace deploy`, etc.).
+**CLI:** `uv run python -m tools --help` (Typer). **Just** recipes are preferred wrappers (`just add`, `just test-local`, `just publish`, `just sync-to-bucket`, etc.; bare `just` shows the typical path, `just list` for all recipes).
 
 **Layout tests:** `just test` or `uv run python -m tools.repo.gcp_layout_policy` / `repo_layout_policy`.
 
@@ -84,11 +84,12 @@ To exercise manager-style snapshot writes and **`current.json`** against a real 
 ## Devtools and pre-commit
 
 - **Install [uv](https://docs.astral.sh/uv/) first**, then **`just onboard`** (or `bash tools/scripts/bootstrap_dev_env.sh`): `uv sync`, **prek** hooks, **`uv run python -m tools onboard`** (Rich summary). See [CONTRIBUTING.md](CONTRIBUTING.md).
-- **`just workspace deploy`** (with `GCS_BUCKET`) syncs `gcp/` to the bucket and verifies.
+- **`just sync-to-bucket`** (with `GCS_BUCKET`; same as **`just workspace deploy`**) uploads local `gcp/` to the bucket and verifies.
 - Pre-commit may **block** commits that touch `gcp/` unless the bucket is in sync (`SKIP_SYNC_VERIFY=1` to bypass intentionally).
 
 ```bash
-just workspace deploy
+just sync-to-bucket
+# same as: just workspace deploy
 # GCS_BUCKET="..." uv run python -m tools.remote.bucket_sync_gcp
 ```
 

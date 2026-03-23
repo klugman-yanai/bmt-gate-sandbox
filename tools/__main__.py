@@ -28,17 +28,25 @@ def register_subcommands(target: typer.Typer) -> None:
     """Attach all subcommand groups to ``target`` (idempotent: second call in-process is a no-op)."""
     if _registration.done:
         return
+    from tools.cli.add_cmd import register_add_command
     from tools.cli.bmt_cmd import app as bmt_app
     from tools.cli.bucket_cmd import app as bucket_app
     from tools.cli.build_cmd import app as build_app
     from tools.cli.e2e_preflight_cmd import register_e2e_preflight
+    from tools.cli.maintainer_cmd import register_maintainer_commands
     from tools.cli.onboard_cmd import register_onboard
+    from tools.cli.publish_cmd import register_publish_command
     from tools.cli.pulumi_cmd import app as pulumi_app
     from tools.cli.repo_cmd import app as repo_app
     from tools.cli.ship_cmd import register_ship
+    from tools.cli.workflow_cmd import register_workflow
     from tools.cli.workspace_cmd import register_workspace
 
     register_onboard(target)
+    register_add_command(target)
+    register_publish_command(target)
+    register_workflow(target)
+    register_maintainer_commands(target)
     register_ship(target)
     register_e2e_preflight(target)
     register_workspace(target)

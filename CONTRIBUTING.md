@@ -132,21 +132,21 @@ Run hooks manually: `prek run --all-files` (see `prek run --help` for `--stage`)
 
 Config lives in [pyproject.toml](pyproject.toml) and [pyrightconfig.json](pyrightconfig.json). Keep Python version aligned with `requires-python` (3.12).
 
-**Optional env / duplication sweep:** `just doctor` runs **vulture** (dead code) and **pylint** duplicate-code on env-related modules only. Not part of `just test`; see [docs/configuration.md — Env inventory appendix](docs/configuration.md#env-inventory-appendix).
+**Optional env / duplication sweep:** `just tools doctor` (vulture + pylint duplicate-code on env-related modules). Not part of `just test`; see [docs/configuration.md — Env inventory appendix](docs/configuration.md#env-inventory-appendix).
 
 ---
 
 ## Adding or changing a project
 
-Use the scaffold and CLI flow—see **[docs/adding-a-project.md](docs/adding-a-project.md)**.
+Use the scaffold and CLI flow—see **[docs/adding-a-project.md](docs/adding-a-project.md)** and **[docs/local-bmt-testing.md](docs/local-bmt-testing.md)**. **What `just add`, `just publish`, `sync-to-bucket`, `upload-wav`, `stage`, and `workspace` mean**: **[docs/contributor-commands.md](docs/contributor-commands.md)**. For a terminal checklist, run **`just workflow`**; **`just status`** shows `.venv` and folders under `gcp/stage/projects/` (alias: `just workflow-status`).
 
-Short version: `just stage project <name>` → edit under `gcp/stage/projects/<name>/` → data → `just stage publish <name> <benchmark>` → set `"enabled": true` in the right `bmt.json` → `just workspace deploy` so the bucket matches (`<benchmark>` is the folder under `bmts/`; the manifest JSON field is still `bmt_slug`).
+Short version: **`just add <name> [--bmt=<folder>] [--data=<path>]`** → edit under `gcp/stage/projects/<name>/` → **`just test-local`** → **`just tools bmt verify <name> <benchmark>`** → **`just publish`** (or `just publish <name> <benchmark>` if several BMTs exist; **`publish` sets `enabled`: true** by default) → **`just sync-to-bucket`** (same as `just workspace deploy`). `<benchmark>` is the folder under `bmts/`; the manifest field is still `bmt_slug`.
 
 ---
 
 ## Bucket and `gcp/`
 
-- If you change files under `gcp/`, pre-commit may expect the bucket to match **`just workspace deploy`** (with `GCS_BUCKET` set). If you must commit without syncing, use `SKIP_SYNC_VERIFY=1` on purpose only.
+- If you change files under `gcp/`, pre-commit may expect the bucket to match **`just sync-to-bucket`** (same as **`just workspace deploy`**, with `GCS_BUCKET` set). If you must commit without syncing, use `SKIP_SYNC_VERIFY=1` on purpose only.
 - Infra and GitHub vars: Pulumi is the source of truth; **`just workspace pulumi`** applies. Details: [docs/configuration.md](docs/configuration.md), [infra/README.md](infra/README.md).
 
 ---
@@ -156,14 +156,16 @@ Short version: `just stage project <name>` → edit under `gcp/stage/projects/<n
 - [`gcp/image`](gcp/image) — Image-baked framework and runtime
 - [`gcp/stage`](gcp/stage) — Editable staged mirror of bucket manifests, plugins, assets
 - [`gcp/mnt`](gcp/mnt) — Optional read-only bucket mount for inspection
-- Dataset archives may live anywhere; `just upload-data` takes an explicit path
+- Dataset archives may live anywhere; `just upload-wav` takes an explicit path
 
-**Common commands:** `just stage` (see `just stage` / `tools bmt stage --help`), `just upload-data`, `just mount` / `just unmount`, `just ship` (see `just --list`).
+**Common commands:** bare **`just`** (typical path) · **`just list`** (all recipes) · **`just workflow`** / **`just status`**. Also **`just add`**, **`just test-local`**, **`just publish`**, **`just sync-to-bucket`**, **`just stage`**, **`just upload-wav`**, **`just test`**. FUSE inputs: **`just tools bucket mount-project`** / **`umount-project`**. Pre-push / infra / image: **`just tools ship`**, **`just tools build …`**, etc.
 
-## Dataset upload (`just upload-data`)
+**Maintainer-only commands** are top-level on Typer (same as `just tools …`): **`release`**, **`release-check`**, **`set-lifecycle`**, **`act`** — see **`just tools --help`**.
+
+## WAV dataset upload (`just upload-wav`)
 
 ```bash
-just upload-data <project> <zip-or-folder> [--dataset <name>]
+just upload-wav <project> <zip-or-folder> [--dataset <name>]
 ```
 
 **Entry:** [`tools/remote/bucket_upload_dataset.py`](tools/remote/bucket_upload_dataset.py) (`BucketUploadDataset`).
@@ -191,7 +193,7 @@ uv run python -m pytest tests/bmt tests/ci tests/infra tests/tools -q
 
 **Integration boundary (mental model):** publish staged plugin → upload dataset → invoke Workflow (CI or manual) → `triggers/plans/<workflow_run_id>.json` → task summaries → coordinator writes `current.json`.
 
-**Troubleshooting:** Layout / policy: `just test`. Bucket out of sync: `just workspace deploy` before committing `gcp/` (or `SKIP_SYNC_VERIFY=1` intentionally). Vars vs Pulumi: [docs/configuration.md](docs/configuration.md), `just workspace validate`.
+**Troubleshooting:** Layout / policy: `just test`. Bucket out of sync: **`just sync-to-bucket`** before committing `gcp/` (or `SKIP_SYNC_VERIFY=1` intentionally). Vars vs Pulumi: [docs/configuration.md](docs/configuration.md), `just workspace validate`.
 
 ## Before you open a PR
 

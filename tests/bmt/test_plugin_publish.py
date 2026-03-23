@@ -45,6 +45,7 @@ def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_pat
     assert published_manifest["entrypoint"] == f"{SYNTH_PROJECT}_plugin:{SYNTH_PROJECT.title()}Plugin"
     bmt_manifest = json.loads(sp.bmt_manifest(SYNTH_PROJECT, SYNTH_BMT_SLUG).read_text(encoding="utf-8"))
     assert bmt_manifest["plugin_ref"] == result.plugin_ref
+    assert bmt_manifest["enabled"] is True
     assert synced == [SYNTH_PROJECT]
 
 
