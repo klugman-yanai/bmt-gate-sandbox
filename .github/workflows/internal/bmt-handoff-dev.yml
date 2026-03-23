@@ -49,6 +49,6 @@ jobs:
       pr_number: ${{ inputs.pr_number }}
       available_artifacts: ${{ inputs.available_artifacts }}
       use_mock_runner: true
-      cloud_run_region: ${{ vars['CLOUD_RUN_REGION'] || 'europe-west4' }}
-      bmt_status_context: ${{ vars['BMT_STATUS_CONTEXT'] || 'BMT Gate' }}
+      cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
+      bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
     secrets: inherit

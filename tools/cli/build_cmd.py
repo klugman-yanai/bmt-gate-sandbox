@@ -16,7 +16,7 @@ from tools.shared.rich_minimal import step_console, success_panel
 app = typer.Typer(no_args_is_help=True)
 
 PACKER_TEMPLATE = "infra/packer/bmt-runtime.pkr.hcl"  # relative to repo root
-IMAGE_BUILD_WORKFLOW = "trigger-image-build.yml"
+IMAGE_BUILD_WORKFLOW = "internal/trigger-image-build.yml"
 
 
 def _repo_slug() -> str:
@@ -115,7 +115,7 @@ def _dispatch_workflow(repo: str, branch: str) -> None:
         if err:
             typer.echo(err.strip(), err=True)
         typer.echo(
-            "Trigger failed. Ensure trigger-image-build.yml (or ops/trigger-image-build.yml) "
+            "Trigger failed. Ensure internal/trigger-image-build.yml (or legacy ops/ / root paths) "
             "is accessible from the default branch and accepts a 'branch' input. "
             "Use --skip-image to run Pulumi only.",
             err=True,

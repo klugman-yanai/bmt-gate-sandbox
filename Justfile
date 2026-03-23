@@ -263,7 +263,7 @@ release-check:
 
 # -- Local CI ----------------------------------------------------------------
 
-# Default: workflow_dispatch on build-and-test.yml. For handoff/trigger-ci, run `act` with -W yourself or see .github/README.md.
+# Default: workflow_dispatch on build-and-test.yml. For handoff or internal/trigger-ci, run `act` with -W yourself or see .github/README.md.
 [group('local-ci')]
 act:
     #!/usr/bin/env bash

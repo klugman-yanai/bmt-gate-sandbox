@@ -6,15 +6,12 @@ on:
     branches:
       - dev
       - ci/check-bmt-gate
-      - test/check-bmt-gate-*
-      - test/workflow-optimizations
       - test/*
   pull_request:
     branches:
       - dev
       - ci/check-bmt-gate
-      - test/check-bmt-gate-*
-      - test/workflow-optimizations
+      - test/*
   workflow_dispatch:
   workflow_call: {}
 
@@ -177,5 +174,5 @@ jobs:
       head_event: ${{ github.event_name }}
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
       use_mock_runner: false
-      cloud_run_region: ${{ vars['CLOUD_RUN_REGION'] || 'europe-west4' }}
-      bmt_status_context: ${{ vars['BMT_STATUS_CONTEXT'] || 'BMT Gate' }}
+      cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
+      bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}

@@ -4,9 +4,14 @@ Pulls from two sources:
   - .github/          authoritative CI code (bmt package, actions, workflows)
   - scripts/release_templates/  files with no dev equivalent (trigger-ci.yml, actionlint.yaml)
 
-Workflows in .github/workflows/ ship verbatim EXCEPT:
+Workflows in .github/workflows/ ship EXCEPT:
   - *-dev.yml files (dev-only; excluded by naming convention)
-  - ops/ subdirectory (dev-only operational workflows)
+  - internal/ subdirectory in source (dev-only operational workflows; not copied into the bundle)
+
+Release layout mirrors the repo: only **build-and-test.yml**, **bmt-handoff.yml**, and **clang-format-auto-fix.yml**
+at **`.github-release/workflows/*.yml`**. Template workflows (**trigger-ci.yml**, **code-owner-enforcement.yml**, …)
+ship under **`.github-release/workflows/internal/`**. The template **clang-format-auto-fix.yml** is skipped here because
+the copy from `.github/workflows/` root is authoritative.
 
 Run via: just release
 CI / no local PEM: RELEASE_SKIP_SECRETS=1 or --skip-secrets
@@ -34,6 +39,9 @@ PEM_NAME = "Kardome-org_core-main.pem"
 
 EXCLUDE_ACTIONS = {"check-image-up-to-date"}
 EXCLUDE_COPY = {"__pycache__", ".venv"}
+
+# Authoritative clang-format lives at .github/workflows root; skip duplicate from templates/.
+SKIP_TEMPLATE_WORKFLOWS = frozenset({"clang-format-auto-fix.yml"})
 
 
 # ---------------------------------------------------------------------------
@@ -94,15 +102,20 @@ def assemble(*, skip_secrets: bool) -> None:
         shutil.rmtree(DEST)
     DEST.mkdir()
 
-    # 2. Copy workflows: exclude *-dev.yml and ops/ subdirectory
+    workflows_dest = DEST / "workflows"
+    internal_dest = workflows_dest / "internal"
+
+    # 2. Copy workflows: only root *.yml (excludes internal/ and *-dev.yml by location/naming)
     for wf in sorted((SRC / "workflows").glob("*.yml")):
         if wf.stem.endswith("-dev"):
             continue
-        _copy(wf, DEST / "workflows" / wf.name)
+        _copy(wf, workflows_dest / wf.name)
 
-    # 3. Copy workflow templates (production-specific files with no dev equivalent)
-    for wf in sorted((TEMPLATES / "workflows").iterdir()):
-        _copy(wf, DEST / "workflows" / wf.name)
+    # 3. Copy workflow templates into workflows/internal/ (same layout as bmt-gcloud root vs internal).
+    for wf in sorted((TEMPLATES / "workflows").glob("*.yml")):
+        if wf.name in SKIP_TEMPLATE_WORKFLOWS:
+            continue
+        _copy(wf, internal_dest / wf.name)
 
     # 4. Copy actionlint config from templates
     _copy(TEMPLATES / "actionlint.yaml", DEST / "actionlint.yaml")
@@ -152,7 +165,10 @@ def assemble(*, skip_secrets: bool) -> None:
     }
     (DEST / "bmt_release.json").write_text(json.dumps(provenance, indent=2) + "\n")
 
-    workflow_names = sorted(p.name for p in (DEST / "workflows").iterdir())
+    workflow_paths = sorted(workflows_dest.glob("*.yml"))
+    if internal_dest.is_dir():
+        workflow_paths.extend(sorted(internal_dest.glob("*.yml")))
+    workflow_names = sorted(p.name for p in workflow_paths)
     action_names = sorted(p.name for p in (DEST / "actions").iterdir())
     bmt_py_count = len(list((DEST / "bmt" / "ci").rglob("*.py")))
 
@@ -176,8 +192,8 @@ def assemble(*, skip_secrets: bool) -> None:
         "## Sources\n\n"
         "| Content | Source |\n"
         "|---------|--------|\n"
-        "| `workflows/` | `.github/workflows/*.yml` (excl. `*-dev.yml`, `ops/`) + "
-        "`scripts/release_templates/workflows/` |\n"
+        "| `workflows/*.yml` | `.github/workflows/` root only (excl. `*-dev.yml`) |\n"
+        "| `workflows/internal/*.yml` | `scripts/release_templates/workflows/*.yml` (excl. duplicate `clang-format-auto-fix.yml`) |\n"
         "| `actions/*/action.yml` | `.github/actions/` (`check-image-up-to-date` excluded) |\n"
         "| `bmt/ci/` | `.github/bmt/ci/` |\n"
         f"{pem_row}"

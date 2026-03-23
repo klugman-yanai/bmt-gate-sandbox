@@ -1,7 +1,7 @@
 # Thin trigger so CI runs using workflow files from the *source* branch.
 # - On pull_request: runs build-and-test from the PR head (your branch), not the target.
 # - On push: runs build-and-test from the branch that was pushed.
-# Copy to core-main/.github/workflows/ alongside build-and-test.yml. Merge to default once.
+# Copy to core-main/.github/workflows/internal/ (root workflows stay build-and-test, bmt-handoff, clang-format). Merge to default once.
 name: Trigger CI (from branch)
 
 on:

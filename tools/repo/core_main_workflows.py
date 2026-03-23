@@ -58,31 +58,49 @@ def _remote_workflow_names() -> list[str] | None:
     data = _gh_api_json(f"repos/{CORE_MAIN_REPO}/contents/.github/workflows?ref={CORE_MAIN_REF}")
     if not isinstance(data, list):
         return None
-    names: list[str] = []
+    names: set[str] = set()
     for item in data:
         if not isinstance(item, dict):
             continue
         row = cast(dict[str, Any], item)
-        if row.get("type") != "file":
-            continue
-        name = row.get("name")
-        if isinstance(name, str) and name.endswith((".yml", ".yaml")):
-            names.append(name)
+        if row.get("type") == "file":
+            name = row.get("name")
+            if isinstance(name, str) and name.endswith((".yml", ".yaml")):
+                names.add(name)
+        elif row.get("type") == "dir" and row.get("name") == "internal":
+            internal = _gh_api_json(
+                f"repos/{CORE_MAIN_REPO}/contents/.github/workflows/internal?ref={CORE_MAIN_REF}"
+            )
+            if not isinstance(internal, list):
+                continue
+            for child in internal:
+                if not isinstance(child, dict):
+                    continue
+                crow = cast(dict[str, Any], child)
+                if crow.get("type") != "file":
+                    continue
+                cname = crow.get("name")
+                if isinstance(cname, str) and cname.endswith((".yml", ".yaml")):
+                    names.add(cname)
     return sorted(names)
 
 
 def _remote_workflow_text(name: str) -> str | None:
-    data = _gh_api_json(f"repos/{CORE_MAIN_REPO}/contents/.github/workflows/{name}?ref={CORE_MAIN_REF}")
-    if not isinstance(data, dict):
-        return None
-    payload = cast(dict[str, Any], data)
-    if payload.get("encoding") != "base64":
-        return None
-    raw_b64 = payload.get("content")
-    if not isinstance(raw_b64, str):
-        return None
-    raw = base64.b64decode(raw_b64.replace("\n", ""))
-    return raw.decode("utf-8", errors="replace")
+    for rel in (name, f"internal/{name}"):
+        data = _gh_api_json(
+            f"repos/{CORE_MAIN_REPO}/contents/.github/workflows/{rel}?ref={CORE_MAIN_REF}"
+        )
+        if not isinstance(data, dict):
+            continue
+        payload = cast(dict[str, Any], data)
+        if payload.get("encoding") != "base64":
+            continue
+        raw_b64 = payload.get("content")
+        if not isinstance(raw_b64, str):
+            continue
+        raw = base64.b64decode(raw_b64.replace("\n", ""))
+        return raw.decode("utf-8", errors="replace")
+    return None
 
 
 def _normalize(text: str) -> str:
@@ -127,7 +145,18 @@ def run_drift_check(local_workflows_dir: Path, *, mode: str) -> int:
         print(f"::error::Missing directory: {local_workflows_dir}", file=sys.stderr)
         return 1
 
-    local_names = sorted(p.name for p in local_workflows_dir.iterdir() if p.is_file() and p.suffix in (".yml", ".yaml"))
+    local_by_name: dict[str, Path] = {}
+    for p in sorted(local_workflows_dir.glob("*.yml")):
+        local_by_name[p.name] = p
+    for p in sorted(local_workflows_dir.glob("*.yaml")):
+        local_by_name.setdefault(p.name, p)
+    internal_dir = local_workflows_dir / "internal"
+    if internal_dir.is_dir():
+        for p in sorted(internal_dir.glob("*.yml")):
+            local_by_name.setdefault(p.name, p)
+        for p in sorted(internal_dir.glob("*.yaml")):
+            local_by_name.setdefault(p.name, p)
+    local_names = sorted(local_by_name)
     overlap = sorted(set(remote_names) & set(local_names))
     if not overlap:
         print(
@@ -143,7 +172,7 @@ def run_drift_check(local_workflows_dir: Path, *, mode: str) -> int:
             print(f"  ? {name} — could not fetch remote", file=sys.stderr)
             any_diff = True
             continue
-        local_path = local_workflows_dir / name
+        local_path = local_by_name[name]
         local = local_path.read_text(encoding="utf-8", errors="replace")
         rn = _normalize(remote)
         ln = _normalize(local)

@@ -10,7 +10,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_bmt_image_build_enforces_family_policy() -> None:
-    workflow = (repo_root() / ".github" / "workflows" / "ops" / "bmt-image-build.yml").read_text(encoding="utf-8")
+    workflow = (repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml").read_text(encoding="utf-8")
     assert "Enforce image family policy" in workflow
     assert "BMT_EXPECTED_IMAGE_FAMILY" in workflow
     assert "BMT_EXPECTED_BASE_IMAGE_FAMILY" in workflow

@@ -49,6 +49,10 @@ jobs:
           set -euo pipefail
           test -f .github-release/bmt_release.json
           test -f .github-release/workflows/bmt-handoff.yml
+          test -f .github-release/workflows/build-and-test.yml
+          test -f .github-release/workflows/clang-format-auto-fix.yml
+          test -f .github-release/workflows/internal/trigger-ci.yml
+          test -f .github-release/workflows/internal/code-owner-enforcement.yml
           test -f .github-release/bmt/pyproject.toml
           jq -e '.source_sha | length >= 7' .github-release/bmt_release.json
           jq -e '.skip_secrets == true' .github-release/bmt_release.json

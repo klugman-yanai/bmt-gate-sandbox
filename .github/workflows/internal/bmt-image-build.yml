@@ -130,7 +130,7 @@ jobs:
             --image-family "${{ inputs.image_family || 'bmt-runtime' }}" \
             --gcs-bucket "${{ env.GCS_BUCKET }}" \
             --gcp-project "${{ env.GCP_PROJECT }}" \
-            --builder-id "https://github.com/${{ github.repository }}/.github/workflows/ops/bmt-image-build.yml" \
+            --builder-id "https://github.com/${{ github.repository }}/.github/workflows/internal/bmt-image-build.yml" \
             --git-sha "${{ github.sha }}" \
             --out provenance.json
 

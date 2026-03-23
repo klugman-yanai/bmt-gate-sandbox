@@ -20,7 +20,7 @@ pytestmark = pytest.mark.unit
 
 def test_reusable_workflow_calls_do_not_inherit_secrets() -> None:
     build_workflow = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
-    trigger_ci = (repo_root() / ".github" / "workflows" / "ops" / "trigger-ci.yml").read_text(encoding="utf-8")
+    trigger_ci = (repo_root() / ".github" / "workflows" / "internal" / "trigger-ci.yml").read_text(encoding="utf-8")
 
     assert "secrets: inherit" not in build_workflow
     assert "secrets: inherit" not in trigger_ci
@@ -28,7 +28,7 @@ def test_reusable_workflow_calls_do_not_inherit_secrets() -> None:
 
 def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
-    trigger_ci = (repo_root() / ".github" / "workflows" / "ops" / "trigger-ci.yml").read_text(encoding="utf-8")
+    trigger_ci = (repo_root() / ".github" / "workflows" / "internal" / "trigger-ci.yml").read_text(encoding="utf-8")
 
     assert "start_bmt_workflow:" in handoff
     assert "statuses: write" in handoff
@@ -69,7 +69,7 @@ def test_handoff_does_not_use_ci_side_github_reporting() -> None:
 def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
     build_test = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
     clang_format = (repo_root() / ".github" / "workflows" / "clang-format-auto-fix.yml").read_text(encoding="utf-8")
-    image_build = (repo_root() / ".github" / "workflows" / "ops" / "bmt-image-build.yml").read_text(encoding="utf-8")
+    image_build = (repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml").read_text(encoding="utf-8")
 
     assert "actions/checkout@v4" not in build_test
     assert "actions/checkout@v4" not in clang_format

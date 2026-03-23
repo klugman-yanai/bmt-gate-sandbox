@@ -87,7 +87,7 @@ on:
         type: boolean
         default: false
       cloud_run_region:
-        description: GCP region for Cloud Run jobs (callers should pass vars.CLOUD_RUN_REGION with fallback).
+        description: GCP region for Cloud Run jobs (callers pass vars.CLOUD_RUN_REGION; empty uses default below).
         required: false
         type: string
         default: "europe-west4"
@@ -126,8 +126,9 @@ env:
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
-  CLOUD_RUN_REGION: ${{ inputs.cloud_run_region }}
-  BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
+  # Defaults match docs/configuration.md and gcp/image/config/constants.py (DEFAULT_*).
+  CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
+  BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
 
 permissions:
   contents: read
