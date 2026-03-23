@@ -91,48 +91,35 @@ def _iso_timestamp() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-
-def assemble(*, skip_secrets: bool) -> None:
-    # 1. Clean destination
-    if DEST.exists():
-        shutil.rmtree(DEST)
-    DEST.mkdir()
-
-    workflows_dest = DEST / "workflows"
-    internal_dest = workflows_dest / "internal"
-
-    # 2. Copy workflows: only root *.yml (excludes internal/ and *-dev.yml by location/naming)
+def _copy_root_release_workflows(workflows_dest: Path) -> None:
     for wf in sorted((SRC / "workflows").glob("*.yml")):
         if wf.stem.endswith("-dev"):
             continue
         _copy(wf, workflows_dest / wf.name)
 
-    # 3. Copy workflow templates into workflows/internal/ (same layout as bmt-gcloud root vs internal).
+
+def _copy_internal_template_workflows(internal_dest: Path) -> None:
     for wf in sorted((TEMPLATES / "workflows").glob("*.yml")):
         if wf.name in SKIP_TEMPLATE_WORKFLOWS:
             continue
         _copy(wf, internal_dest / wf.name)
 
-    # 4. Copy actionlint config from templates
-    _copy(TEMPLATES / "actionlint.yaml", DEST / "actionlint.yaml")
 
-    # 5. Copy actions (exclude dev-only)
+def _copy_actions_bundle() -> None:
     for action_dir in sorted((SRC / "actions").iterdir()):
         if action_dir.name in EXCLUDE_ACTIONS:
             continue
         _copy(action_dir / "action.yml", DEST / "actions" / action_dir.name / "action.yml")
 
-    # 6. Copy bmt package
+
+def _copy_bmt_package() -> None:
     _copy_tree(SRC / "bmt" / "ci", DEST / "bmt" / "ci")
     _copy(SRC / "bmt" / "pyproject.toml", DEST / "bmt" / "pyproject.toml")
     _copy(SRC / "bmt" / "uv.lock", DEST / "bmt" / "uv.lock")
     _copy(SRC / "bmt" / "config" / "README.md", DEST / "bmt" / "config" / "README.md")
 
-    # 7. Copy production GitHub App key (optional for CI)
+
+def _copy_pem_or_exit(*, skip_secrets: bool) -> None:
     pem_src = SECRETS_SRC / PEM_NAME
     pem_dest = DEST / "bmt" / "config" / "secrets" / PEM_NAME
     if skip_secrets:
@@ -141,7 +128,8 @@ def assemble(*, skip_secrets: bool) -> None:
             "use GitHub Secrets on the consumer repo instead of committing keys.",
             file=sys.stderr,
         )
-    elif not pem_src.is_file():
+        return
+    if not pem_src.is_file():
         print(
             f"error: missing {pem_src}\n"
             "Place the GitHub App private key there for a full bundle, or run with "
@@ -149,10 +137,10 @@ def assemble(*, skip_secrets: bool) -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
-    else:
-        _copy(pem_src, pem_dest)
+    _copy(pem_src, pem_dest)
 
-    # 8. Provenance + manifest
+
+def _write_provenance_and_manifest(*, skip_secrets: bool, workflows_dest: Path, internal_dest: Path) -> str:
     source_sha = _git_output(["rev-parse", "HEAD"]) or "unknown"
     source_ref = _git_output(["describe", "--tags", "--always"]) or "unknown"
     provenance = {
@@ -210,6 +198,33 @@ def assemble(*, skip_secrets: bool) -> None:
     print(f"  actions   : {len(action_names)}")
     print(f"  bmt/ci    : {bmt_py_count} .py files")
     print(f"  provenance: {source_sha[:12]}… → bmt_release.json")
+    return source_sha
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def assemble(*, skip_secrets: bool) -> None:
+    if DEST.exists():
+        shutil.rmtree(DEST)
+    DEST.mkdir()
+
+    workflows_dest = DEST / "workflows"
+    internal_dest = workflows_dest / "internal"
+
+    _copy_root_release_workflows(workflows_dest)
+    _copy_internal_template_workflows(internal_dest)
+    _copy(TEMPLATES / "actionlint.yaml", DEST / "actionlint.yaml")
+    _copy_actions_bundle()
+    _copy_bmt_package()
+    _copy_pem_or_exit(skip_secrets=skip_secrets)
+    _write_provenance_and_manifest(
+        skip_secrets=skip_secrets,
+        workflows_dest=workflows_dest,
+        internal_dest=internal_dest,
+    )
 
     drift_rc = run_drift_check(DEST / "workflows", mode="release")
     if drift_rc != 0:
