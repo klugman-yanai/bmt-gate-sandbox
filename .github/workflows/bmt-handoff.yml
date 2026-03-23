@@ -36,6 +36,16 @@ on:
         required: false
         type: string
         default: "[]"
+      cloud_run_region:
+        description: GCP region for Cloud Run (manual runs; CI callers should pass vars.CLOUD_RUN_REGION).
+        required: false
+        type: string
+        default: "europe-west4"
+      bmt_status_context:
+        description: GitHub check/status context name for the BMT gate.
+        required: false
+        type: string
+        default: "BMT Gate"
   workflow_call:
     inputs:
       ci_run_id:
@@ -76,6 +86,16 @@ on:
         required: false
         type: boolean
         default: false
+      cloud_run_region:
+        description: GCP region for Cloud Run jobs (callers should pass vars.CLOUD_RUN_REGION with fallback).
+        required: false
+        type: string
+        default: "europe-west4"
+      bmt_status_context:
+        description: GitHub check/status context name for the BMT gate.
+        required: false
+        type: string
+        default: "BMT Gate"
     outputs:
       bmt_gate_passed:
         description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
@@ -106,8 +126,8 @@ env:
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
-  CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION || 'europe-west4' }}
-  BMT_STATUS_CONTEXT: ${{ vars.BMT_STATUS_CONTEXT || 'BMT Gate' }}
+  CLOUD_RUN_REGION: ${{ inputs.cloud_run_region }}
+  BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
 
 permissions:
   contents: read
