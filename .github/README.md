@@ -78,5 +78,5 @@ To require review for workflow edits, add a `.github/CODEOWNERS` rule (for examp
 
 - **WIF + service account** authenticate workflow jobs to GCP.
 - **github.token / GITHUB_TOKEN** is only used in workflow paths that call GitHub APIs directly (for example gh workflow run, gh variable set, or fallback status posting).
-- **GitHub App credentials** are runtime-only and are loaded by the VM/Cloud Run runtime after dispatch; they are not part of the reusable workflow contract.
+- **GitHub App credentials** are runtime-only and are loaded by the **Cloud Run** runtime after dispatch; they are not part of the reusable workflow contract.
 

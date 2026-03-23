@@ -138,7 +138,7 @@ Run hooks manually: `prek run --all-files` (see `prek run --help` for `--stage`)
 
 Config lives in [pyproject.toml](pyproject.toml) and [pyrightconfig.json](pyrightconfig.json). Keep Python version aligned with `requires-python` (3.12).
 
-**Optional env / duplication sweep:** `just doctor` runs **vulture** (dead code) and **pylint** duplicate-code on env-related modules only. Not part of `just test`; see [docs/configuration/env-inventory-appendix.md](docs/configuration/env-inventory-appendix.md).
+**Optional env / duplication sweep:** `just doctor` runs **vulture** (dead code) and **pylint** duplicate-code on env-related modules only. Not part of `just test`; see [docs/configuration.md — Env inventory appendix](docs/configuration.md#env-inventory-appendix).
 
 ---
 
@@ -157,15 +157,47 @@ Short version: `just add-project <slug>` → edit under `gcp/stage/projects/<slu
 
 ---
 
-## Dataset upload
+## Local layout (contributor)
+
+- [`gcp/image`](gcp/image) — Image-baked framework and runtime
+- [`gcp/stage`](gcp/stage) — Editable staged mirror of bucket manifests, plugins, assets
+- [`gcp/mnt`](gcp/mnt) — Optional read-only bucket mount for inspection
+- Dataset archives may live anywhere; `just upload-data` takes an explicit path
+
+**Common commands:** `just add-project`, `just add-bmt`, `just publish-bmt`, `just upload-data`, `just mount-project` / `just umount-project` (see `just --list`).
+
+## Dataset upload (`just upload-data`)
 
 ```bash
 just upload-data <project> <zip-or-folder> [--dataset <name>]
 ```
 
-Large zips may need the Cloud Run import path and env vars (`GCP_PROJECT`, `CLOUD_RUN_REGION`, `BMT_CONTROL_JOB`, etc.). If those are not set, prefer a directory or extract locally—[docs/development.md](docs/development.md#dataset-upload-just-upload-data).
+**Entry:** [`tools/remote/bucket_upload_dataset.py`](tools/remote/bucket_upload_dataset.py) (`BucketUploadDataset`).
 
----
+- **Archives (zip):** Large archives should use the **Cloud Run dataset-import** path. Set **`GCP_PROJECT`**, **`CLOUD_RUN_REGION`**, and **`BMT_CONTROL_JOB`** (and related vars your environment uses). If those are missing, extract locally and pass a **directory**, or configure Cloud Run.
+- **Directories:** Sync uses **`gcloud storage`** (rsync-style).
+- **Pre-flight / completion:** The uploader may print a **pre-flight** summary and a **completion** summary after success.
+
+## Verification (after changing tools or CI)
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check
+uv run python -m pytest tests/ -q
+```
+
+Focused subset while iterating:
+
+```bash
+uv run python -m pytest tests/bmt tests/ci tests/infra tests/tools -q
+```
+
+**Smoke:** `uv run bmt write-context --help`, `uv run python -m tools repo show-env` and `uv run python -m tools repo validate` when touching those areas.
+
+**Integration boundary (mental model):** publish staged plugin → upload dataset → invoke Workflow (CI or manual) → `triggers/plans/<workflow_run_id>.json` → task summaries → coordinator writes `current.json`.
+
+**Troubleshooting:** Layout / policy: `just test`. Bucket out of sync: `just deploy` before committing `gcp/` (or `SKIP_SYNC_VERIFY=1` intentionally). Vars vs Pulumi: [docs/configuration.md](docs/configuration.md), `just validate`.
 
 ## Before you open a PR
 
@@ -188,21 +220,22 @@ Optional: `uv run python -m tools repo validate`, `uv run bmt write-context --he
 
 ---
 
-## Docs and security
+## Docs
 
 - Index: [docs/README.md](docs/README.md)
-- Security: [SECURITY.md](SECURITY.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - If you change behavior, env vars, or bucket layout, update README / CLAUDE.md / the relevant doc in the same PR when practical.
+
+**Agent / Cursor implementation plans** for this repo live under **`.cursor/plans/`** (not under `docs/`).
 
 ---
 
 ## E2E / mock CI
 
-Scripted mock handoff: [docs/plans/2026-03-22-e2e-ci-validation.md](docs/plans/2026-03-22-e2e-ci-validation.md).
+Exercise handoff via `gh workflow run` on `bmt-handoff.yml` with mock-runner options as documented in workflow inputs and `.github/README.md`.
 
 ---
 
 ## Maintainer-heavy areas
 
-Big changes to orchestration or GitHub reporting may touch `gcp/image/runtime/`, `.github/bmt/ci/`, or `tools/repo/gh_repo_vars.py`—call that out in the PR and link any existing plan.
+Big changes to orchestration or GitHub reporting may touch `gcp/image/runtime/`, `.github/bmt/ci/`, or `tools/repo/gh_repo_vars.py`—call that out in the PR.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -49,6 +50,8 @@ from gcp.image.runtime.models import (
 )
 from gcp.image.runtime.planning import PlanOptions, build_plan
 
+logger = logging.getLogger(__name__)
+
 app = typer.Typer(no_args_is_help=True)
 
 
@@ -67,6 +70,30 @@ def _default_workspace_root() -> Path:
     if raw:
         return Path(raw).resolve()
     return Path(tempfile.gettempdir(), "bmt-framework").resolve()
+
+
+def _leg_summary_from_execute_failure(*, leg: PlanLeg, exc: BaseException) -> LegSummary:
+    """When plugin execution raises, still produce a leg summary for the coordinator and GitHub."""
+    msg = str(exc).strip() or repr(exc)
+    return LegSummary(
+        project=leg.project,
+        bmt_slug=leg.bmt_slug,
+        bmt_id=leg.bmt_id,
+        run_id=leg.run_id,
+        status=BmtLegStatus.FAIL.value,
+        reason_code="runner_failures",
+        plugin_ref=leg.plugin_ref,
+        execution_mode_used="unknown",
+        score=ScorePayload(
+            aggregate_score=0.0,
+            metrics={
+                "execute_exception_type": type(exc).__name__,
+                "execute_exception_message": msg[:4000],
+            },
+            extra={"unavailable": True},
+        ),
+        verdict_summary={"execute_exception": type(exc).__name__, "message": msg[:8000]},
+    )
 
 
 def _runtime_paths(stage_root: Path | None = None, workspace_root: Path | None = None) -> StageRuntimePaths:
@@ -160,6 +187,7 @@ def _write_snapshot_artifacts(
         "metrics": summary.score.metrics,
         "extra": summary.score.extra,
         "verdict_summary": summary.verdict_summary,
+        "duration_sec": summary.duration_sec,
     }
     verdict_payload = {k: v for k, v in latest_payload.items() if k in _VERDICT_FIELDS}
     latest_path = runtime.stage_root / latest_relative
@@ -232,7 +260,16 @@ def run_task_mode(
     )
     publish_progress(plan=plan, runtime=runtime)
     started_monotonic = time.monotonic()
-    summary = execute_leg(plan=plan, leg=leg, runtime=runtime)
+    try:
+        summary = execute_leg(plan=plan, leg=leg, runtime=runtime)
+    except Exception as exc:
+        logger.exception(
+            "execute_leg failed workflow_run_id=%s project=%s bmt=%s",
+            workflow_run_id,
+            leg.project,
+            leg.bmt_slug,
+        )
+        summary = _leg_summary_from_execute_failure(leg=leg, exc=exc)
     duration_sec = max(0, int(time.monotonic() - started_monotonic))
     summary = summary.model_copy(update={"duration_sec": duration_sec})
     summary = _write_snapshot_artifacts(
@@ -279,7 +316,10 @@ def _load_summary_or_failure(*, stage_root: Path, workflow_run_id: str, leg: Pla
             reason_code="runner_failures",
             plugin_ref=leg.plugin_ref,
             execution_mode_used="unknown",
-            score=ScorePayload(aggregate_score=0.0),
+            score=ScorePayload(
+                aggregate_score=0.0,
+                extra={"unavailable": True},
+            ),
         )
 
 

@@ -107,9 +107,11 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     assert "- Progress: `2/5` complete" in output["summary"]
     assert "- Elapsed: `2m 5s`" in output["summary"]
     assert "- ETA: `5m 0s`" in output["summary"]
-    assert "| Project | BMT | Status | Score | Cases | Duration |" in output["summary"]
-    assert "| sk | false_rejects | Complete | 12.34 | — | 1m 1s |" in output["summary"]
-    assert "| sk | false_alarms | Running | — | — | — |" in output["summary"]
+    assert "| Project |" not in output["summary"]
+    text = output["text"]
+    assert "| Project | BMT | Status | Score | Cases | Duration |" in text
+    assert "| sk | false_rejects | Complete | 12.34 | — | 1m 1s |" in text
+    assert "| sk | false_alarms | Running | — | — | — |" in text
 
 
 def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
@@ -146,11 +148,36 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
     assert output["title"] == "BMT Complete: FAIL"
     assert "- Result: `failure`" in output["summary"]
     assert "- Log dump (expires in 3 days): [open](https://example.test/log-dump)" in output["summary"]
-    assert "| Project | BMT | Status | Score | Cases | Reason | Duration |" in output["summary"]
-    assert "| sk | false_rejects | FAIL | 41.25 | 22/24 ok | score dropped below baseline | 1m 5s |" in output["summary"]
-    assert "| sk | false_alarms | PASS | 56.80 | 30/30 ok | score met or exceeded baseline | 59s |" in output["summary"]
+    assert "| Project |" not in output["summary"]
     assert "### Failure summary" in output["summary"]
     assert "- `false_rejects`: score dropped below baseline" in output["summary"]
+    text = output["text"]
+    assert "| Project | BMT | Status | Score | Cases | Reason | Duration |" in text
+    assert "| sk | false_rejects | FAIL | 41.25 | 22/24 ok | score dropped below baseline | 1m 5s |" in text
+    assert "| sk | false_alarms | PASS | 56.80 | 30/30 ok | score met or exceeded baseline | 59s |" in text
+
+
+def test_render_final_check_output_unavailable_score_not_shown_as_numeric() -> None:
+    """Coordinator synthetic summary (missing file) marks score unavailable, not 0.00."""
+    output = render_final_check_output(
+        CheckFinalView(
+            state="failure",
+            links=LiveLinks(workflow_execution_url="https://example.test/wf"),
+            bmts=[
+                FinalBmtRow(
+                    project="sk",
+                    bmt="false_alarms",
+                    status="fail",
+                    aggregate_score=0.0,
+                    reason_code="runner_failures",
+                    duration_sec=None,
+                    score_extra={"unavailable": True},
+                ),
+            ],
+        )
+    )
+    assert "| sk | false_alarms | FAIL | — | — |" in output["text"]
+    assert "| sk | false_alarms | FAIL | 0.00 |" not in output["text"]
 
 
 def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> None:
@@ -171,10 +198,29 @@ def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> N
             ],
         )
     )
-    assert "| sk | false_rejects | PASS | — (mock) | — |" in output["summary"]
+    assert "| sk | false_rejects | PASS | — (mock) | — |" in output["text"]
 
 
 def test_human_reason_runner_case_failures() -> None:
     from gcp.image.github.presentation import human_reason
 
     assert human_reason("runner_case_failures") == "runner crashed on one or more test files"
+
+
+def test_human_reason_no_dataset_cases() -> None:
+    from gcp.image.github.presentation import human_reason
+
+    assert "no test cases" in human_reason("no_dataset_cases")
+
+
+def test_human_reason_plugin_execute_failed() -> None:
+    from gcp.image.github.presentation import human_reason
+
+    assert "execute" in human_reason("plugin_execute_failed").lower()
+
+
+def test_human_reason_unknown_code_is_explicit() -> None:
+    from gcp.image.github.presentation import human_reason
+
+    assert human_reason("totally_unknown_reason") == "unmapped reason code: `totally_unknown_reason`"
+    assert human_reason("") == "empty reason code"

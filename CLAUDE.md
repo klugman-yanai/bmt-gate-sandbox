@@ -10,11 +10,11 @@ Guidance for **Claude Code** (and similar agents) working in **bmt-gcloud**.
 - **Google Workflows** runs **Cloud Run** jobs: `bmt-control` (plan + coordinator) and `bmt-task-standard` / `bmt-task-heavy` (one BMT leg per task).
 - **GCS** holds frozen plans under `triggers/`, snapshots and `current.json` under each project’s `results/` tree. The bucket layout mirrors **`gcp/stage`**.
 
-Legacy **VM + vm_watcher** descriptions in old docs are **not** the current production story. Use **[docs/architecture.md](docs/architecture.md)**, **[docs/pipeline-dag.md](docs/pipeline-dag.md)**, and **[docs/bmt-architecture-deep-dive.md](docs/bmt-architecture-deep-dive.md)** for truth.
+Legacy **VM + vm_watcher** descriptions in old docs are **not** the current production story. Use **[docs/architecture.md](docs/architecture.md)** for the full pipeline, diagrams, and maintainer deep dive.
 
-**Bucket:** 1:1 mirror of `gcp/stage` at the bucket root (see [gcp/README.md](gcp/README.md), [tools/shared/bucket_env.py](tools/shared/bucket_env.py)). **`gcp/image`** is baked into the VM image; **`gcp/stage`** is the editable mirror of runtime/config content.
+**Bucket:** 1:1 mirror of `gcp/stage` at the bucket root (see [gcp/README.md](gcp/README.md), [tools/shared/bucket_env.py](tools/shared/bucket_env.py)). **`gcp/image`** is baked into the **Cloud Run** image; **`gcp/stage`** is the editable mirror of runtime/config content.
 
-**Docs index:** [docs/README.md](docs/README.md) · **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) · **Security:** [SECURITY.md](SECURITY.md)
+**Docs index:** [docs/README.md](docs/README.md) · **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Time and clocks
 
@@ -79,7 +79,7 @@ Uses **`tools/bmt/bmt_run_local`** — different path from Cloud Run orchestrati
 
 ### Pointer / snapshot flow (real bucket)
 
-To exercise manager-style snapshot writes and **`current.json`** against a real bucket, you can run project managers or orchestration paths **as documented** in [docs/development.md](docs/development.md) and [docs/configuration.md](docs/configuration.md). Full **E2E** (Actions → Workflows → Cloud Run) is validated via CI and [docs/plans/2026-03-22-e2e-ci-validation.md](docs/plans/2026-03-22-e2e-ci-validation.md) when applicable.
+To exercise manager-style snapshot writes and **`current.json`** against a real bucket, you can run project managers or orchestration paths **as documented** in [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/configuration.md](docs/configuration.md). Full **E2E** (Actions → Workflows → Cloud Run) is covered by CI and workflow dispatch on `bmt-handoff.yml`.
 
 ## Devtools and pre-commit
 
@@ -131,7 +131,7 @@ ast-grep 0.41.1
 
 Runtime code: **`gcp/image/runtime/`**, entry via **`gcp/image/main.py`**. Plugins live under **`gcp/stage/projects/.../plugins/`** (published bundles).
 
-**Details:** [docs/architecture.md](docs/architecture.md), [docs/pipeline-dag.md](docs/pipeline-dag.md), [ARCHITECTURE.md](ARCHITECTURE.md).
+**Details:** [docs/architecture.md](docs/architecture.md).
 
 ## GCP / repo environment
 

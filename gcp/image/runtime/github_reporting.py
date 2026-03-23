@@ -30,6 +30,7 @@ from gcp.image.github.presentation import (
 from gcp.image.github.reporting import GitHubReporter
 from gcp.image.runtime.artifacts import (
     aggregate_status,
+    load_observed_duration_sec_from_latest_snapshot,
     load_optional_progress,
     load_optional_reporting_metadata,
     now_iso,
@@ -268,6 +269,43 @@ def _load_reporter(
     )
 
 
+def _estimate_eta_sec_parallel(
+    *,
+    plan: ExecutionPlan,
+    runtime: StageRuntimePaths,
+    rows: list[ProgressBmtRow],
+    elapsed_sec: int | None,
+) -> int | None:
+    """Parallel Cloud Run tasks finish when the slowest leg finishes: ETA ~ max(estimates) - elapsed."""
+    if elapsed_sec is None or not plan.legs or len(rows) != len(plan.legs):
+        return None
+    completed_positive: list[int] = []
+    for row in rows:
+        if row.duration_sec is not None and row.duration_sec > 0:
+            completed_positive.append(row.duration_sec)
+    fallback: int | None = None
+    if completed_positive:
+        fallback = int(sum(completed_positive) / len(completed_positive))
+    per_leg_est: list[int] = []
+    for leg, row in zip(plan.legs, rows, strict=True):
+        d = row.duration_sec
+        if d is not None and d > 0:
+            per_leg_est.append(d)
+            continue
+        hist = load_observed_duration_sec_from_latest_snapshot(stage_root=runtime.stage_root, leg=leg)
+        if hist is not None and hist > 0:
+            per_leg_est.append(hist)
+            continue
+        if fallback is not None:
+            per_leg_est.append(fallback)
+            continue
+        return None
+    if not per_leg_est:
+        return None
+    wall = max(per_leg_est)
+    return max(0, int(wall - elapsed_sec))
+
+
 def _progress_view(
     *, plan: ExecutionPlan, runtime: StageRuntimePaths, workflow_execution_url: str
 ) -> CheckProgressView:
@@ -304,11 +342,15 @@ def _progress_view(
                 duration_sec=progress.duration_sec if progress else None,
             )
         )
+    elapsed_sec = _elapsed_seconds(runtime=runtime, workflow_run_id=plan.workflow_run_id)
+    eta_sec = _estimate_eta_sec_parallel(
+        plan=plan, runtime=runtime, rows=rows, elapsed_sec=elapsed_sec
+    )
     return CheckProgressView(
         completed_count=completed_count,
         total_count=len(plan.legs),
-        elapsed_sec=_elapsed_seconds(runtime=runtime, workflow_run_id=plan.workflow_run_id),
-        eta_sec=None,
+        elapsed_sec=elapsed_sec,
+        eta_sec=eta_sec,
         links=LiveLinks(workflow_execution_url=workflow_execution_url),
         bmts=rows,
     )
@@ -355,6 +397,7 @@ def _final_view(
                 duration_sec=summary.duration_sec,
                 execution_mode_used=summary.execution_mode_used,
                 cases_detail=_cases_detail_from_metrics(summary.score.metrics),
+                score_extra=dict(summary.score.extra),
             )
             for summary in summaries
         ],

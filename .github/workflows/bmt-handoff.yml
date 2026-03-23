@@ -259,6 +259,8 @@ jobs:
 
       - name: Emit dispatch context
         shell: bash
+        env:
+          FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
         run: |
           set -euo pipefail
           {
@@ -272,7 +274,21 @@ jobs:
             echo "- Classify path: \`${{ steps.classify.outputs.path || 'unknown' }}\`"
             echo "- Has legs: \`${{ steps.classify.outputs.has_legs || 'false' }}\`"
             echo "- Accepted projects: \`${{ steps.classify.outputs.accepted_projects || '[]' }}\`"
-            echo "- Filtered matrix: \`${{ steps.classify.outputs.filtered_matrix || '{\"include\":[]}' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo ""
+            echo "<details><summary>Filtered matrix (JSON)</summary>"
+            echo ""
+            echo '```json'
+            if printf '%s' "$FILTERED_MATRIX_JSON" | jq -e . >/dev/null 2>&1; then
+              printf '%s' "$FILTERED_MATRIX_JSON" | jq .
+            else
+              printf '%s' "$FILTERED_MATRIX_JSON"
+            fi
+            echo ""
+            echo '```'
+            echo ""
+            echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate dataset inputs (fail fast if no .wav files in GCS)
@@ -352,6 +368,8 @@ jobs:
           filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
           accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects }}
           handshake_ok: "true"
+          gcp_project: ${{ env.GCP_PROJECT }}
+          gcs_bucket: ${{ env.GCS_BUCKET }}
 
       - name: Append dispatch status summary
         if: always()

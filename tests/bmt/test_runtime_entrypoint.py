@@ -8,6 +8,7 @@ from _pytest.monkeypatch import MonkeyPatch
 
 import gcp.image.main as image_main
 import gcp.image.runtime.entrypoint as runtime_entrypoint
+from gcp.image.runtime.artifacts import load_summary
 from gcp.image.runtime.entrypoint import run_coordinator_mode, run_plan_mode, run_task_mode
 from tools.bmt.publisher import publish_bmt
 from tools.bmt.scaffold import add_bmt, add_project
@@ -60,6 +61,54 @@ def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatc
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
     assert pointer["latest"] == "wf-123-wake_word_quality"
     assert pointer["last_passing"] == "wf-123-wake_word_quality"
+
+
+def test_run_task_mode_writes_failure_summary_when_execute_leg_raises(tmp_path: Path, monkeypatch) -> None:
+    stage_root = tmp_path / "gcp" / "stage"
+    workspace_root = tmp_path / "workspace"
+    add_project("acme", stage_root=stage_root, dry_run=False)
+    add_bmt("acme", "wake_word_quality", stage_root=stage_root, plugin="default")
+
+    manifest_path = stage_root / "projects" / "acme" / "bmts" / "wake_word_quality" / "bmt.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["enabled"] = True
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    dataset_root = stage_root / "projects" / "acme" / "inputs" / "wake_word_quality"
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    (dataset_root / "sample.wav").write_bytes(b"fake")
+    publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality", sync=False)
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("BMT_HEAD_SHA", "0123456789abcdef0123456789abcdef01234567")
+    monkeypatch.setenv("BMT_HEAD_BRANCH", "main")
+    monkeypatch.setenv("BMT_ACCEPTED_PROJECTS_JSON", '["acme"]')
+
+    def boom(**_kwargs: object) -> None:
+        raise RuntimeError("injected execute_leg failure")
+
+    monkeypatch.setattr(runtime_entrypoint, "execute_leg", boom)
+
+    assert run_plan_mode(workflow_run_id="wf-err", stage_root=stage_root) == 0
+    assert (
+        run_task_mode(
+            workflow_run_id="wf-err",
+            task_profile="standard",
+            task_index=0,
+            stage_root=stage_root,
+            workspace_root=workspace_root,
+        )
+        == 0
+    )
+    summary = load_summary(
+        stage_root=stage_root,
+        workflow_run_id="wf-err",
+        project="acme",
+        bmt_slug="wake_word_quality",
+    )
+    assert summary.status == "fail"
+    assert summary.reason_code == "runner_failures"
+    assert summary.score.extra.get("unavailable") is True
 
 
 def test_image_main_dispatches_task_mode(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:

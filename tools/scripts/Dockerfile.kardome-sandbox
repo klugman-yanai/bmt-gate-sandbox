@@ -12,10 +12,17 @@ RUN apt-get update && \
         software-properties-common && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y --no-install-recommends python3.12 && \
+    apt-get install -y --no-install-recommends python3.12 python3-pip && \
+    pip install --no-cache-dir --break-system-packages \
+        'pydantic>=2.6,<3' \
+        'whenever>=0.9.5' && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
+
+RUN mkdir -p /opt/kardome/gcp/image/runtime && \
+    touch /opt/kardome/gcp/__init__.py /opt/kardome/gcp/image/__init__.py /opt/kardome/gcp/image/runtime/__init__.py
+ENV PYTHONPATH=/opt/kardome
 
 # Runner + libraries
 COPY gcp/stage/projects/sk/kardome_runner /opt/kardome/kardome_runner
@@ -24,6 +31,7 @@ COPY gcp/stage/projects/shared/dependencies /opt/kardome/dependencies
 
 # Shared template + sandbox runner harness
 COPY gcp/image/runtime/assets/kardome_input_template.json /opt/kardome/input_template.json
+COPY gcp/image/runtime/stdout_counter_parse.py /opt/kardome/gcp/image/runtime/stdout_counter_parse.py
 COPY tools/scripts/kardome_sandbox_runner.py /opt/kardome/kardome_sandbox_runner.py
 
 # Test audio corpus

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+CaseStatus = Literal["ok", "failed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +22,7 @@ class CaseResult:
     case_id: str
     input_path: Path
     exit_code: int
-    status: str
+    status: CaseStatus
     metrics: dict[str, float] = field(default_factory=dict)
     artifacts: dict[str, str] = field(default_factory=dict)
     error: str = ""

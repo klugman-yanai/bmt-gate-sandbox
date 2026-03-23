@@ -87,6 +87,40 @@ class TestScoreAggregation:
 
 
 class TestEvaluateFailsOnCaseErrors:
+    def test_zero_cases_fails_with_no_dataset_cases_reason(self) -> None:
+        plugin = _make_plugin()
+        score = ScoreResult(
+            aggregate_score=0.0,
+            metrics={"case_count": 0, "cases_ok": 0, "cases_failed": 0},
+        )
+        verdict = plugin.evaluate(score, None, _make_context())
+        assert verdict.status == BmtLegStatus.FAIL.value
+        assert verdict.reason_code == "no_dataset_cases"
+        assert not verdict.passed
+
+    def test_execute_exception_maps_to_plugin_execute_failed(self) -> None:
+        plugin = _make_plugin()
+        er = ExecutionResult(
+            execution_mode_used="unknown",
+            case_results=[
+                CaseResult(
+                    case_id="_execute_",
+                    input_path=Path("/data"),
+                    exit_code=-1,
+                    status="failed",
+                    metrics={},
+                    error="RuntimeError:boom",
+                )
+            ],
+            raw_summary={"sk_plugin_execute_exception": True},
+        )
+        score = plugin.score(er, None, _make_context())
+        assert score.extra.get("sk_plugin_execute_exception") is True
+        verdict = plugin.evaluate(score, None, _make_context())
+        assert verdict.reason_code == "plugin_execute_failed"
+        assert verdict.status == BmtLegStatus.FAIL.value
+        assert not verdict.passed
+
     def test_case_failures_force_fail_even_with_good_score(self) -> None:
         plugin = _make_plugin()
         score = ScoreResult(

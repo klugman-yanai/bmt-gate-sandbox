@@ -1,6 +1,6 @@
 name: CI
 
-# Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 4 jobs, no image-check.
+# Jobs/DAG: 4 jobs, no image-check (historical ref: archive layout in git history).
 # checkout_snapshot → build_release + build_non_release (parallel) → bmt_handoff.
 on:
   push:
@@ -140,7 +140,7 @@ jobs:
         run: |
           echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
-  # Node/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 4 jobs, build_release → bmt_handoff.
+  # Node/DAG: 4 jobs, build_release → bmt_handoff.
   bmt_handoff:
     needs: build_release
     if: >-

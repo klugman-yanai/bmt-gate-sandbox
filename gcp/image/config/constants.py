@@ -103,6 +103,8 @@ ENV_BMT_TASK_STANDARD_JOB = "BMT_TASK_STANDARD_JOB"
 ENV_BMT_TASK_HEAVY_JOB = "BMT_TASK_HEAVY_JOB"
 ENV_BMT_STATUS_CONTEXT = "BMT_STATUS_CONTEXT"
 ENV_BMT_WORKFLOW_EXECUTION_URL = "BMT_WORKFLOW_EXECUTION_URL"
+# Per-WAV subprocess timeout for kardome_runner (seconds). Unset or <=0 = no timeout.
+ENV_BMT_KARDOME_CASE_TIMEOUT_SEC = "BMT_KARDOME_CASE_TIMEOUT_SEC"
 
 # Pulumi config keys (bmt.tfvars.json) that map to repo vars
 PULUMI_KEY_GCS_BUCKET = "gcs_bucket"

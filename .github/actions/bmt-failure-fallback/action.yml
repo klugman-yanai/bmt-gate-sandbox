@@ -153,4 +153,6 @@ runs:
         accepted_projects: ${{ inputs.accepted_projects }}
         handshake_ok: ${{ steps.x.outputs.handshake_ok }}
         failure_reason: ${{ steps.reason.outputs.reason }}
+        gcp_project: ${{ inputs.gcp_project }}
+        gcs_bucket: ${{ env.GCS_BUCKET }}
 

@@ -14,7 +14,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from gcp.image.config.constants import ENV_BMT_KARDOME_CASE_TIMEOUT_SEC
 from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult
+from gcp.image.runtime.stdout_counter_parse import counter_pattern_from_parsing_dict, read_counter_from_log
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +48,6 @@ def _set_dotted(config: dict[str, Any], dotted_key: str, value: Any) -> None:
             cursor[part] = child
         cursor = child
     cursor[parts[-1]] = value
-
-
-def _counter_regex(parsing: dict[str, Any]) -> re.Pattern[str]:
-    pattern = str(parsing.get("counter_pattern", "")).strip()
-    if pattern:
-        return re.compile(pattern)
-    keyword = str(parsing.get("keyword", "NAMUH")).strip()
-    return re.compile(rf"Hi {re.escape(keyword)} counter = (\d+)")
 
 
 def _walk_and_rewrite_paths(node: Any, wav_value: str, protected_keys: set[str]) -> None:
@@ -96,20 +90,18 @@ def _rewrite_json_paths_for_wav(config: dict[str, Any], wav_path: Path, output_p
     )
 
 
-def _read_counter(log_path: Path, counter_re: re.Pattern[str]) -> int | None:
-    """Return counter value from log, or None if not found.
-
-    None means the runner did not produce the expected counter line — callers
-    should treat this as a failure regardless of the process exit code.
-    """
-    text = log_path.read_text(encoding="utf-8", errors="replace")
-    if "\ufffd" in text:
-        logger.warning("Log file %s contains encoding replacement characters", log_path)
-    matches = counter_re.findall(text)
-    if not matches:
-        logger.warning("Counter pattern %r not found in %s", counter_re.pattern, log_path)
+def _subprocess_timeout_sec() -> float | None:
+    raw = (os.environ.get(ENV_BMT_KARDOME_CASE_TIMEOUT_SEC) or "").strip()
+    if not raw:
         return None
-    return int(matches[-1])
+    try:
+        sec = int(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r; ignoring per-case timeout", ENV_BMT_KARDOME_CASE_TIMEOUT_SEC, raw)
+        return None
+    if sec <= 0:
+        return None
+    return float(sec)
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,9 +122,133 @@ class LegacyKardomeStdoutExecutor:
     def __init__(self, config: LegacyKardomeStdoutConfig) -> None:
         self.config = config
 
+    def _case_for_wav(
+        self,
+        wav_path: Path,
+        rel: Path,
+        template: dict[str, Any],
+        counter_re: re.Pattern[str],
+        runner_path: Path,
+    ) -> CaseResult:
+        log_path = self.config.logs_root / rel.with_suffix(rel.suffix + ".log")
+        output_path = self.config.outputs_root / rel
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        cfg = copy.deepcopy(template)
+        _rewrite_json_paths_for_wav(cfg, wav_path, output_path)
+        if self.config.num_source_test is not None:
+            cfg["NUM_SOURCE_TEST"] = int(self.config.num_source_test)
+        for dotted_key, value in self.config.enable_overrides.items():
+            _set_dotted(cfg, dotted_key, value)
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".json",
+            dir=self.config.runtime_root,
+            delete=False,
+        ) as handle:
+            Path(handle.name).write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+            config_path = Path(handle.name)
+        try:
+            proc = None
+            timeout_sec = _subprocess_timeout_sec()
+            try:
+                log_stream = log_path.open("w", encoding="utf-8")
+            except OSError as exc:
+                return CaseResult(
+                    case_id=rel.as_posix(),
+                    input_path=wav_path,
+                    exit_code=-1,
+                    status="failed",
+                    metrics={"namuh_count": 0.0},
+                    artifacts={
+                        "log_path": str(log_path),
+                        "output_path": str(output_path),
+                    },
+                    error=f"log_open_failed:{type(exc).__name__}:{exc}",
+                )
+            try:
+                try:
+                    proc = subprocess.run(
+                        [str(runner_path), str(config_path)],
+                        cwd=str(self.config.runtime_root),
+                        env=self._runner_env(),
+                        stdout=log_stream,
+                        stderr=subprocess.STDOUT,
+                        check=False,
+                        timeout=timeout_sec,
+                    )
+                except subprocess.TimeoutExpired:
+                    return CaseResult(
+                        case_id=rel.as_posix(),
+                        input_path=wav_path,
+                        exit_code=-1,
+                        status="failed",
+                        metrics={"namuh_count": 0.0},
+                        artifacts={
+                            "log_path": str(log_path),
+                            "output_path": str(output_path),
+                        },
+                        error=(
+                            f"kardome_runner_timeout_after_{int(timeout_sec)}s"
+                            if timeout_sec is not None
+                            else "kardome_runner_timeout"
+                        ),
+                    )
+                except OSError as exc:
+                    return CaseResult(
+                        case_id=rel.as_posix(),
+                        input_path=wav_path,
+                        exit_code=-1,
+                        status="failed",
+                        metrics={"namuh_count": 0.0},
+                        artifacts={
+                            "log_path": str(log_path),
+                            "output_path": str(output_path),
+                        },
+                        error=f"runner_os_error:{type(exc).__name__}:{exc}",
+                    )
+                assert proc is not None
+                counter = read_counter_from_log(log_path, counter_re)
+                counter_found = counter is not None
+                ok = proc.returncode == 0 and counter_found
+                error = (
+                    "" if ok else "counter_not_found" if proc.returncode == 0 else f"runner_exit_{proc.returncode}"
+                )
+                return CaseResult(
+                    case_id=rel.as_posix(),
+                    input_path=wav_path,
+                    exit_code=proc.returncode,
+                    status="ok" if ok else "failed",
+                    metrics={"namuh_count": float(counter if counter is not None else 0)},
+                    artifacts={
+                        "log_path": str(log_path),
+                        "output_path": str(output_path),
+                    },
+                    error=error,
+                )
+            finally:
+                log_stream.close()
+        finally:
+            config_path.unlink(missing_ok=True)
+
     def run(self) -> ExecutionResult:
         if not self.config.dataset_root.is_dir():
-            raise RuntimeError(f"dataset_root does not exist or is not a directory: {self.config.dataset_root}")
+            logger.error("dataset_root does not exist or is not a directory: %s", self.config.dataset_root)
+            return ExecutionResult(
+                execution_mode_used="kardome_legacy_stdout",
+                case_results=[
+                    CaseResult(
+                        case_id="_dataset_",
+                        input_path=self.config.dataset_root,
+                        exit_code=-1,
+                        status="failed",
+                        metrics={},
+                        artifacts={},
+                        error="dataset_root_missing_or_not_a_directory",
+                    )
+                ],
+            )
         runner_path = self.config.runner_path
         _tmp_runner_dir: str | None = None
         if not os.access(runner_path, os.X_OK):
@@ -144,63 +260,30 @@ class LegacyKardomeStdoutExecutor:
             runner_path = tmp_bundle / runner_path.name
             runner_path.chmod(0o755)
             logger.info("Copied runner bundle to %s (GCSFuse execute-bit workaround)", runner_path)
-        template = json.loads(self.config.template_path.read_text(encoding="utf-8"))
-        counter_re = _counter_regex(self.config.parsing)
+        try:
+            template = json.loads(self.config.template_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            logger.exception("Failed to read kardome input template %s", self.config.template_path)
+            return ExecutionResult(
+                execution_mode_used="kardome_legacy_stdout",
+                case_results=[
+                    CaseResult(
+                        case_id="_template_",
+                        input_path=self.config.template_path,
+                        exit_code=-1,
+                        status="failed",
+                        metrics={},
+                        artifacts={},
+                        error=f"template_load_failed:{type(exc).__name__}:{exc}",
+                    )
+                ],
+            )
+        counter_re = counter_pattern_from_parsing_dict(self.config.parsing)
         results: list[CaseResult] = []
         try:
             for wav_path in sorted(self.config.dataset_root.rglob("*.wav")):
                 rel = wav_path.relative_to(self.config.dataset_root)
-                log_path = self.config.logs_root / rel.with_suffix(rel.suffix + ".log")
-                output_path = self.config.outputs_root / rel
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-
-                cfg = copy.deepcopy(template)
-                _rewrite_json_paths_for_wav(cfg, wav_path, output_path)
-                if self.config.num_source_test is not None:
-                    cfg["NUM_SOURCE_TEST"] = int(self.config.num_source_test)
-                for dotted_key, value in self.config.enable_overrides.items():
-                    _set_dotted(cfg, dotted_key, value)
-
-                with tempfile.NamedTemporaryFile(
-                    suffix=".json",
-                    dir=self.config.runtime_root,
-                    delete=False,
-                ) as handle:
-                    Path(handle.name).write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
-                    config_path = Path(handle.name)
-                try:
-                    with log_path.open("w", encoding="utf-8") as log_file:
-                        proc = subprocess.run(
-                            [str(runner_path), str(config_path)],
-                            cwd=str(self.config.runtime_root),
-                            env=self._runner_env(),
-                            stdout=log_file,
-                            stderr=subprocess.STDOUT,
-                            check=False,
-                        )
-                    counter = _read_counter(log_path, counter_re)
-                    counter_found = counter is not None
-                    ok = proc.returncode == 0 and counter_found
-                    error = (
-                        "" if ok else "counter_not_found" if proc.returncode == 0 else f"runner_exit_{proc.returncode}"
-                    )
-                    results.append(
-                        CaseResult(
-                            case_id=rel.as_posix(),
-                            input_path=wav_path,
-                            exit_code=proc.returncode,
-                            status="ok" if ok else "failed",
-                            metrics={"namuh_count": float(counter if counter is not None else 0)},
-                            artifacts={
-                                "log_path": str(log_path),
-                                "output_path": str(output_path),
-                            },
-                            error=error,
-                        )
-                    )
-                finally:
-                    config_path.unlink(missing_ok=True)
+                results.append(self._case_for_wav(wav_path, rel, template, counter_re, runner_path))
         finally:
             if _tmp_runner_dir:
                 shutil.rmtree(_tmp_runner_dir, ignore_errors=True)

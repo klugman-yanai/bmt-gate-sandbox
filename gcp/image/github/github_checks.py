@@ -5,12 +5,28 @@ appears on the PR Checks tab; branch protection can require it to pass before me
 """
 
 import json
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 import httpx
 
 from gcp.image.config.constants import HTTP_TIMEOUT
 from gcp.image.github.github_auth import github_api_headers
+
+
+class CheckRunOutput(TypedDict):
+    """GitHub Checks API ``output`` object (``text`` is optional)."""
+
+    title: str
+    summary: str
+    text: NotRequired[str]
+
+
+def _normalize_check_output(output: CheckRunOutput | dict[str, Any]) -> dict[str, Any]:
+    """Omit empty optional ``text``; GitHub accepts title + summary only."""
+    out = {k: v for k, v in output.items() if v is not None}
+    if out.get("text") == "":
+        out.pop("text", None)
+    return out
 
 
 def _check_run_id_from_create_response(response: httpx.Response) -> int:
@@ -32,7 +48,7 @@ def create_check_run(
     sha: str,
     name: str,
     status: str,
-    output: dict[str, Any],
+    output: CheckRunOutput | dict[str, Any],
     *,
     details_url: str | None = None,
     external_id: str | None = None,
@@ -45,7 +61,7 @@ def create_check_run(
         sha: Commit SHA
         name: Check run name (e.g., "BMT Gate")
         status: Check run status ("queued", "in_progress", "completed")
-        output: Output dict with "title" and "summary" keys
+        output: Output dict with ``title``, ``summary``, and optional ``text`` (Markdown)
 
     Returns:
         Check run ID for future updates
@@ -58,7 +74,12 @@ def create_check_run(
     url = f"https://api.github.com/repos/{repo}/check-runs"
     headers = github_api_headers(token)
 
-    payload: dict[str, Any] = {"name": name, "head_sha": sha, "status": status, "output": output}
+    payload: dict[str, Any] = {
+        "name": name,
+        "head_sha": sha,
+        "status": status,
+        "output": _normalize_check_output(output),
+    }
     if details_url:
         payload["details_url"] = details_url
     if external_id:
@@ -75,7 +96,7 @@ def update_check_run(
     check_run_id: int,
     status: str | None = None,
     conclusion: str | None = None,
-    output: dict[str, Any] | None = None,
+    output: CheckRunOutput | dict[str, Any] | None = None,
     details_url: str | None = None,
 ) -> None:
     """Update an existing Check Run.
@@ -86,7 +107,7 @@ def update_check_run(
         check_run_id: ID returned from create_check_run
         status: New status ("in_progress", "completed"), or None to keep current
         conclusion: Conclusion when status="completed" ("success", "failure", etc.)
-        output: New output dict with "title" and "summary", or None to keep current
+        output: New output dict with ``title``, ``summary``, optional ``text``, or None to keep current
 
     Raises:
         httpx.HTTPError: If the GitHub API request fails
@@ -100,7 +121,7 @@ def update_check_run(
     if conclusion is not None:
         payload["conclusion"] = conclusion
     if output is not None:
-        payload["output"] = output
+        payload["output"] = _normalize_check_output(output)
     if details_url is not None:
         payload["details_url"] = details_url
 

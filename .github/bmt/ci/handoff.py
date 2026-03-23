@@ -38,6 +38,35 @@ def _w_attr(w: object, name: str, default: str = "") -> str:
     return (getattr(w, name, None) or default).strip()
 
 
+def _fenced_text_snippet(body: str) -> str:
+    """Markdown fenced block for free-form text; lengthens fence if ``body`` contains ```."""
+    fence = "`" * 3
+    while fence in body:
+        fence += "`"
+    return f"{fence}text\n{body}\n{fence}\n"
+
+
+def _gcp_project_for_summary(cfg: object) -> str:
+    """Same precedence as dataset validation: config then env."""
+    return (getattr(cfg, "gcp_project", "") or os.environ.get("GCP_PROJECT", "") or "").strip()
+
+
+def _gcs_bucket_for_summary(cfg: object) -> str:
+    return (getattr(cfg, "gcs_bucket", "") or os.environ.get("GCS_BUCKET", "") or "").strip()
+
+
+def _canonical_repo_slug_for_github_links(env: _HandoffEnv) -> str:
+    """Prefer ``GITHUB_REPOSITORY`` (Actions); warn if workflow context disagrees."""
+    gh = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    ctx = (env.repository or "").strip()
+    if gh and ctx and gh != ctx:
+        gh_warning(
+            "GITHUB_REPOSITORY disagrees with workflow repository context "
+            f"({gh!r} vs {ctx!r}); using GITHUB_REPOSITORY for links."
+        )
+    return gh or ctx
+
+
 @dataclasses.dataclass(frozen=True)
 class _HandoffEnv:
     """Normalised view of handoff values from either ctx.workflow or os.environ.
@@ -258,9 +287,9 @@ class HandoffManager:
 
     def write_summary(self) -> None:
         env = _HandoffEnv.resolve(self._ctx)
-        repo_slug = os.environ.get("GITHUB_REPOSITORY", env.repository)
+        repo_slug = _canonical_repo_slug_for_github_links(env)
         run_url = f"{env.server}/{repo_slug}/actions/runs/{env.run_id}" if env.run_id else ""
-        repo_url = f"{env.server}/{env.repository}"
+        repo_url = f"{env.server}/{repo_slug}"
         pr_url = f"{repo_url}/pull/{env.pr_number}" if env.pr_number else ""
 
         _matrix = json.loads(env.filtered_matrix_raw)
@@ -300,6 +329,8 @@ class HandoffManager:
             if ok
             else f"**Cloud job:** ❌ Not confirmed · **Subtasks:** {subtasks_display}"
         )
+        gcp_project = _gcp_project_for_summary(self._cfg)
+        gcs_bucket = _gcs_bucket_for_summary(self._cfg)
         lines = [
             "## BMT Handoff",
             "",
@@ -308,8 +339,16 @@ class HandoffManager:
             status_line,
             "",
         ]
+        if gcp_project or gcs_bucket:
+            infra_bits: list[str] = []
+            if gcp_project:
+                infra_bits.append(f"**GCP:** `{gcp_project}`")
+            if gcs_bucket:
+                infra_bits.append(f"**Bucket:** `{gcs_bucket}`")
+            lines.append(" · ".join(infra_bits))
+            lines.append("")
         if env.failure_reason:
-            lines.append(f"> {env.failure_reason}")
+            lines.append(_fenced_text_snippet(env.failure_reason))
             lines.append("")
         if env.mode != "failure":
             lines.append("_BMT result will appear in the PR **Checks** tab and commit status._")

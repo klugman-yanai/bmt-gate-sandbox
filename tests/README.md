@@ -55,7 +55,7 @@ Modules that are not plain unit tests set an explicit module `pytestmark` (or pe
 | [tests/tools/](tools/) (CLI, bucket helpers, repo vars, etc.) | `unit` or `integration` (see file) |
 | [tests/bmt/](bmt/) runtime / scaffold | `integration` |
 | [tests/bmt/test_stage_bmt_manifests.py](bmt/test_stage_bmt_manifests.py) | `unit` (static checks), per-test `bmt_plugin_load` / `integration` |
-| [tests/test_coordinator_summaries.py](../test_coordinator_summaries.py) | `unit` |
+| [tests/test_coordinator_summaries.py](test_coordinator_summaries.py) | `unit` |
 
 Every test module sets `pytestmark` (or per-test marks) so `pytest -m "unit or contract"` matches the pre-push hook.
 

@@ -102,6 +102,42 @@ def write_reporting_metadata(*, stage_root: Path, workflow_run_id: str, metadata
     return path
 
 
+def load_observed_duration_sec_from_latest_snapshot(  # noqa: PLR0911
+    *, stage_root: Path, leg: PlanLeg
+) -> int | None:
+    """Return ``duration_sec`` from the latest snapshot's ``latest.json`` under this leg's results tree.
+
+    Used to estimate parallel-workflow ETA when no leg has finished in the current run yet. Requires
+    ``duration_sec`` to have been written to ``latest.json`` (see task mode snapshot write).
+    """
+    results_root = stage_root / str(leg.results_path)
+    current_path = results_root / "current.json"
+    if not current_path.is_file():
+        return None
+    try:
+        payload = json.loads(current_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        logger.warning("%s: invalid JSON; skipping duration hint", current_path)
+        return None
+    latest = payload.get("latest")
+    if not isinstance(latest, str) or not latest.strip():
+        return None
+    latest_json = results_root / "snapshots" / latest / "latest.json"
+    if not latest_json.is_file():
+        return None
+    try:
+        snap = json.loads(latest_json.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        logger.warning("%s: invalid JSON; skipping duration hint", latest_json)
+        return None
+    raw = snap.get("duration_sec")
+    if isinstance(raw, int) and raw > 0:
+        return raw
+    if isinstance(raw, float) and raw > 0:
+        return int(raw)
+    return None
+
+
 def load_optional_reporting_metadata(*, stage_root: Path, workflow_run_id: str) -> ReportingMetadata | None:
     path = stage_root / reporting_metadata_path(workflow_run_id)
     if not path.is_file():

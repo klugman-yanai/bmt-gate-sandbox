@@ -1,8 +1,8 @@
 # `gcp/` layout
 
-- [`/home/yanai/sandbox/bmt-gcloud/gcp/image`](/home/yanai/sandbox/bmt-gcloud/gcp/image): image-baked framework/runtime code. This is deployed as the Cloud Run image, not synced to GCS.
-- [`/home/yanai/sandbox/bmt-gcloud/gcp/stage`](/home/yanai/sandbox/bmt-gcloud/gcp/stage): editable staged mirror of bucket-managed content.
-- [`/home/yanai/sandbox/bmt-gcloud/gcp/mnt`](/home/yanai/sandbox/bmt-gcloud/gcp/mnt): read-only bucket mounts for inspection.
+- [`gcp/image`](image): image-baked framework/runtime code. Deployed as the **Cloud Run** image; not synced to GCS.
+- [`gcp/stage`](stage): editable staged mirror of bucket-managed content.
+- [`gcp/mnt`](mnt): read-only bucket mounts for inspection.
 
 ## Bucket contract
 
@@ -20,9 +20,9 @@ Supported published paths:
 
 ## Local workflow
 
-1. edit staged manifests/plugin workspaces in `gcp/stage`
-2. publish immutable plugin bundles
-3. sync the staged project subtree
-4. mount `gcp/mnt` only when you need to inspect the live bucket state
+1. Edit staged manifests/plugin workspaces in `gcp/stage`.
+2. Publish immutable plugin bundles.
+3. Sync the staged project subtree (`just deploy` when using a real bucket).
+4. Mount `gcp/mnt` only when you need to inspect live bucket state.
 
 Do not treat `gcp/mnt` as an authoring surface. It is observational only.
