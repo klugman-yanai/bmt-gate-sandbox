@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from ci import gcs as gcs_module
-from ci.runner import RunnerManager, _sha256_file
+from ci.runner import RunnerManager, _pair_sha256_from_file_rows, _sha256_file
 
 pytestmark = pytest.mark.contract
 
@@ -74,7 +74,8 @@ def test_upload_runner_skips_when_remote_hashes_match(monkeypatch: pytest.Monkey
     assert any("runner.slsa.json" in u for u in write_calls)
 
 
-def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_upload_runner_reuploads_both_when_pair_digest_changes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Pair checksum: any local/remote mismatch for the runner+lib set re-uploads both objects."""
     runner_dir, lib_dir = _set_env(monkeypatch, tmp_path)
     runner_path = runner_dir / "kardome_runner"
     lib_path = lib_dir / "libKardome.so"
@@ -94,5 +95,46 @@ def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatc
 
     joined = write_calls
     assert any("kardome_runner" in u for u in joined)
+    assert any("libKardome.so" in u for u in joined)
     assert any("runner_meta.json" in u for u in joined)
-    assert not any("libKardome.so" in u for u in joined)
+
+
+def test_pair_sha256_stable_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    runner_dir, lib_dir = _set_env(monkeypatch, tmp_path)
+    runner_path = runner_dir / "kardome_runner"
+    lib_path = lib_dir / "libKardome.so"
+    rows = [
+        {"name": "kardome_runner", "sha256": _sha(runner_path)},
+        {"name": "libKardome.so", "sha256": _sha(lib_path)},
+    ]
+    assert _pair_sha256_from_file_rows(list(reversed(rows))) == _pair_sha256_from_file_rows(rows)
+
+
+def test_upload_runner_skips_when_stored_pair_sha256_matches(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    runner_dir, lib_dir = _set_env(monkeypatch, tmp_path)
+    runner_path = runner_dir / "kardome_runner"
+    lib_path = lib_dir / "libKardome.so"
+    rows = [
+        {"name": "kardome_runner", "sha256": _sha(runner_path)},
+        {"name": "libKardome.so", "sha256": _sha(lib_path)},
+    ]
+    pair = _pair_sha256_from_file_rows(rows)
+    remote_meta = {
+        "pair_sha256": pair,
+        "files": [
+            {"name": "kardome_runner", "size": 0, "sha256": "stale"},
+            {"name": "libKardome.so", "size": 0, "sha256": "stale"},
+        ],
+    }
+
+    monkeypatch.setattr(gcs_module, "download_json", lambda _uri: (remote_meta, None))
+    write_calls: list[str] = []
+    monkeypatch.setattr(gcs_module, "write_object", lambda uri, _data: write_calls.append(uri))
+    monkeypatch.setattr(gcs_module, "upload_json", lambda uri, _payload: write_calls.append(uri))
+
+    RunnerManager.from_env().upload()
+
+    assert any("runner.slsa.json" in u for u in write_calls)
+    assert not any("kardome_runner" in u for u in write_calls)
+    assert not any("libKardome.so" in u for u in write_calls)
+    assert not any("runner_meta.json" in u for u in write_calls)

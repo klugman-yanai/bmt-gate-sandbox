@@ -122,6 +122,7 @@ class WorkflowContext(BaseModel):
     pr_number: str | None = None
     repository: str | None = None
     runner_matrix: str | None = None
+    skip_missing_runner_artifacts: str | None = None
     target_url: str | None = None
 
 

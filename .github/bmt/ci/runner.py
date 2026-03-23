@@ -49,6 +49,46 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _pair_sha256_from_file_rows(rows: list[dict[str, Any]]) -> str:
+    """Single digest for kardome_runner + optional libKardome.so (order-independent)."""
+    pairs = sorted(
+        (str(r["name"]), str(r["sha256"]).strip().lower())
+        for r in rows
+        if str(r.get("name", "")).strip() and str(r.get("sha256", "")).strip()
+    )
+    canonical = "\n".join(f"{n}:{h}" for n, h in pairs)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _remote_pair_sha256_for_local_files(
+    remote_meta: Any, local_files: list[dict[str, Any]]
+) -> str | None:
+    """Recompute pair digest from remote ``runner_meta.json`` ``files`` for the same names as local."""
+    if not isinstance(remote_meta, dict):
+        return None
+    files = remote_meta.get("files")
+    if not isinstance(files, list):
+        return None
+    by_name: dict[str, str] = {}
+    for row in files:
+        if not isinstance(row, dict):
+            continue
+        n = str(row.get("name", "")).strip()
+        h = str(row.get("sha256", "")).strip().lower()
+        if n and h:
+            by_name[n] = h
+    remote_rows: list[dict[str, Any]] = []
+    for lf in local_files:
+        n = str(lf["name"])
+        h = by_name.get(n)
+        if not h:
+            return None
+        remote_rows.append({"name": n, "sha256": h})
+    if len(remote_rows) != len(local_files):
+        return None
+    return _pair_sha256_from_file_rows(remote_rows)
+
+
 class RunnerManager:
     def __init__(self, cfg: BmtConfig, ctx: BmtContext | None) -> None:
         self._cfg = cfg
@@ -144,6 +184,9 @@ class RunnerManager:
             for a in (available_artifacts if isinstance(available_artifacts, list) else [])
             if str(a).strip()
         }
+        skip_missing = read_workflow_str(
+            w, "skip_missing_runner_artifacts", "SKIP_MISSING_RUNNER_ARTIFACTS", ""
+        ).lower() in ("1", "true", "yes")
         root = core.workflow_runtime_root()
         run_id = github_run_id
         need_include: list[dict[str, Any]] = []
@@ -183,9 +226,10 @@ class RunnerManager:
                         f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]} (will show as Skipped)."
                     )
                     continue
-            if artifact_set and f"runner-{preset}" not in artifact_set:
+            if skip_missing and f"runner-{preset}" not in artifact_set:
                 print(
-                    f"::notice::Skip upload for {project}/{preset}: artifact not in available list (will show as Skipped)."
+                    f"::notice::Skip upload for {project}/{preset}: no runner artifact in caller run "
+                    "(skip_missing_runner_artifacts; dev placeholder CI)."
                 )
                 continue
             row = cast(dict[str, Any], dict(entry))
@@ -252,52 +296,48 @@ class RunnerManager:
                     }
                 )
         remote_meta, _ = gcs.download_json(meta_dest)
-        remote_files = {}
-        if isinstance(remote_meta, dict) and isinstance(remote_meta.get("files"), list):
-            for row in remote_meta["files"]:
-                if isinstance(row, dict) and str(row.get("name", "")).strip():
-                    remote_files[str(row["name"])] = row
+        local_pair = _pair_sha256_from_file_rows(local_files)
+        stored_pair: str | None = None
+        if isinstance(remote_meta, dict):
+            raw_pair = remote_meta.get("pair_sha256")
+            if isinstance(raw_pair, str) and raw_pair.strip():
+                stored_pair = raw_pair.strip().lower()
+        remote_computed = _remote_pair_sha256_for_local_files(remote_meta, local_files)
+        skip_binaries = local_pair == stored_pair or (
+            stored_pair is None and remote_computed is not None and local_pair == remote_computed
+        )
+        if skip_binaries:
+            print(
+                f"::notice::Runner upload skipped: pair_sha256 unchanged for {project}/{preset} "
+                f"({local_pair[:12]}...)."
+            )
+            write_runner_provenance(
+                bucket, root, dest_prefix, local_files, source_ref, project, preset
+            )
+            return
+
         uploaded = []
-        skipped = []
         for row in local_files:
             name = str(row["name"])
             local_size = int(row.get("size", 0) or 0)
             local_sha = str(row["sha256"])
-            remote = remote_files.get(name, {})
-            remote_size = (
-                int(remote.get("size", -1))
-                if isinstance(remote.get("size"), (int, str)) and str(remote.get("size")).isdigit()
-                else -1
-            )
-            remote_sha = str(remote.get("sha256", "")).strip().lower()
-            if remote_size == local_size and remote_sha == local_sha:
-                skipped.append(name)
-                continue
             try:
                 gcs.write_object(str(row["dest"]), Path(str(row["path"])).read_bytes())
             except gcs.GcsError as exc:
                 raise RuntimeError(f"Failed to upload {name}: {exc}") from exc
             uploaded.append({"name": name, "size": local_size, "sha256": local_sha})
             print(f"Uploaded {name} -> {row['dest']}")
-        if not uploaded:
-            print(
-                f"Runner upload skipped: no content changes for {project}/{preset} ({', '.join(skipped) if skipped else 'none'})"
-            )
-            write_runner_provenance(
-                bucket, root, dest_prefix, local_files, source_ref, project, preset
-            )
-            return
         meta = {
             "uploaded_at": Instant.now().format_iso(unit="second"),
             "source_ref": source_ref,
             "project": project,
             "preset": preset,
+            "pair_sha256": local_pair,
             "files": [
                 {"name": str(r["name"]), "size": int(r["size"]), "sha256": str(r["sha256"])}
                 for r in local_files
             ],
             "uploaded_files": uploaded,
-            "skipped_unchanged_files": skipped,
         }
         try:
             gcs.upload_json(meta_dest, meta)

@@ -46,6 +46,14 @@ on:
         required: false
         type: string
         default: "BMT Gate"
+      skip_missing_runner_artifacts:
+        description: >
+          Dev CI only. When true, omit Publish matrix legs whose runner-* artifact is absent
+          (e.g. placeholder release builds). Production callers must leave this false so missing
+          artifacts fail at download instead of being skipped.
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       ci_run_id:
@@ -96,6 +104,13 @@ on:
         required: false
         type: string
         default: "BMT Gate"
+      skip_missing_runner_artifacts:
+        description: >
+          Dev CI only. When true, omit Publish matrix legs whose runner-* artifact is absent
+          (e.g. placeholder release builds). Production callers must leave this false.
+        required: false
+        type: boolean
+        default: false
     outputs:
       bmt_gate_passed:
         description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
@@ -207,11 +222,12 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
           AVAILABLE_ARTIFACTS: ${{ steps.runner_artifacts_index.outputs.json }}
+          SKIP_MISSING_RUNNER_ARTIFACTS: ${{ inputs.skip_missing_runner_artifacts == true && 'true' || 'false' }}
         run: uv run bmt handoff write-context && uv run bmt runner filter-upload-matrix
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
-  # Download runner-* artifacts from the CI run and upload to GCS (checksum-aware skip in bmt runner upload).
+  # Download runner-* artifacts from the CI run and upload to GCS (pair checksum in bmt runner upload).
   publish_runners:
     name: Publish
     needs: write_handoff_context
