@@ -18,47 +18,81 @@ from rich.table import Table
 from rich.text import Text
 
 from tools.repo.core_main_workflows import run_drift_check
+from tools.repo.just_image_gate import evaluate_image_skip
 from tools.repo.paths import repo_root
-from tools.shared.artifact_registry_uri import (
-    artifact_registry_tag_status,
-    resolve_bmt_orchestrator_image_base,
-)
 
 
 @dataclass(frozen=True)
 class _Step:
-    just_target: str
+    """``key`` matches ship skip flags; ``just_argv`` is passed to the ``just`` executable."""
+
+    key: str
+    just_argv: tuple[str, ...]
     title: str
     blurb: str
     border: str  # rich color name
 
 
-_STEPS: tuple[_Step, ...] = (
-    _Step(
-        "test",
-        "Local verification suite",
-        "uv sync · pytest · ruff · ty · actionlint · shellcheck · layout policy",
-        "cyan",
-    ),
-    _Step(
-        "preflight",
-        "Bucket preflight",
-        "Diff / checks vs GCS (needs GCS_BUCKET, gcloud)",
-        "magenta",
-    ),
-    _Step(
-        "deploy",
-        "Runtime seed deploy",
-        "Sync gcp/stage runtime seed to bucket + verify",
-        "yellow",
-    ),
-    _Step(
-        "image",
-        "Container image",
-        "docker buildx load + push to Artifact Registry (git-SHA tag for ship auto-skip)",
-        "green",
-    ),
+_STEP_TEST = _Step(
+    "test",
+    ("test",),
+    "Local verification suite",
+    "uv sync · pytest · ruff · ty · actionlint · shellcheck · layout policy",
+    "cyan",
 )
+
+_STEP_DEPLOY = _Step(
+    "deploy",
+    ("workspace", "deploy"),
+    "Runtime seed deploy",
+    "Sync gcp/stage runtime seed to bucket + verify",
+    "yellow",
+)
+
+_STEP_IMAGE = _Step(
+    "image",
+    ("image",),
+    "Container image",
+    "docker buildx load + push to Artifact Registry (git-SHA tag for ship auto-skip)",
+    "green",
+)
+
+
+def _step_preflight(*, image_skipped: bool, force_image: bool) -> _Step:
+    argv: list[str] = ["workspace", "preflight"]
+    if not image_skipped:
+        argv.append("--with-image")
+        if force_image:
+            argv.append("--force-image")
+    return _Step(
+        "preflight",
+        tuple(argv),
+        "Bucket preflight",
+        "Diff / checks vs GCS; `just image` when git + registry warrant (see `workspace preflight --help`)",
+        "magenta",
+    )
+
+
+def _build_active_steps(
+    *,
+    skip_test: bool,
+    skip_preflight: bool,
+    skip_deploy: bool,
+    image_skipped: bool,
+    force_image: bool,
+    skip_image: bool,
+) -> tuple[_Step, ...]:
+    out: list[_Step] = []
+    if not skip_test:
+        out.append(_STEP_TEST)
+    if not skip_preflight:
+        out.append(_step_preflight(image_skipped=image_skipped, force_image=force_image))
+    if not skip_deploy:
+        out.append(_STEP_DEPLOY)
+    if skip_preflight and not image_skipped and not skip_image:
+        out.append(_STEP_IMAGE)
+    return tuple(out)
+
 
 # Rough pacing for --dry-run so each stage “breathes” like a real run (seconds).
 _DRY_RUN_PAUSE_SEC: dict[str, float] = {
@@ -68,71 +102,9 @@ _DRY_RUN_PAUSE_SEC: dict[str, float] = {
     "image": 1.6,
 }
 
-# Paths that invalidate the Cloud Run image (see gcp/image/Dockerfile COPY lines).
-_IMAGE_GIT_PATHSPECS = ("gcp/image", "gcp/__init__.py")
-
 
 def _console() -> Console:
     return Console(highlight=False, soft_wrap=True)
-
-
-def _git_nonempty_lines(cmd: list[str], *, cwd: str) -> list[str]:
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
-    if p.returncode != 0:
-        return []
-    return [ln.strip() for ln in p.stdout.splitlines() if ln.strip()]
-
-
-def _git_merge_base_with_remote_head(root: str) -> str | None:
-    """Best-effort merge-base(HEAD, origin/dev | origin/main | @{upstream})."""
-    for ref in ("origin/dev", "origin/main", "@{upstream}"):
-        p = subprocess.run(
-            ["git", "merge-base", "HEAD", ref],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if p.returncode == 0 and (sha := p.stdout.strip()):
-            return sha
-    return None
-
-
-def _git_head_sha(root: str) -> str | None:
-    p = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if p.returncode != 0:
-        return None
-    s = p.stdout.strip()
-    return s if len(s) >= 7 else None
-
-
-def image_context_git_dirty(root: str | None = None) -> bool:
-    """True if git suggests the Docker context may have changed (rebuild may be needed).
-
-    Conservative: returns True when merge-base cannot be resolved (auto-skip disabled).
-
-    When this returns False, ``uv run python -m tools ship`` may still run ``just image`` unless
-    Artifact Registry already has ``bmt-orchestrator:<git HEAD>`` (via the Artifact Registry API
-    and Application Default Credentials).
-
-    Does not imply the opposite: base-image tag bumps, a failed registry push, or needing a
-    no-code rebuild still require running ship with --force-image.
-    """
-    r = root or str(repo_root())
-    specs = list(_IMAGE_GIT_PATHSPECS)
-    mb = _git_merge_base_with_remote_head(r)
-    if mb is None:
-        return True
-    if _git_nonempty_lines(["git", "diff", "--name-only", f"{mb}...HEAD", "--", *specs], cwd=r):
-        return True
-    # Staged + unstaged vs HEAD (single pick-up for uncommitted edits).
-    return bool(_git_nonempty_lines(["git", "diff", "--name-only", "HEAD", "--", *specs], cwd=r))
 
 
 def _banner(console: Console) -> None:
@@ -141,7 +113,9 @@ def _banner(console: Console) -> None:
     title.append("  ", style="")
     title.append("bmt-gcloud", style="bold dim")
     body = Text.from_markup(
-        "[dim]Full gate before push:[/] [cyan]just test[/] → [magenta]preflight[/] → [yellow]deploy[/] → [green]image[/]\n"
+        "[dim]Full gate before push:[/] [cyan]just test[/] → [magenta]workspace preflight[/] "
+        "[dim](folds in[/] [green]image[/] [dim]when needed)[/] → [yellow]workspace deploy[/]\n"
+        "[dim]With[/] [cyan]--skip-preflight[/][dim],[/] [green]image[/] [dim]runs as its own step when not auto-skipped.[/]\n"
         "[dim]External library docs (e.g. Context7) are separate from this pipeline.[/]"
     )
     console.print()
@@ -157,12 +131,13 @@ def _banner(console: Console) -> None:
 
 
 def _step_panel(step: _Step, index: int, total: int) -> Panel:
+    jc = " ".join(step.just_argv)
     head = Text.from_markup(
-        f"[bold]{step.title}[/]\n[dim]{step.blurb}[/]\n[dim]Command:[/] [cyan]just {step.just_target}[/]"
+        f"[bold]{step.title}[/]\n[dim]{step.blurb}[/]\n[dim]Command:[/] [cyan]just {jc}[/]"
     )
     return Panel(
         head,
-        title=f"[bold {step.border}]Step {index}/{total} · {step.just_target}[/]",
+        title=f"[bold {step.border}]Step {index}/{total} · {step.key}[/]",
         border_style=step.border,
         box=box.ROUNDED,
         padding=(0, 1),
@@ -170,14 +145,15 @@ def _step_panel(step: _Step, index: int, total: int) -> Panel:
 
 
 def _run_just(
-    target: str,
+    argv: tuple[str, ...],
     *,
     dry_run: bool,
     console: Console,
+    pause_key: str,
 ) -> tuple[int, float]:
     """Return (exit_code, elapsed_or_simulated_seconds)."""
     if dry_run:
-        pause = _DRY_RUN_PAUSE_SEC.get(target, 0.5)
+        pause = _DRY_RUN_PAUSE_SEC.get(pause_key, 0.5)
         time.sleep(pause)
         console.print("  [dim italic]dry-run — not executed[/]\n")
         return 0, pause
@@ -189,7 +165,7 @@ def _run_just(
         return 127, 0.0
     t0 = time.monotonic()
     rc = subprocess.run(
-        [exe, target],
+        [exe, *argv],
         cwd=repo_root(),
         check=False,
     ).returncode
@@ -211,9 +187,9 @@ def register_ship(root: typer.Typer) -> None:
         skip_test: Annotated[bool, typer.Option("--skip-test", help="Skip `just test`.")] = False,
         skip_preflight: Annotated[
             bool,
-            typer.Option("--skip-preflight", help="Skip `just preflight`."),
+            typer.Option("--skip-preflight", help="Skip `just workspace preflight`."),
         ] = False,
-        skip_deploy: Annotated[bool, typer.Option("--skip-deploy", help="Skip `just deploy`.")] = False,
+        skip_deploy: Annotated[bool, typer.Option("--skip-deploy", help="Skip `just workspace deploy`.")] = False,
         skip_image: Annotated[bool, typer.Option("--skip-image", help="Skip `just image` (always).")] = False,
         force_image: Annotated[
             bool,
@@ -239,60 +215,28 @@ def register_ship(root: typer.Typer) -> None:
             drift_rc = run_drift_check(Path(root_s) / ".github" / "workflows", mode="preflight")
             if drift_rc != 0:
                 raise typer.Exit(drift_rc)
+
+        image_skipped, auto_skip_note = evaluate_image_skip(
+            root=root_s,
+            skip_image=skip_image,
+            force_image=force_image,
+            dry_run=dry_run,
+        )
+
         skips = {
             "test": skip_test,
             "preflight": skip_preflight,
             "deploy": skip_deploy,
-            "image": skip_image,
+            "image": image_skipped,
         }
-        auto_skip_note: str | None = None
-        if not skips["image"] and not force_image and not image_context_git_dirty(root_s):
-            if dry_run:
-                skips["image"] = True
-                head_preview = (_git_head_sha(root_s) or "?")[:7]
-                auto_skip_note = (
-                    "[dim]image auto-skipped (dry-run):[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
-                    "[dim]Artifact Registry is not queried in dry-run;[/] run without [cyan]--dry-run[/] to check "
-                    f"[cyan]bmt-orchestrator:{head_preview}[/] [dim]before skipping the image step.[/]"
-                )
-            head_sha = _git_head_sha(root_s)
-            if not dry_run and head_sha:
-                image_base = resolve_bmt_orchestrator_image_base(repo_root())
-                ar_status = artifact_registry_tag_status(image_base=image_base, tag=head_sha)
-                if ar_status == "present":
-                    skips["image"] = True
-                    short = head_sha[:7]
-                    auto_skip_note = (
-                        "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/]; "
-                        f"Artifact Registry has [cyan]bmt-orchestrator:{short}[/].\n"
-                        "[dim]Still wrong bits?[/] base-image-only updates or policy rebuilds — "
-                        "[dim]run[/] [cyan]just ship --force-image[/][dim].[/]"
-                    )
-                elif ar_status == "absent":
-                    # Git-clean for image paths but no published tag for this commit — build/push.
-                    pass
-                elif ar_status == "permission_denied":
-                    # Do not treat IAM failure like "safe to skip"; still run the image step.
-                    skips["image"] = False
-                    auto_skip_note = (
-                        "[red]Artifact Registry:[/] permission denied reading tags (check IAM: "
-                        "[cyan]roles/artifactregistry.reader[/] on the project or repo). "
-                        "[dim]Running[/] [cyan]just image[/] [dim]anyway — not auto-skipping based on git alone.[/]"
-                    )
-                else:
-                    # unavailable: invalid tag/URI, no ADC, or transient API error — fail-open: build/push.
-                    skips["image"] = False
-                    auto_skip_note = (
-                        "[yellow]Artifact Registry tag check unavailable[/] (invalid URI/HEAD, missing ADC, or transient API error). "
-                        "[dim]Running[/] [cyan]just image[/] [dim]so the pipeline is not silently skipped. "
-                        "Configure Application Default Credentials ([cyan]gcloud auth application-default login[/] "
-                        "or [cyan]GOOGLE_APPLICATION_CREDENTIALS[/]) for a definitive skip when the image already exists.[/]"
-                    )
-            elif not dry_run and not head_sha:
-                # Cannot resolve HEAD — run `just image` rather than guess.
-                pass
-
-        active = [s for s in _STEPS if not skips[s.just_target]]
+        active = _build_active_steps(
+            skip_test=skip_test,
+            skip_preflight=skip_preflight,
+            skip_deploy=skip_deploy,
+            image_skipped=image_skipped,
+            force_image=force_image,
+            skip_image=skip_image,
+        )
         if not active:
             raise typer.BadParameter("all steps skipped", param_hint="flags")
 
@@ -309,14 +253,19 @@ def register_ship(root: typer.Typer) -> None:
         total = len(active)
         for i, step in enumerate(active, start=1):
             console.print(_step_panel(step, i, total))
-            rc, elapsed = _run_just(step.just_target, dry_run=dry_run, console=console)
+            rc, elapsed = _run_just(
+                step.just_argv,
+                dry_run=dry_run,
+                console=console,
+                pause_key=step.key,
+            )
             status = "[green]ok[/]" if rc == 0 else "[red]failed[/]"
-            timings.append((step.just_target, status, elapsed))
+            timings.append((step.key, status, elapsed))
             if rc != 0:
                 overall_rc = rc
                 console.print(
                     Panel(
-                        Text.from_markup(f"[bold red]Stopped[/] after [cyan]{step.just_target}[/] [dim](exit {rc})[/]"),
+                        Text.from_markup(f"[bold red]Stopped[/] after [cyan]{step.key}[/] [dim](exit {rc})[/]"),
                         border_style="red",
                         box=box.HEAVY,
                     )

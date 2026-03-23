@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preflight checks for `just pulumi`: config, pulumi, gcloud, bucket, image, gh.
+"""Preflight checks for `just workspace pulumi`: config, pulumi, gcloud, bucket, image, gh.
 
 Run from repo root. Exits 0 if all checks pass, 1 with a clear message otherwise.
 """
@@ -104,7 +104,7 @@ def _check_gh() -> None:
             "::error::"
             + refs.external_cli_missing_line(
                 cli="gh",
-                hint="Install GitHub CLI for the export-vars step (just pulumi): https://cli.github.com/",
+                hint="Install GitHub CLI for the export-vars step (just workspace pulumi): https://cli.github.com/",
             )
         )
     r = subprocess.run(

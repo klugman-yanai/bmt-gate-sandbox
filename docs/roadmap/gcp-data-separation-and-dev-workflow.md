@@ -30,7 +30,7 @@ These bugs were discovered during design review and must be fixed before any FUS
 
 1. **`FORBIDDEN_RUNTIME_SEED` pattern mismatch** — `tools/shared/layout_patterns.py` uses `r"(^|/)sk/inputs(/|$)"` (hard-coded old project prefix) but the current layout is `projects/sk/inputs/`. The exclusion never fires. `local_digest()` already silently walks `inputs/` if any files land there.
 
-2. **`local_digest()` reads data paths** — `tools/shared/bucket_sync.py` performs a recursive filesystem walk + full file read of every file under `gcp/stage/` (currently `gcp/remote/`). If a FUSE mount is active (or real WAVs are present) at any `inputs/` path, it reads the entire corpus on every `just deploy` and on every pre-commit hook invocation that touches `gcp/`. This makes the dev workflow unusable unless `SKIP_SYNC_VERIFY=1` is permanently set.
+2. **`local_digest()` reads data paths** — `tools/shared/bucket_sync.py` performs a recursive filesystem walk + full file read of every file under `gcp/stage/` (currently `gcp/remote/`). If a FUSE mount is active (or real WAVs are present) at any `inputs/` path, it reads the entire corpus on every `just workspace deploy` and on every pre-commit hook invocation that touches `gcp/`. This makes the dev workflow unusable unless `SKIP_SYNC_VERIFY=1` is permanently set.
 
 3. **`resolve_local_path()` routing bug** — `tools/bmt/bmt_run_local.py` routes paths beginning with `sk/` to `runtime_root` but paths beginning with `projects/sk/` (the actual format in `bmt_jobs.json`) fall through to `Path.cwd() / raw`, resolving to `<repo_root>/projects/sk/…` rather than `<repo_root>/gcp/stage/projects/sk/…`. Without explicit `BMT_RUNNER` / `BMT_DATASET_ROOT` overrides the tool does not resolve paths correctly.
 
@@ -265,7 +265,7 @@ This is explicitly deferred. This plan does not require it.
 
 ### What would break if FUSE were active and 0.1/0.2 were not fixed first
 
-- `local_digest()` reads the entire FUSE mount on every `just deploy` and every pre-commit hook invocation that touches `gcp/` — effectively reading 30 GB on every commit.
+- `local_digest()` reads the entire FUSE mount on every `just workspace deploy` and every pre-commit hook invocation that touches `gcp/` — effectively reading 30 GB on every commit.
 - `BucketVerifyRuntimeSeedSync` calls `local_digest()` — CI verify step reads FUSE.
 - `bucket_upload_wavs.py` pre-flight stats all local WAVs — floods GCS metadata API.
 

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
 from ci.driver import app
 from typer.testing import CliRunner
+
+pytestmark = pytest.mark.unit
 
 runner = CliRunner()
 

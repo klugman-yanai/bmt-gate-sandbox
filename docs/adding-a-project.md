@@ -1,17 +1,19 @@
 # Adding a project or BMT
 
-Everything lives in the **stage scaffold** under `gcp/stage/` (mirrored to the bucket). Use the `just` commands below; they match what CI expects.
+Everything lives in the **stage scaffold** under `gcp/stage/` (mirrored to the bucket). Scaffolding uses one Just recipe, **`just stage`**, with subcommands **`project`**, **`bmt`**, and **`publish`** (same as `uv run python -m tools bmt stage …`). The steps below match what CI expects.
+
+Each benchmark has a **folder name** under `bmts/` (e.g. `example`, `my_second_bmt`). The manifest inside it is always named **`bmt.json`**—so paths look like `bmts/<folder>/bmt.json`, not “bmt inside bmt.”
 
 ---
 
 ## New project
 
-Use one **project slug** everywhere (lowercase, digits, underscores; must start with a letter). Below it is `myproject`—swap it for yours.
+Use one **project name** everywhere (lowercase, digits, underscores; must start with a letter). Below it is `myproject`—swap it for yours.
 
 ### 1. Create the scaffold
 
 ```bash
-just add-project myproject
+just stage project myproject
 ```
 
 This adds `gcp/stage/projects/myproject/` with a default plugin workspace, `bmts/example/bmt.json`, and placeholders.
@@ -31,7 +33,7 @@ just upload-data myproject /path/to/dataset.zip
 ### 4. Publish the default BMT’s plugin
 
 ```bash
-just publish-bmt myproject example
+just stage publish myproject example
 ```
 
 `example` is the default BMT name the scaffold created. This updates the manifest and can sync to GCS depending on your env.
@@ -52,7 +54,7 @@ CI reads the bucket, not only your laptop. After you change `bmt.json` (or any s
 
 ```bash
 # from repo root, with bucket configured (see docs/configuration.md)
-just deploy
+just workspace deploy
 ```
 
 ### 7. CI
@@ -63,10 +65,10 @@ After the bucket has the updated manifest, the next BMT run that includes this p
 
 ## New BMT (second benchmark, same project)
 
-### 1. Add another BMT slug
+### 1. Add another BMT
 
 ```bash
-just add-bmt myproject my_second_bmt
+just stage bmt myproject my_second_bmt
 ```
 
 ### 2. Edit the manifest
@@ -78,7 +80,7 @@ The scaffold fills `inputs_prefix`, `results_prefix`, and `outputs_prefix`. Adju
 ### 3. Publish
 
 ```bash
-just publish-bmt myproject my_second_bmt
+just stage publish myproject my_second_bmt
 ```
 
 ### 4. Upload data
@@ -87,7 +89,7 @@ Same `just upload-data` pattern as in [New project](#new-project), pointed at th
 
 ### 5. Enable and sync
 
-Set `"enabled": true` in that `bmt.json`, then `just deploy` (or your usual sync).
+Set `"enabled": true` in that `bmt.json`, then `just workspace deploy` (or your usual sync).
 
 ---
 
@@ -101,7 +103,7 @@ Set `"enabled": true` in that `bmt.json`, then `just deploy` (or your usual sync
 ## Dataset upload (short)
 
 - Prefer a **zip** (or folder of WAVs): `just upload-data` puts files under `projects/<project>/inputs/...` in the bucket.
-- Inspect what landed: `just mount-project myproject` → read-only view under `gcp/mnt/projects/myproject/`.
+- Inspect what landed: `just mount myproject` → read-only view under `gcp/mnt/projects/myproject/`.
 
 ---
 

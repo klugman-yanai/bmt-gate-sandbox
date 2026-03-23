@@ -83,7 +83,7 @@ The old **VM watcher / root orchestrator / per-project `bmt_manager`** stack is 
 - **Bucket root** mirrors [`gcp/stage`](../gcp/stage) (see [architecture.md](architecture.md)).
 - **Immutable** plugin bundles: `projects/<project>/plugins/<plugin>/sha256-<digest>/...`
 - **Datasets:** `projects/<project>/inputs/<dataset>/...`
-- **Results:** `projects/<project>/results/<bmt_slug>/` with **`current.json`** and **`snapshots/<run_id>/`**
+- **Results:** `projects/<project>/results/<benchmark>/` with **`current.json`** and **`snapshots/<run_id>/`**
 
 **Ephemeral** (typically deleted after successful coordinator): `triggers/plans/`, `triggers/progress/`, `triggers/summaries/`, `triggers/reporting/`, etc.
 
@@ -96,7 +96,7 @@ The old **VM watcher / root orchestrator / per-project `bmt_manager`** stack is 
 GCS is **not** a transactional database. The system relies on:
 
 - **Immutable workflow run id** (and per-leg `run_id` in the plan) as **correlation id**.
-- **Object keys** that encode intent (`triggers/plans/{id}.json`, summaries keyed by project and slug).
+- **Object keys** that encode intent (`triggers/plans/{id}.json`, summaries keyed by project and benchmark folder name).
 - **Workflow barriers** between plan → tasks → coordinator (correctness depends on the workflow not starting the coordinator until tasks complete or fail).
 
 **Implications:**

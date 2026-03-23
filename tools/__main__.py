@@ -31,20 +31,29 @@ def register_subcommands(target: typer.Typer) -> None:
     from tools.cli.bmt_cmd import app as bmt_app
     from tools.cli.bucket_cmd import app as bucket_app
     from tools.cli.build_cmd import app as build_app
+    from tools.cli.e2e_preflight_cmd import register_e2e_preflight
     from tools.cli.onboard_cmd import register_onboard
     from tools.cli.pulumi_cmd import app as pulumi_app
     from tools.cli.repo_cmd import app as repo_app
     from tools.cli.ship_cmd import register_ship
+    from tools.cli.workspace_cmd import register_workspace
 
     register_onboard(target)
     register_ship(target)
+    register_e2e_preflight(target)
+    register_workspace(target)
     target.add_typer(bucket_app, name="bucket", help="GCS bucket operations", rich_help_panel="Storage & deploy")
     target.add_typer(
         pulumi_app, name="pulumi", help="Infrastructure management (Pulumi)", rich_help_panel="Infrastructure"
     )
     target.add_typer(repo_app, name="repo", help="Repository validation and env", rich_help_panel="Repo & config")
     target.add_typer(build_app, name="build", help="Container image build", rich_help_panel="Infrastructure")
-    target.add_typer(bmt_app, name="bmt", help="BMT execution and scaffolding", rich_help_panel="BMT")
+    target.add_typer(
+        bmt_app,
+        name="bmt",
+        help="Staged BMT projects: [bold]bmt stage[/bold] (project · bmt · publish), symlink-deps",
+        rich_help_panel="BMT",
+    )
 
     _registration.done = True
 

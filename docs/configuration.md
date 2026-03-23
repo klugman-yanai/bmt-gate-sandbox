@@ -11,13 +11,13 @@ This repo now has one supported execution model: direct GitHub Actions handoff t
 **Apply infra and push repo vars:**
 
 ```bash
-just pulumi
+just workspace pulumi
 ```
 
 That command runs Pulumi and then syncs its outputs to GitHub repo variables. So:
 
 - **Infra config owners set:** `bmt.config.json` (must include `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`, and `gcp_wif_provider`).
-- **Pulumi sets for you:** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `CLOUD_RUN_REGION`, `BMT_CONTROL_JOB`, `BMT_TASK_STANDARD_JOB`, `BMT_TASK_HEAVY_JOB`, `GCP_SA_EMAIL`, `GCP_WIF_PROVIDER` — all synced from config when you run `just pulumi`.
+- **Pulumi sets for you:** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `CLOUD_RUN_REGION`, `BMT_CONTROL_JOB`, `BMT_TASK_STANDARD_JOB`, `BMT_TASK_HEAVY_JOB`, `GCP_SA_EMAIL`, `GCP_WIF_PROVIDER` — all synced from config when you run `just workspace pulumi`.
 
 Defaults in the config file (e.g. `cloud_run_region`, job names) are used by Pulumi; you only override what you need.
 
@@ -38,7 +38,7 @@ Defaults in the config file (e.g. `cloud_run_region`, job names) are used by Pul
 
 `BMT_STATUS_CONTEXT` is optional. If unset, the default is `BMT Gate`.
 
-GitHub reporting chooses the credential profile from the repository slug:
+GitHub reporting chooses the credential profile from the repository (`owner/repo`):
 
 - `Kardome-org/*` uses `GITHUB_APP_*`
 - all other repositories use `GITHUB_APP_DEV_*`
@@ -73,7 +73,7 @@ just show-env
 - `gcp_zone`
 - `gcs_bucket`
 - `service_account`
-- `gcp_wif_provider` — Workload Identity Federation provider (GitHub Actions OIDC). Synced to `GCP_WIF_PROVIDER` by `just pulumi` like the other GCP_* vars.
+- `gcp_wif_provider` — Workload Identity Federation provider (GitHub Actions OIDC). Synced to `GCP_WIF_PROVIDER` by `just workspace pulumi` like the other GCP_* vars.
 
 Common optional fields:
 
@@ -96,7 +96,7 @@ Three places touch the same logical settings; they stay consistent as follows:
 | **`.github/bmt/ci/config.py`** | CI only. Builds `BmtConfig` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
 | **`gcp/image/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
 
-**Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.config.json → Pulumi → `just pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.config.json`; CI reads what was synced.
+**Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.config.json → Pulumi → `just workspace pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.config.json`; CI reads what was synced.
 
 **Pulumi consistency:** `infra/pulumi/config.py` uses defaults that match `gcp/image/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
 
@@ -107,15 +107,15 @@ Three places touch the same logical settings; they stay consistent as follows:
 The active runtime writes:
 
 - `triggers/plans/<workflow_run_id>.json`
-- `triggers/summaries/<workflow_run_id>/<project>-<bmt_slug>.json`
-- `projects/<project>/results/<bmt_slug>/snapshots/<run_id>/latest.json`
-- `projects/<project>/results/<bmt_slug>/snapshots/<run_id>/ci_verdict.json`
-- `projects/<project>/results/<bmt_slug>/current.json`
+- `triggers/summaries/<workflow_run_id>/<project>-<benchmark>.json`
+- `projects/<project>/results/<benchmark>/snapshots/<run_id>/latest.json`
+- `projects/<project>/results/<benchmark>/snapshots/<run_id>/ci_verdict.json`
+- `projects/<project>/results/<benchmark>/current.json`
 
 Published staged control-plane content lives under:
 
 - `projects/<project>/project.json`
-- `projects/<project>/bmts/<bmt_slug>/bmt.json`
+- `projects/<project>/bmts/<benchmark>/bmt.json`
 - `projects/<project>/plugins/<plugin>/sha256-<digest>/...`
 - `projects/<project>/inputs/<dataset>/...`
 
@@ -153,7 +153,7 @@ New work should not add more of these patterns; refactors that touch them should
 | Secret bodies in env | Exposure in logs and dumps | GitHub Secrets, GCP Secret Manager; env holds paths/refs only |
 | New parallel names for the same fact | Operator confusion | One name per layer; consolidate aliases in code (see GitHub App module) |
 | New undocumented `BMT_*` for local tools | Hard to discover | Typer options with `envvar=` (e.g. `tools bucket upload-runner --help`) |
-| Duplicating infra values already in `bmt.config.json` | Drift vs Pulumi | `just pulumi` / repo variables |
+| Duplicating infra values already in `bmt.config.json` | Drift vs Pulumi | `just workspace pulumi` / repo variables |
 | Constants as env | False configurability | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
 
 ## GitHub Actions precedence
@@ -221,7 +221,7 @@ Read by `context_from_env` / `WorkflowContext` in [.github/bmt/ci/config.py](../
 | `PREPARE_PR_NUMBER` | Prepare PR |
 | `PREPARE_RESULT` | Prepare result |
 | `PR_NUMBER` | Pull request number |
-| `REPOSITORY` | Repo slug (alternate) |
+| `REPOSITORY` | Repository `owner/repo` (alternate) |
 | `RUNNER_MATRIX` | Runner matrix JSON |
 | `TARGET_URL` | Target URL |
 | `TRIGGER_WRITTEN` | Trigger written |
@@ -249,7 +249,7 @@ Local and CI tools resolve credentials with several alternate variable names (fi
 
 | Role | Alternate names |
 | ---- | ---------------- |
-| Repository slug | `BMT_GITHUB_REPOSITORY`, `GITHUB_REPOSITORY` |
+| Repository (`owner/repo`) | `BMT_GITHUB_REPOSITORY`, `GITHUB_REPOSITORY` |
 | App profile | `BMT_GITHUB_APP_PROFILE` |
 | App id (dev) | `GITHUB_APP_DEV_ID`, `GH_APP_DEV_ID` |
 | App id (primary) | `GITHUB_APP_ID`, `GH_APP_ID` |
@@ -286,7 +286,7 @@ Flags such as `BMT_USE_MOCK_RUNNER` and `tools.shared.env.get_bool` treat these 
 
 See [Env inventory appendix](#env-inventory-appendix) for `rg` recipes and optional `vulture` / `pylint` duplicate-code scopes.
 
-GitHub reporting chooses the credential profile from the repository slug:
+GitHub reporting chooses the credential profile from the repository (`owner/repo`):
 
 ## Env inventory appendix
 

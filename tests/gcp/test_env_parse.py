@@ -6,6 +6,8 @@ import pytest
 
 from gcp.image.config.env_parse import is_truthy_env_value
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.parametrize(
     ("raw", "expected"),

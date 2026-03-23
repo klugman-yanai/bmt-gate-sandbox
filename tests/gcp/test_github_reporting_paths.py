@@ -7,14 +7,20 @@ from pathlib import Path
 import pytest
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus
+from gcp.image.config.constants import STATUS_CONTEXT
 from gcp.image.config.value_types import as_results_path
 from gcp.image.runtime.github_reporting import (
     _resolved_logs_dir_under_stage,
     _write_log_dump_and_sign,
 )
 from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ScorePayload, StageRuntimePaths
+from tests.support.sentinels import FAKE_REPO
 
 pytestmark = pytest.mark.unit
+
+_WF_ID = "wf-path-test"
+_PROJECT = "sk"
+_BMT = "b1"
 
 
 def test_resolved_logs_dir_rejects_path_outside_stage(tmp_path: Path) -> None:
@@ -35,27 +41,27 @@ def test_resolved_logs_dir_accepts_subdirectory(tmp_path: Path) -> None:
 
 def _minimal_fail_plan() -> ExecutionPlan:
     return ExecutionPlan(
-        workflow_run_id="wf-path-test",
-        repository="owner/repo",
+        workflow_run_id=_WF_ID,
+        repository=FAKE_REPO,
         head_sha="0" * 40,
         head_branch="main",
         head_event="pull_request",
         pr_number="1",
-        status_context="BMT Gate",
+        status_context=STATUS_CONTEXT,
         standard_task_count=1,
         heavy_task_count=0,
         legs=[
             PlanLeg(
-                project="sk",
-                bmt_slug="b1",
-                bmt_id="b1-id",
-                run_id="wf-path-test-b1",
-                manifest_path="projects/sk/bmts/b1/bmt.json",
+                project=_PROJECT,
+                bmt_slug=_BMT,
+                bmt_id=f"{_BMT}-id",
+                run_id=f"{_WF_ID}-{_BMT}",
+                manifest_path=f"projects/{_PROJECT}/bmts/{_BMT}/bmt.json",
                 manifest_digest="m",
                 plugin_ref="p",
                 plugin_digest="p",
                 inputs_prefix="i",
-                results_path=as_results_path("projects/sk/results/b1"),
+                results_path=as_results_path(f"projects/{_PROJECT}/results/{_BMT}"),
                 outputs_prefix="o",
             ),
         ],

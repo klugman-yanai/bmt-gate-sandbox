@@ -193,6 +193,6 @@ Docker image builds and runs with config-driven invocation; Cloud Run Job is pro
 | Phase | Method |
 | :--- | :--- |
 | **4** | `docker run` — local FUSE simulation |
-| **5-6** | `just deploy` + Manual Job Execution in GCP Console |
+| **5-6** | `just workspace deploy` + Manual Job Execution in GCP Console |
 | **5.5** | IAM/WIF policy validation (resource-scoped secrets/storage, attribute conditions, digest policy checks) |
 | **6** | Run matrix of >=20 legs and single leg with 40GB dataset; document resource tier and success criteria |

@@ -54,7 +54,7 @@ def _pulumi_output_raw(name: str) -> str:
     if proc.returncode != 0:
         raise RuntimeError(f"pulumi stack output {name} failed: {err or out or 'no output'}")
     if not out:
-        raise RuntimeError(f"Pulumi output '{name}' is empty. Run `just pulumi` first.")
+        raise RuntimeError(f"Pulumi output '{name}' is empty. Run `just workspace pulumi` first.")
     return out
 
 

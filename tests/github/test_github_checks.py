@@ -6,9 +6,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gcp.image.config.constants import STATUS_CONTEXT
 from gcp.image.github import github_checks
+from tests.support.sentinels import FAKE_REPO
 
 pytestmark = pytest.mark.unit
+
+_FAKE_CHECK_SHA = "a" * 40
 
 
 def test_create_check_run_requires_integer_id(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -23,9 +27,9 @@ def test_create_check_run_requires_integer_id(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(TypeError, match="integer id"):
         github_checks.create_check_run(
             "tok",
-            "o/r",
-            "a" * 40,
-            "BMT Gate",
+            FAKE_REPO,
+            _FAKE_CHECK_SHA,
+            STATUS_CONTEXT,
             "queued",
             {"title": "t", "summary": "s"},
         )
@@ -43,9 +47,9 @@ def test_create_check_run_returns_id(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (
         github_checks.create_check_run(
             "tok",
-            "o/r",
-            "a" * 40,
-            "BMT Gate",
+            FAKE_REPO,
+            _FAKE_CHECK_SHA,
+            STATUS_CONTEXT,
             "queued",
             {"title": "t", "summary": "s"},
         )

@@ -23,7 +23,7 @@
 | **runner** | The compiled program that actually runs the audio tests. |
 | **plugin** | A project-specific Python script that sets up and invokes the runner. |
 | **leg** | A single test case (one project combined with one BMT configuration). |
-| **slug** | A short, URL-safe name for a BMT test suite (e.g., `false_rejects`). It is used in GCS directory paths. |
+| **Benchmark** (path) | Short URL-safe folder name (e.g., `false_rejects`). Docs use **`<benchmark>`** in paths so it is not confused with **`bmt.json`**. The manifest field **`bmt_slug`** holds the same string. |
 | **snapshot** | All the outputs from a single test run (scores, pass/fail status, and logs). |
 | **baseline** | The snapshot from the last successful test run. New scores are compared against this. |
 | **GCS** | Google Cloud Storage. Used as a shared storage layer between GitHub CI and Cloud Run. |
@@ -221,7 +221,7 @@ flowchart TD
 │   └── project/
 │       ├── project.json
 │       ├── bmts/
-│       │   └── slug/
+│       │   └── benchmark/
 │       │       └── bmt.json        # Test settings (thresholds, args)
 │       ├── plugins/
 │       │   └── name/
@@ -229,11 +229,11 @@ flowchart TD
 │       ├── plugin_workspaces/
 │       │   └── name/
 │       ├── inputs/
-│       │   └── slug/
+│       │   └── benchmark/
 │       │       └── *.wav           # Input audio dataset
 │       ├── mock_kardome_runner     # ⚙️ Compiled runner binary
 │       └── results/
-│           └── slug/
+│           └── benchmark/
 │               ├── current.json    # Run pointer (baseline)
 │               └── snapshots/
 │                   └── run_id/     # One snapshot per execution
@@ -263,7 +263,7 @@ If you need to trace where a file is written and read across the architecture, u
 | `triggers/plans/{run_id}.json` | Plan job | Task jobs (read plan), coordinator (read then delete) |
 | `triggers/progress/{run_id}/…` | Task jobs (per leg) | Same task’s `publish_progress` (reads for Check Run body); not read by GitHub directly |
 | `triggers/summaries/{run_id}/…` | Task jobs | Coordinator loads each leg summary |
-| `results/{slug}/snapshots/{run_id}/` | Task Jobs | Coordinator, Local Dev Tools |
-| `results/{slug}/current.json` | Coordinator | Next run (baseline), Local Dev Tools |
+| `results/{benchmark}/snapshots/{run_id}/` | Task Jobs | Coordinator, Local Dev Tools |
+| `results/{benchmark}/current.json` | Coordinator | Next run (baseline), Local Dev Tools |
 | `log-dumps/{run_id}.txt` | Coordinator (on failure) | Developers (via signed URL in PR comment) |
 | `triggers/reporting/{run_id}.json` | Plan job (after `triggers/plans/…`) | Task jobs (`publish_progress`), coordinator (`finalize_check_run`); deleted after coordinator succeeds |

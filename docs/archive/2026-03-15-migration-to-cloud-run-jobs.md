@@ -95,7 +95,7 @@ By using native **Cloud Run Gen 2 GCS Fuse mounts**, every container (regardless
 *   [ ] **6.2 Resource Overrides per Project**
     *   Implement logic in the CI to request higher memory (e.g., 8GiB) for the 40GB dataset BMTs and lower memory (2GiB) for lightweight BMTs to optimize cost.
 *   [ ] **6.3 Project Scaffolding Scalability**
-    *   Ensure the `just add-project` tool generates `bmt_manager.py` code that is compatible with the `/mnt/runtime` pathing required for the Cloud Run GCS Fuse mount.
+    *   Ensure the `just stage project` scaffold generates `bmt_manager.py` code that is compatible with the `/mnt/runtime` pathing required for the Cloud Run GCS Fuse mount.
 
 ---
 

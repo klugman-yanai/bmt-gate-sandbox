@@ -13,6 +13,16 @@ from ci.workflow_dispatch import (
 )
 from ci.workflows_api import WorkflowsApiError
 
+from tests.support.sentinels import (
+    FAKE_BUCKET,
+    FAKE_CONTROL_JOB,
+    FAKE_GCP_PROJECT,
+    FAKE_REGION,
+    FAKE_REPO,
+    FAKE_SHA_ALT,
+    FAKE_SHA_MISMATCH,
+)
+
 pytestmark = pytest.mark.unit
 
 
@@ -42,12 +52,12 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
 ) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCP_PROJECT", "demo-project")
-    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
     monkeypatch.setenv("GITHUB_RUN_ID", "12345")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
-    monkeypatch.setenv("HEAD_SHA", "0123456789abcdef0123456789abcdef01234567")
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
     monkeypatch.setenv("HEAD_BRANCH", "main")
     monkeypatch.setenv("HEAD_EVENT", "push")
     monkeypatch.setenv("RUN_CONTEXT", "ci")
@@ -63,7 +73,7 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
         spy.workflow_name = workflow_name
         spy.argument = argument
         return {
-            "name": "projects/demo/locations/europe-west4/workflows/bmt-workflow/executions/abc",
+            "name": f"projects/demo/locations/{FAKE_REGION}/workflows/bmt-workflow/executions/abc",
             "state": "ACTIVE",
         }
 
@@ -76,14 +86,14 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
     assert outputs["workflow_execution_state"] == "ACTIVE"
     assert (
         outputs["workflow_execution_url"] == "https://console.cloud.google.com/workflows/workflow/"
-        "europe-west4/bmt-workflow/execution/abc?project=demo-project"
+        f"{FAKE_REGION}/bmt-workflow/execution/abc?project={FAKE_GCP_PROJECT}"
     )
     assert json.loads(outputs["accepted_projects"]) == ["sk"]
-    assert spy.project == "demo-project"
-    assert spy.region == "europe-west4"
+    assert spy.project == FAKE_GCP_PROJECT
+    assert spy.region == FAKE_REGION
     assert spy.workflow_name == "bmt-workflow"
     assert spy.argument is not None
-    assert spy.argument["bucket"] == "demo-bucket"
+    assert spy.argument["bucket"] == FAKE_BUCKET
     assert spy.argument["workflow_run_id"] == "12345"
     assert spy.argument["accepted_projects_json"] == '["sk"]'
 
@@ -91,12 +101,12 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
 def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCP_PROJECT", "demo-project")
-    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
     monkeypatch.setenv("GITHUB_RUN_ID", "54321")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
     monkeypatch.setenv("HEAD_BRANCH", "ci/check-bmt-gate")
     monkeypatch.setenv("HEAD_EVENT", "pull_request")
     monkeypatch.setenv("PR_NUMBER", "79")
@@ -121,10 +131,10 @@ def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch
 
     WorkflowDispatchManager.from_env().invoke()
 
-    assert seen["uri"] == "gs://demo-bucket/triggers/reporting/pr-active/79.json"
+    assert seen["uri"] == f"gs://{FAKE_BUCKET}/triggers/reporting/pr-active/79.json"
     payload = seen["payload"]
     assert isinstance(payload, dict)
-    assert payload["repository"] == "owner/repo"
+    assert payload["repository"] == FAKE_REPO
     assert payload["pr_number"] == "79"
     assert payload["workflow_execution_name"].endswith("/executions/ex-123")
     assert payload["workflow_run_id"] == "54321"
@@ -133,21 +143,21 @@ def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch
 def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, monkeypatch) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GCP_PROJECT", "demo-project")
-    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
-    monkeypatch.setenv("BMT_CONTROL_JOB", "bmt-control")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
+    monkeypatch.setenv("BMT_CONTROL_JOB", FAKE_CONTROL_JOB)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
         "ci.workflow_dispatch.download_json",
         lambda _: (
             {
-                "repository": "owner/repo",
+                "repository": FAKE_REPO,
                 "pr_number": "79",
-                "head_sha": "abcdef0123456789abcdef0123456789abcdef01",
+                "head_sha": FAKE_SHA_ALT,
                 "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/ex-123",
                 "workflow_run_id": "111",
             },
@@ -175,7 +185,7 @@ def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, mo
     assert outputs["cancel_requested"] == "true"
     assert outputs["cancel_reason"] == "cancel_requested"
     assert outputs["cancelled_execution_name"] == "projects/p/locations/r/workflows/w/executions/ex-123"
-    assert seen["deleted_uri"] == "gs://demo-bucket/triggers/reporting/pr-active/79.json"
+    assert seen["deleted_uri"] == f"gs://{FAKE_BUCKET}/triggers/reporting/pr-active/79.json"
     assert outputs["finalize_requested"] == "true"
     assert outputs["finalize_outcome"] == "success"
     assert len(run_calls) == 1
@@ -187,8 +197,8 @@ def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, mo
 def test_cancel_pr_execution_no_index_is_safe(tmp_path: Path, monkeypatch) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
     monkeypatch.setattr("ci.workflow_dispatch.download_json", lambda _: (None, "not_found"))
 
@@ -203,22 +213,22 @@ def test_cancel_pr_execution_no_index_is_safe(tmp_path: Path, monkeypatch) -> No
 def test_cancel_pr_execution_skips_finalize_without_control_job(tmp_path: Path, monkeypatch) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GCP_PROJECT", "demo-project")
-    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
     monkeypatch.delenv("BMT_CONTROL_JOB", raising=False)
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
         "ci.workflow_dispatch.download_json",
         lambda _: (
             {
-                "repository": "owner/repo",
+                "repository": FAKE_REPO,
                 "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/ex-123",
                 "workflow_run_id": "111",
-                "head_sha": "abcdef0123456789abcdef0123456789abcdef01",
+                "head_sha": FAKE_SHA_ALT,
             },
             None,
         ),
@@ -239,22 +249,22 @@ def test_cancel_pr_execution_skips_finalize_without_control_job(tmp_path: Path, 
 def test_cancel_pr_execution_finalize_failed_when_run_job_raises(tmp_path: Path, monkeypatch) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GCP_PROJECT", "demo-project")
-    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
-    monkeypatch.setenv("BMT_CONTROL_JOB", "bmt-control")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
+    monkeypatch.setenv("BMT_CONTROL_JOB", FAKE_CONTROL_JOB)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
         "ci.workflow_dispatch.download_json",
         lambda _: (
             {
-                "repository": "owner/repo",
+                "repository": FAKE_REPO,
                 "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/ex-123",
                 "workflow_run_id": "111",
-                "head_sha": "abcdef0123456789abcdef0123456789abcdef01",
+                "head_sha": FAKE_SHA_ALT,
             },
             None,
         ),
@@ -276,19 +286,19 @@ def test_cancel_pr_execution_finalize_failed_when_run_job_raises(tmp_path: Path,
 def test_cancel_pr_execution_head_sha_mismatch_skips_finalize(tmp_path: Path, monkeypatch) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
         "ci.workflow_dispatch.download_json",
         lambda _: (
             {
-                "repository": "owner/repo",
+                "repository": FAKE_REPO,
                 "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/ex-123",
                 "workflow_run_id": "111",
-                "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
+                "head_sha": FAKE_SHA_MISMATCH,
             },
             None,
         ),
@@ -309,19 +319,19 @@ def test_cancel_pr_execution_head_sha_mismatch_skips_finalize(tmp_path: Path, mo
 def test_cancel_pr_execution_cancel_failure_skips_finalize(tmp_path: Path, monkeypatch) -> None:
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
         "ci.workflow_dispatch.download_json",
         lambda _: (
             {
-                "repository": "owner/repo",
+                "repository": FAKE_REPO,
                 "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/ex-123",
                 "workflow_run_id": "111",
-                "head_sha": "abcdef0123456789abcdef0123456789abcdef01",
+                "head_sha": FAKE_SHA_ALT,
             },
             None,
         ),
@@ -349,19 +359,19 @@ def test_cancel_pr_execution_cancel_failed_preserves_workflows_permission_error(
     """When cancel API fails (e.g. missing workflows.executions.cancel), reason is visible in GITHUB_OUTPUT."""
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
         "ci.workflow_dispatch.download_json",
         lambda _: (
             {
-                "repository": "owner/repo",
+                "repository": FAKE_REPO,
                 "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/ex-123",
                 "workflow_run_id": "111",
-                "head_sha": "abcdef0123456789abcdef0123456789abcdef01",
+                "head_sha": FAKE_SHA_ALT,
             },
             None,
         ),
@@ -393,22 +403,22 @@ def test_cancel_pr_execution_finalize_failed_preserves_cloud_run_permission_erro
     """When finalize Cloud Run job run fails (e.g. missing run.jobs.run), outcome carries API detail."""
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
-    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
-    monkeypatch.setenv("GCP_PROJECT", "demo-project")
-    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
-    monkeypatch.setenv("BMT_CONTROL_JOB", "bmt-control")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
+    monkeypatch.setenv("BMT_CONTROL_JOB", FAKE_CONTROL_JOB)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setenv("HEAD_SHA", "abcdef0123456789abcdef0123456789abcdef01")
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
         "ci.workflow_dispatch.download_json",
         lambda _: (
             {
-                "repository": "owner/repo",
+                "repository": FAKE_REPO,
                 "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/ex-123",
                 "workflow_run_id": "111",
-                "head_sha": "abcdef0123456789abcdef0123456789abcdef01",
+                "head_sha": FAKE_SHA_ALT,
             },
             None,
         ),

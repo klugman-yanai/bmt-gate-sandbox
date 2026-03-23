@@ -140,14 +140,14 @@ Config lives in [pyproject.toml](pyproject.toml) and [pyrightconfig.json](pyrigh
 
 Use the scaffold and CLI flow—see **[docs/adding-a-project.md](docs/adding-a-project.md)**.
 
-Short version: `just add-project <slug>` → edit under `gcp/stage/projects/<slug>/` → data → `just publish-bmt` → set `"enabled": true` in the right `bmt.json` → `just deploy` so the bucket matches.
+Short version: `just stage project <name>` → edit under `gcp/stage/projects/<name>/` → data → `just stage publish <name> <benchmark>` → set `"enabled": true` in the right `bmt.json` → `just workspace deploy` so the bucket matches (`<benchmark>` is the folder under `bmts/`; the manifest JSON field is still `bmt_slug`).
 
 ---
 
 ## Bucket and `gcp/`
 
-- If you change files under `gcp/`, pre-commit may expect the bucket to match **`just deploy`** (with `GCS_BUCKET` set). If you must commit without syncing, use `SKIP_SYNC_VERIFY=1` on purpose only.
-- Infra and GitHub vars: Pulumi is the source of truth; **`just pulumi`** applies. Details: [docs/configuration.md](docs/configuration.md), [infra/README.md](infra/README.md).
+- If you change files under `gcp/`, pre-commit may expect the bucket to match **`just workspace deploy`** (with `GCS_BUCKET` set). If you must commit without syncing, use `SKIP_SYNC_VERIFY=1` on purpose only.
+- Infra and GitHub vars: Pulumi is the source of truth; **`just workspace pulumi`** applies. Details: [docs/configuration.md](docs/configuration.md), [infra/README.md](infra/README.md).
 
 ---
 
@@ -158,7 +158,7 @@ Short version: `just add-project <slug>` → edit under `gcp/stage/projects/<slu
 - [`gcp/mnt`](gcp/mnt) — Optional read-only bucket mount for inspection
 - Dataset archives may live anywhere; `just upload-data` takes an explicit path
 
-**Common commands:** `just add-project`, `just add-bmt`, `just publish-bmt`, `just upload-data`, `just mount-project` / `just umount-project` (see `just --list`).
+**Common commands:** `just stage` (see `just stage` / `tools bmt stage --help`), `just upload-data`, `just mount` / `just unmount`, `just ship` (see `just --list`).
 
 ## Dataset upload (`just upload-data`)
 
@@ -191,7 +191,7 @@ uv run python -m pytest tests/bmt tests/ci tests/infra tests/tools -q
 
 **Integration boundary (mental model):** publish staged plugin → upload dataset → invoke Workflow (CI or manual) → `triggers/plans/<workflow_run_id>.json` → task summaries → coordinator writes `current.json`.
 
-**Troubleshooting:** Layout / policy: `just test`. Bucket out of sync: `just deploy` before committing `gcp/` (or `SKIP_SYNC_VERIFY=1` intentionally). Vars vs Pulumi: [docs/configuration.md](docs/configuration.md), `just validate`.
+**Troubleshooting:** Layout / policy: `just test`. Bucket out of sync: `just workspace deploy` before committing `gcp/` (or `SKIP_SYNC_VERIFY=1` intentionally). Vars vs Pulumi: [docs/configuration.md](docs/configuration.md), `just workspace validate`.
 
 ## Before you open a PR
 
@@ -226,7 +226,7 @@ Optional: `uv run python -m tools repo validate`, `uv run bmt handoff write-cont
 
 ## E2E / mock CI
 
-Exercise handoff via `gh workflow run` on `bmt-handoff.yml` with mock-runner options as documented in workflow inputs and `.github/README.md`.
+Local readiness: **`just workspace e2e`** (or `uv run python -m tools e2e-preflight`). Exercise handoff via `gh workflow run` on `bmt-handoff.yml` with mock-runner options as documented in workflow inputs and `.github/README.md`.
 
 ---
 

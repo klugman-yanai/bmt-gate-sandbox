@@ -129,7 +129,7 @@ This consolidated matrix covers all 5 roadmap documents. Each document also incl
 | **0** | [gcp-data-separation-and-dev-workflow.md](gcp-data-separation-and-dev-workflow.md) | `pytest tests/` passes with fixed pattern; `just validate-layout` passes; unit test for `local_digest()` asserts `inputs/` WAVs are excluded; manifest JSON generated and round-trips through `InputFileRegistry` |
 | **1-3** | [gcp-image-refactor.md](gcp-image-refactor.md) + [contributor-api-and-manager-contract.md](contributor-api-and-manager-contract.md) | `pytest tests/` — unit tests for types, extraction, gate logic, contributor API contract |
 | **4** | [cloud-run-containerization-and-infra.md](cloud-run-containerization-and-infra.md) | `docker run` — local FUSE simulation |
-| **5-6** | [cloud-run-containerization-and-infra.md](cloud-run-containerization-and-infra.md) | `just deploy` + Manual Job Execution in GCP Console |
+| **5-6** | [cloud-run-containerization-and-infra.md](cloud-run-containerization-and-infra.md) | `just workspace deploy` + Manual Job Execution in GCP Console |
 | **5.5** | [cloud-run-containerization-and-infra.md](cloud-run-containerization-and-infra.md) | IAM/WIF policy validation (resource-scoped secrets/storage, attribute conditions, digest policy checks) |
 | **6** | [cloud-run-containerization-and-infra.md](cloud-run-containerization-and-infra.md) | Run matrix of >=20 legs and single leg with 40GB dataset; document resource tier and success criteria |
 | **7** | This document | Trigger write succeeds; Eventarc→Job→coordinator completes; status/check visible in GitHub; fallback behavior verified |

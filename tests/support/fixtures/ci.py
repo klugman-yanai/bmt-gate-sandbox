@@ -11,6 +11,10 @@ from unittest.mock import MagicMock
 import pytest
 from ci import config, github as github_api_module
 
+from gcp.image.config.constants import STATUS_CONTEXT
+
+BMT_FAILURE_DESCRIPTION = "BMT failed to complete handshake."
+
 
 @pytest.fixture
 def mock_github_api(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
@@ -23,7 +27,7 @@ def mock_github_api(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 @pytest.fixture
 def mock_config(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = MagicMock()
-    mock.bmt_status_context = "BMT Gate"
-    mock.bmt_failure_status_description = "BMT failed to complete handshake."
+    mock.bmt_status_context = STATUS_CONTEXT
+    mock.bmt_failure_status_description = BMT_FAILURE_DESCRIPTION
     monkeypatch.setattr(config, "get_config", lambda: mock)
     return mock

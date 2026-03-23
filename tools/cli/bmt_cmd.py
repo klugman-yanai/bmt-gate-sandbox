@@ -9,62 +9,77 @@ import typer
 
 app = typer.Typer(no_args_is_help=True)
 
+stage = typer.Typer(
+    name="stage",
+    help="One entry point for staged projects: create a project, add a BMT, publish plugin bundles.",
+    no_args_is_help=True,
+)
 
-@app.command("add-project")
-def add_project(
+
+@stage.command("project")
+def stage_project(
     project: Annotated[
         str,
-        typer.Argument(help="Project name (lowercase, e.g. myproject)"),
+        typer.Argument(
+            help="Project name: lowercase letters, digits, underscores; start with a letter (e.g. myproject). "
+            "Becomes the folder under gcp/stage/projects/."
+        ),
     ],
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Print paths only, don't write"),
     ] = False,
 ) -> None:
-    """Scaffold a new staged BMT project under gcp/stage/projects/."""
+    """Create gcp/stage/projects/<project>/ (plugin workspace + default example BMT)."""
     from tools.bmt.scaffold import add_project as add_project_impl
 
     raise typer.Exit(add_project_impl(project, dry_run=dry_run))
 
 
-@app.command("add-bmt")
-def add_bmt(
+@stage.command("bmt")
+def stage_bmt(
     project: Annotated[
         str,
-        typer.Argument(help="Project name (lowercase, e.g. myproject)"),
+        typer.Argument(help="Existing project name (same rules as `stage project`, e.g. myproject)."),
     ],
-    bmt_slug: Annotated[
+    benchmark: Annotated[
         str,
-        typer.Argument(help="BMT slug (lowercase, e.g. false_rejects)"),
+        typer.Argument(
+            help="Benchmark folder name (same character rules as the project, e.g. false_rejects). "
+            "Creates bmts/<benchmark>/bmt.json; the manifest field is still bmt_slug."
+        ),
     ],
 ) -> None:
-    """Scaffold a new BMT manifest under gcp/stage/projects/<project>/bmts/."""
+    """Add gcp/stage/projects/<project>/bmts/<benchmark>/bmt.json (disabled manifest)."""
     from tools.bmt.scaffold import add_bmt as add_bmt_impl
 
-    raise typer.Exit(add_bmt_impl(project, bmt_slug))
+    raise typer.Exit(add_bmt_impl(project, benchmark))
 
 
-@app.command("publish-bmt")
-def publish_bmt(
+@stage.command("publish")
+def stage_publish(
     project: Annotated[
         str,
-        typer.Argument(help="Project name"),
+        typer.Argument(help="Project name."),
     ],
-    bmt_slug: Annotated[
+    benchmark: Annotated[
         str,
-        typer.Argument(help="BMT slug"),
+        typer.Argument(help="Benchmark folder name (the segment under bmts/; must match that folder)."),
     ],
     no_sync: Annotated[
         bool,
         typer.Option("--no-sync", help="Only publish locally; skip syncing the project subtree to GCS"),
     ] = False,
 ) -> None:
-    """Validate locally, publish an immutable plugin bundle, and sync to GCS."""
+    """Validate, build an immutable plugin bundle for this BMT, and sync to GCS (unless --no-sync)."""
     from tools.bmt.publisher import publish_bmt as publish_bmt_impl
 
-    result = publish_bmt_impl(project=project, bmt_slug=bmt_slug, sync=not no_sync)
+    result = publish_bmt_impl(project=project, bmt_slug=benchmark, sync=not no_sync)
     typer.echo(result.plugin_ref)
     raise typer.Exit(0)
+
+
+app.add_typer(stage, name="stage")
 
 
 @app.command("symlink-deps")

@@ -11,13 +11,13 @@ import pytest
 from google.api_core import exceptions as gexc
 from google.cloud import artifactregistry_v1
 
+from tests.support.sentinels import FAKE_IMAGE_BASE, FAKE_SHA
 from tools.shared.artifact_registry_uri import (
     artifact_registry_tag_status,
     resolve_bmt_orchestrator_image_base,
 )
 
-_IMAGE_BASE = "europe-west4-docker.pkg.dev/proj-x/my-repo/bmt-orchestrator"
-_FULL_SHA = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+pytestmark = pytest.mark.unit
 
 
 def test_resolve_bmt_orchestrator_image_base_defaults(tmp_path: Path) -> None:
@@ -46,7 +46,7 @@ def test_resolve_bmt_orchestrator_image_base_from_tfvars(tmp_path: Path) -> None
 
 
 def test_artifact_registry_tag_status_invalid_tag() -> None:
-    assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag="not-a-sha") == "unavailable"
+    assert artifact_registry_tag_status(image_base=FAKE_IMAGE_BASE, tag="not-a-sha") == "unavailable"
 
 
 def test_artifact_registry_tag_status_no_adc(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,7 +54,7 @@ def test_artifact_registry_tag_status_no_adc(monkeypatch: pytest.MonkeyPatch) ->
         raise google.auth.exceptions.DefaultCredentialsError()
 
     monkeypatch.setattr("tools.shared.artifact_registry_uri.google.auth.default", _no_creds)
-    assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "unavailable"
+    assert artifact_registry_tag_status(image_base=FAKE_IMAGE_BASE, tag=FAKE_SHA) == "unavailable"
 
 
 def test_artifact_registry_tag_status_absent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,11 +66,11 @@ def test_artifact_registry_tag_status_absent(monkeypatch: pytest.MonkeyPatch) ->
 
     def _get_tag(self: object, name: str | None = None, **_: object) -> None:
         assert name is not None
-        assert f"tags/{_FULL_SHA}" in name
+        assert f"tags/{FAKE_SHA}" in name
         raise gexc.NotFound("no such tag")
 
     monkeypatch.setattr(artifactregistry_v1.ArtifactRegistryClient, "get_tag", _get_tag)
-    assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "absent"
+    assert artifact_registry_tag_status(image_base=FAKE_IMAGE_BASE, tag=FAKE_SHA) == "absent"
 
 
 def test_artifact_registry_tag_status_present(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,11 +82,11 @@ def test_artifact_registry_tag_status_present(monkeypatch: pytest.MonkeyPatch) -
 
     def _get_tag(self: object, name: str | None = None, **_: object) -> object:
         assert name is not None
-        assert f"tags/{_FULL_SHA}" in name
+        assert f"tags/{FAKE_SHA}" in name
         return object()
 
     monkeypatch.setattr(artifactregistry_v1.ArtifactRegistryClient, "get_tag", _get_tag)
-    assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "present"
+    assert artifact_registry_tag_status(image_base=FAKE_IMAGE_BASE, tag=FAKE_SHA) == "present"
 
 
 def test_artifact_registry_tag_status_permission_denied(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,7 +100,7 @@ def test_artifact_registry_tag_status_permission_denied(monkeypatch: pytest.Monk
         raise gexc.PermissionDenied("denied")
 
     monkeypatch.setattr(artifactregistry_v1.ArtifactRegistryClient, "get_tag", _get_tag)
-    assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "permission_denied"
+    assert artifact_registry_tag_status(image_base=FAKE_IMAGE_BASE, tag=FAKE_SHA) == "permission_denied"
 
 
 def test_artifact_registry_tag_status_transient_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,4 +114,4 @@ def test_artifact_registry_tag_status_transient_api_error(monkeypatch: pytest.Mo
         raise gexc.InternalServerError("boom")
 
     monkeypatch.setattr(artifactregistry_v1.ArtifactRegistryClient, "get_tag", _get_tag)
-    assert artifact_registry_tag_status(image_base=_IMAGE_BASE, tag=_FULL_SHA) == "unavailable"
+    assert artifact_registry_tag_status(image_base=FAKE_IMAGE_BASE, tag=FAKE_SHA) == "unavailable"

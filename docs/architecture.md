@@ -40,17 +40,17 @@ The active runtime is [`gcp/image/bmt`](gcp/image/bmt).
 Canonical runtime artifacts:
 
 - `triggers/plans/<workflow_run_id>.json`
-- `triggers/summaries/<workflow_run_id>/<project>-<bmt_slug>.json`
-- `projects/<project>/results/<bmt_slug>/snapshots/<run_id>/latest.json`
-- `projects/<project>/results/<bmt_slug>/snapshots/<run_id>/ci_verdict.json`
-- `projects/<project>/results/<bmt_slug>/current.json`
+- `triggers/summaries/<workflow_run_id>/<project>-<benchmark>.json`
+- `projects/<project>/results/<benchmark>/snapshots/<run_id>/latest.json`
+- `projects/<project>/results/<benchmark>/snapshots/<run_id>/ci_verdict.json`
+- `projects/<project>/results/<benchmark>/current.json`
 
 ## Contributor model
 
 - author in [`gcp/stage/projects/<project>/plugin_workspaces`](gcp/stage)
-- publish immutable plugin bundles with `just publish-bmt`
+- publish immutable plugin bundles with `just stage publish`
 - upload datasets with `just upload-data`
-- inspect the live bucket with `just mount-project`
+- inspect the live bucket with `just mount <project>`
 
 The old VM watcher, root orchestrator, and per-project `bmt_manager.py` inheritance stack have been removed from the active codebase. The supported execution path is the direct Workflow -> Cloud Run runtime only.
 
@@ -81,7 +81,7 @@ The old VM watcher, root orchestrator, and per-project `bmt_manager.py` inherita
 | **runner** | The compiled program that actually runs the audio tests. |
 | **plugin** | A project-specific Python script that sets up and invokes the runner. |
 | **leg** | A single test case (one project combined with one BMT configuration). |
-| **slug** | A short, URL-safe name for a BMT test suite (e.g., `false_rejects`). It is used in GCS directory paths. |
+| **Benchmark** (path) | Short URL-safe folder name for one benchmark under a project (e.g., `false_rejects`). Paths use the placeholder **`<benchmark>`** so it is not confused with the manifest filename **`bmt.json`**. The same value is stored in **`bmt_slug`** inside `bmt.json`. |
 | **snapshot** | All the outputs from a single test run (scores, pass/fail status, and logs). |
 | **baseline** | The snapshot from the last successful test run. New scores are compared against this. |
 | **GCS** | Google Cloud Storage. Used as a shared storage layer between GitHub CI and Cloud Run. |
@@ -279,7 +279,7 @@ flowchart TD
 │   └── project/
 │       ├── project.json
 │       ├── bmts/
-│       │   └── slug/
+│       │   └── benchmark/
 │       │       └── bmt.json        # Test settings (thresholds, args)
 │       ├── plugins/
 │       │   └── name/
@@ -287,11 +287,11 @@ flowchart TD
 │       ├── plugin_workspaces/
 │       │   └── name/
 │       ├── inputs/
-│       │   └── slug/
+│       │   └── benchmark/
 │       │       └── *.wav           # Input audio dataset
 │       ├── mock_kardome_runner     # ⚙️ Compiled runner binary
 │       └── results/
-│           └── slug/
+│           └── benchmark/
 │               ├── current.json    # Run pointer (baseline)
 │               └── snapshots/
 │                   └── run_id/     # One snapshot per execution
@@ -321,8 +321,8 @@ If you need to trace where a file is written and read across the architecture, u
 | `triggers/plans/{run_id}.json` | Plan job | Task jobs (read plan), coordinator (read then delete) |
 | `triggers/progress/{run_id}/…` | Task jobs (per leg) | Same task’s `publish_progress` (reads for Check Run body); not read by GitHub directly |
 | `triggers/summaries/{run_id}/…` | Task jobs | Coordinator loads each leg summary |
-| `results/{slug}/snapshots/{run_id}/` | Task Jobs | Coordinator, Local Dev Tools |
-| `results/{slug}/current.json` | Coordinator | Next run (baseline), Local Dev Tools |
+| `results/{benchmark}/snapshots/{run_id}/` | Task Jobs | Coordinator, Local Dev Tools |
+| `results/{benchmark}/current.json` | Coordinator | Next run (baseline), Local Dev Tools |
 | `log-dumps/{run_id}.txt` | Coordinator (on failure) | Developers (via signed URL in PR comment) |
 | `triggers/reporting/{run_id}.json` | Plan job (after `triggers/plans/…`) | Task jobs (`publish_progress`), coordinator (`finalize_check_run`); deleted after coordinator succeeds |
 
@@ -407,7 +407,7 @@ The old **VM watcher / root orchestrator / per-project `bmt_manager`** stack is 
 - **Bucket root** mirrors [`gcp/stage`](../gcp/stage) (see [architecture.md](architecture.md)).
 - **Immutable** plugin bundles: `projects/<project>/plugins/<plugin>/sha256-<digest>/...`
 - **Datasets:** `projects/<project>/inputs/<dataset>/...`
-- **Results:** `projects/<project>/results/<bmt_slug>/` with **`current.json`** and **`snapshots/<run_id>/`**
+- **Results:** `projects/<project>/results/<benchmark>/` with **`current.json`** and **`snapshots/<run_id>/`**
 
 **Ephemeral** (typically deleted after successful coordinator): `triggers/plans/`, `triggers/progress/`, `triggers/summaries/`, `triggers/reporting/`, etc.
 
@@ -420,7 +420,7 @@ The old **VM watcher / root orchestrator / per-project `bmt_manager`** stack is 
 GCS is **not** a transactional database. The system relies on:
 
 - **Immutable workflow run id** (and per-leg `run_id` in the plan) as **correlation id**.
-- **Object keys** that encode intent (`triggers/plans/{id}.json`, summaries keyed by project and slug).
+- **Object keys** that encode intent (`triggers/plans/{id}.json`, summaries keyed by project and benchmark folder name).
 - **Workflow barriers** between plan → tasks → coordinator (correctness depends on the workflow not starting the coordinator until tasks complete or fail).
 
 **Implications:**

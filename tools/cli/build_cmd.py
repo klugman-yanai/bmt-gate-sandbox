@@ -31,7 +31,7 @@ def _repo_slug() -> str:
     for prefix in ("https://github.com/", "git@github.com:"):
         if url.startswith(prefix):
             return url[len(prefix) :].removesuffix(".git")
-    raise typer.BadParameter(f"Cannot parse repo slug from: {url}")
+    raise typer.BadParameter(f"Cannot parse repository (owner/repo) from git remote: {url}")
 
 
 def _current_branch() -> str:

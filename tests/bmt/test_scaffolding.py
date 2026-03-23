@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tools.bmt.scaffold import add_bmt, add_project
+
+pytestmark = pytest.mark.unit
 
 
 def test_add_project_creates_stage_scaffold(tmp_path: Path) -> None:

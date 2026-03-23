@@ -177,7 +177,7 @@ Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `pe
 
 ## GitHub Actions and Pulumi
 
-`pulumi`/GitHub var export runs via **`just pulumi`** (local or approved runner), not from default CI here — keeps state credentials and blast radius off ephemeral runners. To add **`pulumi preview`** on PRs later, you need a chosen [state backend](https://www.pulumi.com/docs/iac/concepts/state-and-backends/) and secrets policy; treat **fork PRs** as untrusted for cloud tokens.
+`pulumi`/GitHub var export runs via **`just workspace pulumi`** (local or approved runner), not from default CI here — keeps state credentials and blast radius off ephemeral runners. To add **`pulumi preview`** on PRs later, you need a chosen [state backend](https://www.pulumi.com/docs/iac/concepts/state-and-backends/) and secrets policy; treat **fork PRs** as untrusted for cloud tokens.
 
 ## Optional CODEOWNERS
 

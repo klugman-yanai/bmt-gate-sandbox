@@ -78,12 +78,12 @@ See **[docs/configuration.md](docs/configuration.md)** and **[infra/README.md](i
 
 ## Contributor workflow (high level)
 
-1. `just add-project <project>`
-2. `just add-bmt <project> <bmt_slug>`
+1. `just stage project <project>`
+2. `just stage bmt <project> <benchmark>`
 3. Edit staged plugins under `gcp/stage/projects/<project>/plugin_workspaces/...`
 4. `just upload-data <project> <zip-or-folder> [--dataset <name>]`
-5. `just publish-bmt <project> <bmt_slug>`
+5. `just stage publish <project> <benchmark>`
 6. Enable the BMT manifest; CI discovers new legs
 
-Other useful commands: `just deploy`, `just pulumi`, `just show-env`, `just mount-project` /
-`just umount-project`.
+Other useful commands: `just workspace deploy`, `just workspace pulumi`, `just show-env`, `just mount` /
+`just unmount`.

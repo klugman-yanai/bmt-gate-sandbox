@@ -4,7 +4,7 @@
 # Usage:
 #   bash infra/bootstrap/bootstrap_gh_vars.sh [--env-file <path>] [--repo <owner/repo>]
 #
-# Prefer: run `just pulumi` first to set Pulumi-sourced vars, then use
+# Prefer: run `just workspace pulumi` first to set Pulumi-sourced vars, then use
 # this script with an env file containing only GitHub-side secrets
 # (GCP_WIF_PROVIDER, BMT_GITHUB_APP_*, BMT_GITHUB_APP_DEV_*).
 # Or pass a full env file to set/override all vars and secrets.

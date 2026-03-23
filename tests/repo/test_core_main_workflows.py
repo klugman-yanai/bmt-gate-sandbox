@@ -8,6 +8,8 @@ import pytest
 
 from tools.repo import core_main_workflows as cm
 
+pytestmark = pytest.mark.unit
+
 
 def test_skip_env_returns_zero(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CORE_MAIN_WORKFLOW_CHECK", "skip")

@@ -25,7 +25,7 @@ def test_tools_help() -> None:
     result = runner.invoke(_tools_app(), ["--help"])
     assert result.exit_code == 0
     out = result.stdout
-    for group in ("bucket", "pulumi", "repo", "build", "bmt"):
+    for group in ("bucket", "pulumi", "repo", "build", "bmt", "workspace"):
         assert group in out
 
 
@@ -45,6 +45,15 @@ def test_build_help() -> None:
     assert "packer-validate" in result.stdout
 
 
+def test_workspace_help() -> None:
+    """workspace --help lists pulumi, validate, preflight, deploy, e2e."""
+    result = runner.invoke(_tools_app(), ["workspace", "--help"])
+    assert result.exit_code == 0
+    out = result.stdout
+    for name in ("pulumi", "validate", "preflight", "deploy", "e2e"):
+        assert name in out
+
+
 def test_pulumi_help() -> None:
     """pulumi --help shows apply and preflight."""
     result = runner.invoke(_tools_app(), ["pulumi", "--help"])
@@ -57,9 +66,7 @@ def test_bmt_help() -> None:
     """bmt --help shows the stage scaffold and publish commands."""
     result = runner.invoke(_tools_app(), ["bmt", "--help"])
     assert result.exit_code == 0
-    assert "add-project" in result.stdout
-    assert "add-bmt" in result.stdout
-    assert "publish-bmt" in result.stdout
+    assert "stage" in result.stdout
 
 
 def test_python_m_tools_help_entrypoint_smoke() -> None:

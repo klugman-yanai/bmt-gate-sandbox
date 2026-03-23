@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.fixtures.paths import gcp_code_root, github_bmt_root, repo_root, repo_stage_root
+from tests.support.fixtures.paths import gcp_code_root, github_bmt_root, repo_root, repo_stage_root, stage_paths
 
-__all__ = ["gcp_code_root", "github_bmt_root", "repo_root", "repo_stage_root"]
+__all__ = ["gcp_code_root", "github_bmt_root", "repo_root", "repo_stage_root", "stage_paths"]
 
 _ROOT = Path(__file__).resolve().parents[1]
 

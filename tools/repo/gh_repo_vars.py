@@ -379,7 +379,7 @@ def _render(value: str) -> str:
         return "<empty>"
     # Avoid showing Pulumi errors or ANSI garbage as "desired"
     if "\n" in value or "No outputs found" in value or "Warning:" in value or "\x1b[" in value:
-        return "<run just pulumi first>"
+        return "<run just workspace pulumi first>"
     return value
 
 
@@ -504,7 +504,7 @@ class GhRepoVars:
         if diff.missing_required:
             print(file=sys.stderr)
             print("::error::Missing required repo vars with no current value or contract default.", file=sys.stderr)
-            print("::error::Run: just pulumi (or set in GitHub vars / infra).", file=sys.stderr)
+            print("::error::Run: just workspace pulumi (or set in GitHub vars / infra).", file=sys.stderr)
             for name in sorted(diff.missing_required):
                 print(f"::error::- {name}", file=sys.stderr)
             return 1
@@ -638,7 +638,7 @@ class GhRepoVars:
             print()
             print(f"::warning::Pulumi state unavailable: {diff.pulumi_error}")
             print(
-                "::warning::Desired values for infra-derived vars come from current/default only. Run `just pulumi` to populate from Pulumi."
+                "::warning::Desired values for infra-derived vars come from current/default only. Run `just workspace pulumi` to populate from Pulumi."
             )
         print()
 
