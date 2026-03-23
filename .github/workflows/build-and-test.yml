@@ -4,6 +4,8 @@
 
 name: CI
 
+# Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 4 jobs, no image-check.
+# checkout_snapshot → build_release + build_non_release (parallel) → bmt_handoff.
 on:
   workflow_dispatch:
   workflow_call: {}
@@ -12,6 +14,7 @@ defaults:
   run:
     shell: bash
 
+# Artifact upload (checkout_snapshot) needs actions write.
 permissions:
   contents: read
   actions: read
@@ -39,8 +42,10 @@ jobs:
       - name: Parse CMakePresets.json
         id: parse
         run: |
-          presets=$(jq -c '
-            [ .buildPresets[]
+          # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
+          # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
+          presets_release=$(jq -c '
+            [ (.buildPresets // [])[]
               | { build: .name
                 , configure: .configurePreset
                 , short: (.name | sub("-build$"; ""))

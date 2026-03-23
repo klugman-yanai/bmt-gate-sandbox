@@ -100,6 +100,7 @@ runs:
           echo "head_branch=$(echo "$prepare" | jq -r '.head_branch    // ""')"
           echo "head_event=$(echo "$prepare"  | jq -r '.head_event     // ""')"
           echo "pr_number=$(echo "$prepare"   | jq -r '.pr_number      // ""')"
+          echo "selected_vm=$(echo "$prepare" | jq -r '.selected_vm    // ""')"
           echo "runner_matrix=$(echo "$prepare" | jq -c '.runner_matrix // {"include":[]}')"
           echo "classify_path=$(echo "$classify"             | jq -r '.path              // "unknown"')"
           echo "classify_has_legs=$(echo "$classify"         | jq -r '.has_legs          // "false"')"

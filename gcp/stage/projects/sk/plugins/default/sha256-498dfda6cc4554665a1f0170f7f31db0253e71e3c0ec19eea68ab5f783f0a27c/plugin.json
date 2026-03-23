@@ -1,0 +1,6 @@
+{
+  "api_version": "v1",
+  "plugin_name": "default",
+  "entrypoint": "sk_plugin:SkPlugin",
+  "package_root": "src"
+}

@@ -133,7 +133,7 @@ uv run --package bmt …
 uv run --package bmt-runtime …
 ```
 
----
+That command runs Pulumi and then syncs its outputs to GitHub repo variables. So:
 
 ## Environment variable reference
 
@@ -286,7 +286,7 @@ Flags such as `BMT_USE_MOCK_RUNNER` and `tools.shared.env.get_bool` treat these 
 
 See [Env inventory appendix](#env-inventory-appendix) for `rg` recipes and optional `vulture` / `pylint` duplicate-code scopes.
 
----
+GitHub reporting chooses the credential profile from the repository slug:
 
 ## Env inventory appendix
 
