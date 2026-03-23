@@ -135,3 +135,11 @@ def update_check_run(
         output=_normalize_check_output(output) if output is not None else NotSet,
         details_url=details_url if details_url is not None else NotSet,
     )
+
+
+def get_check_run_status(token: str, repo: str, check_run_id: int) -> str:
+    """Return GitHub check run ``status`` (e.g. ``queued``, ``in_progress``, ``completed``)."""
+    repository = _github_repo(token, repo)
+    cr = repository.get_check_run(check_run_id)
+    raw = cr.status
+    return raw if isinstance(raw, str) else str(raw)

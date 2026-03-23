@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from whenever import Instant
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus, leg_status_is_pass
-from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ProgressRecord, ReportingMetadata
+from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ProgressRecord, ReportingMetadata, ScorePayload
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,32 @@ def write_summary(*, stage_root: Path, workflow_run_id: str, summary: LegSummary
 def load_summary(*, stage_root: Path, workflow_run_id: str, project: str, bmt_slug: str) -> LegSummary:
     payload = json.loads((stage_root / summary_path(workflow_run_id, project, bmt_slug)).read_text(encoding="utf-8"))
     return LegSummary.model_validate(payload)
+
+
+def load_summary_or_failure(*, stage_root: Path, workflow_run_id: str, leg: PlanLeg) -> LegSummary:
+    """Load leg summary from disk, or a synthetic failure leg if the summary file is missing."""
+    try:
+        return load_summary(
+            stage_root=stage_root,
+            workflow_run_id=workflow_run_id,
+            project=leg.project,
+            bmt_slug=leg.bmt_slug,
+        )
+    except FileNotFoundError:
+        return LegSummary(
+            project=leg.project,
+            bmt_slug=leg.bmt_slug,
+            bmt_id=leg.bmt_id,
+            run_id=leg.run_id,
+            status=BmtLegStatus.FAIL.value,
+            reason_code="runner_failures",
+            plugin_ref=leg.plugin_ref,
+            execution_mode_used="unknown",
+            score=ScorePayload(
+                aggregate_score=0.0,
+                extra={"unavailable": True},
+            ),
+        )
 
 
 def write_progress(*, stage_root: Path, workflow_run_id: str, progress: ProgressRecord) -> Path:

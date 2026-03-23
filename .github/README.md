@@ -19,7 +19,7 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 **core-main** already has `build-and-test.yml`, `clang-format-auto-fix.yml`, and a deprecated `code-owner-enforcement.yml` (must remain). To add the BMT gate to production you only need:
 
-1. **Modifications to `build-and-test.yml`** — BMT-related jobs (e.g. `evaluate_bmt_gate`, `bmt_handoff` calling handoff).
+1. **Modifications to `build-and-test.yml`** — BMT-related jobs: `bmt_handoff` calls the reusable handoff workflow; eligibility is on `bmt_handoff.if` (no separate gate job).
 2. **`bmt-handoff.yml`** — Reusable workflow invoked by build-and-test for the BMT gate.
 
 **All other workflow files in this repo are for bmt-gcloud testing only** and are not part of the production set: `ops/*` (trigger-ci, trigger-image-build, bmt-image-build), `clang-format-auto-fix.yml`, etc. Do not add them to core-main.
@@ -33,7 +33,7 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 - **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
 - **Check image up to date** — Composite action `check-image-up-to-date` defaults to workflow `ops/bmt-image-build.yml` (input `image_build_workflow`). Override with `bmt-image-build.yml` if your layout keeps that file at the repo root (e.g. core-main). It fails when `infra/packer` or `gcp/image` change but no successful image build run exists for the ref.
 - **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.CLOUD_RUN_REGION`, and the Workflow / job names exported by Pulumi. These must be set in core-main (or the org).
-- **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `build_release` (gates BMT), `build_non_release` (parallel), `evaluate_bmt_gate` → `bmt_handoff`. In core-main the same graph applies with real builds.
+- **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `repo_snapshot` → `build_release` ∥ `build_non_release` → `bmt_handoff` (when `if` passes). Runner `runner-*` artifact names are listed inside handoff **Plan**, not in a separate CI job. In core-main the same graph applies with real builds.
 
 **For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `gcp/image` for the fallback constant; set the repo vars; and either add `bmt-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
 

@@ -7,12 +7,18 @@ from github import GithubException
 
 from gcp.image.config.value_types import as_results_path
 from gcp.image.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
-from gcp.image.runtime.artifacts import write_progress, write_reporting_metadata, write_summary
+from gcp.image.runtime.artifacts import (
+    load_optional_reporting_metadata,
+    write_progress,
+    write_reporting_metadata,
+    write_summary,
+)
 from gcp.image.runtime.github_reporting import (
     _elapsed_seconds,
     _estimate_eta_sec_parallel,
     ensure_reporting_metadata_for_plan,
     publish_final_results,
+    publish_github_failure,
     publish_progress,
 )
 from gcp.image.runtime.models import (
@@ -274,6 +280,12 @@ def test_publish_final_results_posts_status_and_failure_comment_with_log_dump(
     assert cap.comment_view.failed_bmts == [("false_rejects", "score dropped below baseline")]
     assert cap.comment_view.links.log_dump_url == "https://example.test/log-dumps/wf-123.txt"
 
+    meta_after = load_optional_reporting_metadata(
+        stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id
+    )
+    assert meta_after is not None
+    assert meta_after.github_publish_complete is True
+
 
 def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
     tmp_path: Path,
@@ -333,6 +345,90 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
     assert cap.status_description == "1/1 BMTs failed."
     assert cap.status_details_url == "https://example.test/workflows/123"
     assert cap.resolved_repository == "owner/repo"
+
+    meta_after = load_optional_reporting_metadata(
+        stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id
+    )
+    assert meta_after is not None
+    assert meta_after.github_publish_complete is False
+
+
+def test_publish_github_failure_skips_when_github_publish_complete(tmp_path: Path, monkeypatch) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=1,
+            started_at="2026-03-19T10:00:00Z",
+            github_publish_complete=True,
+        ),
+    )
+    cap = CallRecorder()
+
+    def _fail_if_called(*_a: object, **_k: object) -> None:
+        cap.called = True
+
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.publish_final_results", _fail_if_called)
+    publish_github_failure(plan=plan, runtime=runtime, reason="should not run")
+    assert not getattr(cap, "called", False)
+
+
+def test_publish_github_failure_skips_without_check_run_id(tmp_path: Path, monkeypatch) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=None,
+            started_at="2026-03-19T10:00:00Z",
+        ),
+    )
+    cap = CallRecorder()
+
+    def _fail_if_called(*_a: object, **_k: object) -> None:
+        cap.called = True
+
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.publish_final_results", _fail_if_called)
+    publish_github_failure(plan=plan, runtime=runtime, reason="noop")
+    assert not getattr(cap, "called", False)
+
+
+def test_publish_github_failure_syncs_metadata_when_remote_check_completed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=77,
+            started_at="2026-03-19T10:00:00Z",
+            github_publish_complete=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "gcp.image.runtime.github_reporting.github_checks.get_check_run_status",
+        lambda *_a, **_k: "completed",
+    )
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
+
+    publish_github_failure(plan=plan, runtime=runtime, reason="irrelevant")
+
+    meta_after = load_optional_reporting_metadata(
+        stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id
+    )
+    assert meta_after is not None
+    assert meta_after.github_publish_complete is True
 
 
 def test_ensure_reporting_metadata_for_plan_skips_when_already_complete(tmp_path: Path, monkeypatch) -> None:

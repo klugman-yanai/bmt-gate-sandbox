@@ -119,6 +119,7 @@ class ReportingMetadata(BaseModel):
     workflow_execution_url: str = ""
     check_run_id: int | None = None
     started_at: str = ""
+    github_publish_complete: bool = False
 
     def has_check_run_and_details_url(self) -> bool:
         """True when GitHub check run exists and workflow console URL is persisted."""

@@ -13,15 +13,21 @@ from pathlib import Path
 import typer
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
-from gcp.image.config.constants import ENV_BMT_STATUS_CONTEXT, ENV_GCS_BUCKET, STATUS_CONTEXT
+from gcp.image.config.constants import (
+    ENV_BMT_FAILURE_REASON,
+    ENV_BMT_STATUS_CONTEXT,
+    ENV_GCS_BUCKET,
+    STATUS_CONTEXT,
+)
 from gcp.image.config.env_parse import is_truthy_env_value
 from gcp.image.runtime.artifacts import (
     aggregate_status,
     case_digest_result_path,
     cleanup_ephemeral_triggers,
     latest_result_path,
+    load_optional_reporting_metadata,
     load_plan,
-    load_summary,
+    load_summary_or_failure,
     now_iso,
     plan_path,
     prune_snapshots,
@@ -37,6 +43,7 @@ from gcp.image.runtime.execution import execute_leg
 from gcp.image.runtime.github_reporting import (
     ensure_reporting_metadata_for_plan,
     publish_final_results,
+    publish_github_failure,
     publish_progress,
 )
 from gcp.image.runtime.importer import DatasetImporter, DatasetImportRequest
@@ -324,56 +331,84 @@ def run_task_mode(
     return 0
 
 
-def _load_summary_or_failure(*, stage_root: Path, workflow_run_id: str, leg: PlanLeg) -> LegSummary:
-    try:
-        return load_summary(
-            stage_root=stage_root,
-            workflow_run_id=workflow_run_id,
-            project=leg.project,
-            bmt_slug=leg.bmt_slug,
-        )
-    except FileNotFoundError:
-        return LegSummary(
-            project=leg.project,
-            bmt_slug=leg.bmt_slug,
-            bmt_id=leg.bmt_id,
-            run_id=leg.run_id,
-            status=BmtLegStatus.FAIL.value,
-            reason_code="runner_failures",
-            plugin_ref=leg.plugin_ref,
-            execution_mode_used="unknown",
-            score=ScorePayload(
-                aggregate_score=0.0,
-                extra={"unavailable": True},
-            ),
-        )
-
-
 def run_coordinator_mode(*, workflow_run_id: str, stage_root: Path | None = None) -> int:
     if not workflow_run_id.strip():
         raise RuntimeError("BMT_WORKFLOW_RUN_ID is required for coordinator mode")
     runtime = _runtime_paths(stage_root=stage_root)
-    plan = load_plan(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
-    summaries = [
-        _load_summary_or_failure(
-            stage_root=runtime.stage_root,
-            workflow_run_id=workflow_run_id,
-            leg=leg,
+    plan: ExecutionPlan | None = None
+    publish_done = False
+    summaries: list[LegSummary] = []
+    try:
+        plan = load_plan(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
+        summaries = [
+            load_summary_or_failure(
+                stage_root=runtime.stage_root,
+                workflow_run_id=workflow_run_id,
+                leg=leg,
+            )
+            for leg in plan.legs
+        ]
+        for leg, summary in zip(plan.legs, summaries, strict=True):
+            results_root = runtime.stage_root / leg.results_path
+            previous_last_passing = read_existing_last_passing(results_root)
+            last_passing = summary.run_id if leg_status_is_pass(summary.status) else previous_last_passing
+            write_current_pointer(results_root=results_root, run_id=summary.run_id, last_passing_run_id=last_passing)
+            keep_run_ids = {summary.run_id}
+            if last_passing:
+                keep_run_ids.add(last_passing)
+            prune_snapshots(results_root=results_root, keep_run_ids=keep_run_ids)
+        publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
+        meta = load_optional_reporting_metadata(
+            stage_root=runtime.stage_root, workflow_run_id=workflow_run_id
         )
-        for leg in plan.legs
-    ]
-    for leg, summary in zip(plan.legs, summaries, strict=True):
-        results_root = runtime.stage_root / leg.results_path
-        previous_last_passing = read_existing_last_passing(results_root)
-        last_passing = summary.run_id if leg_status_is_pass(summary.status) else previous_last_passing
-        write_current_pointer(results_root=results_root, run_id=summary.run_id, last_passing_run_id=last_passing)
-        keep_run_ids = {summary.run_id}
-        if last_passing:
-            keep_run_ids.add(last_passing)
-        prune_snapshots(results_root=results_root, keep_run_ids=keep_run_ids)
-    publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
-    cleanup_ephemeral_triggers(stage_root=runtime.stage_root, plan=plan)
-    typer.echo(json.dumps({"status": aggregate_status(summaries), "plan": plan_path(workflow_run_id)}, indent=2))
+        publish_done = meta is not None and meta.github_publish_complete
+        typer.echo(json.dumps({"status": aggregate_status(summaries), "plan": plan_path(workflow_run_id)}, indent=2))
+    finally:
+        if plan is not None:
+            if not publish_done:
+                try:
+                    summaries = [
+                        load_summary_or_failure(
+                            stage_root=runtime.stage_root,
+                            workflow_run_id=workflow_run_id,
+                            leg=leg,
+                        )
+                        for leg in plan.legs
+                    ]
+                    publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
+                    meta2 = load_optional_reporting_metadata(
+                        stage_root=runtime.stage_root, workflow_run_id=workflow_run_id
+                    )
+                    publish_done = meta2 is not None and meta2.github_publish_complete
+                except Exception:
+                    logger.exception(
+                        "coordinator finally publish_final_results failed workflow_run_id=%s",
+                        workflow_run_id,
+                    )
+                if not publish_done:
+                    publish_github_failure(
+                        plan=plan,
+                        runtime=runtime,
+                        reason="Coordinator exited before GitHub status was published.",
+                    )
+            cleanup_ephemeral_triggers(stage_root=runtime.stage_root, plan=plan)
+    return 0
+
+
+def run_finalize_failure_mode(*, workflow_run_id: str, stage_root: Path | None = None) -> int:
+    """Workflow failure hook: close dangling GitHub check using summaries on disk when possible."""
+    if not workflow_run_id.strip():
+        raise RuntimeError("BMT_WORKFLOW_RUN_ID is required for finalize-failure mode")
+    runtime = _runtime_paths(stage_root=stage_root)
+    try:
+        plan = load_plan(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
+    except FileNotFoundError:
+        logger.info("finalize-failure: no plan on disk workflow_run_id=%s", workflow_run_id)
+        return 0
+    reason = (os.environ.get(ENV_BMT_FAILURE_REASON) or "").strip() or (
+        "BMT Google Workflow aborted before coordinator completed."
+    )
+    publish_github_failure(plan=plan, runtime=runtime, reason=reason[:500])
     return 0
 
 
@@ -448,6 +483,16 @@ def coordinator(
     stage_root: Path | None = None,
 ) -> None:
     raise typer.Exit(run_coordinator_mode(workflow_run_id=workflow_run_id, stage_root=stage_root))
+
+
+@app.command("finalize-failure")
+def finalize_failure(
+    workflow_run_id: str,
+    stage_root: Path | None = None,
+) -> None:
+    raise typer.Exit(
+        run_finalize_failure_mode(workflow_run_id=workflow_run_id, stage_root=stage_root),
+    )
 
 
 @app.command("run-local")

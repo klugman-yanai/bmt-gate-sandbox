@@ -15,7 +15,8 @@ from google.cloud import storage as gcs_storage
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from gcp.image.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET
-from gcp.image.config.status import CheckConclusion, CommitStatus
+from gcp.image.config.status import CheckConclusion, CheckStatus, CommitStatus
+from gcp.image.github import github_checks
 from gcp.image.github.github_auth import resolve_github_app_token
 from gcp.image.github.presentation import (
     CheckFinalView,
@@ -34,6 +35,7 @@ from gcp.image.runtime.artifacts import (
     load_observed_duration_sec_from_latest_snapshot,
     load_optional_progress,
     load_optional_reporting_metadata,
+    load_summary_or_failure,
     now_iso,
     parse_optional_instant_iso,
     summary_path,
@@ -78,6 +80,16 @@ def _merge_missing_workflow_url_only(
         metadata=existing.model_copy(update=updates),
     )
     return True
+
+
+def _persist_github_publish_complete(
+    *, runtime: StageRuntimePaths, workflow_run_id: str, metadata: ReportingMetadata
+) -> None:
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=workflow_run_id,
+        metadata=metadata.model_copy(update={"github_publish_complete": True}),
+    )
 
 
 def _persist_reporting_started(
@@ -223,6 +235,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
     is_pass, check_state, commit_state = _aggregate_pass_and_commit_states(summaries)
     description = _commit_status_description(summaries, is_pass=is_pass)
 
+    finalized_ok = False
     try:
         _, finalized_ok = reporter.finalize_check_run(
             check_run_id=metadata.check_run_id,
@@ -239,14 +252,22 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             )
 
     # Commit status uses PyGithub; failures return False without raising.
-    if not reporter.post_final_status(
+    commit_ok = reporter.post_final_status(
         state=commit_state,
         description=description,
         details_url=workflow_url or None,
-    ):
+    )
+    if not commit_ok:
         logger.warning(
             "post_final_status returned failure (non-2xx or missing prerequisites) workflow_run_id=%s",
             plan.workflow_run_id,
+        )
+
+    if finalized_ok and commit_ok:
+        _persist_github_publish_complete(
+            runtime=runtime,
+            workflow_run_id=plan.workflow_run_id,
+            metadata=metadata,
         )
 
     if not plan.pr_number.isdigit():
@@ -263,6 +284,161 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
         )
     except GithubException:
         logger.warning("upsert_final_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
+
+
+def _sync_local_metadata_if_check_already_completed_on_github(
+    *,
+    plan: ExecutionPlan,
+    runtime: StageRuntimePaths,
+    token: str,
+    fresh: ReportingMetadata,
+    skip_if_complete: bool,
+) -> bool:
+    """If the remote check is already ``completed``, persist ``github_publish_complete`` and return True."""
+    if not skip_if_complete:
+        return False
+    check_run_id = fresh.check_run_id
+    if check_run_id is None:
+        return False
+    try:
+        remote_status = github_checks.get_check_run_status(token, plan.repository, check_run_id)
+    except (GithubException, OSError, TypeError, ValueError):
+        logger.warning(
+            "publish_github_failure could not read remote check status workflow_run_id=%s",
+            plan.workflow_run_id,
+            exc_info=True,
+        )
+        return False
+    if remote_status != CheckStatus.COMPLETED.value:
+        return False
+    _persist_github_publish_complete(
+        runtime=runtime,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=fresh,
+    )
+    return True
+
+
+def _publish_github_failure_retry_commit_description(
+    *,
+    plan: ExecutionPlan,
+    runtime: StageRuntimePaths,
+    token: str,
+    metadata: ReportingMetadata,
+    summaries: list[LegSummary],
+    reason: str,
+) -> None:
+    if metadata.check_run_id is None:
+        return
+    reporter = GitHubReporter(
+        repository=plan.repository,
+        sha=plan.head_sha,
+        token=token,
+        status_context=plan.status_context,
+    )
+    workflow_url = metadata.workflow_execution_url
+    log_dump_url = _write_log_dump_and_sign(plan=plan, runtime=runtime, summaries=summaries)
+    final_view = _final_view(
+        summaries=summaries,
+        workflow_execution_url=workflow_url,
+        log_dump_url=log_dump_url,
+    )
+    desc = (reason.strip() or "BMT pipeline aborted.")[:140]
+    finalized_ok = False
+    try:
+        _, finalized_ok = reporter.finalize_check_run(
+            check_run_id=metadata.check_run_id,
+            view=final_view,
+            details_url=workflow_url,
+        )
+    except GithubException:
+        logger.warning(
+            "publish_github_failure finalize_check_run failed workflow_run_id=%s",
+            plan.workflow_run_id,
+            exc_info=True,
+        )
+    commit_ok = reporter.post_final_status(
+        state=CommitStatus.FAILURE.value,
+        description=desc,
+        details_url=workflow_url or None,
+    )
+    if finalized_ok and commit_ok:
+        _persist_github_publish_complete(
+            runtime=runtime,
+            workflow_run_id=plan.workflow_run_id,
+            metadata=metadata,
+        )
+
+
+def publish_github_failure(
+    *,
+    plan: ExecutionPlan,
+    runtime: StageRuntimePaths,
+    reason: str,
+    skip_if_complete: bool = True,
+) -> None:
+    """Close an in-progress GitHub check when the coordinator did not finish a normal publish.
+
+    First attempts :func:`publish_final_results` using summaries on disk (or synthetic failures for
+    missing summaries). If that still does not set ``github_publish_complete`` and the aggregate leg
+    outcome is not pass, retries finalize with an explicit failure description derived from *reason*.
+
+    Does not force a failed gate when leg results on disk aggregate to pass but GitHub APIs keep
+    failing (avoids a false red); logs an error instead.
+    """
+    fresh = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
+    if fresh is None:
+        fresh = ReportingMetadata()
+    if fresh.github_publish_complete:
+        return
+    if fresh.check_run_id is None or not (fresh.workflow_execution_url or "").strip():
+        logger.info(
+            "publish_github_failure skip: no in-progress check to close workflow_run_id=%s",
+            plan.workflow_run_id,
+        )
+        return
+
+    token = resolve_github_app_token(plan.repository)
+    if not token:
+        logger.warning("publish_github_failure skip: no token workflow_run_id=%s", plan.workflow_run_id)
+        return
+
+    if _sync_local_metadata_if_check_already_completed_on_github(
+        plan=plan, runtime=runtime, token=token, fresh=fresh, skip_if_complete=skip_if_complete
+    ):
+        return
+
+    summaries = [
+        load_summary_or_failure(
+            stage_root=runtime.stage_root,
+            workflow_run_id=plan.workflow_run_id,
+            leg=leg,
+        )
+        for leg in plan.legs
+    ]
+    publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
+
+    again = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
+    if again is not None and again.github_publish_complete:
+        return
+
+    if aggregate_status(summaries) == BmtLegStatus.PASS.value:
+        logger.error(
+            "publish_github_failure gave up: legs passed on disk but GitHub publish incomplete "
+            "workflow_run_id=%s",
+            plan.workflow_run_id,
+        )
+        return
+
+    meta = again or fresh
+    _publish_github_failure_retry_commit_description(
+        plan=plan,
+        runtime=runtime,
+        token=token,
+        metadata=meta,
+        summaries=summaries,
+        reason=reason,
+    )
 
 
 def _load_reporter(

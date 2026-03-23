@@ -31,8 +31,8 @@ on:
         default: ""
       available_artifacts:
         description: >
-          JSON array of artifact names the caller uploaded (e.g. ["runner-sk_gcc_release"]).
-          Upload steps for names not in this list are skipped instead of failing.
+          Optional. JSON array of runner-* artifact names. When empty or "[]" (default), Plan lists
+          artifacts from the caller run via the GitHub API. Set only to override that list.
         required: false
         type: string
         default: "[]"
@@ -65,8 +65,8 @@ on:
         default: ""
       available_artifacts:
         description: >
-          JSON array of artifact names the caller uploaded (e.g. ["runner-sk_gcc_release"]).
-          Upload steps for names not in this list are skipped instead of failing.
+          Optional. JSON array of runner-* artifact names. When empty or "[]" (default), Plan lists
+          artifacts from the caller run via the GitHub API. Set only to override that list.
         required: false
         type: string
         default: "[]"
@@ -120,6 +120,7 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
+      actions: read
       pull-requests: read
       id-token: write
     outputs:
@@ -132,6 +133,8 @@ jobs:
       runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
       matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
+      matrix_publish: ${{ steps.filter.outputs.matrix_publish }}
+      matrix_publish_keys: ${{ steps.filter.outputs.matrix_publish_keys }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -148,6 +151,25 @@ jobs:
           head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
           pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
 
+      - id: runner_artifacts_index
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERRIDE: ${{ inputs.available_artifacts }}
+          CI_RUN: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${OVERRIDE}" && "${OVERRIDE}" != "[]" ]]; then
+            json="${OVERRIDE}"
+          else
+            json=$(gh api "repos/${{ github.repository }}/actions/runs/${CI_RUN}/artifacts" \
+              --paginate --jq '[.artifacts[]|select(.name|startswith("runner-"))|.name]')
+          fi
+          {
+            echo "json<<ARTIFACTS_EOF"
+            echo "$json"
+            echo "ARTIFACTS_EOF"
+          } >>"$GITHUB_OUTPUT"
+
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv
         with:
@@ -162,33 +184,39 @@ jobs:
           RUNNER_MATRIX: ${{ steps.prepare.outputs.runner_matrix }}
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          AVAILABLE_ARTIFACTS: ${{ inputs.available_artifacts || '[]' }}
+          BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+          AVAILABLE_ARTIFACTS: ${{ steps.runner_artifacts_index.outputs.json }}
         run: uv run bmt handoff write-context && uv run bmt runner filter-upload-matrix
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
-  # Validate requested runners exist in repo (no build/upload) before cloud dispatch.
+  # Download runner-* artifacts from the CI run and upload to GCS (checksum-aware skip in bmt runner upload).
   publish_runners:
     name: Publish
     needs: write_handoff_context
-    if: needs.write_handoff_context.outputs.matrix_need_upload_keys != '[]'
+    if: needs.write_handoff_context.outputs.matrix_publish_keys != '[]'
     runs-on: ubuntu-22.04
     continue-on-error: true
     permissions:
       contents: read
+      actions: read
       id-token: write
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix: ${{ fromJson(needs.write_handoff_context.outputs.matrix_need_upload || '{"include":[]}') }}
+      matrix: ${{ fromJson(needs.write_handoff_context.outputs.matrix_publish || '{"include":[]}') }}
+    env:
+      BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
     steps:
       - name: Checkout repo
+        if: matrix.bmt_supported == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
 
       - name: Setup GCP and uv
+        if: matrix.bmt_supported == 'true'
         uses: ./.github/actions/setup-gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
@@ -196,8 +224,43 @@ jobs:
           gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
 
-      - name: Validate requested runner exists in repo
-        id: validate
+      - name: Download runner artifact from CI run
+        if: matrix.bmt_supported == 'true'
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: runner-${{ matrix.preset }}
+          path: artifact-download
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+
+      - name: Normalize layout for bmt runner upload
+        if: matrix.bmt_supported == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/Runners artifact/Kardome
+          k=$(find artifact-download -name kardome_runner -type f ! -path '*/.*' 2>/dev/null | head -1 || true)
+          l=$(find artifact-download -name libKardome.so -type f ! -path '*/.*' 2>/dev/null | head -1 || true)
+          if [[ -z "$k" ]]; then
+            echo "::error::kardome_runner not found in downloaded artifact runner-${{ matrix.preset }}"
+            exit 1
+          fi
+          cp "$k" artifact/Runners/kardome_runner
+          chmod +x artifact/Runners/kardome_runner
+          if [[ -n "$l" ]]; then
+            cp "$l" artifact/Kardome/libKardome.so
+          fi
+
+      - name: Upload runner to GCS
+        if: matrix.bmt_supported == 'true'
+        env:
+          PROJECT: ${{ matrix.project }}
+          PRESET: ${{ matrix.preset }}
+          SOURCE_REF: ${{ needs.write_handoff_context.outputs.head_sha }}
+        run: uv run bmt runner upload-to-gcs
+
+      - name: Mark uploaded for handoff
+        if: matrix.bmt_supported == 'true'
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}

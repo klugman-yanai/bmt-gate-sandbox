@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from whenever import Instant
 
@@ -18,12 +18,27 @@ from ci.runner_provenance import write_runner_provenance
 from ci.workflow_env import read_workflow_str
 
 
+def _project_has_bmt_stage_layout(project: str) -> bool:
+    """True when this repo declares BMT for ``project`` under ``gcp/stage/projects/<project>/``."""
+    slug = str(project).strip().lower()
+    if not slug:
+        return False
+    base = Path("gcp/stage/projects") / slug
+    return (base / "project.json").is_file() or (base / "bmts").is_dir()
+
+
 def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any] | None:
     for name in ("runner_meta.json", "runner_latest_meta.json"):
         payload, _ = gcs.download_json(f"{root}/projects/{project}/{name}")
         if isinstance(payload, dict):
             return payload
     return None
+
+
+def _ci_run_id_for_markers() -> str:
+    """Prefer parent CI run id (``BMT_CI_RUN_ID``) so GCS markers align with build-and-test."""
+    rid = (os.environ.get("BMT_CI_RUN_ID") or "").strip()
+    return rid if rid else core.workflow_run_id()
 
 
 def _sha256_file(path: Path) -> str:
@@ -49,7 +64,7 @@ class RunnerManager:
     def validate_in_repo(self) -> None:
         project = core.require_env("PROJECT")
         preset = core.require_env("PRESET")
-        run_id = core.workflow_run_id()
+        run_id = _ci_run_id_for_markers()
         root = core.workflow_runtime_root()
         canonical_runner_uri = f"{root}/projects/{project}/kardome_runner"
         try:
@@ -97,6 +112,8 @@ class RunnerManager:
             with path.open("a", encoding="utf-8") as f:
                 f.write(f"matrix_need_upload<<FILTER_EOF\n{json.dumps(out)}\nFILTER_EOF\n")
                 f.write("matrix_need_upload_keys=[]\n")
+                f.write(f"matrix_publish<<PUBLISH_EOF\n{json.dumps(out)}\nPUBLISH_EOF\n")
+                f.write("matrix_publish_keys=[]\n")
             print(
                 "::notice::Filter upload matrix: BMT_SKIP_PUBLISH_RUNNERS=true — no publish jobs (runners assumed in bucket)."
             )
@@ -109,7 +126,7 @@ class RunnerManager:
         available_artifacts_raw = read_workflow_str(
             w, "available_artifacts", "AVAILABLE_ARTIFACTS", "[]"
         )
-        github_run_id = (
+        github_run_id = (os.environ.get("BMT_CI_RUN_ID") or "").strip() or (
             read_workflow_str(w, "github_run_id", "GITHUB_RUN_ID") or core.workflow_run_id()
         )
         if not runner_matrix_raw or not head_sha:
@@ -129,7 +146,8 @@ class RunnerManager:
         }
         root = core.workflow_runtime_root()
         run_id = github_run_id
-        need_include = []
+        need_include: list[dict[str, Any]] = []
+        publish_include: list[dict[str, Any]] = []
         projects_written = set()
         for entry in include:
             if not isinstance(entry, dict):
@@ -138,6 +156,7 @@ class RunnerManager:
             preset = str(entry.get("preset", "")).strip()
             if not project or not preset:
                 continue
+            supported = "true" if _project_has_bmt_stage_layout(project) else "false"
             payload = _runner_meta_in_gcs(root, project, preset)
             if payload is not None:
                 if preseeded:
@@ -169,16 +188,27 @@ class RunnerManager:
                     f"::notice::Skip upload for {project}/{preset}: artifact not in available list (will show as Skipped)."
                 )
                 continue
-            need_include.append(entry)
+            row = cast(dict[str, Any], dict(entry))
+            row["bmt_supported"] = supported
+            publish_include.append(row)
+            if supported == "true":
+                need_include.append(dict(entry))
         out = {"include": need_include}
+        pub = {"include": publish_include}
         out_json = json.dumps(out, separators=(",", ":"))
+        pub_json = json.dumps(pub, separators=(",", ":"))
         path = Path(core.require_env("GITHUB_OUTPUT"))
         with path.open("a", encoding="utf-8") as f:
             f.write(f"matrix_need_upload<<FILTER_EOF\n{out_json}\nFILTER_EOF\n")
             keys = [f"{e['project']}|{e['preset']}" for e in need_include]
             f.write(f"matrix_need_upload_keys={json.dumps(keys)}\n")
+            f.write(f"matrix_publish<<PUBLISH_EOF\n{pub_json}\nPUBLISH_EOF\n")
+            pub_keys = [f"{e['project']}|{e['preset']}" for e in publish_include]
+            f.write(f"matrix_publish_keys={json.dumps(pub_keys)}\n")
         print(
-            f"::notice::Filter upload matrix: {len(need_include)} job(s) need upload; {len(include) - len(need_include)} already on GCS or no artifact (will show as Skipped)."
+            f"::notice::Filter upload matrix: {len(need_include)} publish job(s) for supported BMT; "
+            f"{len(publish_include)} total artifact leg(s); "
+            f"{len(include) - len(publish_include)} already on GCS or no artifact (will show as Skipped)."
         )
 
     def upload(self) -> None:
@@ -285,7 +315,7 @@ class RunnerManager:
         self.upload()
 
     def resolve_uploaded_projects(self) -> None:
-        run_id = core.workflow_run_id()
+        run_id = _ci_run_id_for_markers()
         root = core.workflow_runtime_root()
         prefix = f"{root}/_workflow/uploaded/{run_id}/"
         uris = gcs.list_prefix(prefix)

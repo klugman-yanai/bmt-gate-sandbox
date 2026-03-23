@@ -71,12 +71,15 @@ def test_rendered_workflow_source_includes_connector_timeouts_for_direct_workflo
     rendered = workflow_mod.render_workflow_source(template_path=template_path, connector_timeout_sec=3900)
 
     assert "__CONNECTOR_TIMEOUT_SEC__" not in rendered
-    assert rendered.count("connector_params:") == 4
-    assert rendered.count("timeout: 3900") == 4
+    assert rendered.count("connector_params:") == 5
+    assert rendered.count("timeout: 3900") == 5
     assert 'value: "plan"' in rendered
     assert 'value: "standard"' in rendered
     assert 'value: "heavy"' in rendered
     assert 'value: "coordinator"' in rendered
+    assert 'value: "finalize-failure"' in rendered
+    assert "bmt_pipeline:" in rendered
+    assert "run_finalize_failure_job:" in rendered
 
 
 def test_enabled_github_app_secret_names_cover_primary_and_dev_profiles() -> None:

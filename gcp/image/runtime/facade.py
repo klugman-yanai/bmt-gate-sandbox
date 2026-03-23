@@ -16,6 +16,7 @@ class RuntimeMode(enum.Enum):
     PLAN = "plan"
     TASK = "task"
     COORDINATOR = "coordinator"
+    FINALIZE_FAILURE = "finalize-failure"
     DATASET_IMPORT = "dataset-import"
     LOCAL = "local"
 
@@ -60,6 +61,7 @@ class RuntimeFacade:
         self._handlers[RuntimeMode.PLAN] = self._run_plan
         self._handlers[RuntimeMode.TASK] = self._run_task
         self._handlers[RuntimeMode.COORDINATOR] = self._run_coordinator
+        self._handlers[RuntimeMode.FINALIZE_FAILURE] = self._run_finalize_failure
         self._handlers[RuntimeMode.DATASET_IMPORT] = self._run_dataset_import
         self._handlers[RuntimeMode.LOCAL] = self._run_local
 
@@ -108,7 +110,13 @@ class RuntimeFacade:
                 signal.signal(signal.SIGBUS, signal.SIG_DFL)
                 raise SystemExit(signum)
 
+        def handle_graceful_stop(signum: int, _frame: FrameType | None) -> None:
+            # Cloud Run sends SIGTERM before SIGKILL; convert so ``finally`` blocks can run.
+            raise SystemExit(128 + signum)
+
         signal.signal(signal.SIGBUS, handle_sigbus)
+        signal.signal(signal.SIGTERM, handle_graceful_stop)
+        signal.signal(signal.SIGINT, handle_graceful_stop)
 
     @staticmethod
     def _read_mode() -> RuntimeMode:
@@ -173,6 +181,15 @@ class RuntimeFacade:
 
         invocation = self._require_invocation()
         return run_coordinator_mode(
+            workflow_run_id=invocation.workflow_run_id,
+            stage_root=invocation.stage_root,
+        )
+
+    def _run_finalize_failure(self) -> int:
+        from gcp.image.runtime.entrypoint import run_finalize_failure_mode
+
+        invocation = self._require_invocation()
+        return run_finalize_failure_mode(
             workflow_run_id=invocation.workflow_run_id,
             stage_root=invocation.stage_root,
         )

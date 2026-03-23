@@ -4,8 +4,7 @@
 
 name: CI
 
-# Jobs/DAG aligned with docs/archive/build-and-test-v0.0.1.yml: 4 jobs, no image-check.
-# checkout_snapshot → build_release + build_non_release (parallel) → bmt_handoff.
+# Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel) → bmt_handoff (eligibility on handoff if).
 on:
   workflow_dispatch:
   workflow_call: {}
@@ -69,6 +68,9 @@ jobs:
     name: Release
     needs: repo_snapshot
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:
@@ -160,6 +162,37 @@ jobs:
             echo "::error::Build failed – warnings or errors detected."
             exit 1
           fi
+
+      - name: Set up uv (BMT runner packaging)
+        uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+        with:
+          version: "0.10.9"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync workspace for BMT CLI
+        run: uv sync
+
+      - name: Stage release runner for BMT upload
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: uv run bmt preset stage-release-runner
+
+      - name: Runner artifact paths
+        id: runner_artifact
+        env:
+          MATRIX_CONFIGURE: ${{ matrix.configure }}
+        run: uv run bmt preset compute-info
+
+      - name: Upload runner artifact for handoff
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: runner-${{ steps.runner_artifact.outputs.preset }}
+          path: |
+            ${{ steps.runner_artifact.outputs.runners_dir }}/kardome_runner
+            ${{ steps.runner_artifact.outputs.lib_dir }}/libKardome.so
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Disk space (after)
         if: always()
@@ -283,29 +316,17 @@ jobs:
         if: always()
         run: rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx 2>/dev/null || true; df -h
 
-  # ─────────────────────── 3) Decide whether to run BMT ────────────────────
-  evaluate_bmt_gate:
-    name: Gate
-    needs: [build_release]
-    runs-on: ubuntu-22.04
-    outputs:
-      run_bmt: ${{ steps.out.outputs.run_bmt }}
-    steps:
-      - id: out
-        run: |
-          r="${{ needs.build_release.result }}"
-          same_repo="${{ github.event.pull_request.head.repo.full_name == github.repository }}"
-          base_ref="${{ github.base_ref || github.ref_name }}"
-          if [[ "$r" != "success" && "$r" != "skipped" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          if [[ "$same_repo" != "true" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          if [[ "$base_ref" != "dev" ]]; then echo "run_bmt=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          echo "run_bmt=true" >> "$GITHUB_OUTPUT"
-
-  # ─────────────────────── 4) BMT handoff (when release build ok, same repo, base=dev) ─
+  # ─────────────────────── 3) BMT handoff (Plan lists runner-* artifacts inside reusable workflow) ─
   bmt_handoff:
     name: Handoff
-    needs: [evaluate_bmt_gate]
-    if: needs.evaluate_bmt_gate.outputs.run_bmt == 'true'
+    needs: [build_release]
+    if: >-
+      (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
+      && (
+        (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
+        || github.event.pull_request.head.repo.full_name == github.repository
+      )
+      && (github.base_ref || github.ref_name) == 'dev'
     permissions:
       contents: read
       actions: read
