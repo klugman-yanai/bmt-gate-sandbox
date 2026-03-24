@@ -1,0 +1,23 @@
+name: Download artifact (repo pin)
+description: Single SHA pin for actions/download-artifact v5; forwards cross-run download inputs.
+inputs:
+  name:
+    required: true
+  path:
+    required: true
+  github-token:
+    required: true
+  repository:
+    required: true
+  run-id:
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}
+        github-token: ${{ inputs.github-token }}
+        repository: ${{ inputs.repository }}
+        run-id: ${{ inputs.run-id }}

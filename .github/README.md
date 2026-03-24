@@ -4,12 +4,12 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 ## Workflow matrix (this repo)
 
-Only **four** workflow YAML files live at **`.github/workflows/*.yml`**: **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. Everything else is under **`workflows/internal/`** (dev/ops tooling in this repo). The **release bundle** (`.github-release/`) ships root workflows from `.github/workflows/` (excluding `*-dev.yml`) plus **`workflows/internal/`** from **`scripts/release_templates/workflows/`** only (e.g. **`trigger-ci.yml`** for **core-main**, **`code-owner-enforcement.yml`**). The in-repo **`internal/trigger-ci.yml`** (dev thin trigger) is **not** copied into the bundle.
+Root **`.github/workflows/*.yml`** includes reusable CI (`build-and-test*.yml`, **`bmt-handoff.yml`**), thin triggers (**`trigger-ci.yml`**, **`trigger-ci-pr.yml`**), **`bmt-cancel-on-pr-close.yml`**, and **`clang-format-auto-fix.yml`**. Dev/ops-only workflows live under **`workflows/internal/`**. The **release bundle** (`.github-release/`) ships root workflows from `.github/workflows/` (excluding `*-dev.yml`) plus **`workflows/internal/`** from **`scripts/release_templates/workflows/`** only (e.g. **`trigger-ci.yml`** for **core-main**, **`code-owner-enforcement.yml`**). The in-repo **`internal/trigger-ci.yml`** (dev thin trigger) is **not** copied into the bundle.
 
 | Workflow | Purpose |
 | -------- | ------- |
 | **`workflows/build-and-test-dev.yml`** | Reusable CI: **`workflow_dispatch`** + **`workflow_call`** only — same shape as **`build-and-test.yml`**. PR-driven runs use **`internal/trigger-ci.yml`** (`pull_request` into `dev` / `ci/check-bmt-gate` / `test/*`) which **`workflow_call`s** this file at the PR head ref; calls **`bmt-handoff.yml`** when `bmt_handoff.if` passes |
-| **`workflows/build-and-test.yml`** | Reusable CI for **core-main** (and manual runs): `workflow_dispatch` + `workflow_call` only — release **`trigger-ci.yml`** template supplies `pull_request_target` + `workflow_dispatch` on **`dev`** |
+| **`workflows/build-and-test.yml`** | Reusable CI for **core-main** (and manual runs): `workflow_dispatch` + `workflow_call` only — release **`trigger-ci-pr.yml`** drives PRs to **`dev`** via `pull_request_target` (same-repo **`build` job** only); **`trigger-ci.yml`** is dispatch-only |
 | **`workflows/bmt-handoff.yml`** | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`) |
 | **`workflows/clang-format-auto-fix.yml`** | C/C++ format automation on selected branches |
 | **`workflows/internal/bmt-handoff-dev.yml`** | `workflow_dispatch` wrapper: calls **`bmt-handoff.yml`** with **`use_mock_runner: true`** |
@@ -34,7 +34,7 @@ Only **four** workflow YAML files live at **`.github/workflows/*.yml`**: **`buil
 
 **No.** Adding only modified `build-and-test.yml` and `bmt-handoff.yml` to core-main will cause the real workflow to fail. `bmt-handoff.yml` and the actions it uses depend on the rest of this repo:
 
-- **Missing local actions** — `bmt-handoff.yml` uses `bmt-prepare-context`, `setup-gcp-uv`, `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary` under `.github/actions/`. (`check-image-up-to-date` exists for optional image gates; it is not referenced by the current handoff workflow in this repo.)
+- **Missing local actions** — `bmt-handoff.yml` uses `bmt-prepare-context`, `setup-gcp-uv`, **`setup-uv-repo`** (via `setup-gcp-uv`), `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary` under `.github/actions/`. (`check-image-up-to-date` exists for optional image gates; it is not referenced by the current handoff workflow in this repo.)
 - **Missing BMT CLI** — Steps run `uv run bmt …` (write-context, filter-upload-matrix, invoke-workflow, etc.). The package lives under `.github/bmt/` (pyproject.toml, ci/, config/); core-main needs it.
 - **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
 - **Check image up to date** — Composite action `check-image-up-to-date` takes **`image_build_workflow`** (default **`internal/bmt-image-build.yml`** in this repo). On core-main, pass **`bmt-image-build.yml`** if the image workflow lives at the workflows root. It fails when `infra/packer` or `gcp/image` change but no successful image build run exists for the ref.
@@ -62,13 +62,33 @@ Mechanical bundle: **`just tools release`** (requires `gcp/image/github/secrets/
 ## This repo’s workflow layout
 
 - **workflows/** — **Root (release-shaped):** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. **`internal/`** — dev-only: handoff mock, validate-release-bundle, **`trigger-ci`** (thin), **`trigger-ci-dispatch`**, bmt-image-build, trigger-image-build.
-- **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
+- **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`, **`setup-uv-repo`** (single pin for `astral-sh/setup-uv` + uv CLI `version:`; `setup-gcp-uv` calls it), **`upload-artifact-repo`** / **`download-artifact-repo`** (SHA pins for `actions/upload-artifact` v7 and `actions/download-artifact` v5), **`cache-repo`** (SHA pin for `actions/cache` v4), **`checkout-repo-head`** (SHA pin for `actions/checkout` + PR/PRT head ref logic)
 - **`.github/bmt/`** — BMT CLI (`uv run bmt …`) and config used by workflows ([`README.md`](bmt/README.md))
 
 ## Which workflow runs CI?
 
 - **bmt-gcloud (this repo):** **`internal/trigger-ci.yml`** is the event entry (`pull_request` into `dev` / `ci/check-bmt-gate` / `test/*`, plus **`workflow_dispatch`**). It **`workflow_call`s** **`build-and-test-dev.yml`** at the PR head ref — same **thin-trigger → reusable CI** pattern as production, but **`pull_request`** (same-repo) instead of **`pull_request_target`**. Optional: **`internal/trigger-ci-dispatch.yml`** to dispatch **`build-and-test-dev.yml`** on any ref via **`gh`**. **`build-and-test-dev.yml`** also accepts direct **`workflow_dispatch`** / **`workflow_call`**.
-- **Production (core-main):** After release copy, CI is driven by bundle **`internal/trigger-ci.yml`** (source: **`scripts/release_templates/workflows/trigger-ci.yml`**) on **`pull_request_target`** to **`dev`** (and **`workflow_dispatch`**), which **`workflow_call`s** **`build-and-test.yml`** at the PR head ref. No **`push`** to **`dev`** — direct pushes to **`dev`** are assumed forbidden. **`build-and-test.yml`** then calls **`bmt-handoff.yml`** when eligible.
+- **Production (core-main):** After release copy, **PR** CI is driven by bundle **`internal/trigger-ci-pr.yml`** (source: **`scripts/release_templates/workflows/trigger-ci-pr.yml`**) on **`pull_request_target`** to **`dev`**, which **`workflow_call`s** **`build-and-test.yml`** then **`bmt-handoff.yml`**. **`internal/trigger-ci.yml`** (source: **`scripts/release_templates/workflows/trigger-ci.yml`**) is **`workflow_dispatch`**-only for ad-hoc builds. No **`push`** to **`dev`** — direct pushes to **`dev`** are assumed forbidden.
+
+### `pull_request_target`, forks, and why the release PR trigger gates `build`
+
+GitHub documents that **`pull_request_target` runs in the base repo context** (default branch ref for `GITHUB_REF` / `GITHUB_SHA`) while still exposing the PR head in **`github.event.pull_request`**. That combination is appropriate for **commenting / labeling** on fork PRs without checking out the fork, but it is **risky to check out and build the PR head** on this event while the workflow also has **broad permissions or `secrets: inherit`**, because the job runs **untrusted code** with those credentials ([events: `pull_request_target`](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows)).
+
+**Release template** [`scripts/release_templates/workflows/trigger-ci-pr.yml`](../scripts/release_templates/workflows/trigger-ci-pr.yml) uses **Option A**: the **`build` job runs only when** `github.event.pull_request.head.repo.full_name == github.repository` (same-repo PRs). **Fork PRs** therefore do not execute **`build-and-test.yml`** on that trigger; provide fork CI via a separate workflow on **`pull_request`** (build from the merge ref / head in a restricted token model) if you need it — **Option B** for consumers who want all PRs built without using `pull_request_target` for the build path.
+
+The **`bmt` job** in the same template also requires the same-repo condition before calling **`bmt-handoff.yml`**, so BMT never runs for fork PRs from this file. **`build-and-test.yml`** still uses head repo/SHA in `actions/checkout` when the caller event is **`pull_request_target`**, so same-repo PRs behave as before.
+
+### Caching and PRs
+
+**Gradle** (and similar) caches use **`actions/cache`** via **`cache-repo`**. Cache keys are scoped by lockfiles and `runner.os`; do not store secrets in cached paths. For **fork PRs** on any workflow, treat caches as **untrusted input** where GitHub allows PRs to populate or influence keys ([dependency caching](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows)) — the release **`build` gate** above avoids running the heavy build path for forks on `pull_request_target`.
+
+### Hosted runner image
+
+Linux jobs use **`ubuntu-22.04`** (pinned LTS) for reproducible toolchains (CMake/apt installs in **`build-and-test.yml`**). Prefer bumping this label intentionally (and re-smoking builds) rather than using **`ubuntu-latest`**.
+
+### Standard GCP handoff job permissions
+
+Jobs in **`bmt-handoff.yml`** that call **`setup-gcp-uv`** need **`id-token: write`** for WIF plus the least extra scopes those steps use (typically **`contents: read`**, **`actions: read`**, **`pull-requests: read`** where the BMT CLI lists PRs). Keep **`permissions:`** at **job** level; composites cannot replace job-level `permissions`. Copy the block from an existing handoff job when adding a new job that authenticates to GCP the same way.
 
 ## Workflow and job triggers (inventory)
 
@@ -165,15 +185,23 @@ GitHub Actions does not execute files from `.github/jobs/`. Use native `workflow
 
 Repository variables (`vars.*`, synced from Pulumi) are the **source of truth**. Workflows usually map them once on a workflow or job `env:` block (for example `GCP_PROJECT: ${{ vars.GCP_PROJECT }}`). Composite actions cannot rely on `vars` the same way, so actions such as `setup-gcp-uv` take an explicit **`gcp_project`** input — pass **`${{ env.GCP_PROJECT }}`** when the job already defines `env` from `vars`. That is one value threaded through two mechanisms, not two different project IDs.
 
-## Why `actions/setup-gcp-uv` exists
+## Why `actions/setup-gcp-uv` and `actions/setup-uv-repo` exist
 
-`actions/setup-gcp-uv/action.yml` centralizes:
+**`setup-uv-repo`** is the **only** place that pins **`astral-sh/setup-uv@…`** and the **uv CLI** `version:` string. Workflows and composites that need `uv` without GCP (e.g. **`validate-release-bundle.yml`**, **`bmt-prepare-context`**) call **`setup-uv-repo`** directly. Bump the action SHA / CLI version there only.
+
+Workflow checkouts go through **`checkout-repo-head`** (see above); **`build-and-test.yml`** uses **`checkout-repo-head`** then **`setup-uv-repo`** for the BMT packaging phase.
+
+**`setup-gcp-uv`** chains WIF + gcloud, then **`setup-uv-repo`** when **`install_uv`** is true:
 
 1. `google-github-actions/auth` (Workload Identity Federation) with **`project_id`**
 2. `google-github-actions/setup-gcloud` with the same **`project_id`** and a default **`gcloud_version`** constraint for WIF
-3. Optional `astral-sh/setup-uv` with **`enable-cache: true`** for faster `uv sync`
+3. **`setup-uv-repo`** (cached **`uv sync`**)
 
 Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `permissions` stay in each workflow job.
+
+**`checkout-repo-head`** is the **only** place that pins **`actions/checkout@…`**. Root and **`internal/`** workflows use **`uses: ./.github/actions/checkout-repo-head`** (optional **`ref`** / **`sparse-checkout`** for handoff-style jobs).
+
+**Still duplicated by design (GitHub limitations):** `ubuntu-22.04`, and repeated **`workload_identity_provider` / `service_account` / `gcp_project`** `with:` blocks on each **`setup-gcp-uv`** step — workflows cannot import shared YAML fragments.
 
 ## GitHub Actions and Pulumi
 

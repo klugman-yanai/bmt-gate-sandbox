@@ -190,10 +190,10 @@ jobs:
       matrix_publish_omitted_keys: ${{ steps.filter.outputs.matrix_publish_omitted_keys }}
     steps:
       - name: Checkout repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: "1"
 
       - id: prepare
         uses: ./.github/actions/bmt-prepare-context
@@ -254,7 +254,6 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
 
       - id: filter
         env:
@@ -267,6 +266,25 @@ jobs:
           SKIP_MISSING_RUNNER_ARTIFACTS: ${{ inputs.skip_missing_runner_artifacts == true && 'true' || 'false' }}
           BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG: ${{ inputs.dev_append_unsupported_runner_leg == true && 'true' || 'false' }}
         run: uv run bmt handoff write-context && uv run bmt runner filter-upload-matrix
+
+      - name: Append plan summary to job summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## BMT Plan"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Handoff workflow run | \`${{ github.run_id }}\` |"
+            echo "| Caller CI run id | \`${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}\` |"
+            echo "| head_sha | \`${{ steps.prepare.outputs.head_sha }}\` |"
+            echo "| head_branch | \`${{ steps.prepare.outputs.head_branch }}\` |"
+            echo "| head_event | \`${{ steps.prepare.outputs.head_event }}\` |"
+            echo "| pr_number | \`${{ steps.prepare.outputs.pr_number }}\` |"
+            echo "| matrix_need_upload_keys | \`${{ steps.filter.outputs.matrix_need_upload_keys }}\` |"
+            echo "| matrix_publish_keys | \`${{ steps.filter.outputs.matrix_publish_keys }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
@@ -296,10 +314,10 @@ jobs:
 
       - name: Checkout repo
         if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: "1"
 
       - name: Setup GCP and uv
         if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
@@ -308,11 +326,10 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
 
       - name: Download runner artifact from CI run
         if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: ./.github/actions/download-artifact-repo
         with:
           name: runner-${{ matrix.preset }}
           path: artifact-download
@@ -416,10 +433,10 @@ jobs:
       bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: "1"
           sparse-checkout: |
             .github
             gcp
@@ -430,7 +447,6 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
 
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
@@ -534,12 +550,12 @@ jobs:
 
       - name: Upload diagnostics artifact
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: ./.github/actions/upload-artifact-repo
         with:
           name: bmt-handoff-diagnostics-${{ github.run_id }}
           path: .local/diagnostics/
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: "7"
 
       - name: Write dispatch summary (workflow execution confirmed)
         if: steps.invoke-workflow.outcome == 'success'
@@ -575,10 +591,10 @@ jobs:
 
       - name: Checkout repo (for local actions)
         if: steps.invoke-workflow.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: "1"
           sparse-checkout: |
             .github
             gcp
@@ -589,7 +605,6 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
 
       - name: Set BMT constants for fallback
         if: steps.invoke-workflow.outcome != 'success'

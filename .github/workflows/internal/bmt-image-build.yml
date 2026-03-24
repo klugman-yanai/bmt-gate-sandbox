@@ -72,7 +72,9 @@ jobs:
       PKR_VAR_bmt_repo_source: ${{ github.workspace }}/gcp/image
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: ./.github/actions/checkout-repo-head
+        with:
+          fetch-depth: "1"
 
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv
@@ -151,7 +153,7 @@ jobs:
           echo "::notice::Image provenance signed (Sigstore/Rekor) and uploaded"
 
       - name: Upload provenance artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
+        uses: ./.github/actions/upload-artifact-repo
         with:
           name: slsa-provenance-${{ steps.packer.outputs.image_name }}
           path: |

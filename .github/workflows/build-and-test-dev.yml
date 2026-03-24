@@ -52,13 +52,12 @@ jobs:
       non_release_presets: ${{ steps.snap.outputs.non_release_presets }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-          submodules: false
-          lfs: false
+          fetch-depth: "1"
+          submodules: "false"
+          lfs: "false"
+          persist-credentials: "true"
       - id: snap
         uses: ./.github/actions/dev-checkout-presets
 

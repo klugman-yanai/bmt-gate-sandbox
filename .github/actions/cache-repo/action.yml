@@ -1,0 +1,21 @@
+name: Cache paths (repo pin)
+description: Single SHA pin for actions/cache v4; forwards key, path, and optional restore-keys.
+inputs:
+  key:
+    description: Cache key (required).
+    required: true
+  path:
+    description: Paths to cache (multi-line supported).
+    required: true
+  restore-keys:
+    description: Optional multi-line restore keys (pass empty to omit behavior).
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        key: ${{ inputs.key }}
+        path: ${{ inputs.path }}
+        restore-keys: ${{ inputs.restore-keys }}

@@ -1,5 +1,5 @@
 name: Setup GCP and uv
-description: Authenticate to GCP via WIF, install Cloud SDK, and optionally install uv.
+description: Authenticate to GCP via WIF, install Cloud SDK, and optionally install uv via setup-uv-repo.
 
 inputs:
   workload_identity_provider:
@@ -41,15 +41,8 @@ runs:
         project_id: ${{ inputs.gcp_project }}
         version: ${{ inputs.gcloud_version }}
 
-    - name: Install uv
+    - name: Install uv and sync workspace
       if: ${{ inputs.install_uv == 'true' }}
-      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7
+      uses: ./.github/actions/setup-uv-repo
       with:
-        version: "0.10.9"
         python-version: ${{ inputs.python_version }}
-        enable-cache: true
-
-    - name: Sync BMT uv environment
-      if: ${{ inputs.install_uv == 'true' }}
-      shell: bash
-      run: uv sync

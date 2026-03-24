@@ -91,16 +91,54 @@ def test_handoff_does_not_use_ci_side_github_reporting() -> None:
 
 def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
     build_test = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
+    build_dev = (repo_root() / ".github" / "workflows" / "build-and-test-dev.yml").read_text(encoding="utf-8")
     clang_format = (repo_root() / ".github" / "workflows" / "clang-format-auto-fix.yml").read_text(encoding="utf-8")
     image_build = (repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml").read_text(
         encoding="utf-8"
     )
+    setup_uv_repo = (repo_root() / ".github" / "actions" / "setup-uv-repo" / "action.yml").read_text(encoding="utf-8")
+    upload_artifact_repo = (repo_root() / ".github" / "actions" / "upload-artifact-repo" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+    download_artifact_repo = (repo_root() / ".github" / "actions" / "download-artifact-repo" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+    checkout_repo_head = (repo_root() / ".github" / "actions" / "checkout-repo-head" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+    cache_repo = (repo_root() / ".github" / "actions" / "cache-repo" / "action.yml").read_text(encoding="utf-8")
+    handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
 
     assert "actions/checkout@v4" not in build_test
     assert "actions/checkout@v4" not in clang_format
-    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in clang_format
-    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in image_build
+    assert "actions/cache@" not in build_test
+    assert "actions/cache@" not in handoff
     assert "hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232" in image_build
+    assert "astral-sh/setup-uv@" not in build_test
+    assert "uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8" in setup_uv_repo
+    assert "actions/upload-artifact@" not in build_test
+    assert "actions/upload-artifact@" not in image_build
+    assert (
+        "uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f" in upload_artifact_repo
+    )
+    assert (
+        "uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+        in download_artifact_repo
+    )
+    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in checkout_repo_head
+    assert "uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830" in cache_repo
+    assert "actions/cache@" not in handoff
+
+
+def test_workflow_ymls_do_not_reference_checkout_action_directly() -> None:
+    """Pin `actions/checkout` only in `.github/actions/checkout-repo-head/action.yml`."""
+    workflows_dir = repo_root() / ".github" / "workflows"
+    violations: list[str] = []
+    for path in sorted(workflows_dir.rglob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        if "actions/checkout@" in text:
+            violations.append(str(path.relative_to(repo_root())))
+    assert not violations, "Use ./.github/actions/checkout-repo-head instead:\n" + "\n".join(violations)
 
 
 def test_unused_bmt_runner_env_action_is_removed() -> None:

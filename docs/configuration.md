@@ -65,6 +65,10 @@ Print the current expected environment with:
 just tools repo show-env
 ```
 
+## GitHub Actions hosted runners
+
+Linux CI jobs in **`.github/workflows/`** use **`ubuntu-22.04`** (pinned label) for reproducible system packages and CMake/apt setup. Bump the label deliberately after smoke-testing builds; **`ubuntu-latest`** is intentionally avoided for the main build matrices. Details and composite action pins live in [`.github/README.md`](../.github/README.md).
+
 ## Pulumi Config
 
 `infra/pulumi/bmt.config.json` must define:

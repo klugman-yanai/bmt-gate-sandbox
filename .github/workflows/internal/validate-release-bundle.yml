@@ -32,14 +32,11 @@ jobs:
     name: Assemble .github-release (skip secrets)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/checkout-repo-head
         with:
-          fetch-depth: 0
+          fetch-depth: "0"
 
-      - uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
-        with:
-          version: "0.10.9"
-          python-version: "3.12"
+      - uses: ./.github/actions/setup-uv-repo
 
       - name: Assemble release bundle
         run: uv run python scripts/assemble_release.py --skip-secrets

@@ -1,143 +1,54 @@
 # CLAUDE.md
 
-Guidance for **Claude Code** (and similar agents) working in **bmt-gcloud**.
+Agent rules for **bmt-gcloud**: **Actions (WIF)** → **Google Workflows** → **Cloud Run** (`bmt-control` + `bmt-task-*`); **GCS** holds plans (`triggers/`), results/snapshots/`current.json`. Bucket root mirrors **`gcp/stage`**; **`gcp/image`** is baked into Cloud Run. Ignore legacy VM/vm_watcher docs.
 
-## Project overview
+**Read next:** [docs/architecture.md](docs/architecture.md) (pipeline) · [docs/README.md](docs/README.md) (index) · [CONTRIBUTING.md](CONTRIBUTING.md) · [.github/README.md](.github/README.md) (workflows).
 
-**bmt-gcloud** provides a **realistic path to test production BMT CI** against **real GCS** (and GCP), not mocks. The supported execution model is:
+## Code layout
 
-- **GitHub Actions** authenticates with **WIF**, uploads artifacts as needed, and **starts Google Workflows** via the Workflow Executions API.
-- **Google Workflows** runs **Cloud Run** jobs: `bmt-control` (plan + coordinator) and `bmt-task-standard` / `bmt-task-heavy` (one BMT leg per task).
-- **GCS** holds frozen plans under `triggers/`, snapshots and `current.json` under each project’s `results/` tree. The bucket layout mirrors **`gcp/stage`**.
+| Area | Path |
+| ---- | ---- |
+| Cloud Run runtime | `gcp/image/runtime/`, entry `gcp/image/main.py` |
+| Stage mirror (bucket) | `gcp/stage/` (incl. `projects/.../plugins/`) |
+| CI / handoff CLI | `uv run bmt` → `.github/bmt/ci/` (`bmt` workspace member; `uv sync` at root) |
+| Contributor Typer CLI | `uv run python -m tools --help` |
+| Shared libs | `tools/shared/` |
+| GCS sync/verify | `tools/remote/` |
+| Local BMT (not Cloud Run path) | `tools/bmt/` |
+| Layout / repo vars | `tools/repo/` |
+| Pulumi → GitHub vars | `tools/pulumi/` |
 
-Legacy **VM + vm_watcher** descriptions in old docs are **not** the current production story. Use **[docs/architecture.md](docs/architecture.md)** for the full pipeline, diagrams, and maintainer deep dive.
+**Recipes:** `just` (see `just list`). Common: `just test`, `just sync-to-bucket` (= `just workspace deploy`, needs `GCS_BUCKET`). Layout policy: `just test` or `uv run python -m tools.repo.gcp_layout_policy`. Infra vars: `just workspace pulumi` / `validate` — [infra/README.md](infra/README.md), [docs/configuration.md](docs/configuration.md).
 
-**Bucket:** 1:1 mirror of `gcp/stage` at the bucket root (see [gcp/README.md](gcp/README.md), [tools/shared/bucket_env.py](tools/shared/bucket_env.py)). **`gcp/image`** is baked into the **Cloud Run** image; **`gcp/stage`** is the editable mirror of runtime/config content.
-
-**Docs index:** [docs/README.md](docs/README.md) · **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
-
-## Time and clocks
+## Time
 
 | Need | Use |
 | ---- | --- |
-| Wall-clock timestamps, TTL | `whenever.Instant.now()`; `.format_iso(unit="second")` or project `_now_iso()` / [tools/shared/time_utils.py](tools/shared/time_utils.py) |
-| Durations, timeouts | `time.monotonic()` |
+| Wall clock / TTL | `whenever.Instant.now()` (+ ISO helpers / [tools/shared/time_utils.py](tools/shared/time_utils.py)) |
+| Durations / timeouts | `time.monotonic()` |
 | Sleep / backoff | `time.sleep()` |
 
-Avoid `time.time()` / `datetime.now()` for new code. CI and `gcp/` may use local helpers to stay self-contained when synced to the bucket.
+Avoid new `time.time()` / `datetime.now()` (CI/`gcp/` may keep local helpers for bucket sync).
 
-## `tools/` layout
-
-| Prefix | Role |
-| ------ | ---- |
-| `tools/shared/` | Libraries (not CLI entrypoints) |
-| `tools/remote/` | GCS: sync, upload, verify, validate |
-| `tools/bmt/` | Local batch runner, monitor, wait verdicts |
-| `tools/repo/` | Layout policies, GitHub/repo vars, paths |
-| `tools/pulumi/` | Pulumi → GitHub vars |
-
-**CLI:** `uv run python -m tools --help` (Typer). **Just** recipes are preferred wrappers (`just add`, `just test-local`, `just publish`, `just sync-to-bucket`, etc.; bare `just` shows the typical path, `just list` for all recipes).
-
-**Layout tests:** `just test` or `uv run python -m tools.repo.gcp_layout_policy` / `repo_layout_policy`.
-
-**Pulumi / vars:** `just workspace pulumi`, `just workspace validate` — see [infra/README.md](infra/README.md), [docs/configuration.md](docs/configuration.md).
-
-## CI / BMT CLI
-
-Entrypoint: **`uv run bmt <cmd>`** from repo root; implementation under **`.github/bmt/ci/`** (workspace member `bmt` is installed by **`uv sync`** at the repo root).
-
-Workflows in **`.github/workflows/`** call into this CLI (e.g. **`bmt-handoff.yml`**: `write-context`, `filter-upload-matrix`, `invoke-workflow`, etc.). See **[.github/README.md](.github/README.md)** for workflow layout.
-
-## Linting and type checking
+## Lint / types
 
 ```bash
-uv sync
-ruff check .
-ruff format --check .
-uv run ty check
+uv sync && ruff check . && ruff format --check . && uv run ty check
 ```
 
-Config: [pyproject.toml](pyproject.toml), [pyrightconfig.json](pyrightconfig.json).
+Config: `pyproject.toml`, `pyrightconfig.json`. Fix types honestly (concrete unions/ABCs, LSP-safe `Protocol`, narrow ignores with rationale)—not blanket `cast`/`# type: ignore` to silence checkers.
 
-**Lint / types vs. code smell:** Do not “fix” Ruff or `ty` by introducing sustained smell (for example `cast()` only to appease a `Protocol` assignment, or broad `# type: ignore` / `# noqa`). Prefer honest types: a **union of concrete classes** (or an ABC) when several implementations share a call site; structural `Protocol` typing where LSP-compatible; small factories with explicit return types; narrow single-line ignores with a one-line rationale. If the only option seems to be a cast or a blanket ignore, adjust boundaries until types are honest.
+**Path map:** CI → `uv run bmt` / `.github/bmt/ci/`. Bucket → `tools/remote/bucket_*.py`. Local batch → `tools/bmt/`.
 
-**Path map:** CI → `uv run bmt` / `.github/bmt/ci/`. Bucket tools → `tools/remote/bucket_*.py`. Local BMT → `tools/bmt/`.
+## Tests
 
-## Testing
+- Unit: `uv run python -m pytest tests/ -v` (no GCS).
+- Real bucket / snapshots: [CONTRIBUTING.md](CONTRIBUTING.md), [docs/configuration.md](docs/configuration.md). E2E via CI / `bmt-handoff` dispatch.
 
-### Unit tests (no GCS)
+## Onboarding / `gcp/` commits
 
-```bash
-uv run python -m pytest tests/ -v
-```
+`just onboard` or `bash tools/scripts/bootstrap_dev_env.sh` (`uv sync`, **prek** hooks, `uv run python -m tools onboard`). Pre-commit can block `gcp/` changes unless bucket matches (`SKIP_SYNC_VERIFY=1` to bypass on purpose). Upload: `GCS_BUCKET=… uv run python -m tools.remote.bucket_sync_gcp` or `just sync-to-bucket`.
 
-Covers CI models, gate logic, pointer helpers, etc.
+## Shell (when available)
 
-### Local BMT batch (no GCS)
-
-Uses **`tools/bmt/bmt_run_local`** — different path from Cloud Run orchestration; useful for runner/scoring. See [CONTRIBUTING.md](CONTRIBUTING.md) and older examples in repo docs.
-
-### Pointer / snapshot flow (real bucket)
-
-To exercise manager-style snapshot writes and **`current.json`** against a real bucket, you can run project managers or orchestration paths **as documented** in [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/configuration.md](docs/configuration.md). Full **E2E** (Actions → Workflows → Cloud Run) is covered by CI and workflow dispatch on `bmt-handoff.yml`.
-
-## Devtools and pre-commit
-
-- **Install [uv](https://docs.astral.sh/uv/) first**, then **`just onboard`** (or `bash tools/scripts/bootstrap_dev_env.sh`): `uv sync`, **prek** hooks, **`uv run python -m tools onboard`** (Rich summary). See [CONTRIBUTING.md](CONTRIBUTING.md).
-- **`just sync-to-bucket`** (with `GCS_BUCKET`; same as **`just workspace deploy`**) uploads local `gcp/` to the bucket and verifies.
-- Pre-commit may **block** commits that touch `gcp/` unless the bucket is in sync (`SKIP_SYNC_VERIFY=1` to bypass intentionally).
-
-```bash
-just sync-to-bucket
-# same as: just workspace deploy
-# GCS_BUCKET="..." uv run python -m tools.remote.bucket_sync_gcp
-```
-
-### Shell CLI preferences (agents)
-
-When searching the tree, parsing structured output, or running repo commands, **prefer** these tools if they are on `PATH`. They reduce noise (e.g. obey `.gitignore`), speed up iteration, and match common dev setups. **If a binary is missing** (minimal CI image, container, or fresh VM), use the **fallback** so scripts and instructions stay portable.
-
-| Prefer | Fallback | Role |
-| ------ | -------- | ---- |
-| **`rg`** ([ripgrep](https://github.com/BurntSushi/ripgrep)) | `grep` (with appropriate `-r` / excludes) | Recursive code and text search |
-| **`fd`** ([fd](https://github.com/sharkdp/fd)) | `find` | Files by name/path under a tree |
-| **`jq`** | _(same)_ | JSON: filter and project fields in the shell |
-| **`yq`** (mikefarah / [go-yq](https://github.com/mikefarah/yq); `yq --version` mentions `github.com/mikefarah/yq`) | `jq` on JSON, or small **Python** in-repo helpers for YAML/TOML | YAML/JSON/XML in pipelines; **not** the Python [kislyuk/yq](https://github.com/kislyuk/yq) jq-wrapper (different CLI) |
-| **`ast-grep`** | `rg` / `grep` | Structure-aware search when rules exist |
-| **`sd`** | `sed` | Non-interactive replace (mind `sed` escaping) |
-| **`uv`** | `python3 -m venv` + `pip` per [uv docs](https://docs.astral.sh/uv/) | Python env and `uv run` |
-| **`just`** | invoke the underlying `recipe` commands manually | Task runner from [Justfile](Justfile) |
-
-**Example `command --version` output** from a current dev install (not minimum requirements; re-run to verify after upgrades):
-
-```text
-ripgrep 15.1.0
-fd 10.4.2
-jq-1.8.1
-yq (https://github.com/mikefarah/yq/) version v4.52.4
-sd 1.0.0
-uv 0.10.12 (00d72dac7 2026-03-19 x86_64-unknown-linux-gnu)
-just 1.47.1
-ast-grep 0.41.1
-```
-
-## Architecture (short)
-
-| Layer | Role |
-| ----- | ---- |
-| **Actions** | Build, validate, start Workflows, post status/handoff |
-| **Workflows** | Plan → parallel Cloud Run tasks → coordinator |
-| **Cloud Run** | `gcp/image` runtime: plan / task / coordinator modes |
-| **GCS** | Plans, summaries, snapshots, `current.json` |
-
-Runtime code: **`gcp/image/runtime/`**, entry via **`gcp/image/main.py`**. Plugins live under **`gcp/stage/projects/.../plugins/`** (published bundles).
-
-**Details:** [docs/architecture.md](docs/architecture.md).
-
-## GCP / repo environment
-
-Required variables are documented in **[docs/configuration.md](docs/configuration.md)** (from Pulumi): e.g. `GCS_BUCKET`, `GCP_PROJECT`, `CLOUD_RUN_REGION`, `BMT_CONTROL_JOB`, `BMT_TASK_STANDARD_JOB`, `BMT_TASK_HEAVY_JOB`, `GCP_SA_EMAIL`, WIF provider, GitHub App secrets for reporting. Branch protection should require the configured **BMT status context**.
-
-## Not committed
-
-`data/`, local workspaces (`local_batch/`, etc.), `gcp-key.json`, secrets — see repo `.gitignore` and docs.
+Prefer **`rg`** (not `grep -r`), **`fd`** (not `find`), **`jq`**, **`yq`** (mikefarah/go-yq—not kislyuk’s Python wrapper), **`uv`**, **`just`**, optional **`sd`**, **`ast-grep`**. Fall back to POSIX tools in minimal environments.

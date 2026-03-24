@@ -39,11 +39,11 @@ runs:
         echo "artifact_size=$size" >>"$GITHUB_OUTPUT"
 
     - name: Upload repo-snapshot
-      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+      uses: ./.github/actions/upload-artifact-repo
       with:
         name: repo-snapshot
         path: repo-snapshot.tar.gz
-        retention-days: 5
+        retention-days: "5"
 
     - name: Parse CMakePresets.json
       id: parse

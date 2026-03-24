@@ -46,16 +46,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install uv
-      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7
-      with:
-        version: "0.10.9"
-        python-version: "3.12"
-        enable-cache: true
-
-    - name: Sync BMT uv environment
-      shell: bash
-      run: uv sync
+    - uses: ./.github/actions/setup-uv-repo
 
     - id: ctx
       shell: bash

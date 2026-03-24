@@ -46,7 +46,6 @@ runs:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}
         service_account: ${{ inputs.service_account }}
         gcp_project: ${{ inputs.gcp_project }}
-        python_version: "3.12"
 
     - id: list
       env:

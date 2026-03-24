@@ -32,11 +32,12 @@ jobs:
       non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
     steps:
       - name: Checkout source for preset parsing
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
-          fetch-depth: 1
+          fetch-depth: "1"
+          submodules: "false"
+          lfs: "false"
+          persist-credentials: "true"
 
       - name: Parse CMakePresets.json
         id: parse
@@ -79,14 +80,20 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
       - name: Checkout source to build
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
-          fetch-depth: 1
-          submodules: false
-          lfs: false
-          persist-credentials: false
+          fetch-depth: "1"
+          submodules: "false"
+          lfs: "false"
+          persist-credentials: "false"
+
+      - name: Cache Gradle user home
+        uses: ./.github/actions/cache-repo
+        with:
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
+          path: ${{ env.GRADLE_USER_HOME }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Disk space (before)
         run: |
@@ -164,14 +171,7 @@ jobs:
           fi
 
       - name: Set up uv (BMT runner packaging)
-        uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
-        with:
-          version: "0.10.9"
-          python-version: "3.12"
-          enable-cache: true
-
-      - name: Sync workspace for BMT CLI
-        run: uv sync
+        uses: ./.github/actions/setup-uv-repo
 
       - name: Stage release runner for BMT upload
         env:
@@ -185,14 +185,21 @@ jobs:
         run: uv run bmt preset compute-info
 
       - name: Upload runner artifact for handoff
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: ./.github/actions/upload-artifact-repo
         with:
           name: runner-${{ steps.runner_artifact.outputs.preset }}
           path: |
             ${{ steps.runner_artifact.outputs.runners_dir }}/kardome_runner
             ${{ steps.runner_artifact.outputs.lib_dir }}/libKardome.so
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: "7"
+
+      - name: Append release build row to job summary
+        shell: bash
+        run: |
+          {
+            echo "- **${{ matrix.short }}** (${{ matrix.configure }}): artifact \`runner-${{ steps.runner_artifact.outputs.preset }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Disk space (after)
         if: always()
@@ -217,14 +224,20 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
       - name: Checkout source to build
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: ./.github/actions/checkout-repo-head
         with:
-          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
-          fetch-depth: 1
-          submodules: false
-          lfs: false
-          persist-credentials: false
+          fetch-depth: "1"
+          submodules: "false"
+          lfs: "false"
+          persist-credentials: "false"
+
+      - name: Cache Gradle user home
+        uses: ./.github/actions/cache-repo
+        with:
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
+          path: ${{ env.GRADLE_USER_HOME }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Disk space (before)
         run: df -h
