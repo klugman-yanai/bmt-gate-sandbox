@@ -36,6 +36,22 @@ def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any]
     return None
 
 
+def _project_has_bmts_in_bucket(root: str, project: str) -> bool:
+    """True when the bucket has at least one object under ``projects/<project>/bmts/``."""
+    slug = str(project).strip().lower()
+    if not slug:
+        return False
+    prefix_uri = f"{root.rstrip('/')}/projects/{slug}/bmts/"
+    try:
+        return len(gcs.list_prefix(prefix_uri)) > 0
+    except gcs.GcsError as exc:
+        gh_warning(
+            f"Could not list bucket BMT prefix for project {slug!r} ({exc}); "
+            "treating as no bucket BMT layout (dev publish matrix will omit this project)."
+        )
+        return False
+
+
 def _ci_run_id_for_markers() -> str:
     """Prefer parent CI run id (``BMT_CI_RUN_ID``) so GCS markers align with build-and-test."""
     rid = (os.environ.get("BMT_CI_RUN_ID") or "").strip()
@@ -239,6 +255,18 @@ class RunnerManager:
             preset = str(entry.get("preset", "")).strip()
             if not project or not preset:
                 continue
+            if skip_missing:
+                allow_synthetic_unsupported = project == "ci_dev_unsupported" and is_truthy_env_value(
+                    os.environ.get("BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG")
+                )
+                if not allow_synthetic_unsupported and not _project_has_bmts_in_bucket(
+                    root, project
+                ):
+                    print(
+                        f"::notice::Omit {project}/{preset} from dev publish matrix: "
+                        f"no objects under projects/{project.lower()}/bmts/ in bucket."
+                    )
+                    continue
             supported = "true" if _project_has_bmt_stage_layout(project) else "false"
             payload = _runner_meta_in_gcs(root, project, preset)
             if payload is not None:
@@ -285,21 +313,41 @@ class RunnerManager:
             if supported == "true":
                 need_include.append(dict(entry))
         out = {"include": need_include}
-        pub = {"include": publish_include}
         out_json = json.dumps(out, separators=(",", ":"))
-        pub_json = json.dumps(pub, separators=(",", ":"))
+        # Dev (skip_missing): matrix lists only projects with bucket BMT layout under projects/<p>/bmts/
+        # (plus optional synthetic ci_dev_unsupported when BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG is set).
+        # Production: matrix only includes real runner/lib upload legs (supported + binary).
+        publish_for_workflow: list[dict[str, Any]]
+        if skip_missing:
+            publish_for_workflow = publish_include
+        else:
+            publish_for_workflow = [
+                r
+                for r in publish_include
+                if str(r.get("bmt_supported", "")).strip() == "true"
+                and str(r.get("publish_mode", "")).strip() == "binary"
+            ]
+        pub_wf = {"include": publish_for_workflow}
+        pub_json = json.dumps(pub_wf, separators=(",", ":"))
         path = Path(core.require_env("GITHUB_OUTPUT"))
         with path.open("a", encoding="utf-8") as f:
             f.write(f"matrix_need_upload<<FILTER_EOF\n{out_json}\nFILTER_EOF\n")
             keys = [f"{e['project']}|{e['preset']}" for e in need_include]
             f.write(f"matrix_need_upload_keys={json.dumps(keys)}\n")
             f.write(f"matrix_publish<<PUBLISH_EOF\n{pub_json}\nPUBLISH_EOF\n")
-            pub_keys = [f"{e['project']}|{e['preset']}" for e in publish_include]
+            pub_keys = [f"{e['project']}|{e['preset']}" for e in publish_for_workflow]
             f.write(f"matrix_publish_keys={json.dumps(pub_keys)}\n")
-        skipped = len(include) - len(publish_include)
+        skipped_gcs = len(include) - len(publish_include)
+        trimmed = len(publish_include) - len(publish_for_workflow)
+        trim_note = ""
+        if not skip_missing and trimmed > 0:
+            trim_note = (
+                f" ({trimmed} leg(s) not in workflow matrix: unsupported or non-binary upload)"
+            )
         print(
-            f"::notice::Filter upload matrix: {len(need_include)} supported leg(s) queued for publish; "
-            f"{len(publish_include)} total publish matrix row(s); {skipped} row(s) omitted (already on GCS)."
+            f"::notice::Filter upload matrix: {len(need_include)} supported leg(s) for handoff; "
+            f"{len(publish_include)} internal publish row(s); {skipped_gcs} row(s) omitted (already on GCS); "
+            f"workflow matrix {len(publish_for_workflow)} leg(s){trim_note}."
         )
 
     def upload(self) -> None:

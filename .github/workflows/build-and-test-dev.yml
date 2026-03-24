@@ -5,22 +5,7 @@ name: Build
 # Same pattern as core-main: reusable CI file + thin trigger (release template uses pull_request_target → build-and-test.yml).
 on:
   workflow_dispatch:
-    inputs:
-      build_matrix_part:
-        description: "Which matrices to run (use split PR triggers so BMT only waits on release)."
-        type: choice
-        default: all
-        options:
-          - all
-          - release
-          - non_release
-  workflow_call:
-    inputs:
-      build_matrix_part:
-        description: "all | release | non_release — PR callers use two jobs so BMT needs only release."
-        required: false
-        type: string
-        default: all
+  workflow_call: {}
 
 defaults:
   run:
@@ -32,7 +17,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ inputs.build_matrix_part || 'all' }}
+  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -112,9 +97,6 @@ jobs:
   build_1_release:
     name: Release
     needs: checkout
-    if: >-
-      (inputs.build_matrix_part == 'all' || inputs.build_matrix_part == 'release') &&
-      needs.checkout.outputs.release_presets != '[]'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -130,9 +112,6 @@ jobs:
   build_2_non_release:
     name: Non-Release
     needs: checkout
-    if: >-
-      (inputs.build_matrix_part == 'all' || inputs.build_matrix_part == 'non_release') &&
-      needs.checkout.outputs.non_release_presets != '[]'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false

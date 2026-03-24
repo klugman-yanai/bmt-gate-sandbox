@@ -263,6 +263,7 @@ jobs:
           BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
           AVAILABLE_ARTIFACTS: ${{ steps.runner_artifacts_index.outputs.json }}
           SKIP_MISSING_RUNNER_ARTIFACTS: ${{ inputs.skip_missing_runner_artifacts == true && 'true' || 'false' }}
+          BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG: ${{ inputs.dev_append_unsupported_runner_leg == true && 'true' || 'false' }}
         run: uv run bmt handoff write-context && uv run bmt runner filter-upload-matrix
 
       - name: Workflow summary notice
@@ -273,7 +274,6 @@ jobs:
     needs: plan
     if: needs.plan.outputs.matrix_publish_keys != '[]'
     runs-on: ubuntu-22.04
-    continue-on-error: true
     permissions:
       contents: read
       actions: read
@@ -285,21 +285,22 @@ jobs:
     env:
       BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
     steps:
+      # fromJson(matrix) coerces JSON booleans; compare both bool and string or every step is skipped → job fails.
       - name: Skip unsupported project (no BMT stage layout)
-        if: matrix.bmt_supported == 'false'
+        if: ${{ matrix.bmt_supported == false || matrix.bmt_supported == 'false' }}
         run: |
           set -euo pipefail
-          echo "::notice::Publish leg completed without upload — project '${{ matrix.project }}' has no BMT stage under gcp/stage/projects/ (matrix guard; not a failure)."
+          echo "::notice::Publish leg skipped — project '${{ matrix.project }}' has no BMT stage under gcp/stage/projects/ (not a failure)."
 
       - name: Checkout repo
-        if: matrix.bmt_supported == 'true'
+        if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
           fetch-depth: 1
 
       - name: Setup GCP and uv
-        if: matrix.bmt_supported == 'true'
+        if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
         uses: ./.github/actions/setup-gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
@@ -308,7 +309,7 @@ jobs:
           python_version: "3.12"
 
       - name: Download runner artifact from CI run
-        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
+        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: runner-${{ matrix.preset }}
@@ -318,7 +319,7 @@ jobs:
           run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
 
       - name: Normalize layout for bmt runner upload
-        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
+        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
         run: |
           set -euo pipefail
           mkdir -p artifact/Runners artifact/Kardome
@@ -335,7 +336,7 @@ jobs:
           fi
 
       - name: Upload runner to GCS
-        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
+        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
@@ -343,7 +344,7 @@ jobs:
         run: uv run bmt runner upload-to-gcs
 
       - name: Upload dev publish manifest (no binaries)
-        if: matrix.bmt_supported == 'true' && matrix.publish_mode == 'manifest_only'
+        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode == 'manifest_only' }}
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
@@ -351,7 +352,7 @@ jobs:
         run: uv run bmt runner upload-dev-publish-manifest
 
       - name: Mark uploaded for handoff (dev manifest leg)
-        if: matrix.bmt_supported == 'true' && matrix.publish_mode == 'manifest_only'
+        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode == 'manifest_only' }}
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
@@ -359,7 +360,7 @@ jobs:
         run: uv run bmt runner validate-in-repo
 
       - name: Mark uploaded for handoff (binary leg)
-        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
+        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}

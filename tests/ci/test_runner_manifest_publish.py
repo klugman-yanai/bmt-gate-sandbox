@@ -40,6 +40,10 @@ def test_filter_manifest_only_when_skip_missing_no_artifact(tmp_path: Path, monk
     with (
         patch.object(RunnerManager, "_w", return_value=None),
         patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+        patch(
+            "ci.runner.gcs.list_prefix",
+            return_value=["gs://fake-bucket/projects/sk/bmts/false_rejects/bmt.json"],
+        ),
     ):
         RunnerManager.from_env().filter_upload_matrix()
 
@@ -86,6 +90,10 @@ def test_filter_binary_when_artifact_present_with_skip_missing(tmp_path: Path, m
     with (
         patch.object(RunnerManager, "_w", return_value=None),
         patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+        patch(
+            "ci.runner.gcs.list_prefix",
+            return_value=["gs://fake-bucket/projects/sk/bmts/false_rejects/bmt.json"],
+        ),
     ):
         RunnerManager.from_env().filter_upload_matrix()
 
@@ -94,6 +102,155 @@ def test_filter_binary_when_artifact_present_with_skip_missing(tmp_path: Path, m
     pub = json.loads(payload)
     rows = pub["include"]
     assert len(rows) == 1
+    assert rows[0]["publish_mode"] == "binary"
+
+
+def test_filter_dev_omit_presets_without_bucket_bmts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dev skip_missing: only projects with objects under projects/<p>/bmts/ enter the matrix."""
+    out = tmp_path / "gh_out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setenv("GCS_BUCKET", "fake-bucket")
+    monkeypatch.setenv("HEAD_SHA", "abc123")
+    monkeypatch.setenv("BMT_CI_RUN_ID", "55")
+    monkeypatch.setenv("SKIP_MISSING_RUNNER_ARTIFACTS", "true")
+    monkeypatch.setenv(
+        "RUNNER_MATRIX",
+        json.dumps(
+            {
+                "include": [
+                    {
+                        "configure": "SK_gcc_Release",
+                        "preset": "sk_gcc_release",
+                        "project": "sk",
+                        "bmt_id": "sk_gcc_release",
+                        "binary_dir": "build/SK/gcc_Release",
+                    },
+                    {
+                        "configure": "WOVEN_gcc_Release",
+                        "preset": "woven_gcc_release",
+                        "project": "woven",
+                        "bmt_id": "woven_gcc_release",
+                        "binary_dir": "build/WOVEN/gcc_Release",
+                    },
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("AVAILABLE_ARTIFACTS", "[]")
+
+    def fake_list(uri: str) -> list[str]:
+        if "/projects/sk/bmts/" in uri:
+            return ["gs://fake-bucket/projects/sk/bmts/false_rejects/bmt.json"]
+        return []
+
+    with (
+        patch.object(RunnerManager, "_w", return_value=None),
+        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("ci.runner.gcs.list_prefix", side_effect=fake_list),
+    ):
+        RunnerManager.from_env().filter_upload_matrix()
+
+    text = out.read_text(encoding="utf-8")
+    payload = text.split("matrix_publish<<PUBLISH_EOF\n", 1)[1].split("\nPUBLISH_EOF\n", 1)[0]
+    pub = json.loads(payload)
+    rows = pub["include"]
+    assert len(rows) == 1
+    assert rows[0]["project"] == "sk"
+
+
+def test_filter_dev_synthetic_unsupported_without_bucket_when_flag_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "gh_out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setenv("GCS_BUCKET", "fake-bucket")
+    monkeypatch.setenv("HEAD_SHA", "abc123")
+    monkeypatch.setenv("BMT_CI_RUN_ID", "55")
+    monkeypatch.setenv("SKIP_MISSING_RUNNER_ARTIFACTS", "true")
+    monkeypatch.setenv("BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG", "true")
+    monkeypatch.setenv(
+        "RUNNER_MATRIX",
+        json.dumps(
+            {
+                "include": [
+                    {
+                        "configure": "CI_DEV_UNSUPPORTED_gcc_Release",
+                        "preset": "ci_dev_unsupported_gcc_release",
+                        "project": "ci_dev_unsupported",
+                        "bmt_id": "ci_dev_unsupported_gcc_release",
+                        "binary_dir": "build/X/gcc_Release",
+                    },
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("AVAILABLE_ARTIFACTS", "[]")
+
+    with (
+        patch.object(RunnerManager, "_w", return_value=None),
+        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("ci.runner.gcs.list_prefix", return_value=[]),
+    ):
+        RunnerManager.from_env().filter_upload_matrix()
+
+    text = out.read_text(encoding="utf-8")
+    payload = text.split("matrix_publish<<PUBLISH_EOF\n", 1)[1].split("\nPUBLISH_EOF\n", 1)[0]
+    pub = json.loads(payload)
+    rows = pub["include"]
+    assert len(rows) == 1
+    assert rows[0]["project"] == "ci_dev_unsupported"
+    assert rows[0]["publish_mode"] == "manifest_only"
+
+
+def test_filter_production_matrix_only_binary_supported_uploads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When skip_missing is off, matrix_publish omits unsupported and manifest_only legs."""
+    out = tmp_path / "gh_out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setenv("GCS_BUCKET", "fake-bucket")
+    monkeypatch.setenv("HEAD_SHA", "abc123")
+    monkeypatch.setenv("BMT_CI_RUN_ID", "55")
+    monkeypatch.delenv("SKIP_MISSING_RUNNER_ARTIFACTS", raising=False)
+    monkeypatch.setenv(
+        "RUNNER_MATRIX",
+        json.dumps(
+            {
+                "include": [
+                    {
+                        "configure": "SK_gcc_Release",
+                        "preset": "sk_gcc_release",
+                        "project": "sk",
+                        "bmt_id": "sk_gcc_release",
+                        "binary_dir": "build/SK/gcc_Release",
+                    },
+                    {
+                        "configure": "ZZUNSUPPORTED_gcc_Release",
+                        "preset": "zzunsupported_gcc_release",
+                        "project": "zzunsupported",
+                        "bmt_id": "zzunsupported_gcc_release",
+                        "binary_dir": "build/ZZ/gcc_Release",
+                    },
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("AVAILABLE_ARTIFACTS", json.dumps(["runner-sk_gcc_release", "runner-zzunsupported_gcc_release"]))
+
+    with (
+        patch.object(RunnerManager, "_w", return_value=None),
+        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+    ):
+        RunnerManager.from_env().filter_upload_matrix()
+
+    text = out.read_text(encoding="utf-8")
+    payload = text.split("matrix_publish<<PUBLISH_EOF\n", 1)[1].split("\nPUBLISH_EOF\n", 1)[0]
+    pub = json.loads(payload)
+    rows = pub["include"]
+    assert len(rows) == 1
+    assert rows[0]["project"] == "sk"
     assert rows[0]["publish_mode"] == "binary"
 
 
