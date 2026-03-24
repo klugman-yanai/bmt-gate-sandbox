@@ -87,6 +87,12 @@ def runner_validate_in_repo() -> None:
     RunnerManager.from_env().validate_in_repo()
 
 
+@runner_app.command("upload-dev-publish-manifest")
+def runner_upload_dev_publish_manifest() -> None:
+    """Write dev placeholder manifest (no binaries) for manifest_only publish legs."""
+    RunnerManager.from_env().upload_dev_publish_manifest()
+
+
 @runner_app.command("resolve-uploaded-projects")
 def runner_resolve_uploaded_projects() -> None:
     """Resolve accepted_projects from upload markers."""

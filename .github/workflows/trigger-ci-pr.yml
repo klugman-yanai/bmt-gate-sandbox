@@ -42,5 +42,6 @@ jobs:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       use_mock_runner: ${{ github.base_ref == 'ci/check-bmt-gate' }}
       skip_missing_runner_artifacts: true
+      dev_append_unsupported_runner_leg: true
       cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
       bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}

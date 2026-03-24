@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, cast
 
+from gcp.image.config.env_parse import is_truthy_env_value
 from whenever import Instant
 
 from ci import config, core, gcs
@@ -102,9 +103,11 @@ class RunnerManager:
         return self._ctx.workflow if self._ctx else None
 
     def validate_in_repo(self) -> None:
+        if is_truthy_env_value(os.environ.get("BMT_DEV_MANIFEST_ONLY")):
+            self._write_handoff_uploaded_marker()
+            return
         project = core.require_env("PROJECT")
         preset = core.require_env("PRESET")
-        run_id = _ci_run_id_for_markers()
         root = core.workflow_runtime_root()
         canonical_runner_uri = f"{root}/projects/{project}/kardome_runner"
         try:
@@ -134,12 +137,49 @@ class RunnerManager:
                     "No handoff leg will run for this project."
                 )
                 return
+        self._write_handoff_uploaded_marker()
+
+    def _write_handoff_uploaded_marker(self) -> None:
+        project = core.require_env("PROJECT")
+        run_id = _ci_run_id_for_markers()
+        root = core.workflow_runtime_root()
         marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
         try:
             gcs.write_object(marker_uri, "{}")
         except gcs.GcsError as exc:
             raise RuntimeError(f"Failed to write uploaded marker {marker_uri}: {exc}") from exc
         print(f"Marked project {project} as validated for handoff -> {marker_uri}")
+
+    def upload_dev_publish_manifest(self) -> None:
+        """Upload a dev-placeholder manifest (no binaries) under ``_workflow/dev_publish_manifest/``."""
+        self._cfg.require_gcp()
+        project = core.require_env("PROJECT")
+        preset = core.require_env("PRESET")
+        source_ref = (os.environ.get("SOURCE_REF") or "").strip()
+        root = core.workflow_runtime_root()
+        run_id = _ci_run_id_for_markers()
+        safe_key = f"{project}__{preset}".replace("/", "_")
+        uri = f"{root}/_workflow/dev_publish_manifest/{run_id}/{safe_key}.json"
+        dest_runner = f"{root}/projects/{project}/kardome_runner"
+        dest_lib = f"{root}/projects/{project}/libKardome.so"
+        payload: dict[str, Any] = {
+            "kind": "bmt_ci_dev_publish_manifest",
+            "schema_version": 1,
+            "project": project,
+            "preset": preset,
+            "source_ref": source_ref,
+            "would_publish": {
+                "kardome_runner": dest_runner,
+                "libKardome.so": dest_lib,
+            },
+            "note": (
+                "CI dev placeholder: caller has no runner-* artifact; this manifest records "
+                "the layout that a real publish would upload."
+            ),
+            "uploaded_at": Instant.now().format_iso(unit="second"),
+        }
+        gcs.upload_json(uri, payload)
+        print(f"::notice::Wrote dev publish manifest -> {uri}")
 
     def filter_upload_matrix(self) -> None:
         w = self._w()
@@ -227,13 +267,20 @@ class RunnerManager:
                     )
                     continue
             if skip_missing and f"runner-{preset}" not in artifact_set:
+                row_m = cast(dict[str, Any], dict(entry))
+                row_m["bmt_supported"] = supported
+                row_m["publish_mode"] = "manifest_only"
+                publish_include.append(row_m)
+                if supported == "true":
+                    need_include.append(dict(entry))
                 print(
-                    f"::notice::Skip upload for {project}/{preset}: no runner artifact in caller run "
-                    "(skip_missing_runner_artifacts; dev placeholder CI)."
+                    f"::notice::Dev manifest-only publish leg for {project}/{preset} "
+                    "(skip_missing_runner_artifacts; no runner-* artifact on caller run)."
                 )
                 continue
             row = cast(dict[str, Any], dict(entry))
             row["bmt_supported"] = supported
+            row["publish_mode"] = "binary"
             publish_include.append(row)
             if supported == "true":
                 need_include.append(dict(entry))
@@ -249,10 +296,10 @@ class RunnerManager:
             f.write(f"matrix_publish<<PUBLISH_EOF\n{pub_json}\nPUBLISH_EOF\n")
             pub_keys = [f"{e['project']}|{e['preset']}" for e in publish_include]
             f.write(f"matrix_publish_keys={json.dumps(pub_keys)}\n")
+        skipped = len(include) - len(publish_include)
         print(
-            f"::notice::Filter upload matrix: {len(need_include)} publish job(s) for supported BMT; "
-            f"{len(publish_include)} total artifact leg(s); "
-            f"{len(include) - len(publish_include)} already on GCS or no artifact (will show as Skipped)."
+            f"::notice::Filter upload matrix: {len(need_include)} supported leg(s) queued for publish; "
+            f"{len(publish_include)} total publish matrix row(s); {skipped} row(s) omitted (already on GCS)."
         )
 
     def upload(self) -> None:

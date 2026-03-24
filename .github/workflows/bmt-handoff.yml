@@ -48,9 +48,16 @@ on:
         default: "BMT Gate"
       skip_missing_runner_artifacts:
         description: >
-          Dev CI only. When true, omit Publish matrix legs whose runner-* artifact is absent
-          (e.g. placeholder release builds). Production callers must leave this false so missing
-          artifacts fail at download instead of being skipped.
+          Dev CI only. When true, missing runner-* artifacts use manifest-only publish legs
+          (record intended layout under _workflow/dev_publish_manifest/) instead of failing
+          download. Production callers must leave this false so missing artifacts fail at download.
+        required: false
+        type: boolean
+        default: false
+      dev_append_unsupported_runner_leg:
+        description: >
+          Dev CI only. When true, append a synthetic release row (ci_dev_unsupported) with no
+          gcp/stage BMT layout so the publish matrix exercises the unsupported-project failure path.
         required: false
         type: boolean
         default: false
@@ -106,8 +113,16 @@ on:
         default: "BMT Gate"
       skip_missing_runner_artifacts:
         description: >
-          Dev CI only. When true, omit Publish matrix legs whose runner-* artifact is absent
-          (e.g. placeholder release builds). Production callers must leave this false.
+          Dev CI only. When true, missing runner-* artifacts use manifest-only publish legs
+          (record intended layout under _workflow/dev_publish_manifest/) instead of failing
+          download. Production callers must leave this false.
+        required: false
+        type: boolean
+        default: false
+      dev_append_unsupported_runner_leg:
+        description: >
+          Dev CI only. When true, append synthetic ci_dev_unsupported row (no stage layout)
+          to exercise unsupported publish matrix legs.
         required: false
         type: boolean
         default: false
@@ -166,7 +181,7 @@ jobs:
       head_event: ${{ steps.prepare.outputs.head_event }}
       pr_number: ${{ steps.prepare.outputs.pr_number }}
       run_context: ${{ steps.prepare.outputs.run_context }}
-      runner_matrix: ${{ steps.prepare.outputs.runner_matrix }}
+      runner_matrix: ${{ steps.runner_matrix_merge.outputs.runner_matrix }}
       matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
       matrix_publish: ${{ steps.filter.outputs.matrix_publish }}
@@ -186,6 +201,31 @@ jobs:
           head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
           head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
           pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
+
+      - id: runner_matrix_merge
+        shell: bash
+        env:
+          BASE_MATRIX: ${{ steps.prepare.outputs.runner_matrix }}
+          APPEND_DEV_UNSUPPORTED: ${{ inputs.dev_append_unsupported_runner_leg == true && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          m="$BASE_MATRIX"
+          if [[ "$APPEND_DEV_UNSUPPORTED" == "true" ]]; then
+            echo '::notice::Appending dev-only unsupported runner matrix leg (ci_dev_unsupported)'
+            m=$(jq -c \
+              '.include += [{
+                "configure": "CI_DEV_UNSUPPORTED_gcc_Release",
+                "preset": "ci_dev_unsupported_gcc_release",
+                "project": "ci_dev_unsupported",
+                "bmt_id": "ci_dev_unsupported_gcc_release",
+                "binary_dir": "build/CI_DEV_UNSUPPORTED/gcc_Release"
+              }]' <<<"$m")
+          fi
+          {
+            echo "runner_matrix<<RM_EOF"
+            echo "$m"
+            echo "RM_EOF"
+          } >>"$GITHUB_OUTPUT"
 
       - id: runner_artifacts_index
         env:
@@ -217,7 +257,7 @@ jobs:
       - id: filter
         env:
           GCS_BUCKET: ${{ env.GCS_BUCKET }}
-          RUNNER_MATRIX: ${{ steps.prepare.outputs.runner_matrix }}
+          RUNNER_MATRIX: ${{ steps.runner_matrix_merge.outputs.runner_matrix }}
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
@@ -227,7 +267,7 @@ jobs:
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
-  # Download runner-* artifacts from the CI run and upload to GCS (pair checksum in bmt runner upload).
+  # Download runner-* artifacts when present; dev skip_missing uses manifest-only legs (no binaries).
   publish:
     name: Publish
     needs: plan
@@ -245,6 +285,13 @@ jobs:
     env:
       BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
     steps:
+      - name: Unsupported project (dev matrix guard)
+        if: matrix.bmt_supported == 'false'
+        run: |
+          set -euo pipefail
+          echo "::error::Project '${{ matrix.project }}' has no BMT stage layout under gcp/stage/projects/ (expected failure for dev unsupported leg)."
+          exit 1
+
       - name: Checkout repo
         if: matrix.bmt_supported == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -262,7 +309,7 @@ jobs:
           python_version: "3.12"
 
       - name: Download runner artifact from CI run
-        if: matrix.bmt_supported == 'true'
+        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: runner-${{ matrix.preset }}
@@ -272,7 +319,7 @@ jobs:
           run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
 
       - name: Normalize layout for bmt runner upload
-        if: matrix.bmt_supported == 'true'
+        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
         run: |
           set -euo pipefail
           mkdir -p artifact/Runners artifact/Kardome
@@ -289,15 +336,31 @@ jobs:
           fi
 
       - name: Upload runner to GCS
-        if: matrix.bmt_supported == 'true'
+        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
           SOURCE_REF: ${{ needs.plan.outputs.head_sha }}
         run: uv run bmt runner upload-to-gcs
 
-      - name: Mark uploaded for handoff
-        if: matrix.bmt_supported == 'true'
+      - name: Upload dev publish manifest (no binaries)
+        if: matrix.bmt_supported == 'true' && matrix.publish_mode == 'manifest_only'
+        env:
+          PROJECT: ${{ matrix.project }}
+          PRESET: ${{ matrix.preset }}
+          SOURCE_REF: ${{ needs.plan.outputs.head_sha }}
+        run: uv run bmt runner upload-dev-publish-manifest
+
+      - name: Mark uploaded for handoff (dev manifest leg)
+        if: matrix.bmt_supported == 'true' && matrix.publish_mode == 'manifest_only'
+        env:
+          PROJECT: ${{ matrix.project }}
+          PRESET: ${{ matrix.preset }}
+          BMT_DEV_MANIFEST_ONLY: "true"
+        run: uv run bmt runner validate-in-repo
+
+      - name: Mark uploaded for handoff (binary leg)
+        if: matrix.bmt_supported == 'true' && matrix.publish_mode != 'manifest_only'
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
