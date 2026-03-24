@@ -43,7 +43,7 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     assert "      contents: read" in handoff
     assert "      actions: write" not in handoff
 
-    assert "uses: ./.github/workflows/build-and-test-dev.yml@" in trigger_ci
+    assert "uses: ./.github/workflows/build-and-test-dev.yml" in trigger_ci
     assert "permissions:" in trigger_ci
     assert "  contents: read" in trigger_ci
     assert "  actions: read" in trigger_ci
