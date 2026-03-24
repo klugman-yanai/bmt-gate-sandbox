@@ -141,6 +141,31 @@ runs:
         fi
         echo "reason=${reason}" >>"$GITHUB_OUTPUT"
 
+    - name: Set BMT failure status
+      if: always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CONTEXT: ${{ inputs.bmt_status_context }}
+        SHA: ${{ steps.failctx.outputs.head_sha }}
+        REASON: ${{ steps.reason.outputs.reason }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        if [[ -z "${SHA}" ]]; then
+          echo "::warning::No head SHA resolved for failure status; skipping."
+          exit 0
+        fi
+        echo "::notice::Setting BMT failure status for ${SHA:0:7} context '${CONTEXT}'"
+        gh api \
+          --method POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "/repos/${{ github.repository }}/statuses/${SHA}" \
+          -f "state=failure" \
+          -f "target_url=${RUN_URL}" \
+          -f "description=${REASON}" \
+          -f "context=${CONTEXT}"
+
     - name: Write handoff summary (failure)
       if: always()
       uses: ./.github/actions/bmt-write-summary

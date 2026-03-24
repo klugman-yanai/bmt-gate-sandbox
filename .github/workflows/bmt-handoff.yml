@@ -518,7 +518,9 @@ jobs:
           echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
 
       - name: Failure fallback
-        if: steps.invoke-workflow.outcome != 'success'
+        if: >-
+          !cancelled() &&
+          (steps.classify.outcome == 'failure' || steps.invoke-workflow.outcome == 'failure')
         uses: ./.github/actions/bmt-failure-fallback
         with:
           handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
