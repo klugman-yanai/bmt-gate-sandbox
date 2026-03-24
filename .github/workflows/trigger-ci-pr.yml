@@ -40,7 +40,7 @@ jobs:
       head_branch: ${{ github.event.pull_request.head.ref }}
       head_event: ${{ github.event_name }}
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
-      use_mock_runner: false
+      use_mock_runner: ${{ github.base_ref == 'ci/check-bmt-gate' }}
       skip_missing_runner_artifacts: true
       cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
       bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
