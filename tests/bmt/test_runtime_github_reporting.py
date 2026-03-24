@@ -703,3 +703,93 @@ def test_publish_final_results_pr_comment_includes_case_crash_count(
     assert bmt_name == "false_rejects"
     assert "runner crashed on one or more test files" in detail
     assert "(2 of 24 cases crashed)" in detail
+
+
+def test_publish_github_failure_retries_success_status_when_legs_pass_but_api_failed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When all legs pass on disk but publish_final_results failed to mark github_publish_complete,
+    publish_github_failure must still attempt to post a success commit status + finalize the check
+    run rather than giving up and leaving the PR in a dangling pending state.
+
+    Reproduces the root cause of the dangling-pending-status bug: the old code path returned early
+    with only a log.error when aggregate was pass, leaving the Check Run as in_progress forever.
+    """
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=42,
+            started_at="2026-03-19T10:00:00Z",
+            github_publish_complete=False,
+        ),
+    )
+
+    # Write passing summaries to disk for both legs.
+    for leg in plan.legs:
+        write_summary(
+            stage_root=runtime.stage_root,
+            workflow_run_id=plan.workflow_run_id,
+            summary=_summary(
+                bmt_slug=leg.bmt_slug,
+                run_id=leg.run_id,
+                status="pass",
+                reason_code="score_gte_last",
+                aggregate_score=95.0,
+                duration_sec=60,
+            ),
+        )
+
+    cap = CallRecorder()
+    publish_final_results_calls: list[str] = []
+
+    # publish_final_results is called but does NOT mark github_publish_complete (simulates API failure).
+    def _publish_that_fails_github(*, plan, summaries, runtime):
+        publish_final_results_calls.append("called")
+        # Don't actually call the real function; simulate a scenario where it ran but
+        # github_publish_complete stayed False (e.g. both finalize_check_run and
+        # post_final_status returned False due to API errors).
+
+    class FakeReporter:
+        def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
+            cap.init = (repository, sha, token, status_context)
+
+        def finalize_check_run(
+            self, *, check_run_id: int | None, view: CheckFinalView, details_url: str
+        ) -> tuple[int | None, bool]:
+            cap.finalize_check_run_id = check_run_id
+            cap.finalize_view = view
+            return check_run_id, True
+
+        def post_final_status(self, *, state: str, description: str, details_url: str | None = None) -> bool:
+            cap.status_state = state
+            cap.status_description = description
+            return True
+
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "app-token")
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.publish_final_results", _publish_that_fails_github)
+    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr(
+        "gcp.image.runtime.github_reporting.github_checks.get_check_run_status",
+        lambda *_a, **_k: "in_progress",
+    )
+    monkeypatch.setattr("gcp.image.runtime.github_reporting._write_log_dump_and_sign", lambda **_kw: None)
+
+    publish_github_failure(plan=plan, runtime=runtime, reason="coordinator crashed")
+
+    # publish_final_results was attempted first (existing behavior).
+    assert len(publish_final_results_calls) == 1
+
+    # The fix: instead of giving up, a success commit status and check finalization must be posted.
+    assert cap.status_state == "success", (
+        "Expected success commit status to be posted for passing legs, "
+        "but publish_github_failure gave up and left status dangling."
+    )
+    assert "passed" in cap.status_description.lower()
+    assert cap.finalize_check_run_id == 42
+    assert cap.finalize_view.state == "success"

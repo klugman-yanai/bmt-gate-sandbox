@@ -319,6 +319,66 @@ def _sync_local_metadata_if_check_already_completed_on_github(
     return True
 
 
+def _publish_github_failure_retry_pass(
+    *,
+    plan: ExecutionPlan,
+    runtime: StageRuntimePaths,
+    token: str,
+    metadata: ReportingMetadata,
+    summaries: list[LegSummary],
+) -> None:
+    """Retry posting a *success* status when legs pass on disk but the normal publish path failed.
+
+    Without this, a transient GitHub API error during ``publish_final_results`` would leave the
+    Check Run as ``in_progress`` forever (dangling pending gate).
+    """
+    if metadata.check_run_id is None:
+        return
+    reporter = GitHubReporter(
+        repository=plan.repository,
+        sha=plan.head_sha,
+        token=token,
+        status_context=plan.status_context,
+    )
+    workflow_url = metadata.workflow_execution_url
+    log_dump_url = _write_log_dump_and_sign(plan=plan, runtime=runtime, summaries=summaries)
+    final_view = _final_view(
+        summaries=summaries,
+        workflow_execution_url=workflow_url,
+        log_dump_url=log_dump_url,
+    )
+    description = _commit_status_description(summaries, is_pass=True)
+    finalized_ok = False
+    try:
+        _, finalized_ok = reporter.finalize_check_run(
+            check_run_id=metadata.check_run_id,
+            view=final_view,
+            details_url=workflow_url,
+        )
+    except GithubException:
+        logger.warning(
+            "publish_github_failure finalize_check_run (pass retry) failed workflow_run_id=%s",
+            plan.workflow_run_id,
+            exc_info=True,
+        )
+    commit_ok = reporter.post_final_status(
+        state=CommitStatus.SUCCESS.value,
+        description=description,
+        details_url=workflow_url or None,
+    )
+    if finalized_ok and commit_ok:
+        _persist_github_publish_complete(
+            runtime=runtime,
+            workflow_run_id=plan.workflow_run_id,
+            metadata=metadata,
+        )
+    elif not commit_ok:
+        logger.error(
+            "publish_github_failure could not post success commit status workflow_run_id=%s",
+            plan.workflow_run_id,
+        )
+
+
 def _publish_github_failure_retry_commit_description(
     *,
     plan: ExecutionPlan,
@@ -422,14 +482,18 @@ def publish_github_failure(
     if again is not None and again.github_publish_complete:
         return
 
+    meta = again or fresh
+
     if aggregate_status(summaries) == BmtLegStatus.PASS.value:
-        logger.error(
-            "publish_github_failure gave up: legs passed on disk but GitHub publish incomplete workflow_run_id=%s",
-            plan.workflow_run_id,
+        _publish_github_failure_retry_pass(
+            plan=plan,
+            runtime=runtime,
+            token=token,
+            metadata=meta,
+            summaries=summaries,
         )
         return
 
-    meta = again or fresh
     _publish_github_failure_retry_commit_description(
         plan=plan,
         runtime=runtime,
