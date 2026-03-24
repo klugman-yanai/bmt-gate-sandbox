@@ -1,6 +1,6 @@
-name: CI
+name: Build
 
-# Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel).
+# Jobs/DAG: checkout → build_1_release + build_2_non_release (parallel).
 # Event entry: trigger-ci.yml (PR/push to dev + workflow_dispatch → workflow_call this file at head ref).
 # Same pattern as core-main: reusable CI file + thin trigger (release template uses pull_request_target → build-and-test.yml).
 on:
@@ -11,18 +11,18 @@ defaults:
   run:
     shell: bash
 
-# Artifact upload (repo_snapshot) needs actions write.
+# Artifact upload (checkout) needs actions write.
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: ci-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  repo_snapshot:
-    name: Checkout
+  checkout:
+    name: Snapshot
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -94,14 +94,14 @@ jobs:
 
   # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
-  build_release:
-    name: "Build / Release"
-    needs: repo_snapshot
+  build_1_release:
+    name: Release
+    needs: checkout
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.repo_snapshot.outputs.release_presets) }}
+        include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
     steps:
       - name: Release build placeholder (bmt-gcloud)
         run: |
@@ -109,15 +109,15 @@ jobs:
 
   # Non-release builds: run in parallel; do not block BMT.
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
-  build_non_release:
-    name: "Build / Non-Release"
-    needs: repo_snapshot
+  build_2_non_release:
+    name: Non-Release
+    needs: checkout
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       max-parallel: 6
       matrix:
-        include: ${{ fromJson(needs.repo_snapshot.outputs.non_release_presets) }}
+        include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
     steps:
       - name: Non-release build placeholder (bmt-gcloud)
         run: |

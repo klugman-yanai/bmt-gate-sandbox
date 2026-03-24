@@ -1,4 +1,4 @@
-name: BMT Cloud Jobs Handoff (Dev — Mock Runner)
+name: BMT (mock)
 # Dev-only: trigger bmt-handoff.yml with mock runner enabled for pipeline plumbing tests.
 # Passes use_mock_runner: true so no real dataset or runner is required.
 
@@ -34,7 +34,8 @@ on:
         default: "[]"
 
 jobs:
-  handoff:
+  bmt:
+    name: BMT
     permissions:
       contents: read
       actions: read

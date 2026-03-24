@@ -2,7 +2,7 @@
 # just build uses: gh workflow run internal/trigger-image-build.yml --ref <current-branch> -f branch=<current-branch>
 # Trigger file can live on any branch; --ref makes GitHub use the workflow from that branch.
 # Branch input is optional: when omitted (e.g. target repo has older workflow), we use github.ref_name.
-name: Trigger Image Build (from branch)
+name: BMT (image-dispatch)
 
 on:
   workflow_dispatch:
@@ -18,8 +18,8 @@ permissions:
   actions: write
 
 jobs:
-  trigger:
-    name: Run image build from branch
+  bmt_image:
+    name: Build
     runs-on: ubuntu-22.04
     env:
       GH_TOKEN: ${{ github.token }}
@@ -59,4 +59,3 @@ jobs:
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
       - name: Watch image build
         run: gh run watch ${{ steps.dispatch.outputs.run_id }} --repo "${{ github.repository }}" --exit-status
-

@@ -2,9 +2,9 @@
 # Copy to core-main/.github/workflows/build-and-test.yml
 # Event-driven entry: release template internal/trigger-ci.yml (pull_request_target + workflow_dispatch).
 
-name: CI
+name: Build
 
-# Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel).
+# Jobs/DAG: checkout → build_1_release + build_2_non_release (parallel).
 on:
   workflow_dispatch:
   workflow_call: {}
@@ -19,13 +19,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: ci-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   # ─────────────────────── 1) Parse presets, split release / non-release ──
-  repo_snapshot:
-    name: Checkout
+  checkout:
+    name: Snapshot
     runs-on: ubuntu-22.04
     outputs:
       release_presets: ${{ steps.parse.outputs.release_presets }}
@@ -64,9 +64,9 @@ jobs:
           echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
 
   # ─────────────────────── 2a) Build release presets (gates BMT) ────────────
-  build_release:
+  build_1_release:
     name: Release
-    needs: repo_snapshot
+    needs: checkout
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.repo_snapshot.outputs.release_presets) }}
+        include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
@@ -205,14 +205,14 @@ jobs:
           df -h
 
   # ─────────────────────── 2b) Build non-release presets ───────────────────
-  build_non_release:
+  build_2_non_release:
     name: Non-Release
-    needs: repo_snapshot
+    needs: checkout
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.repo_snapshot.outputs.non_release_presets) }}
+        include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:

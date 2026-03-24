@@ -1,20 +1,17 @@
-# Thin trigger — push to ci/check-bmt-gate runs build CI only (no BMT handoff).
+# Thin trigger — workflow_dispatch only (no push to dev).
 # PR trigger with full BMT pipeline lives in trigger-ci-pr.yml.
-# Copy to core-main/.github/workflows/internal/
-name: CI (push)
+# This template is used in core-main/.github/workflows/trigger-ci.yml.
+name: Build (dispatch)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - ci/check-bmt-gate
 
 permissions:
   contents: read
   actions: write
 
 jobs:
-  ci:
+  build:
     name: Build
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit

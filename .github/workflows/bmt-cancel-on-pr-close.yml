@@ -1,4 +1,4 @@
-name: BMT Cancel On PR Close
+name: BMT (cancel)
 
 on:
   pull_request:
@@ -13,8 +13,8 @@ defaults:
     shell: bash
 
 jobs:
-  cancel_active_bmt:
-    name: Cancel Active BMT Execution
+  bmt_cancel:
+    name: Cancel
     runs-on: ubuntu-22.04
     env:
       GCS_BUCKET: ${{ vars.GCS_BUCKET }}

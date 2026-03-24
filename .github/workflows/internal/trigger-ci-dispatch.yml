@@ -1,6 +1,6 @@
 # Manual: `gh workflow run` (or Actions UI) to run **build-and-test-dev.yml** on an arbitrary ref and watch the run.
 # Prefer root `trigger-ci.yml` for normal PR-driven CI (thin trigger → workflow_call).
-name: Dispatch CI on ref
+name: Build (dispatch)
 
 on:
   workflow_dispatch:
@@ -19,8 +19,8 @@ defaults:
     shell: bash
 
 jobs:
-  dispatch:
-    name: Dispatch CI from source branch
+  build:
+    name: Build
     runs-on: ubuntu-22.04
     env:
       GH_TOKEN: ${{ github.token }}

@@ -16,16 +16,16 @@ permissions:
   pull-requests: read
 
 jobs:
-  ci:
+  build:
     name: Build
     uses: ./.github/workflows/build-and-test-dev.yml
     secrets: inherit
 
-  bmt_handoff:
-    name: Handoff
-    needs: [ci]
+  bmt:
+    name: BMT
+    needs: [build]
     if: >-
-      (needs.ci.result == 'success' || needs.ci.result == 'skipped')
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
       && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read

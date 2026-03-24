@@ -1,4 +1,4 @@
-name: BMT Image Build
+name: BMT (image)
 
 on:
   workflow_dispatch:
@@ -52,8 +52,8 @@ permissions:
   id-token: write  # Required for GCP Workload Identity
 
 jobs:
-  build-image:
-    name: Packer build + SLSA provenance
+  bmt_image:
+    name: Build
     runs-on: ubuntu-22.04
     env:
       GCP_PROJECT: ${{ vars.GCP_PROJECT }}
