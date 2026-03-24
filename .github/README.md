@@ -62,7 +62,7 @@ Mechanical bundle: **`just tools release`** (requires `gcp/image/github/secrets/
 ## This repo’s workflow layout
 
 - **workflows/** — **Root (release-shaped):** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. **`internal/`** — dev-only: handoff mock, validate-release-bundle, **`trigger-ci`** (thin), **`trigger-ci-dispatch`**, bmt-image-build, trigger-image-build.
-- **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`, **`setup-uv-repo`** (single pin for `astral-sh/setup-uv` + uv CLI `version:`; `setup-gcp-uv` calls it), **`upload-artifact-repo`** / **`download-artifact-repo`** (SHA pins for `actions/upload-artifact` v7 and `actions/download-artifact` v5), **`cache-repo`** (SHA pin for `actions/cache` v4), **`checkout-repo-head`** (SHA pin for `actions/checkout` + PR/PRT head ref logic)
+- **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`, **`setup-uv-repo`** (single pin for `astral-sh/setup-uv` + uv CLI `version:`; `setup-gcp-uv` calls it), **`upload-artifact-repo`** / **`download-artifact-repo`** (SHA pins for `actions/upload-artifact` v7 and `actions/download-artifact` v5), **`cache-repo`** (SHA pin for `actions/cache` v4). **`actions/checkout@…`** is pinned **in each workflow** (not a composite): the runner must materialize the repo with the official checkout action **before** any `uses: ./.github/actions/...` step can load.
 - **`.github/bmt/`** — BMT CLI (`uv run bmt …`) and config used by workflows ([`README.md`](bmt/README.md))
 
 ## Which workflow runs CI?
@@ -189,7 +189,7 @@ Repository variables (`vars.*`, synced from Pulumi) are the **source of truth**.
 
 **`setup-uv-repo`** is the **only** place that pins **`astral-sh/setup-uv@…`** and the **uv CLI** `version:` string. Workflows and composites that need `uv` without GCP (e.g. **`validate-release-bundle.yml`**, **`bmt-prepare-context`**) call **`setup-uv-repo`** directly. Bump the action SHA / CLI version there only.
 
-Workflow checkouts go through **`checkout-repo-head`** (see above); **`build-and-test.yml`** uses **`checkout-repo-head`** then **`setup-uv-repo`** for the BMT packaging phase.
+**`build-and-test.yml`** runs **`actions/checkout@…`** (pinned SHA) then later **`setup-uv-repo`** for the BMT packaging phase.
 
 **`setup-gcp-uv`** chains WIF + gcloud, then **`setup-uv-repo`** when **`install_uv`** is true:
 
@@ -199,9 +199,9 @@ Workflow checkouts go through **`checkout-repo-head`** (see above); **`build-and
 
 Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `permissions` stay in each workflow job.
 
-**`checkout-repo-head`** is the **only** place that pins **`actions/checkout@…`**. Root and **`internal/`** workflows use **`uses: ./.github/actions/checkout-repo-head`** (optional **`ref`** / **`sparse-checkout`** for handoff-style jobs).
+**`actions/checkout@…`** cannot be wrapped as the **first** step by a **local** composite: GitHub needs the official action to populate `$GITHUB_WORKSPACE` before **`uses: ./.github/actions/...`** resolves. Keep the same **full commit SHA** in every workflow that checks out (search the tree when bumping).
 
-**Still duplicated by design (GitHub limitations):** `ubuntu-22.04`, and repeated **`workload_identity_provider` / `service_account` / `gcp_project`** `with:` blocks on each **`setup-gcp-uv`** step — workflows cannot import shared YAML fragments.
+**Still duplicated by design (GitHub limitations):** `ubuntu-22.04`, the checkout SHA lines above, and repeated **`workload_identity_provider` / `service_account` / `gcp_project`** `with:` blocks on each **`setup-gcp-uv`** step — workflows cannot import shared YAML fragments.
 
 ## GitHub Actions and Pulumi
 

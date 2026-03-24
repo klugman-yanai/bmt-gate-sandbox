@@ -103,9 +103,6 @@ def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
     download_artifact_repo = (repo_root() / ".github" / "actions" / "download-artifact-repo" / "action.yml").read_text(
         encoding="utf-8"
     )
-    checkout_repo_head = (repo_root() / ".github" / "actions" / "checkout-repo-head" / "action.yml").read_text(
-        encoding="utf-8"
-    )
     cache_repo = (repo_root() / ".github" / "actions" / "cache-repo" / "action.yml").read_text(encoding="utf-8")
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
 
@@ -125,24 +122,18 @@ def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
         "uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
         in download_artifact_repo
     )
-    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in checkout_repo_head
+    pin = "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+    assert pin in build_test
+    assert pin in handoff
+    assert pin in clang_format
+    assert pin in image_build
     assert "uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830" in cache_repo
     assert "actions/cache@" not in handoff
 
 
-def test_workflow_ymls_do_not_reference_checkout_action_directly() -> None:
-    """Pin `actions/checkout` only in `.github/actions/checkout-repo-head/action.yml`."""
-    workflows_dir = repo_root() / ".github" / "workflows"
-    violations: list[str] = []
-    for path in sorted(workflows_dir.rglob("*.yml")):
-        text = path.read_text(encoding="utf-8")
-        if "actions/checkout@" in text:
-            violations.append(str(path.relative_to(repo_root())))
-    assert not violations, "Use ./.github/actions/checkout-repo-head instead:\n" + "\n".join(violations)
-
-
 def test_unused_bmt_runner_env_action_is_removed() -> None:
     assert not (repo_root() / ".github" / "actions" / "bmt-runner-env").exists()
+    assert not (repo_root() / ".github" / "actions" / "checkout-repo-head").exists()
 
 
 def test_local_composite_action_paths_resolve() -> None:

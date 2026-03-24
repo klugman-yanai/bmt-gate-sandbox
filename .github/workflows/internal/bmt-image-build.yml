@@ -72,9 +72,9 @@ jobs:
       PKR_VAR_bmt_repo_source: ${{ github.workspace }}/gcp/image
 
     steps:
-      - uses: ./.github/actions/checkout-repo-head
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          fetch-depth: "1"
+          fetch-depth: 1
 
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv

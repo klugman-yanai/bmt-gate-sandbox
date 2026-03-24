@@ -190,10 +190,10 @@ jobs:
       matrix_publish_omitted_keys: ${{ steps.filter.outputs.matrix_publish_omitted_keys }}
     steps:
       - name: Checkout repo
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: "1"
+          fetch-depth: 1
 
       - id: prepare
         uses: ./.github/actions/bmt-prepare-context
@@ -314,10 +314,10 @@ jobs:
 
       - name: Checkout repo
         if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: "1"
+          fetch-depth: 1
 
       - name: Setup GCP and uv
         if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
@@ -433,10 +433,10 @@ jobs:
       bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
     steps:
       - name: Checkout repo (for local actions)
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: "1"
+          fetch-depth: 1
           sparse-checkout: |
             .github
             gcp
@@ -591,10 +591,10 @@ jobs:
 
       - name: Checkout repo (for local actions)
         if: steps.invoke-workflow.outcome != 'success'
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: "1"
+          fetch-depth: 1
           sparse-checkout: |
             .github
             gcp

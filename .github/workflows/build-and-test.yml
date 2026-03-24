@@ -32,12 +32,11 @@ jobs:
       non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
     steps:
       - name: Checkout source for preset parsing
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          fetch-depth: "1"
-          submodules: "false"
-          lfs: "false"
-          persist-credentials: "true"
+          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
 
       - name: Parse CMakePresets.json
         id: parse
@@ -80,12 +79,14 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
       - name: Checkout source to build
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          fetch-depth: "1"
-          submodules: "false"
-          lfs: "false"
-          persist-credentials: "false"
+          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - name: Cache Gradle user home
         uses: ./.github/actions/cache-repo
@@ -224,12 +225,14 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
     steps:
       - name: Checkout source to build
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          fetch-depth: "1"
-          submodules: "false"
-          lfs: "false"
-          persist-credentials: "false"
+          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          persist-credentials: false
 
       - name: Cache Gradle user home
         uses: ./.github/actions/cache-repo

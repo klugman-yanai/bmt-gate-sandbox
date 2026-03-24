@@ -29,10 +29,11 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - name: Checkout repo
-        uses: ./.github/actions/checkout-repo-head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          fetch-depth: "1"
-          persist-credentials: "true"
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
 
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv

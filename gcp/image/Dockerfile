@@ -46,4 +46,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Config via BMT_CONFIG env var pointing to a JSON payload file,
 # or mount at /etc/bmt/config.json (well-known path)
-CMD ["python", "gcp/image/main.py"]
+#
+# Use -m so sys.path[0] is not gcp/image/ — otherwise `import github` resolves to
+# gcp/image/github/ and shadows PyGithub (ImportError: GithubException).
+CMD ["python", "-m", "gcp.image.main"]
