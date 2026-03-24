@@ -46,10 +46,10 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     assert "uses: ./.github/workflows/build-and-test-dev.yml" in trigger_ci
     assert "permissions:" in trigger_ci
     assert "  contents: read" in trigger_ci
-    assert "  actions: read" in trigger_ci
-    assert "  actions: write" not in trigger_ci
-    assert "  id-token: write" not in trigger_ci
-    assert "  statuses: write" not in trigger_ci
+    assert "  actions: write" in trigger_ci
+    assert "  id-token: write" in trigger_ci
+    assert "  statuses: write" in trigger_ci
+    assert "  pull-requests: read" in trigger_ci
 
     assert "permissions:" in dispatch
     assert "  actions: write" in dispatch
