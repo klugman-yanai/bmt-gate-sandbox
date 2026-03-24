@@ -51,9 +51,9 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     assert "  id-token: write" not in trigger_ci
     assert "  statuses: write" not in trigger_ci
 
-    # PR trigger: full pipeline with handoff permissions
+    # PR trigger: full pipeline with handoff permissions (inline build matrices + shared checkout action)
     trigger_ci_pr = (repo_root() / ".github" / "workflows" / "trigger-ci-pr.yml").read_text(encoding="utf-8")
-    assert "uses: ./.github/workflows/build-and-test-dev.yml" in trigger_ci_pr
+    assert "uses: ./.github/actions/dev-checkout-presets" in trigger_ci_pr
     assert "uses: ./.github/workflows/bmt-handoff.yml" in trigger_ci_pr
     assert "  id-token: write" in trigger_ci_pr
     assert "  statuses: write" in trigger_ci_pr

@@ -49,69 +49,12 @@ jobs:
       contents: read
       actions: write
     outputs:
-      artifact_size: ${{ steps.report.outputs.artifact_size }}
-      release_presets: ${{ steps.parse.outputs.release_presets }}
-      non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
+      artifact_size: ${{ steps.snap.outputs.artifact_size }}
+      release_presets: ${{ steps.snap.outputs.release_presets }}
+      non_release_presets: ${{ steps.snap.outputs.non_release_presets }}
     steps:
-      - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-          submodules: false
-          lfs: false
-
-      - name: Create repo snapshot
-        run: |
-          tar --exclude='.git' \
-              --exclude='.ruff_cache' \
-              --exclude='.venv' --exclude='venv' --exclude='.uv' \
-              --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.tox' --exclude='*.egg-info' \
-              --exclude='.cursor' --exclude='.vscode' \
-              --exclude='node_modules' \
-              -czf /tmp/repo-snapshot.tar.gz .
-          mv /tmp/repo-snapshot.tar.gz repo-snapshot.tar.gz
-
-      - name: Report repo-snapshot size
-        id: report
-        run: |
-          size=$(du -h repo-snapshot.tar.gz | cut -f1)
-          echo "::notice::repo-snapshot artifact size: $size"
-          echo "artifact_size=$size" >>"$GITHUB_OUTPUT"
-
-      - name: Upload repo-snapshot
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: repo-snapshot
-          path: repo-snapshot.tar.gz
-          retention-days: 5
-
-      - name: Parse CMakePresets.json
-        id: parse
-        run: |
-          # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
-          # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
-          presets=$(jq -c '
-            [ (.buildPresets // [])[]
-              | (.configurePreset // "") as $cfg
-              | select($cfg != "")
-              | { build: .name
-                , configure: $cfg
-                , short: (.name | sub("-build$"; ""))
-                , is_release: (
-                    ($cfg | test("_gcc_Release")) and
-                    (($cfg | test("xtensa"; "i")) | not) and
-                    (($cfg | test("hexagon"; "i")) | not)
-                  )
-                , soft_fail: (
-                    ($cfg | test("xtensa"; "i")) or
-                    ($cfg | test("hexagon"; "i"))
-                  )
-                }
-            ]' CMakePresets.json)
-          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
-          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
+      - id: snap
+        uses: ./.github/actions/dev-checkout-presets
 
   # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.

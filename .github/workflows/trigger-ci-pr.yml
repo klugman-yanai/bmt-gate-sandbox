@@ -1,5 +1,8 @@
 # Thin trigger — PRs to dev / ci/check-bmt-gate run full CI + BMT handoff.
 # Push-only build trigger lives in trigger-ci.yml.
+#
+# One snapshot + parallel release / non-release matrices (same graph as build-and-test-dev.yml);
+# BMT needs only build_release so it does not wait for non-release legs.
 name: CI (PR)
 
 on:
@@ -7,6 +10,14 @@ on:
     branches:
       - dev
       - ci/check-bmt-gate
+
+concurrency:
+  group: ci-pr-${{ github.repository }}-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
 
 permissions:
   contents: read
@@ -16,15 +27,47 @@ permissions:
   pull-requests: read
 
 jobs:
-  # PR CI: release presets only (what BMT/handoff consume). Non-release presets run on push
-  # via trigger-ci.yml — a second workflow_call here duplicated snapshots, confused the graph,
-  # and any non-release failure failed the whole run even though BMT only needed release.
+  checkout:
+    name: Snapshot
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      artifact_size: ${{ steps.snap.outputs.artifact_size }}
+      release_presets: ${{ steps.snap.outputs.release_presets }}
+      non_release_presets: ${{ steps.snap.outputs.non_release_presets }}
+    steps:
+      - id: snap
+        uses: ./.github/actions/dev-checkout-presets
+
   build_release:
     name: Build (release)
-    uses: ./.github/workflows/build-and-test-dev.yml
-    with:
-      include_non_release: false
-    secrets: inherit
+    needs: checkout
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
+    steps:
+      - name: Release build placeholder (bmt-gcloud)
+        run: |
+          echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT runs after this job."
+
+  build_non_release:
+    name: Build (non-release)
+    needs: checkout
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
+    steps:
+      - name: Non-release build placeholder (bmt-gcloud)
+        run: |
+          echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
 
   bmt:
     name: BMT
