@@ -4,7 +4,7 @@
 
 name: CI
 
-# Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel) → bmt_handoff (eligibility on handoff if).
+# Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel).
 on:
   workflow_dispatch:
   workflow_call: {}
@@ -25,7 +25,7 @@ concurrency:
 jobs:
   # ─────────────────────── 1) Parse presets, split release / non-release ──
   repo_snapshot:
-    name: Snapshot
+    name: Checkout
     runs-on: ubuntu-22.04
     outputs:
       release_presets: ${{ steps.parse.outputs.release_presets }}
