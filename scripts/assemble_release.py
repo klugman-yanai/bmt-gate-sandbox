@@ -5,8 +5,9 @@ Pulls from two sources:
   - scripts/release_templates/  files with no dev equivalent (trigger-ci.yml, actionlint.yaml)
 
 Thin-trigger split (same pattern, different files):
-  - **In-repo bmt-gcloud:** `.github/workflows/internal/trigger-ci.yml` is the **dev** thin trigger
-    (`pull_request` → `build-and-test-dev.yml` at head ref). It is **not** copied into the bundle.
+  - **In-repo bmt-gcloud:** root `.github/workflows/trigger-ci.yml` is the **dev** thin trigger
+    (`pull_request` / `push` to **dev** → `build-and-test-dev.yml` at head ref). It is **not** copied
+    into the bundle (dev-only; excluded like `*-dev.yml`).
   - **Bundle / core-main:** `.github-release/workflows/internal/trigger-ci.yml` comes **only** from
     `scripts/release_templates/workflows/trigger-ci.yml` (`pull_request_target` → `build-and-test.yml`).
 
@@ -48,6 +49,8 @@ EXCLUDE_COPY = {"__pycache__", ".venv"}
 
 # Authoritative clang-format lives at .github/workflows root; skip duplicate from templates/.
 SKIP_TEMPLATE_WORKFLOWS = frozenset({"clang-format-auto-fix.yml"})
+# Dev-only thin trigger (calls build-and-test-dev.yml); core-main uses templates/internal/trigger-ci.yml.
+EXCLUDE_ROOT_RELEASE_WORKFLOWS = frozenset({"trigger-ci.yml"})
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +103,8 @@ def _iso_timestamp() -> str:
 def _copy_root_release_workflows(workflows_dest: Path) -> None:
     for wf in sorted((SRC / "workflows").glob("*.yml")):
         if wf.stem.endswith("-dev"):
+            continue
+        if wf.name in EXCLUDE_ROOT_RELEASE_WORKFLOWS:
             continue
         _copy(wf, workflows_dest / wf.name)
 

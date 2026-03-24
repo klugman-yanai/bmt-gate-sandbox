@@ -320,24 +320,13 @@ jobs:
   bmt_handoff:
     name: Handoff
     needs: [build_release]
-    # BMT when release matrix is ok and: PR merges into dev or ci/check-bmt-gate (any head; forks excluded),
-    # or non-PR run on branch dev / ci/check-bmt-gate (e.g. workflow_dispatch; direct push to dev is disallowed by policy).
+    # BMT only when release matrix is ok and the run comes from a same-repo PR
+    # targeting dev or ci/check-bmt-gate.
     if: >-
       (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
-      && (
-        (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
-        || github.event.pull_request.head.repo.full_name == github.repository
-      )
-      && (
-        (
-          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-          && (github.base_ref == 'dev' || github.base_ref == 'ci/check-bmt-gate')
-        )
-        || (
-          (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
-          && (github.ref_name == 'dev' || github.ref_name == 'ci/check-bmt-gate')
-        )
-      )
+      && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (github.base_ref == 'dev' || github.base_ref == 'ci/check-bmt-gate')
     permissions:
       contents: read
       actions: read

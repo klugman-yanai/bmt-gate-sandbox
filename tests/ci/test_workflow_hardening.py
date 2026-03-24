@@ -28,12 +28,12 @@ def test_reusable_workflow_calls_do_not_inherit_secrets() -> None:
     assert "secrets: inherit" not in build_workflow
     assert "secrets: inherit" not in build_dev
     assert "secrets: inherit" not in dispatch
-    # Thin `internal/trigger-ci.yml` matches the release template: caller uses `secrets: inherit`.
+    # Thin root `trigger-ci.yml` matches the release template: caller uses `secrets: inherit`.
 
 
 def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
-    trigger_ci = (repo_root() / ".github" / "workflows" / "internal" / "trigger-ci.yml").read_text(encoding="utf-8")
+    trigger_ci = (repo_root() / ".github" / "workflows" / "trigger-ci.yml").read_text(encoding="utf-8")
     dispatch = (repo_root() / ".github" / "workflows" / "internal" / "trigger-ci-dispatch.yml").read_text(
         encoding="utf-8"
     )

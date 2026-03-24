@@ -1,5 +1,5 @@
 # Manual: `gh workflow run` (or Actions UI) to run **build-and-test-dev.yml** on an arbitrary ref and watch the run.
-# Prefer `internal/trigger-ci.yml` for normal PR-driven CI (thin trigger → workflow_call).
+# Prefer root `trigger-ci.yml` for normal PR-driven CI (thin trigger → workflow_call).
 name: Dispatch CI on ref
 
 on:

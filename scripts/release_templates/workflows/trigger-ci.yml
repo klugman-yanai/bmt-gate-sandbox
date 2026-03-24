@@ -1,13 +1,19 @@
 # Thin trigger so CI runs using workflow files from the *source* branch.
 # - On pull_request_target: runs build-and-test from the PR head (your branch), not the target.
-# - No push to dev: merge policy assumes direct pushes to dev are forbidden; CI is PR-driven.
+# - Full BMT path on PRs targeting dev / ci/check-bmt-gate.
+# - Direct pushes to ci/check-bmt-gate run CI build path only; direct pushes to dev are forbidden.
 # Copy to core-main/.github/workflows/internal/ (root workflows stay build-and-test, bmt-handoff, clang-format). Merge to default once.
 name: Trigger CI (from branch)
 
 on:
   workflow_dispatch:
   pull_request_target:
-    branches: [ dev ]
+    branches:
+      - dev
+      - ci/check-bmt-gate
+  push:
+    branches:
+      - ci/check-bmt-gate
 
 permissions:
   contents: read

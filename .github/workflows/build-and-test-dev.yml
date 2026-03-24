@@ -1,7 +1,7 @@
 name: CI
 
 # Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel) → bmt_handoff (eligibility on handoff if).
-# Event entry: internal/trigger-ci.yml (pull_request + workflow_dispatch → workflow_call this file at PR head ref).
+# Event entry: trigger-ci.yml (PR/push to dev + workflow_dispatch → workflow_call this file at head ref).
 # Same pattern as core-main: reusable CI file + thin trigger (release template uses pull_request_target → build-and-test.yml).
 on:
   workflow_dispatch:
@@ -128,29 +128,11 @@ jobs:
     needs: [build_release]
     if: >-
       (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
+      && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+      && github.event.pull_request.head.repo.full_name == github.repository
       && (
-        (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
-        || github.event.pull_request.head.repo.full_name == github.repository
-      )
-      && (
-        contains(
-          fromJson('["dev","ci/check-bmt-gate"]'),
-          format(
-            '{0}',
-            (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
-          )
-        )
-        || startsWith(
-          format(
-            '{0}',
-            (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
-          ),
-          'test/check-bmt-gate'
-        )
+        github.event.pull_request.base.ref == 'dev'
+        || github.event.pull_request.base.ref == 'ci/check-bmt-gate'
       )
     permissions:
       contents: read
