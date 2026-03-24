@@ -213,7 +213,7 @@ def test_filter_dev_synthetic_unsupported_without_bucket_when_flag_set(
 def test_filter_production_matrix_only_binary_supported_uploads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When skip_missing is off, matrix_publish omits unsupported and manifest_only legs."""
+    """When skip_missing is off, matrix_publish is binary+supported and omits no-bucket-bmts legs."""
     out = tmp_path / "gh_out"
     monkeypatch.setenv("GITHUB_OUTPUT", str(out))
     monkeypatch.setenv("GCS_BUCKET", "fake-bucket")
@@ -245,9 +245,15 @@ def test_filter_production_matrix_only_binary_supported_uploads(
     )
     monkeypatch.setenv("AVAILABLE_ARTIFACTS", json.dumps(["runner-sk_gcc_release", "runner-zzunsupported_gcc_release"]))
 
+    def fake_list(uri: str) -> list[str]:
+        if "/projects/sk/bmts/" in uri:
+            return ["gs://fake-bucket/projects/sk/bmts/false_rejects/bmt.json"]
+        return []
+
     with (
         patch.object(RunnerManager, "_w", return_value=None),
         patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("ci.runner.gcs.list_prefix", side_effect=fake_list),
     ):
         RunnerManager.from_env().filter_upload_matrix()
 
@@ -258,6 +264,12 @@ def test_filter_production_matrix_only_binary_supported_uploads(
     assert len(rows) == 1
     assert rows[0]["project"] == "sk"
     assert rows[0]["publish_mode"] == "binary"
+
+    omit_payload = text.split("matrix_publish_omitted<<OMIT_EOF\n", 1)[1].split("\nOMIT_EOF\n", 1)[0]
+    omit = json.loads(omit_payload)
+    assert len(omit["include"]) == 1
+    assert omit["include"][0]["project"] == "zzunsupported"
+    assert omit["include"][0]["shadow"] is True
 
 
 def test_dev_manifest_payload_paths(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -81,9 +81,9 @@ def _append_filter_matrix_step_summary(
     ]
     if omitted_bucket:
         lines += [
-            "Skipped cells in **Publish (omitted)** correspond to these rows (graph alignment only; no upload).",
+            "Skipped cells in **Publish (omitted)** correspond to these bucket omissions (graph alignment only; no upload).",
             "",
-            "### Omitted (dev — no `projects/<project>/bmts/` objects in bucket)",
+            "### Omitted (no `projects/<project>/bmts/` objects in bucket)",
             "",
             "| Project | Preset | Reason |",
             "| --- | --- | --- |",
@@ -93,7 +93,7 @@ def _append_filter_matrix_step_summary(
                 _md_table_row(
                     project,
                     preset,
-                    "No BMT objects under this project prefix in the bucket; dev matrix drops the leg.",
+                    "No BMT objects under this project prefix in the bucket; publish matrix omits the leg.",
                 )
             )
         lines.append("")
@@ -367,22 +367,19 @@ class RunnerManager:
             preset = str(entry.get("preset", "")).strip()
             if not project or not preset:
                 continue
-            if skip_missing:
-                allow_synthetic_unsupported = project == "ci_dev_unsupported" and is_truthy_env_value(
-                    os.environ.get("BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG")
+            allow_synthetic_unsupported = project == "ci_dev_unsupported" and is_truthy_env_value(
+                os.environ.get("BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG")
+            )
+            if not allow_synthetic_unsupported and not _project_has_bmts_in_bucket(root, project):
+                omitted_bucket.append((project, preset))
+                sr = cast(dict[str, Any], dict(entry))
+                sr["shadow"] = True
+                omitted_bucket_rows.append(sr)
+                print(
+                    f"::notice::Omit {project}/{preset} from publish matrix: "
+                    f"no objects under projects/{project.lower()}/bmts/ in bucket."
                 )
-                if not allow_synthetic_unsupported and not _project_has_bmts_in_bucket(
-                    root, project
-                ):
-                    omitted_bucket.append((project, preset))
-                    sr = cast(dict[str, Any], dict(entry))
-                    sr["shadow"] = True
-                    omitted_bucket_rows.append(sr)
-                    print(
-                        f"::notice::Omit {project}/{preset} from dev publish matrix: "
-                        f"no objects under projects/{project.lower()}/bmts/ in bucket."
-                    )
-                    continue
+                continue
             supported = "true" if _project_has_bmt_stage_layout(project) else "false"
             payload = _runner_meta_in_gcs(root, project, preset)
             if payload is not None:
@@ -432,9 +429,9 @@ class RunnerManager:
                 need_include.append(dict(entry))
         out = {"include": need_include}
         out_json = json.dumps(out, separators=(",", ":"))
-        # Dev (skip_missing): matrix lists only projects with bucket BMT layout under projects/<p>/bmts/
-        # (plus optional synthetic ci_dev_unsupported when BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG is set).
-        # Production: matrix only includes real runner/lib upload legs (supported + binary).
+        # Bucket: omit legs with no objects under projects/<p>/bmts/ (dev and prod — no upload without bucket BMT).
+        # Dev skip_missing adds manifest-only legs for supported presets missing runner-* artifacts.
+        # Production publish_for_workflow: supported + binary only (after publish_include).
         publish_for_workflow: list[dict[str, Any]]
         if skip_missing:
             publish_for_workflow = publish_include

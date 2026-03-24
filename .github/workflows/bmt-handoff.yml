@@ -368,7 +368,7 @@ jobs:
           PRESET: ${{ matrix.preset }}
         run: uv run bmt runner validate-in-repo
 
-  # Visual only: one skipped cell per release leg omitted from dev publish (no bucket BMT layout).
+  # Visual only: one skipped cell per release leg omitted from publish (no projects/<p>/bmts/ in bucket).
   # Does not upload; details are in the Plan job summary. Aligns the graph with the release runner matrix.
   publish_omitted:
     name: Publish (omitted)
