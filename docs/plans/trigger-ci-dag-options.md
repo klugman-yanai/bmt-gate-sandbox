@@ -2,19 +2,19 @@
 
 ## Current (broken UX)
 
-Push to `ci/check-bmt-gate` shows the full `bmt_handoff` sub-graph as skipped grey nodes.
+Push to `ci/check-bmt-gate` shows the full `BMT` sub-graph as skipped grey nodes.
 
 ```mermaid
 flowchart LR
   subgraph trigger-ci.yml
-    subgraph build-and-test-dev.yml
-      snap[Snapshot] --> rel[Release Build]
-      snap --> nonrel[Non-Release Build]
-      rel --> handoff["bmt_handoff\n(skipped but visible)"]
+    subgraph Build [Build workflow]
+      snap[Snapshot] --> rel[Release]
+      snap --> nonrel[Non-Release]
+      rel --> bmt_node["BMT\n(skipped but visible)"]
     end
   end
 
-  style handoff fill:#888,stroke:#666,color:#fff
+  style bmt_node fill:#888,stroke:#666,color:#fff
 ```
 
 ## Option A — Two trigger files (recommended)
@@ -24,9 +24,9 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph trigger-ci.yml — push only
-    subgraph build-and-test-dev.yml
-      snap[Snapshot] --> rel[Release Build]
-      snap --> nonrel[Non-Release Build]
+    subgraph Build [Build workflow]
+      snap[Snapshot] --> rel[Release]
+      snap --> nonrel[Non-Release]
     end
   end
 ```
@@ -36,33 +36,33 @@ flowchart LR
 ```mermaid
 flowchart LR
   subgraph trigger-ci-pr.yml — PR only
-    subgraph build-and-test-dev.yml
-      snap[Snapshot] --> rel[Release Build]
-      snap --> nonrel[Non-Release Build]
+    subgraph Build [Build workflow]
+      snap[Snapshot] --> rel[Release]
+      snap --> nonrel[Non-Release]
     end
-    rel --> handoff[bmt-handoff.yml]
+    rel --> bmt[BMT]
   end
 ```
 
-- Push: 3 jobs, no handoff node
-- PR: 4 jobs, handoff always runs
+- Push: 3 jobs, no BMT node
+- PR: 4 jobs, BMT always runs
 - No skipped grey nodes ever
 
-## Option B — Single trigger, handoff promoted to caller
+## Option B — Single trigger, BMT promoted to caller
 
 ```mermaid
 flowchart LR
   subgraph trigger-ci.yml — push + PR
-    subgraph build-and-test-dev.yml
-      snap[Snapshot] --> rel[Release Build]
-      snap --> nonrel[Non-Release Build]
+    subgraph Build [Build workflow]
+      snap[Snapshot] --> rel[Release]
+      snap --> nonrel[Non-Release]
     end
-    rel -.->|"PR only"| handoff["bmt-handoff.yml\n(skipped on push)"]
+    rel -.->|"PR only"| bmt["BMT\n(skipped on push)"]
   end
 
-  style handoff fill:#888,stroke:#666,color:#fff,stroke-dasharray: 5 5
+  style bmt fill:#888,stroke:#666,color:#fff,stroke-dasharray: 5 5
 ```
 
 - Push: 3 build jobs + 1 grey collapsed node
-- PR: 3 build jobs + expanded handoff sub-graph
+- PR: 3 build jobs + expanded BMT sub-graph
 - Single file but still shows a skipped node on push
