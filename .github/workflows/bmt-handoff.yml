@@ -372,14 +372,14 @@ jobs:
   # Reusable workflows reject `matrix.*` in job-level `if`, so legs run as instant success (not grey-skipped).
   # Does not upload; details are in the Plan job summary.
   publish_omitted:
-    name: Publish (omitted)
+    # Same JSON shape as matrix_publish: full object {"include":[...]} — use matrix: fromJson(...), not include: fromJson(...)
+    name: Publish (omitted) (${{ matrix.preset }})
     needs: plan
     if: needs.plan.outputs.matrix_publish_omitted_keys != '[]'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.plan.outputs.matrix_publish_omitted || '{"include":[]}') }}
+      matrix: ${{ fromJson(needs.plan.outputs.matrix_publish_omitted || '{"include":[]}') }}
     steps:
       - name: Omitted (bucket — see Plan summary)
         if: ${{ matrix.shadow == true || matrix.shadow == 'true' }}
