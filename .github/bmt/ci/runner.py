@@ -81,7 +81,7 @@ def _append_filter_matrix_step_summary(
     ]
     if omitted_bucket:
         lines += [
-            "Skipped cells in **Publish (omitted)** correspond to these bucket omissions (graph alignment only; no upload).",
+            "**Publish (omitted)** matrix legs match these bucket omissions (instant success + notice; no upload).",
             "",
             "### Omitted (no `projects/<project>/bmts/` objects in bucket)",
             "",

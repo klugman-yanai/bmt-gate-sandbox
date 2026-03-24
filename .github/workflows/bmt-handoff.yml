@@ -368,21 +368,22 @@ jobs:
           PRESET: ${{ matrix.preset }}
         run: uv run bmt runner validate-in-repo
 
-  # Visual only: one skipped cell per release leg omitted from publish (no projects/<p>/bmts/ in bucket).
-  # Does not upload; details are in the Plan job summary. Aligns the graph with the release runner matrix.
+  # Visual only: one matrix cell per bucket-omitted release leg (no projects/<p>/bmts/ in bucket).
+  # Reusable workflows reject `matrix.*` in job-level `if`, so legs run as instant success (not grey-skipped).
+  # Does not upload; details are in the Plan job summary.
   publish_omitted:
     name: Publish (omitted)
     needs: plan
+    if: needs.plan.outputs.matrix_publish_omitted_keys != '[]'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.plan.outputs.matrix_publish_omitted || '{"include":[]}') }}
-    if: >-
-      needs.plan.outputs.matrix_publish_omitted_keys != '[]'
-      && (matrix.shadow == false || matrix.shadow == 'false')
     steps:
-      - run: "true"
+      - name: Omitted (bucket — see Plan summary)
+        if: ${{ matrix.shadow == true || matrix.shadow == 'true' }}
+        run: echo "::notice::${{ matrix.project }}/${{ matrix.preset }} — not in publish matrix (no bucket BMT layout)."
 
   dispatch:
     name: Dispatch
