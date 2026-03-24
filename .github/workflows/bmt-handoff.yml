@@ -269,6 +269,16 @@ jobs:
 
       - name: Append plan summary to job summary
         shell: bash
+        env:
+          # Pass through env so bash never sees raw `|`, `[`, `]` inside backticks (command substitution).
+          SUMMARY_RUN_ID: ${{ github.run_id }}
+          SUMMARY_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+          SUMMARY_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+          SUMMARY_HEAD_BRANCH: ${{ steps.prepare.outputs.head_branch }}
+          SUMMARY_HEAD_EVENT: ${{ steps.prepare.outputs.head_event }}
+          SUMMARY_PR_NUMBER: ${{ steps.prepare.outputs.pr_number }}
+          SUMMARY_MATRIX_NEED_UPLOAD: ${{ steps.filter.outputs.matrix_need_upload_keys }}
+          SUMMARY_MATRIX_PUBLISH: ${{ steps.filter.outputs.matrix_publish_keys }}
         run: |
           set -euo pipefail
           {
@@ -276,14 +286,14 @@ jobs:
             echo ""
             echo "| Field | Value |"
             echo "|-------|-------|"
-            echo "| Handoff workflow run | \`${{ github.run_id }}\` |"
-            echo "| Caller CI run id | \`${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}\` |"
-            echo "| head_sha | \`${{ steps.prepare.outputs.head_sha }}\` |"
-            echo "| head_branch | \`${{ steps.prepare.outputs.head_branch }}\` |"
-            echo "| head_event | \`${{ steps.prepare.outputs.head_event }}\` |"
-            echo "| pr_number | \`${{ steps.prepare.outputs.pr_number }}\` |"
-            echo "| matrix_need_upload_keys | \`${{ steps.filter.outputs.matrix_need_upload_keys }}\` |"
-            echo "| matrix_publish_keys | \`${{ steps.filter.outputs.matrix_publish_keys }}\` |"
+            echo "| Handoff workflow run | \`${SUMMARY_RUN_ID}\` |"
+            echo "| Caller CI run id | \`${SUMMARY_CI_RUN_ID}\` |"
+            echo "| head_sha | \`${SUMMARY_HEAD_SHA}\` |"
+            echo "| head_branch | \`${SUMMARY_HEAD_BRANCH}\` |"
+            echo "| head_event | \`${SUMMARY_HEAD_EVENT}\` |"
+            echo "| pr_number | \`${SUMMARY_PR_NUMBER}\` |"
+            echo "| matrix_need_upload_keys | \`${SUMMARY_MATRIX_NEED_UPLOAD}\` |"
+            echo "| matrix_publish_keys | \`${SUMMARY_MATRIX_PUBLISH}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Workflow summary notice
