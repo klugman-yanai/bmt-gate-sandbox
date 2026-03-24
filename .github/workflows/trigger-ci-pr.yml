@@ -16,16 +16,26 @@ permissions:
   pull-requests: read
 
 jobs:
-  build:
-    name: Build
+  # Split so BMT does not wait for non-release: each call is its own reusable-workflow run.
+  build_release:
+    name: Build (release)
     uses: ./.github/workflows/build-and-test-dev.yml
+    with:
+      include_non_release: false
+    secrets: inherit
+
+  build_non_release:
+    name: Build (non-release)
+    uses: ./.github/workflows/build-and-test-dev.yml
+    with:
+      include_release: false
     secrets: inherit
 
   bmt:
     name: BMT
-    needs: [build]
+    needs: [build_release]
     if: >-
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
       && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
@@ -42,6 +52,5 @@ jobs:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       use_mock_runner: ${{ github.base_ref == 'ci/check-bmt-gate' }}
       skip_missing_runner_artifacts: true
-      dev_append_unsupported_runner_leg: true
       cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
       bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}

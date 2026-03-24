@@ -1,11 +1,30 @@
 name: Build
 
-# Jobs/DAG: checkout → build_1_release + build_2_non_release (parallel).
-# Event entry: trigger-ci.yml (PR/push to dev + workflow_dispatch → workflow_call this file at head ref).
-# Same pattern as core-main: reusable CI file + thin trigger (release template uses pull_request_target → build-and-test.yml).
+# Jobs/DAG: checkout → build_1_release + build_2_non_release (parallel when both enabled).
+# PR entry (trigger-ci-pr.yml): two parallel workflow_call invocations — release-only and non-release-only —
+# so BMT can depend on the release run without waiting for non-release.
+# Push / single-call entry: trigger-ci.yml (defaults: both phases on).
 on:
   workflow_dispatch:
-  workflow_call: {}
+    inputs:
+      include_release:
+        description: Run release preset matrix (BMT gates on this phase when used alone)
+        type: boolean
+        default: true
+      include_non_release:
+        description: Run non-release preset matrix
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      include_release:
+        type: boolean
+        default: true
+        required: false
+      include_non_release:
+        type: boolean
+        default: true
+        required: false
 
 defaults:
   run:
@@ -17,12 +36,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  # Include phase flags so parallel caller jobs (release-only vs non-release-only) do not cancel each other.
+  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ inputs.include_release }}-${{ inputs.include_non_release }}
   cancel-in-progress: true
 
 jobs:
   checkout:
     name: Snapshot
+    if: ${{ inputs.include_release || inputs.include_non_release }}
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -96,6 +117,7 @@ jobs:
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build_1_release:
     name: Release
+    if: ${{ inputs.include_release }}
     needs: checkout
     runs-on: ubuntu-22.04
     strategy:
@@ -111,6 +133,7 @@ jobs:
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.
   build_2_non_release:
     name: Non-Release
+    if: ${{ inputs.include_non_release }}
     needs: checkout
     runs-on: ubuntu-22.04
     strategy:
