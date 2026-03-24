@@ -52,6 +52,104 @@ def _project_has_bmts_in_bucket(root: str, project: str) -> bool:
         return False
 
 
+def _md_table_row(project: str, preset: str, reason: str) -> str:
+    def esc(x: str) -> str:
+        return x.replace("|", "\\|").replace("\n", " ")
+
+    return f"| {esc(project)} | {esc(preset)} | {esc(reason)} |"
+
+
+def _append_filter_matrix_step_summary(
+    *,
+    omitted_bucket: list[tuple[str, str]],
+    skipped_preseeded: list[tuple[str, str]],
+    skipped_same_ref: list[tuple[str, str]],
+    trimmed_production: list[tuple[str, str, str]],
+    publish_keys: list[str],
+) -> None:
+    """Explain omitted/skipped legs — GitHub's graph does not show per-cell skip reasons."""
+    path_raw = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path_raw:
+        return
+    path = Path(path_raw)
+    lines: list[str] = [
+        "## Filter upload matrix",
+        "",
+        "The workflow graph does not show *why* a leg is skipped or omitted. "
+        "This table lists legs that did not produce a normal binary publish step.",
+        "",
+    ]
+    if omitted_bucket:
+        lines += [
+            "Skipped cells in **Publish (omitted)** correspond to these rows (graph alignment only; no upload).",
+            "",
+            "### Omitted (dev — no `projects/<project>/bmts/` objects in bucket)",
+            "",
+            "| Project | Preset | Reason |",
+            "| --- | --- | --- |",
+        ]
+        for project, preset in omitted_bucket:
+            lines.append(
+                _md_table_row(
+                    project,
+                    preset,
+                    "No BMT objects under this project prefix in the bucket; dev matrix drops the leg.",
+                )
+            )
+        lines.append("")
+    if skipped_preseeded:
+        lines += [
+            "### Skipped upload (preseeded runner already in GCS)",
+            "",
+            "| Project | Preset | Reason |",
+            "| --- | --- | --- |",
+        ]
+        for project, preset in skipped_preseeded:
+            lines.append(
+                _md_table_row(
+                    project,
+                    preset,
+                    "Runner verified in GCS (preseeded); publish job will show Skipped.",
+                )
+            )
+        lines.append("")
+    if skipped_same_ref:
+        lines += [
+            "### Skipped upload (runner already on GCS for this commit)",
+            "",
+            "| Project | Preset | Reason |",
+            "| --- | --- | --- |",
+        ]
+        for project, preset in skipped_same_ref:
+            lines.append(
+                _md_table_row(
+                    project,
+                    preset,
+                    "runner_meta source_ref matches HEAD; publish job will show Skipped.",
+                )
+            )
+        lines.append("")
+    if trimmed_production:
+        lines += [
+            "### Not in workflow publish matrix (production trim)",
+            "",
+            "| Project | Preset | Reason |",
+            "| --- | --- | --- |",
+        ]
+        for project, preset, reason in trimmed_production:
+            lines.append(_md_table_row(project, preset, reason))
+        lines.append("")
+    lines += [
+        "### Legs in the workflow publish matrix",
+        "",
+        f"**{len(publish_keys)}** leg(s): "
+        + (", ".join(f"`{k}`" for k in publish_keys) if publish_keys else "(none)"),
+        "",
+    ]
+    with path.open("a", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+
 def _ci_run_id_for_markers() -> str:
     """Prefer parent CI run id (``BMT_CI_RUN_ID``) so GCS markers align with build-and-test."""
     rid = (os.environ.get("BMT_CI_RUN_ID") or "").strip()
@@ -210,9 +308,19 @@ class RunnerManager:
                 f.write("matrix_need_upload_keys=[]\n")
                 f.write(f"matrix_publish<<PUBLISH_EOF\n{json.dumps(out)}\nPUBLISH_EOF\n")
                 f.write("matrix_publish_keys=[]\n")
+                f.write(f"matrix_publish_omitted<<OMIT_EOF\n{json.dumps(out)}\nOMIT_EOF\n")
+                f.write("matrix_publish_omitted_keys=[]\n")
             print(
                 "::notice::Filter upload matrix: BMT_SKIP_PUBLISH_RUNNERS=true — no publish jobs (runners assumed in bucket)."
             )
+            summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary_path:
+                with Path(summary_path).open("a", encoding="utf-8") as sf:
+                    sf.write(
+                        "## Filter upload matrix\n\n"
+                        "**BMT_SKIP_PUBLISH_RUNNERS=true** — no publish jobs; "
+                        "runners assumed already in bucket.\n\n"
+                    )
             return
         runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
         head_sha = read_workflow_str(w, "head_sha", "HEAD_SHA")
@@ -248,6 +356,10 @@ class RunnerManager:
         need_include: list[dict[str, Any]] = []
         publish_include: list[dict[str, Any]] = []
         projects_written = set()
+        omitted_bucket: list[tuple[str, str]] = []
+        omitted_bucket_rows: list[dict[str, Any]] = []
+        skipped_preseeded: list[tuple[str, str]] = []
+        skipped_same_ref: list[tuple[str, str]] = []
         for entry in include:
             if not isinstance(entry, dict):
                 continue
@@ -262,6 +374,10 @@ class RunnerManager:
                 if not allow_synthetic_unsupported and not _project_has_bmts_in_bucket(
                     root, project
                 ):
+                    omitted_bucket.append((project, preset))
+                    sr = cast(dict[str, Any], dict(entry))
+                    sr["shadow"] = True
+                    omitted_bucket_rows.append(sr)
                     print(
                         f"::notice::Omit {project}/{preset} from dev publish matrix: "
                         f"no objects under projects/{project.lower()}/bmts/ in bucket."
@@ -278,6 +394,7 @@ class RunnerManager:
                         except gcs.GcsError as e:
                             gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
                         projects_written.add(project)
+                    skipped_preseeded.append((project, preset))
                     print(
                         f"::notice::Preseeded GCS runner for {project}/{preset}: verified in GCS (will show as Skipped)."
                     )
@@ -290,6 +407,7 @@ class RunnerManager:
                         except gcs.GcsError as e:
                             gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
                         projects_written.add(project)
+                    skipped_same_ref.append((project, preset))
                     print(
                         f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]} (will show as Skipped)."
                     )
@@ -337,6 +455,11 @@ class RunnerManager:
             f.write(f"matrix_publish<<PUBLISH_EOF\n{pub_json}\nPUBLISH_EOF\n")
             pub_keys = [f"{e['project']}|{e['preset']}" for e in publish_for_workflow]
             f.write(f"matrix_publish_keys={json.dumps(pub_keys)}\n")
+            pub_omit = {"include": omitted_bucket_rows}
+            omit_json = json.dumps(pub_omit, separators=(",", ":"))
+            f.write(f"matrix_publish_omitted<<OMIT_EOF\n{omit_json}\nOMIT_EOF\n")
+            omit_keys = [f"{e['project']}|{e['preset']}" for e in omitted_bucket_rows]
+            f.write(f"matrix_publish_omitted_keys={json.dumps(omit_keys)}\n")
         skipped_gcs = len(include) - len(publish_include)
         trimmed = len(publish_include) - len(publish_for_workflow)
         trim_note = ""
@@ -348,6 +471,46 @@ class RunnerManager:
             f"::notice::Filter upload matrix: {len(need_include)} supported leg(s) for handoff; "
             f"{len(publish_include)} internal publish row(s); {skipped_gcs} row(s) omitted (already on GCS); "
             f"workflow matrix {len(publish_for_workflow)} leg(s){trim_note}."
+        )
+        trimmed_production: list[tuple[str, str, str]] = []
+        if not skip_missing:
+            wf_key_set = set(pub_keys)
+            for r in publish_include:
+                k = f"{r['project']}|{r['preset']}"
+                if k in wf_key_set:
+                    continue
+                sup = str(r.get("bmt_supported", "")).strip()
+                mode = str(r.get("publish_mode", "")).strip()
+                if sup != "true":
+                    trimmed_production.append(
+                        (
+                            str(r["project"]),
+                            str(r["preset"]),
+                            "Unsupported project (no gcp/stage BMT layout).",
+                        )
+                    )
+                elif mode != "binary":
+                    trimmed_production.append(
+                        (
+                            str(r["project"]),
+                            str(r["preset"]),
+                            "Manifest-only or non-binary leg; production workflow matrix is binary-only.",
+                        )
+                    )
+                else:
+                    trimmed_production.append(
+                        (
+                            str(r["project"]),
+                            str(r["preset"]),
+                            "Excluded from workflow publish matrix.",
+                        )
+                    )
+        _append_filter_matrix_step_summary(
+            omitted_bucket=omitted_bucket,
+            skipped_preseeded=skipped_preseeded,
+            skipped_same_ref=skipped_same_ref,
+            trimmed_production=trimmed_production,
+            publish_keys=pub_keys,
         )
 
     def upload(self) -> None:

@@ -159,6 +159,12 @@ def test_filter_dev_omit_presets_without_bucket_bmts(
     assert len(rows) == 1
     assert rows[0]["project"] == "sk"
 
+    omit_payload = text.split("matrix_publish_omitted<<OMIT_EOF\n", 1)[1].split("\nOMIT_EOF\n", 1)[0]
+    omit = json.loads(omit_payload)
+    assert len(omit["include"]) == 1
+    assert omit["include"][0]["project"] == "woven"
+    assert omit["include"][0]["shadow"] is True
+
 
 def test_filter_dev_synthetic_unsupported_without_bucket_when_flag_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

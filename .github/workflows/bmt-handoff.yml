@@ -186,6 +186,8 @@ jobs:
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
       matrix_publish: ${{ steps.filter.outputs.matrix_publish }}
       matrix_publish_keys: ${{ steps.filter.outputs.matrix_publish_keys }}
+      matrix_publish_omitted: ${{ steps.filter.outputs.matrix_publish_omitted }}
+      matrix_publish_omitted_keys: ${{ steps.filter.outputs.matrix_publish_omitted_keys }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -365,6 +367,22 @@ jobs:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
         run: uv run bmt runner validate-in-repo
+
+  # Visual only: one skipped cell per release leg omitted from dev publish (no bucket BMT layout).
+  # Does not upload; details are in the Plan job summary. Aligns the graph with the release runner matrix.
+  publish_omitted:
+    name: Publish (omitted)
+    needs: plan
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix_publish_omitted || '{"include":[]}') }}
+    if: >-
+      needs.plan.outputs.matrix_publish_omitted_keys != '[]'
+      && (matrix.shadow == false || matrix.shadow == 'false')
+    steps:
+      - run: "true"
 
   dispatch:
     name: Dispatch
