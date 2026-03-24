@@ -384,11 +384,17 @@ def run_coordinator_mode(*, workflow_run_id: str, stage_root: Path | None = None
                         workflow_run_id,
                     )
                 if not publish_done:
-                    publish_github_failure(
-                        plan=plan,
-                        runtime=runtime,
-                        reason="Coordinator exited before GitHub status was published.",
-                    )
+                    try:
+                        publish_github_failure(
+                            plan=plan,
+                            runtime=runtime,
+                            reason="Coordinator exited before GitHub status was published.",
+                        )
+                    except Exception:
+                        logger.exception(
+                            "coordinator finally publish_github_failure failed workflow_run_id=%s",
+                            workflow_run_id,
+                        )
             cleanup_ephemeral_triggers(stage_root=runtime.stage_root, plan=plan)
     return 0
 
