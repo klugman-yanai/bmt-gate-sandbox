@@ -1,7 +1,8 @@
-name: Dev checkout + repo snapshot + CMake presets
+name: Dev repo snapshot + CMake presets
 description: >
-  Checkout PR/head ref, upload repo-snapshot artifact, emit release_presets and non_release_presets JSON
-  for matrix jobs (build-and-test-dev and CI (PR) thin trigger).
+  After the workflow runs actions/checkout, create repo-snapshot artifact and emit
+  release_presets / non_release_presets JSON for matrix jobs. (Local composite actions
+  must not be the first step — checkout is required so action.yml is present on disk.)
 
 outputs:
   artifact_size:
@@ -17,15 +18,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Checkout source
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      with:
-        repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
-        ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        fetch-depth: 1
-        submodules: false
-        lfs: false
-
     - name: Create repo snapshot
       shell: bash
       run: |

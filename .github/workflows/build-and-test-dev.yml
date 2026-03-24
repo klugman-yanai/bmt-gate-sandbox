@@ -1,9 +1,7 @@
 name: Build
 
 # Jobs/DAG: checkout → build_1_release + build_2_non_release (parallel when both enabled).
-# PR entry (trigger-ci-pr.yml): two parallel workflow_call invocations — release-only and non-release-only —
-# so BMT can depend on the release run without waiting for non-release.
-# Push / single-call entry: trigger-ci.yml (defaults: both phases on).
+# PR entry: trigger-ci-pr.yml inlines the same matrices (one snapshot); this file is push/workflow_dispatch.
 on:
   workflow_dispatch:
     inputs:
@@ -53,6 +51,14 @@ jobs:
       release_presets: ${{ steps.snap.outputs.release_presets }}
       non_release_presets: ${{ steps.snap.outputs.non_release_presets }}
     steps:
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
       - id: snap
         uses: ./.github/actions/dev-checkout-presets
 
