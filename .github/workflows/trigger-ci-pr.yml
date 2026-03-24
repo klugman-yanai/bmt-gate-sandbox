@@ -16,19 +16,14 @@ permissions:
   pull-requests: read
 
 jobs:
-  # Split so BMT does not wait for non-release: each call is its own reusable-workflow run.
+  # PR CI: release presets only (what BMT/handoff consume). Non-release presets run on push
+  # via trigger-ci.yml — a second workflow_call here duplicated snapshots, confused the graph,
+  # and any non-release failure failed the whole run even though BMT only needed release.
   build_release:
     name: Build (release)
     uses: ./.github/workflows/build-and-test-dev.yml
     with:
       include_non_release: false
-    secrets: inherit
-
-  build_non_release:
-    name: Build (non-release)
-    uses: ./.github/workflows/build-and-test-dev.yml
-    with:
-      include_release: false
     secrets: inherit
 
   bmt:
