@@ -16,16 +16,27 @@ permissions:
   pull-requests: read
 
 jobs:
-  build:
-    name: Build
+  # Split reusable workflow so BMT / Plan only waits on release (runner artifacts). Non-release
+  # continues in parallel on the same run; it is not in `needs` for handoff.
+  build_release:
+    name: Build (release)
     uses: ./.github/workflows/build-and-test-dev.yml
+    with:
+      build_matrix_part: release
+    secrets: inherit
+
+  build_non_release:
+    name: Build (non-release)
+    uses: ./.github/workflows/build-and-test-dev.yml
+    with:
+      build_matrix_part: non_release
     secrets: inherit
 
   bmt:
     name: BMT
-    needs: [build]
+    needs: [build_release]
     if: >-
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
       && github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read

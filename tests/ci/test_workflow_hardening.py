@@ -38,7 +38,7 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
         encoding="utf-8"
     )
 
-    assert "start_bmt_workflow:" in handoff
+    assert "  dispatch:" in handoff
     assert "statuses: write" in handoff
     assert "      contents: read" in handoff
     assert "      actions: write" not in handoff
@@ -53,7 +53,7 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
 
     # PR trigger: full pipeline with handoff permissions
     trigger_ci_pr = (repo_root() / ".github" / "workflows" / "trigger-ci-pr.yml").read_text(encoding="utf-8")
-    assert "uses: ./.github/workflows/build-and-test-dev.yml" in trigger_ci_pr
+    assert trigger_ci_pr.count("uses: ./.github/workflows/build-and-test-dev.yml") == 2
     assert "uses: ./.github/workflows/bmt-handoff.yml" in trigger_ci_pr
     assert "  id-token: write" in trigger_ci_pr
     assert "  statuses: write" in trigger_ci_pr

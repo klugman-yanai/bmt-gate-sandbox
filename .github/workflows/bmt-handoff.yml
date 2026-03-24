@@ -57,7 +57,7 @@ on:
       dev_append_unsupported_runner_leg:
         description: >
           Dev CI only. When true, append a synthetic release row (ci_dev_unsupported) with no
-          gcp/stage BMT layout so the publish matrix exercises the unsupported-project failure path.
+          gcp/stage BMT layout so the publish matrix exercises an unsupported leg (skipped upload, success).
         required: false
         type: boolean
         default: false
@@ -122,7 +122,7 @@ on:
       dev_append_unsupported_runner_leg:
         description: >
           Dev CI only. When true, append synthetic ci_dev_unsupported row (no stage layout)
-          to exercise unsupported publish matrix legs.
+          to exercise unsupported publish legs (no upload; matrix cell succeeds with notice).
         required: false
         type: boolean
         default: false
@@ -285,12 +285,11 @@ jobs:
     env:
       BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
     steps:
-      - name: Unsupported project (dev matrix guard)
+      - name: Skip unsupported project (no BMT stage layout)
         if: matrix.bmt_supported == 'false'
         run: |
           set -euo pipefail
-          echo "::error::Project '${{ matrix.project }}' has no BMT stage layout under gcp/stage/projects/ (expected failure for dev unsupported leg)."
-          exit 1
+          echo "::notice::Publish leg completed without upload — project '${{ matrix.project }}' has no BMT stage under gcp/stage/projects/ (matrix guard; not a failure)."
 
       - name: Checkout repo
         if: matrix.bmt_supported == 'true'
