@@ -1,16 +1,10 @@
-# Thin trigger so CI runs using workflow files from the *source* branch.
-# - On pull_request_target: runs build-and-test from the PR head (your branch), not the target.
-# - Full BMT path on PRs targeting dev / ci/check-bmt-gate.
-# - Direct pushes to ci/check-bmt-gate run CI build path only; direct pushes to dev are forbidden.
-# Copy to core-main/.github/workflows/internal/ (root workflows stay build-and-test, bmt-handoff, clang-format). Merge to default once.
-name: Trigger CI (from branch)
+# Thin trigger — push to ci/check-bmt-gate runs build CI only (no BMT handoff).
+# PR trigger with full BMT pipeline lives in trigger-ci-pr.yml.
+# Copy to core-main/.github/workflows/internal/
+name: CI (push)
 
 on:
   workflow_dispatch:
-  pull_request_target:
-    branches:
-      - dev
-      - ci/check-bmt-gate
   push:
     branches:
       - ci/check-bmt-gate
@@ -18,12 +12,9 @@ on:
 permissions:
   contents: read
   actions: write
-  id-token: write
-  statuses: write
-  pull-requests: read
 
 jobs:
   ci:
-    name: Run CI from source branch
+    name: Build
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit

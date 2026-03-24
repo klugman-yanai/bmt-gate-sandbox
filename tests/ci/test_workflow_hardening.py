@@ -43,13 +43,21 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     assert "      contents: read" in handoff
     assert "      actions: write" not in handoff
 
+    # Push trigger: build-only, minimal permissions
     assert "uses: ./.github/workflows/build-and-test-dev.yml" in trigger_ci
     assert "permissions:" in trigger_ci
     assert "  contents: read" in trigger_ci
     assert "  actions: write" in trigger_ci
-    assert "  id-token: write" in trigger_ci
-    assert "  statuses: write" in trigger_ci
-    assert "  pull-requests: read" in trigger_ci
+    assert "  id-token: write" not in trigger_ci
+    assert "  statuses: write" not in trigger_ci
+
+    # PR trigger: full pipeline with handoff permissions
+    trigger_ci_pr = (repo_root() / ".github" / "workflows" / "trigger-ci-pr.yml").read_text(encoding="utf-8")
+    assert "uses: ./.github/workflows/build-and-test-dev.yml" in trigger_ci_pr
+    assert "uses: ./.github/workflows/bmt-handoff.yml" in trigger_ci_pr
+    assert "  id-token: write" in trigger_ci_pr
+    assert "  statuses: write" in trigger_ci_pr
+    assert "  pull-requests: read" in trigger_ci_pr
 
     assert "permissions:" in dispatch
     assert "  actions: write" in dispatch

@@ -1,0 +1,46 @@
+# Thin trigger — PRs to dev / ci/check-bmt-gate run full CI + BMT handoff.
+# Uses pull_request_target so CI runs workflow files from the PR head branch.
+# Push-only build trigger lives in trigger-ci.yml.
+# Copy to core-main/.github/workflows/internal/
+name: CI (PR)
+
+on:
+  pull_request_target:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+  statuses: write
+  pull-requests: read
+
+jobs:
+  ci:
+    name: Build
+    uses: ./.github/workflows/build-and-test.yml
+    secrets: inherit
+
+  bmt_handoff:
+    name: Handoff
+    needs: [ci]
+    if: >-
+      (needs.ci.result == 'success' || needs.ci.result == 'skipped')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      statuses: write
+      pull-requests: read
+    uses: ./.github/workflows/bmt-handoff.yml
+    with:
+      ci_run_id: ${{ github.run_id }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+      head_branch: ${{ github.event.pull_request.head.ref }}
+      head_event: ${{ github.event_name }}
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
+      bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}

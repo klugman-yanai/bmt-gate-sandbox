@@ -316,28 +316,3 @@ jobs:
         if: always()
         run: rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx 2>/dev/null || true; df -h
 
-  # ─────────────────────── 3) BMT handoff (Plan lists runner-* artifacts inside reusable workflow) ─
-  bmt_handoff:
-    name: Handoff
-    needs: [build_release]
-    # BMT only when release matrix is ok and the run comes from a same-repo PR
-    # targeting dev or ci/check-bmt-gate.
-    if: >-
-      (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
-      && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && (github.base_ref == 'dev' || github.base_ref == 'ci/check-bmt-gate')
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-      statuses: write
-    uses: ./.github/workflows/bmt-handoff.yml
-    with:
-      ci_run_id: ${{ github.run_id }}
-      head_sha: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.sha || github.sha }}
-      head_branch: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.ref || github.ref_name }}
-      head_event: ${{ github.event_name }}
-      pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
-      cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
-      bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}

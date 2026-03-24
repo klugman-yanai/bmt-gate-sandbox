@@ -50,7 +50,7 @@ EXCLUDE_COPY = {"__pycache__", ".venv"}
 # Authoritative clang-format lives at .github/workflows root; skip duplicate from templates/.
 SKIP_TEMPLATE_WORKFLOWS = frozenset({"clang-format-auto-fix.yml"})
 # Dev-only thin trigger (calls build-and-test-dev.yml); core-main uses templates/internal/trigger-ci.yml.
-EXCLUDE_ROOT_RELEASE_WORKFLOWS = frozenset({"trigger-ci.yml"})
+EXCLUDE_ROOT_RELEASE_WORKFLOWS = frozenset({"trigger-ci.yml", "trigger-ci-pr.yml"})
 
 
 # ---------------------------------------------------------------------------
