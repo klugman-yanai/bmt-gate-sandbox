@@ -17,6 +17,7 @@
     "policy": "adaptive_batch_then_legacy"
   },
   "plugin_config": {
+    "max_grace_case_failures": 1,
     "comparison": "lte",
     "tolerance_abs": 0.25,
     "keyword": "NAMUH",

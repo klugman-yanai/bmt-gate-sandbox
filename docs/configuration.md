@@ -96,13 +96,13 @@ Three places touch the same logical settings; they stay consistent as follows:
 
 | Layer | Role | Source of values |
 |-------|------|-------------------|
-| **`infra/pulumi/config.py`** | Pulumi only. Loads `bmt.config.json`, defines `InfraConfig` (gcp_project, gcs_bucket, service_account, cloud_run_region, gcp_wif_provider, etc.). | `infra/pulumi/bmt.config.json` |
+| **`infra/pulumi/pulumi_stack_config.py`** | Pulumi only. Loads `bmt.config.json`, defines `InfraConfig` (gcp_project, gcs_bucket, service_account, cloud_run_region, gcp_wif_provider, etc.). | `infra/pulumi/bmt.config.json` |
 | **`.github/bmt/ci/config.py`** | CI only. Builds `BmtConfig` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
 | **`gcp/image/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
 
 **Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.config.json → Pulumi → `just workspace pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.config.json`; CI reads what was synced.
 
-**Pulumi consistency:** `infra/pulumi/config.py` uses defaults that match `gcp/image/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
+**Pulumi consistency:** `infra/pulumi/pulumi_stack_config.py` uses defaults that match `gcp/image/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
 
 **`GCP_WIF_PROVIDER`:** Required in `bmt.config.json` as `gcp_wif_provider` and synced by Pulumi like the other GCP_* vars. The handoff workflow needs it for OIDC auth.
 
@@ -177,7 +177,7 @@ Official behavior: [GitHub Docs — Workflow syntax](https://docs.github.com/en/
 | Aggregated contract (contexts) | [tools/shared/env_contract.py](../tools/shared/env_contract.py) |
 | CI typed settings (`BmtConfig`) | [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) |
 | `ENV_*` string constants | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
-| Infra file (not process env) | `infra/pulumi/bmt.config.json` via [infra/pulumi/config.py](../infra/pulumi/config.py) |
+| Infra file (not process env) | `infra/pulumi/bmt.config.json` via [infra/pulumi/pulumi_stack_config.py](../infra/pulumi/pulumi_stack_config.py) |
 
 ## Infra and CI (`BmtConfig` / repo vars)
 

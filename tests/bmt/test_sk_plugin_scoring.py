@@ -46,12 +46,13 @@ def _exec_result(*cases: CaseResult) -> ExecutionResult:
     return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=list(cases))
 
 
-def _make_context(*, comparison: str = "lte", tolerance: float = 0.25):
+def _make_context(*, comparison: str = "lte", tolerance: float = 0.25, **plugin_config: object):
     """Build a minimal mock context with plugin_config."""
     from unittest.mock import MagicMock
 
     ctx = MagicMock()
-    ctx.bmt_manifest.plugin_config = {"comparison": comparison, "tolerance_abs": tolerance}
+    ctx.bmt_manifest.plugin_config = {"comparison": comparison, "tolerance_abs": tolerance, **plugin_config}
+    ctx.bmt_manifest.bmt_slug = "test_bmt"
     return ctx
 
 
@@ -141,14 +142,42 @@ class TestEvaluateFailsOnCaseErrors:
         assert verdict.status == BmtLegStatus.FAIL.value
         assert not verdict.passed
 
-    def test_case_failures_force_fail_even_with_good_score(self) -> None:
+    def test_case_failures_fail_when_grace_is_zero(self) -> None:
+        plugin = _make_plugin()
+        score = ScoreResult(
+            aggregate_score=50.0,
+            metrics={"case_count": 3, "cases_ok": 2, "cases_failed": 1, "cases_failed_ids": ["b.wav"]},
+        )
+        verdict = plugin.evaluate(score, None, _make_context(max_grace_case_failures=0))
+        assert verdict.status == BmtLegStatus.FAIL.value
+        assert verdict.reason_code == "runner_case_failures"
+        assert not verdict.passed
+
+    def test_one_case_failure_passes_with_default_grace(self) -> None:
         plugin = _make_plugin()
         score = ScoreResult(
             aggregate_score=50.0,
             metrics={"case_count": 3, "cases_ok": 2, "cases_failed": 1, "cases_failed_ids": ["b.wav"]},
         )
         verdict = plugin.evaluate(score, None, _make_context())
-        assert verdict.status == BmtLegStatus.FAIL.value
+        assert verdict.status == BmtLegStatus.PASS.value
+        assert verdict.reason_code == "case_failures_within_grace"
+        assert verdict.passed
+        assert verdict.summary.get("grace_case_failures") == 1
+        assert verdict.summary.get("max_grace_case_failures") == 1
+
+    def test_two_case_failures_exceed_default_grace(self) -> None:
+        plugin = _make_plugin()
+        score = ScoreResult(
+            aggregate_score=40.0,
+            metrics={
+                "case_count": 4,
+                "cases_ok": 2,
+                "cases_failed": 2,
+                "cases_failed_ids": ["a.wav", "b.wav"],
+            },
+        )
+        verdict = plugin.evaluate(score, None, _make_context())
         assert verdict.reason_code == "runner_case_failures"
         assert not verdict.passed
 
@@ -172,3 +201,25 @@ class TestEvaluateFailsOnCaseErrors:
         verdict = plugin.evaluate(score, baseline, _make_context(comparison="lte"))
         assert verdict.status == BmtLegStatus.PASS.value
         assert verdict.reason_code == "score_within_tolerance"
+
+    def test_grace_with_baseline_pass_keeps_case_failures_within_grace_reason(self) -> None:
+        plugin = _make_plugin()
+        score = ScoreResult(
+            aggregate_score=50.0,
+            metrics={"case_count": 3, "cases_ok": 2, "cases_failed": 1, "cases_failed_ids": ["b.wav"]},
+        )
+        baseline = ScoreResult(aggregate_score=50.0, metrics={})
+        verdict = plugin.evaluate(score, baseline, _make_context(comparison="lte"))
+        assert verdict.passed
+        assert verdict.reason_code == "case_failures_within_grace"
+
+    def test_grace_does_not_override_score_fail_vs_baseline(self) -> None:
+        plugin = _make_plugin()
+        score = ScoreResult(
+            aggregate_score=80.0,
+            metrics={"case_count": 3, "cases_ok": 2, "cases_failed": 1, "cases_failed_ids": ["b.wav"]},
+        )
+        baseline = ScoreResult(aggregate_score=10.0, metrics={})
+        verdict = plugin.evaluate(score, baseline, _make_context(comparison="lte"))
+        assert not verdict.passed
+        assert verdict.reason_code == "score_outside_tolerance"

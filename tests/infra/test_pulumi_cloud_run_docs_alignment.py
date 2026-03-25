@@ -24,7 +24,7 @@ def _load_module(module_name: str, relative_path: str):
 
 
 def test_workflow_connector_timeout_default_covers_job_timeout() -> None:
-    config_mod = _load_module("pulumi_infra_config_cloud_run", "infra/pulumi/config.py")
+    config_mod = _load_module("pulumi_infra_config_cloud_run", "infra/pulumi/pulumi_stack_config.py")
     cfg = config_mod.InfraConfig(
         gcp_project="demo-project",
         gcp_zone="europe-west4-a",
@@ -37,7 +37,7 @@ def test_workflow_connector_timeout_default_covers_job_timeout() -> None:
 
 @pytest.mark.parametrize("field_name", ["cloud_run_job_sa_name", "cloud_run_workflow_sa_name"])
 def test_cloud_run_service_account_names_must_be_non_empty(field_name: str) -> None:
-    config_mod = _load_module("pulumi_infra_config_sa_names", "infra/pulumi/config.py")
+    config_mod = _load_module("pulumi_infra_config_sa_names", "infra/pulumi/pulumi_stack_config.py")
     kwargs = {
         "gcp_project": "demo-project",
         "gcp_zone": "europe-west4-a",
@@ -51,7 +51,7 @@ def test_cloud_run_service_account_names_must_be_non_empty(field_name: str) -> N
 
 
 def test_workflow_connector_timeout_rejects_shorter_than_job_timeout() -> None:
-    config_mod = _load_module("pulumi_infra_config_validation", "infra/pulumi/config.py")
+    config_mod = _load_module("pulumi_infra_config_validation", "infra/pulumi/pulumi_stack_config.py")
 
     with pytest.raises(ValueError, match="cloud_run_workflow_connector_timeout_sec"):
         config_mod.InfraConfig(
@@ -102,8 +102,8 @@ def test_pulumi_stack_keeps_job_overrides_role_and_secret_level_access() -> None
 
     assert 'role="roles/run.jobsExecutorWithOverrides"' in main_py
     assert '"github-wif-invokes-control-job"' in main_py
-    assert 'role="roles/workflows.editor"' in main_py
-    assert '"github-wif-workflow-editor"' in main_py
+    assert 'role="roles/workflows.invoker"' in main_py
+    assert '"github-wif-workflows-invoker"' in main_py
     assert 'role="roles/run.invoker"' not in main_py
     assert "gcp.eventarc.Trigger(" not in main_py
     assert "gcp.compute.Instance(" not in main_py

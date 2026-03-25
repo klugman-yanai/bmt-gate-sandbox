@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import google.auth
 import whenever
@@ -280,6 +281,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 state=check_state,
                 links=LiveLinks(workflow_execution_url=workflow_url, log_dump_url=log_dump_url),
                 failed_bmts=_final_comment_failed_rows(summaries),
+                case_failure_warnings=_pr_case_failure_warnings(summaries),
             ),
         )
     except GithubException:
@@ -635,6 +637,35 @@ def _cases_detail_from_metrics(metrics: dict[str, object]) -> str:
     return f"{cases_ok}/{case_count} ok"
 
 
+def _case_outcomes_from_summary(summary: LegSummary) -> list[dict[str, Any]]:
+    raw = summary.score.metrics.get("case_outcomes")
+    if not isinstance(raw, list):
+        return []
+    return [c for c in raw if isinstance(c, dict)]
+
+
+def _pr_case_failure_warnings(summaries: list[LegSummary]) -> list[tuple[str, str]]:
+    """(bmt_slug, message) for legs that passed despite tolerated per-file failures."""
+    out: list[tuple[str, str]] = []
+    for s in summaries:
+        if not leg_status_is_pass(s.status):
+            continue
+        cf = s.score.metrics.get("cases_failed")
+        if not isinstance(cf, int) or cf <= 0:
+            continue
+        raw_ids = s.score.metrics.get("cases_failed_ids")
+        id_list = [str(x).strip() for x in raw_ids] if isinstance(raw_ids, list) else []
+        id_list = [x for x in id_list if x]
+        id_str = ", ".join(f"`{x}`" for x in id_list)
+        vs = s.verdict_summary or {}
+        grace = vs.get("max_grace_case_failures", "?")
+        msg = f"{cf} file(s) failed within grace (limit={grace})"
+        if id_str:
+            msg += f": {id_str}"
+        out.append((s.bmt_slug, msg))
+    return out
+
+
 def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     for summary in summaries:
@@ -644,7 +675,7 @@ def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, s
         if summary.reason_code == "runner_case_failures":
             detail += (
                 f" ({summary.score.metrics.get('cases_failed', '?')} of"
-                f" {summary.score.metrics.get('case_count', '?')} cases crashed)"
+                f" {summary.score.metrics.get('case_count', '?')} files failed)"
             )
         rows.append((summary.bmt_slug, detail))
     return rows
@@ -669,6 +700,8 @@ def _final_view(
                 execution_mode_used=summary.execution_mode_used,
                 cases_detail=_cases_detail_from_metrics(summary.score.metrics),
                 score_extra=dict(summary.score.extra),
+                score_direction_label=str((summary.verdict_summary or {}).get("score_direction_label", "")),
+                case_outcomes=_case_outcomes_from_summary(summary),
             )
             for summary in summaries
         ],
@@ -752,7 +785,11 @@ def _write_log_dump_and_sign(
     bucket_name = (os.environ.get(ENV_GCS_BUCKET) or "").strip()
     if not bucket_name:
         return None
-    return _generate_signed_url(bucket_name=bucket_name, blob_name=relative_path)
+    signed = _generate_signed_url(bucket_name=bucket_name, blob_name=relative_path)
+    if signed:
+        return signed
+    # Fallback: at least give a stable URL that works for authenticated users.
+    return f"https://storage.cloud.google.com/{bucket_name}/{relative_path}"
 
 
 def _generate_signed_url(*, bucket_name: str, blob_name: str) -> str | None:

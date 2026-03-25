@@ -1,4 +1,4 @@
-name: BMT (cancel)
+name: BMT Cancel (PR Closed)
 
 on:
   pull_request:

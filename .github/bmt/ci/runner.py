@@ -52,13 +52,6 @@ def _project_has_bmts_in_bucket(root: str, project: str) -> bool:
         return False
 
 
-def _md_table_row(project: str, preset: str, reason: str) -> str:
-    def esc(x: str) -> str:
-        return x.replace("|", "\\|").replace("\n", " ")
-
-    return f"| {esc(project)} | {esc(preset)} | {esc(reason)} |"
-
-
 def _append_filter_matrix_step_summary(
     *,
     omitted_bucket: list[tuple[str, str]],
@@ -67,85 +60,41 @@ def _append_filter_matrix_step_summary(
     trimmed_production: list[tuple[str, str, str]],
     publish_keys: list[str],
 ) -> None:
-    """Explain omitted/skipped legs — GitHub's graph does not show per-cell skip reasons."""
+    """Compact note for legs omitted/skipped vs publish matrix (graph view hides reasons)."""
     path_raw = os.environ.get("GITHUB_STEP_SUMMARY")
     if not path_raw:
         return
     path = Path(path_raw)
+    pub = ", ".join(f"`{k}`" for k in publish_keys) if publish_keys else "*(none)*"
     lines: list[str] = [
-        "## Filter upload matrix",
+        "## Upload matrix",
         "",
-        "The workflow graph does not show *why* a leg is skipped or omitted. "
-        "This table lists legs that did not produce a normal binary publish step.",
-        "",
+        f"**Publish:** {len(publish_keys)} — {pub}",
     ]
+    extras: list[str] = []
     if omitted_bucket:
-        lines += [
-            "**Publish (omitted)** matrix legs match these bucket omissions (instant success + notice; no upload).",
-            "",
-            "### Omitted (no `projects/<project>/bmts/` objects in bucket)",
-            "",
-            "| Project | Preset | Reason |",
-            "| --- | --- | --- |",
-        ]
-        for project, preset in omitted_bucket:
-            lines.append(
-                _md_table_row(
-                    project,
-                    preset,
-                    "No BMT objects under this project prefix in the bucket; publish matrix omits the leg.",
-                )
-            )
-        lines.append("")
+        extras.append(
+            "**No bucket BMT:** "
+            + ", ".join(f"`{p}/{pr}`" for p, pr in omitted_bucket)
+            + " *(no `projects/…/bmts/`)*"
+        )
     if skipped_preseeded:
-        lines += [
-            "### Skipped upload (preseeded runner already in GCS)",
-            "",
-            "| Project | Preset | Reason |",
-            "| --- | --- | --- |",
-        ]
-        for project, preset in skipped_preseeded:
-            lines.append(
-                _md_table_row(
-                    project,
-                    preset,
-                    "Runner verified in GCS (preseeded); publish job will show Skipped.",
-                )
-            )
-        lines.append("")
+        extras.append(
+            "**Preseeded:** " + ", ".join(f"`{p}/{pr}`" for p, pr in skipped_preseeded)
+        )
     if skipped_same_ref:
-        lines += [
-            "### Skipped upload (runner already on GCS for this commit)",
-            "",
-            "| Project | Preset | Reason |",
-            "| --- | --- | --- |",
-        ]
-        for project, preset in skipped_same_ref:
-            lines.append(
-                _md_table_row(
-                    project,
-                    preset,
-                    "runner_meta source_ref matches HEAD; publish job will show Skipped.",
-                )
-            )
-        lines.append("")
+        extras.append(
+            "**Same SHA in GCS:** " + ", ".join(f"`{p}/{pr}`" for p, pr in skipped_same_ref)
+        )
     if trimmed_production:
-        lines += [
-            "### Not in workflow publish matrix (production trim)",
-            "",
-            "| Project | Preset | Reason |",
-            "| --- | --- | --- |",
-        ]
-        for project, preset, reason in trimmed_production:
-            lines.append(_md_table_row(project, preset, reason))
+        extras.append(
+            "**Prod trim:** "
+            + "; ".join(f"`{p}/{pr}` ({reason})" for p, pr, reason in trimmed_production)
+        )
+    if extras:
         lines.append("")
-    lines += [
-        "### Legs in the workflow publish matrix",
-        "",
-        f"**{len(publish_keys)}** leg(s): "
-        + (", ".join(f"`{k}`" for k in publish_keys) if publish_keys else "(none)"),
-        "",
-    ]
+        lines.extend(extras)
+    lines.append("")
     with path.open("a", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
@@ -317,9 +266,8 @@ class RunnerManager:
             if summary_path:
                 with Path(summary_path).open("a", encoding="utf-8") as sf:
                     sf.write(
-                        "## Filter upload matrix\n\n"
-                        "**BMT_SKIP_PUBLISH_RUNNERS=true** — no publish jobs; "
-                        "runners assumed already in bucket.\n\n"
+                        "## Upload matrix\n\n"
+                        "**Skipped** — `BMT_SKIP_PUBLISH_RUNNERS`; no publish jobs.\n\n"
                     )
             return
         runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")

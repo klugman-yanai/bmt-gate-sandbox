@@ -6,12 +6,12 @@ import posixpath
 import tempfile
 from pathlib import Path
 
-import config as pulumi_config
 import pulumi
 import pulumi_gcp as gcp
+from pulumi_stack_config import load_config
 from workflow_template import github_app_secret_names, render_workflow_source
 
-cfg = pulumi_config.load_config()  # ty: ignore[unresolved-attribute]
+cfg = load_config()
 
 artifact_registry = gcp.artifactregistry.Repository(
     "bmt-images",
@@ -154,12 +154,13 @@ bmt_workflow = gcp.workflows.Workflow(
     source_contents=workflow_source,
 )
 
-gcp.workflows.WorkflowIamMember(
-    "github-wif-workflow-editor",
+# pulumi-gcp 9.x does not expose gcp.workflows.WorkflowIamMember (no workflow-scoped IAM
+# in the provider schema). Grant at project scope so GitHub Actions (impersonating
+# bmt-runner-sa via WIF) can start/cancel executions (see workflows_api.py).
+gcp.projects.IAMMember(
+    "github-wif-workflows-invoker",
     project=cfg.gcp_project,
-    region=cfg.cloud_run_region,
-    workflow=bmt_workflow.name,
-    role="roles/workflows.editor",
+    role="roles/workflows.invoker",
     member=github_wif_member,
 )
 

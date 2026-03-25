@@ -3,7 +3,7 @@
 #
 # One snapshot + parallel release / non-release matrices (same graph as build-and-test-dev.yml);
 # BMT needs only build_release so it does not wait for non-release legs.
-name: CI (PR)
+name: Build + BMT (PR)
 
 on:
   pull_request:

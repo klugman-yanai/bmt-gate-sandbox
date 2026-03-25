@@ -31,6 +31,10 @@ from sk_plugin.sk_scoring_policy import (
 
 logger = logging.getLogger(__name__)
 
+# Allow this many per-file runner failures before failing the whole BMT leg. Set to 0 in
+# ``plugin_config`` (``max_grace_case_failures``) for strict “any failure fails the leg”.
+_DEFAULT_MAX_GRACE_CASE_FAILURES = 1
+
 _BATCH_CMD_TIMEOUT_DEFAULT_SEC = 6 * 3600
 _BATCH_CMD_TIMEOUT_MAX_SEC = 7 * 24 * 3600
 
@@ -70,6 +74,21 @@ def _resolve_batch_results_file(workspace_root: Path, results_relpath: str) -> P
         )
         return None
     return candidate if candidate.is_file() else None
+
+
+def _max_grace_case_failures(plugin_config: dict[str, Any]) -> int:
+    raw = plugin_config.get("max_grace_case_failures", _DEFAULT_MAX_GRACE_CASE_FAILURES)
+    if raw is None:
+        return _DEFAULT_MAX_GRACE_CASE_FAILURES
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid max_grace_case_failures=%r; using default %s", raw, _DEFAULT_MAX_GRACE_CASE_FAILURES)
+        return _DEFAULT_MAX_GRACE_CASE_FAILURES
+    if n < 0:
+        logger.warning("max_grace_case_failures must be >= 0; got %s, using 0", n)
+        return 0
+    return n
 
 
 class SkPlugin(BmtPlugin):
@@ -206,8 +225,9 @@ class SkPlugin(BmtPlugin):
                 },
             )
 
-        # Any case-level failure is an unconditional FAIL.
-        if cases_failed > 0:
+        grace = _max_grace_case_failures(context.bmt_manifest.plugin_config)
+        failed_ids = list(score_result.metrics.get("cases_failed_ids", []))
+        if cases_failed > grace:
             return VerdictResult(
                 passed=False,
                 status=BmtLegStatus.FAIL.value,
@@ -215,35 +235,66 @@ class SkPlugin(BmtPlugin):
                 summary={
                     "aggregate_score": score_result.aggregate_score,
                     "cases_failed": cases_failed,
-                    "cases_failed_ids": score_result.metrics.get("cases_failed_ids", []),
+                    "cases_failed_ids": failed_ids,
+                    "max_grace_case_failures": grace,
                     **direction,
                 },
+            )
+
+        grace_meta: dict[str, Any] = {}
+        if cases_failed > 0:
+            grace_meta = {
+                "max_grace_case_failures": grace,
+                "grace_case_failures": cases_failed,
+                "cases_failed_ids": failed_ids,
+            }
+            logger.warning(
+                "BMT %s: %s case(s) failed within grace (limit=%s): %s",
+                context.bmt_manifest.bmt_slug,
+                cases_failed,
+                grace,
+                failed_ids,
             )
 
         if baseline is None:
             return VerdictResult(
                 passed=True,
                 status=BmtLegStatus.PASS.value,
-                reason_code="bootstrap_without_baseline",
+                reason_code="case_failures_within_grace" if cases_failed > 0 else "bootstrap_without_baseline",
                 summary={
                     "aggregate_score": score_result.aggregate_score,
                     "baseline_score": None,
                     **direction,
+                    **grace_meta,
                 },
             )
         if comparison == "lte":
             passed = score_result.aggregate_score <= baseline.aggregate_score + tolerance
         else:
             passed = score_result.aggregate_score >= baseline.aggregate_score - tolerance
+        if not passed:
+            return VerdictResult(
+                passed=False,
+                status=BmtLegStatus.FAIL.value,
+                reason_code="score_outside_tolerance",
+                summary={
+                    "aggregate_score": score_result.aggregate_score,
+                    "baseline_score": baseline.aggregate_score,
+                    "tolerance_abs": tolerance,
+                    **direction,
+                    **grace_meta,
+                },
+            )
         return VerdictResult(
-            passed=passed,
-            status=BmtLegStatus.PASS.value if passed else BmtLegStatus.FAIL.value,
-            reason_code="score_within_tolerance" if passed else "score_outside_tolerance",
+            passed=True,
+            status=BmtLegStatus.PASS.value,
+            reason_code="case_failures_within_grace" if cases_failed > 0 else "score_within_tolerance",
             summary={
                 "aggregate_score": score_result.aggregate_score,
                 "baseline_score": baseline.aggregate_score,
                 "tolerance_abs": tolerance,
                 **direction,
+                **grace_meta,
             },
         )
 

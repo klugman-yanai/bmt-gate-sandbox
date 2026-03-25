@@ -10,7 +10,7 @@ from github import Auth, Github, GithubException
 from gcp.image.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
 from gcp.image.config.status import CheckConclusion, CheckStatus
 from gcp.image.github import github_checks
-from gcp.image.github.presentation import render_results_table
+from gcp.image.github.presentation import github_check_final_title, render_results_table
 
 DEFAULT_STATUS_CONTEXT: str = STATUS_CONTEXT
 
@@ -184,8 +184,8 @@ def _finalize_check_run_with_retry(
         name=status_context,
         status=CheckStatus.IN_PROGRESS.value,
         output={
-            "title": "BMT Finalizing",
-            "summary": "Publishing final results…",
+            "title": "Finalizing",
+            "summary": "Posting the final gate result to this check…",
         },
         token_resolver=token_resolver,
     )
@@ -221,6 +221,7 @@ def finalize_check_run(
     conclusion = (
         CheckConclusion.SUCCESS.value if state == CheckConclusion.SUCCESS.value else CheckConclusion.FAILURE.value
     )
+    is_pass = state == CheckConclusion.SUCCESS.value
     return _finalize_check_run_with_retry(
         token=github_token,
         repository=repository,
@@ -229,7 +230,7 @@ def finalize_check_run(
         check_run_id=check_run_id,
         conclusion=conclusion,
         output={
-            "title": f"BMT Complete: {'PASS' if state == CheckConclusion.SUCCESS.value else 'FAIL'}",
+            "title": github_check_final_title(is_success=is_pass),
             "summary": render_results_table(
                 [summary for summary in leg_summaries if summary is not None],
                 {

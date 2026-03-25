@@ -1,6 +1,6 @@
 # Thin trigger — push to ci/check-bmt-gate runs build CI only (no BMT handoff).
 # PR trigger with full BMT pipeline lives in trigger-ci-pr.yml.
-name: Build (push)
+name: Build (Push Branch)
 
 on:
   workflow_dispatch:

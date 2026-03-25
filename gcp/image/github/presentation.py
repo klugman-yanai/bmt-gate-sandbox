@@ -21,7 +21,6 @@ EM_DASH = "—"
 MISSING_SCORE = "—"
 MOCK_SCORE_PLACEHOLDER = "— (mock)"
 UNKNOWN_SHORT_SHA = "unknown"
-_ETA_UNKNOWN = "unknown"
 # GitHub check run API caps annotations per request; overflow remains in Markdown.
 MAX_GITHUB_CHECK_ANNOTATIONS = 50
 
@@ -36,7 +35,8 @@ REASON_LABELS: dict[str, str] = {
     "runner_timeout": "the runner timed out",
     "demo_force_pass": "forced pass override (demo mode)",
     "bootstrap_without_baseline": _BOOTSTRAP_FIRST_RUN,
-    "runner_case_failures": "runner crashed on one or more test files",
+    "runner_case_failures": "too many test files failed the runner (beyond configured grace)",
+    "case_failures_within_grace": "one or more test files failed, within grace — gate still passed; see per-case details",
     "no_dataset_cases": "no test cases were produced (empty dataset or execution produced no rows)",
     "plugin_execute_failed": "the BMT plugin failed during execute (setup, imports, or orchestration)",
 }
@@ -114,6 +114,8 @@ class FinalCommentView:
     state: str
     links: LiveLinks
     failed_bmts: list[tuple[str, str]] = field(default_factory=list)
+    #: Passing legs that had tolerated per-file failures (``max_grace_case_failures``).
+    case_failure_warnings: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +167,15 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
         ]
         if view.links.workflow_execution_url:
             lines.insert(-1, f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
+        if view.case_failure_warnings:
+            lines.extend(
+                [
+                    "",
+                    "**Note —** some benchmark files did not run cleanly (within configured grace):",
+                    "",
+                ]
+            )
+            lines.extend(f"- `{bmt}`: {msg}" for bmt, msg in view.case_failure_warnings)
         return "\n".join(lines)
 
     lines = [
@@ -305,10 +316,20 @@ def _progress_status_label(status: str) -> str:
     return _PROGRESS_STATUS_LABELS.get(status, status.title())
 
 
+def _format_progress_run_so_far_cell(row: ProgressBmtRow) -> str:
+    """Duration column while in-flight: label partial wall time so it is not read as final."""
+    base = _format_duration(row.duration_sec)
+    if row.has_completed_summary:
+        return base
+    if row.duration_sec is not None and row.duration_sec >= 0:
+        return f"{base} *(running)*"
+    return base
+
+
 def _progress_table_markdown(view: CheckProgressView) -> str:
     lines = [
-        "| Project | BMT | Status | Avg. | Tests | Duration |",
-        "|---------|-----|--------|------|-------|----------|",
+        "| Project | BMT | Status | Avg. | Tests | Run so far |",
+        "|---------|-----|--------|------|-------|------------|",
     ]
     for row in view.bmts:
         leg_done = row.status in (BmtLegStatus.PASS.value, BmtLegStatus.FAIL.value)
@@ -328,7 +349,7 @@ def _progress_table_markdown(view: CheckProgressView) -> str:
                     _progress_status_label(row.status),
                     score_s,
                     _md_table_cell(row.cases_detail or EM_DASH),
-                    _format_duration(row.duration_sec),
+                    _format_progress_run_so_far_cell(row),
                 ]
             )
             + " |"
@@ -367,23 +388,77 @@ def _final_check_table_markdown(view: CheckFinalView) -> str:
     return "\n".join(lines)
 
 
+def github_check_final_title(*, is_success: bool) -> str:
+    """Short check-run title when the gate has finished (keep in sync with :func:`render_final_check_output`)."""
+    return f"Gate {CHECK_TITLE_PASS}" if is_success else f"Gate {CHECK_TITLE_FAIL}"
+
+
+def _progress_finish_estimate_markdown(view: CheckProgressView) -> str:
+    if view.eta_sec is not None:
+        return (
+            f"About **{_format_duration(view.eta_sec)}** remaining — rough wall-clock estimate from "
+            "prior runs and **parallel** legs still in flight."
+        )
+    return (
+        "**Not estimated yet** — needs snapshot history from earlier runs, or at least one **finished** leg "
+        "in this run to anchor timing."
+    )
+
+
+def _progress_bmt_clock_markdown(view: CheckProgressView) -> str | None:
+    if view.elapsed_sec is None:
+        return None
+    return (
+        f"**{_format_duration(view.elapsed_sec)}** on the **BMT clock** (since this gate started reporting in "
+        "GCS). *This is not the same as the GitHub Actions job timer shown above.*"
+    )
+
+
+def _progress_check_summary_markdown(view: CheckProgressView) -> str:
+    total = view.total_count
+    done = view.completed_count
+    lines: list[str] = [
+        "### Progress",
+        "",
+        f"**{done}** of **{total}** BMT legs finished.",
+        "",
+        "### Finish estimate",
+        "",
+        _progress_finish_estimate_markdown(view),
+        "",
+    ]
+    clock = _progress_bmt_clock_markdown(view)
+    if clock is not None:
+        lines.extend(["### BMT clock", "", clock, ""])
+    if view.links.workflow_execution_url:
+        lines.extend(["### Live execution", "", _gcp_console_link(view.links.workflow_execution_url), ""])
+    lines.extend(
+        [
+            "---",
+            "",
+            "*Per-leg **Avg.**, **Tests**, and direction markers (↑/↓) appear when that leg completes. "
+            "The **Run so far** column may show partial wall time while a leg is still running.*",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _progress_check_text_markdown(view: CheckProgressView) -> str:
+    intro = (
+        "### Legs\n"
+        "\n"
+        "*Complete* / *Failed* means the leg wrote a final summary. "
+        "*Running* / *Pending* means work is still in progress.\n"
+    )
+    return intro + "\n" + _progress_table_markdown(view)
+
+
 def render_progress_check_output(view: CheckProgressView) -> CheckRunOutput:
     """Return check output: skimmable ``summary``, full BMT table in ``text`` (GitHub Checks API)."""
-    summary_lines = [
-        "**BMTs are running**",
-        "",
-        f"- Progress: `{view.completed_count}/{view.total_count}` complete",
-        f"- Elapsed: `{_format_duration(view.elapsed_sec)}`",
-        f"- ETA: `{_format_eta(view.eta_sec)}`",
-    ]
-    if view.links.workflow_execution_url:
-        summary_lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
-    summary_lines.append("- A short context note for each BMT (metrics and ↑/↓) appears when the run completes.")
-    table = _progress_table_markdown(view)
     return {
-        "title": f"BMT Running: {view.completed_count}/{view.total_count} complete",
-        "summary": "\n".join(summary_lines),
-        "text": table,
+        "title": f"In progress · {view.completed_count}/{view.total_count}",
+        "summary": _progress_check_summary_markdown(view),
+        "text": _progress_check_text_markdown(view),
     }
 
 
@@ -416,16 +491,31 @@ def github_check_annotations_from_final_rows(rows: list[FinalBmtRow]) -> list[di
                     _annotation_path_segment(cid),
                 )
             )
+            level = "warning" if leg_status_is_pass(row.status) else "failure"
             out.append(
                 {
                     "path": path,
                     "start_line": 1,
                     "end_line": 1,
-                    "annotation_level": "failure",
+                    "annotation_level": level,
                     "message": msg or "(no error message)",
                 }
             )
     return out
+
+
+def tolerated_case_failures_notice_markdown(rows: list[FinalBmtRow]) -> str:
+    """One-line bullets for passing legs that still had runner/parser failures (within grace)."""
+    parts: list[str] = []
+    for row in rows:
+        if not leg_status_is_pass(row.status):
+            continue
+        failed = [c for c in row.case_outcomes if c.get("status") != _CASE_OUTCOME_STATUS_PASSED]
+        if not failed:
+            continue
+        ids = ", ".join(f"`{_md_table_cell(c.get('case_id', ''))}`" for c in failed)
+        parts.append(f"- **`{row.project}` / `{row.bmt}`:** {len(failed)} file(s): {ids}")
+    return "\n".join(parts).strip()
 
 
 def per_case_failure_markdown(rows: list[FinalBmtRow]) -> str:
@@ -451,6 +541,18 @@ def multi_leg_score_scope_markdown(row_count: int) -> str:
     if row_count <= 1:
         return ""
     return "*Different BMT rows may use different metrics and directions; raw **Avg.** values are not automatically comparable.*"
+
+
+def links_markdown(links: LiveLinks) -> str:
+    """Shared Links block for check summary + body text (GitHub UI may hide summary)."""
+    parts: list[str] = ["### Links", ""]
+    if links.workflow_execution_url:
+        parts.append(f"- **Cloud Run / Workflows:** {_gcp_console_link(links.workflow_execution_url)}")
+    if links.log_dump_url:
+        parts.append(f"- **Failure log bundle** (expires in 3 days): [open]({links.log_dump_url})")
+    if not links.workflow_execution_url and not links.log_dump_url:
+        parts.append("- *(no external links for this run)*")
+    return "\n".join(parts)
 
 
 def _final_check_failure_summary_lines(view: CheckFinalView) -> list[str]:
@@ -516,37 +618,57 @@ def render_results_table(
         tail.append(f"- Runtime bucket root: `{runtime_bucket_root.strip()}`")
     if not tail:
         return summary
-    return summary + "\n\n" + "\n".join(tail)
+    return summary + "\n\n### Run metadata\n\n" + "\n".join(tail)
 
 
 def render_final_check_output(view: CheckFinalView) -> CheckRunOutput:
     """Return check output: skimmable ``summary``, full results table in ``text`` (GitHub Checks API)."""
     is_success = view.state == CheckConclusion.SUCCESS.value
+    result_word = "passed" if is_success else "failed"
+    gh_state = CheckConclusion.SUCCESS.value if is_success else CheckConclusion.FAILURE.value
+
     lines = [
-        "**All BMTs passed**" if is_success else "**One or more BMTs failed**",
+        "### Result",
         "",
-        f"- Result: `{CheckConclusion.SUCCESS.value if is_success else CheckConclusion.FAILURE.value}`",
+        f"**{result_word.upper()}** — GitHub conclusion `{gh_state}`.",
+        "",
+        "All BMT legs met the gate."
+        if is_success
+        else "At least one BMT leg did not meet the gate; see the failure summary and the full table below.",
+        "",
     ]
-    if view.links.workflow_execution_url:
-        lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
-    if view.links.log_dump_url:
-        lines.append(f"- Log dump (expires in 3 days): [open]({view.links.log_dump_url})")
+    lines.append(links_markdown(view.links))
     lines.extend(_final_check_failure_summary_lines(view))
+    if is_success:
+        grace_notice = tolerated_case_failures_notice_markdown(view.bmts)
+        if grace_notice:
+            lines.extend(
+                [
+                    "",
+                    "### Heads-up: some files failed (within grace)",
+                    "",
+                    "The gate **passed**, but one or more inputs hit runner or log parse issues. "
+                    "Details are in **Per-case failures** below and as check annotations.",
+                    "",
+                    grace_notice,
+                ]
+            )
     blurb_md = run_context_blurb_markdown(view.bmts)
     text_parts: list[str] = []
+    text_parts.append(links_markdown(view.links).rstrip())
     if blurb_md:
         text_parts.append(blurb_md.rstrip())
     else:
         scope_md = multi_leg_score_scope_markdown(len(view.bmts))
         if scope_md:
             text_parts.append(scope_md.rstrip())
-    text_parts.append(_final_check_table_markdown(view))
+    text_parts.append("### Per-leg results\n\n" + _final_check_table_markdown(view))
     failure_md = per_case_failure_markdown(view.bmts)
     if failure_md:
         text_parts.extend(["", "### Per-case failures", "", failure_md])
     annotations = github_check_annotations_from_final_rows(view.bmts)
     out: dict[str, Any] = {
-        "title": f"BMT Complete: {CHECK_TITLE_PASS if is_success else CHECK_TITLE_FAIL}",
+        "title": github_check_final_title(is_success=is_success),
         "summary": "\n".join(lines),
         "text": "\n\n".join(text_parts),
     }
@@ -557,10 +679,6 @@ def render_final_check_output(view: CheckFinalView) -> CheckRunOutput:
 
 def _final_status_label(status: str) -> str:
     return "PASS" if leg_status_is_pass(status) else "FAIL"
-
-
-def _format_eta(seconds: int | None) -> str:
-    return _format_duration(seconds) if seconds is not None else _ETA_UNKNOWN
 
 
 def _format_duration(seconds: int | None) -> str:

@@ -119,7 +119,7 @@ class GitHubReporter:
                     self.sha,
                     name=self.status_context,
                     status=CheckStatus.IN_PROGRESS.value,
-                    output={"title": "BMT Finalizing", "summary": "Publishing final results…"},
+                    output={"title": "Finalizing", "summary": "Posting the final gate result to this check…"},
                     details_url=details_url,
                 )
             except GithubException:

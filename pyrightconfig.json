@@ -17,14 +17,16 @@
 	],
 	"extraPaths": [
 		".github/bmt",
-		"gcp/stage/projects/sk/plugin_workspaces/default/src"
+		"gcp/stage/projects/sk/plugin_workspaces/default/src",
+		"infra/pulumi"
 	],
 	"executionEnvironments": [
 		{
 			"root": ".",
 			"extraPaths": [
 				".github/bmt",
-				"gcp/stage/projects/sk/plugin_workspaces/default/src"
+				"gcp/stage/projects/sk/plugin_workspaces/default/src",
+				"infra/pulumi"
 			]
 		}
 	],

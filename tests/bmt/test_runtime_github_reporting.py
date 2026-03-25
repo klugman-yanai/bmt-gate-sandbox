@@ -643,7 +643,7 @@ def test_publish_final_results_pr_comment_includes_case_crash_count(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """When reason_code is runner_case_failures, the PR comment detail includes case crash count."""
+    """When reason_code is runner_case_failures, the PR comment detail includes failure counts."""
     runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
     runtime.stage_root.mkdir(parents=True, exist_ok=True)
     plan = _plan()
@@ -701,8 +701,8 @@ def test_publish_final_results_pr_comment_includes_case_crash_count(
     assert len(cap.comment_view.failed_bmts) == 1
     bmt_name, detail = cap.comment_view.failed_bmts[0]
     assert bmt_name == "false_rejects"
-    assert "runner crashed on one or more test files" in detail
-    assert "(2 of 24 cases crashed)" in detail
+    assert "too many test files failed" in detail
+    assert "(2 of 24 files failed)" in detail
 
 
 def test_publish_github_failure_retries_success_status_when_legs_pass_but_api_failed(

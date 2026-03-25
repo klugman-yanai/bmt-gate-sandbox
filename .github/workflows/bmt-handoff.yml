@@ -270,34 +270,23 @@ jobs:
       - name: Append plan summary to job summary
         shell: bash
         env:
-          # Pass through env so bash never sees raw `|`, `[`, `]` inside backticks (command substitution).
           SUMMARY_RUN_ID: ${{ github.run_id }}
           SUMMARY_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
           SUMMARY_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
-          SUMMARY_HEAD_BRANCH: ${{ steps.prepare.outputs.head_branch }}
-          SUMMARY_HEAD_EVENT: ${{ steps.prepare.outputs.head_event }}
-          SUMMARY_PR_NUMBER: ${{ steps.prepare.outputs.pr_number }}
           SUMMARY_MATRIX_NEED_UPLOAD: ${{ steps.filter.outputs.matrix_need_upload_keys }}
           SUMMARY_MATRIX_PUBLISH: ${{ steps.filter.outputs.matrix_publish_keys }}
         run: |
           set -euo pipefail
           {
-            echo "## BMT Plan"
+            echo "## Plan"
             echo ""
-            echo "| Field | Value |"
-            echo "|-------|-------|"
-            echo "| Handoff workflow run | \`${SUMMARY_RUN_ID}\` |"
-            echo "| Caller CI run id | \`${SUMMARY_CI_RUN_ID}\` |"
-            echo "| head_sha | \`${SUMMARY_HEAD_SHA}\` |"
-            echo "| head_branch | \`${SUMMARY_HEAD_BRANCH}\` |"
-            echo "| head_event | \`${SUMMARY_HEAD_EVENT}\` |"
-            echo "| pr_number | \`${SUMMARY_PR_NUMBER}\` |"
-            echo "| matrix_need_upload_keys | \`${SUMMARY_MATRIX_NEED_UPLOAD}\` |"
-            echo "| matrix_publish_keys | \`${SUMMARY_MATRIX_PUBLISH}\` |"
+            echo "- **SHA:** ${SUMMARY_HEAD_SHA}"
+            echo "- **Runs:** caller CI ${SUMMARY_CI_RUN_ID} · handoff ${SUMMARY_RUN_ID}"
+            echo "- **Matrices:** upload ${SUMMARY_MATRIX_NEED_UPLOAD} · publish ${SUMMARY_MATRIX_PUBLISH}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Workflow summary notice
-        run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
+        run: echo "::notice::Handoff finishes after dispatch; BMT verdict lands on PR Checks asynchronously."
   # Download runner-* artifacts when present; dev skip_missing uses manifest-only legs (no binaries).
   publish:
     name: Publish
@@ -470,36 +459,13 @@ jobs:
 
       - name: Emit dispatch context
         shell: bash
-        env:
-          FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
         run: |
           set -euo pipefail
           {
-            echo "## BMT Handoff Context"
+            echo "## Dispatch"
             echo ""
-            echo "- Head SHA: \`${{ needs.plan.outputs.head_sha }}\`"
-            echo "- Head branch: \`${{ needs.plan.outputs.head_branch }}\`"
-            echo "- Head event: \`${{ needs.plan.outputs.head_event }}\`"
-            echo "- PR number: \`${{ needs.plan.outputs.pr_number || 'n/a' }}\`"
-            echo "- Run context: \`${{ needs.plan.outputs.run_context }}\`"
-            echo "- Classify path: \`${{ steps.classify.outputs.path || 'unknown' }}\`"
-            echo "- Has legs: \`${{ steps.classify.outputs.has_legs || 'false' }}\`"
-            echo "- Accepted projects: \`${{ steps.classify.outputs.accepted_projects || '[]' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo ""
-            echo "<details><summary>Filtered matrix (JSON)</summary>"
-            echo ""
-            echo '```json'
-            if printf '%s' "$FILTERED_MATRIX_JSON" | jq -e . >/dev/null 2>&1; then
-              printf '%s' "$FILTERED_MATRIX_JSON" | jq .
-            else
-              printf '%s' "$FILTERED_MATRIX_JSON"
-            fi
-            echo ""
-            echo '```'
-            echo ""
-            echo "</details>"
+            echo "- **SHA:** \`${{ needs.plan.outputs.head_sha }}\` · **legs:** \`${{ steps.classify.outputs.has_legs || 'false' }}\` · **projects:** \`${{ steps.classify.outputs.accepted_projects || '[]' }}\`"
+            echo "- **Filter:** \`${{ steps.classify.outputs.path || 'unknown' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate dataset inputs (fail fast if no .wav files in GCS)
@@ -545,19 +511,6 @@ jobs:
             echo "workflow_execution_path=.local/diagnostics/workflow-execution.json"
           } > .local/diagnostics/manifest.txt
 
-      - name: Append runtime health snapshot
-        if: steps.invoke-workflow.outcome == 'success'
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo ""
-            echo "## Runtime Health Snapshot"
-            echo ""
-            echo "- workflow execution: \`${{ steps.invoke-workflow.outputs.workflow_execution_name }}\`"
-            echo "- workflow state: \`${{ steps.invoke-workflow.outputs.workflow_execution_state || 'UNKNOWN' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Upload diagnostics artifact
         if: always()
         uses: ./.github/actions/upload-artifact-repo
@@ -589,14 +542,10 @@ jobs:
           set -euo pipefail
           {
             echo ""
-            echo "## Dispatch Status"
-            echo ""
-            echo "- classify: \`${{ steps.classify.outcome || 'n/a' }}\`"
-            echo "- workflow invoke: \`${{ steps.invoke-workflow.outcome || 'n/a' }}\`"
-            echo "- dispatch_confirmed: \`${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}\`"
-            echo "- dispatch_reason: \`${{ steps.invoke-workflow.outputs.dispatch_reason || '' }}\`"
-            echo "- workflow_execution_name: \`${{ steps.invoke-workflow.outputs.workflow_execution_name || '' }}\`"
-            echo "- diagnostics artifact: \`bmt-handoff-diagnostics-${{ github.run_id }}\`"
+            echo "## Workflow"
+            echo "- steps: classify \`${{ steps.classify.outcome || 'n/a' }}\` · invoke \`${{ steps.invoke-workflow.outcome || 'n/a' }}\`"
+            echo "- dispatch: \`${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}\` — ${{ steps.invoke-workflow.outputs.dispatch_reason || '—' }}"
+            echo "- execution: \`${{ steps.invoke-workflow.outputs.workflow_execution_name || '—' }}\` · state \`${{ steps.invoke-workflow.outputs.workflow_execution_state || '—' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout repo (for local actions)

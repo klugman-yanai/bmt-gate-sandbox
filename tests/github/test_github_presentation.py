@@ -63,6 +63,23 @@ def test_render_final_success_pr_comment_stays_brief() -> None:
     assert "| Project |" not in rendered
 
 
+def test_render_final_success_pr_comment_includes_case_failure_warnings() -> None:
+    rendered = render_final_pr_comment(
+        FinalCommentView(
+            head_sha="fedcba9876543210",
+            state="success",
+            links=LiveLinks(workflow_execution_url="https://example.test/workflows/123"),
+            case_failure_warnings=[
+                ("false_rejects", "1 file(s) failed within grace (limit=1): `x.wav`"),
+            ],
+        )
+    )
+    assert "## BMT Passed" in rendered
+    assert "within configured grace" in rendered
+    assert "`false_rejects`" in rendered
+    assert "x.wav" in rendered
+
+
 def test_render_final_failure_pr_comment_lists_failed_bmts_without_table() -> None:
     rendered = render_final_pr_comment(
         FinalCommentView(
@@ -102,21 +119,41 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
                     has_completed_summary=True,
                     aggregate_score=12.34,
                 ),
-                ProgressBmtRow(project="sk", bmt="false_alarms", status="running", duration_sec=None),
+                ProgressBmtRow(project="sk", bmt="false_alarms", status="running", duration_sec=45),
             ],
         )
     )
 
-    assert output["title"] == "BMT Running: 2/5 complete"
-    assert "- Progress: `2/5` complete" in output["summary"]
-    assert "- Elapsed: `2m 5s`" in output["summary"]
-    assert "- ETA: `5m 0s`" in output["summary"]
+    assert output["title"] == "In progress · 2/5"
+    assert "### Progress" in output["summary"]
+    assert "**2** of **5** BMT legs finished." in output["summary"]
+    assert "### Finish estimate" in output["summary"]
+    assert "About **5m 0s** remaining" in output["summary"]
+    assert "### BMT clock" in output["summary"]
+    assert "**2m 5s** on the **BMT clock**" in output["summary"]
+    assert "### Live execution" in output["summary"]
+    assert "BMT Cloud Job (GCP Console)" in output["summary"]
     assert "| Project |" not in output["summary"]
-    assert "context note" in output["summary"].lower()
     text = output["text"]
-    assert "| Project | BMT | Status | Avg. | Tests | Duration |" in text
+    assert "### Legs" in text
+    assert "| Project | BMT | Status | Avg. | Tests | Run so far |" in text
     assert "| sk | false_rejects | Complete | 12.34 | — | 1m 1s |" in text
-    assert "| sk | false_alarms | Running | — | — | — |" in text
+    assert "| sk | false_alarms | Running | — | — | 45s *(running)* |" in text
+
+
+def test_render_progress_check_output_omits_bmt_clock_without_elapsed() -> None:
+    output = render_progress_check_output(
+        CheckProgressView(
+            completed_count=0,
+            total_count=1,
+            elapsed_sec=None,
+            eta_sec=None,
+            links=LiveLinks(workflow_execution_url=""),
+            bmts=[ProgressBmtRow(project="sk", bmt="only", status="pending")],
+        )
+    )
+    assert "### BMT clock" not in output["summary"]
+    assert "Not estimated yet" in output["summary"]
 
 
 def test_render_final_check_output_includes_score_scope_when_multiple_legs() -> None:
@@ -144,6 +181,9 @@ def test_render_final_check_output_includes_score_scope_when_multiple_legs() -> 
             ],
         )
     )
+    assert output["title"] == "Gate PASS"
+    assert "### Result" in output["summary"]
+    assert "failure log bundle" not in output["summary"].lower()
     assert "Each BMT row stands alone" in output["text"]
     assert "separate" in output["text"].lower()
 
@@ -229,13 +269,16 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
         )
     )
 
-    assert output["title"] == "BMT Complete: FAIL"
-    assert "- Result: `failure`" in output["summary"]
-    assert "- Log dump (expires in 3 days): [open](https://example.test/log-dump)" in output["summary"]
+    assert output["title"] == "Gate FAIL"
+    assert "### Result" in output["summary"]
+    assert "`failure`" in output["summary"]
+    assert "failure log bundle" in output["summary"].lower()
+    assert "[open](https://example.test/log-dump)" in output["summary"]
     assert "| Project |" not in output["summary"]
     assert "### Failure summary" in output["summary"]
     assert "- `false_rejects`: score dropped below baseline" in output["summary"]
     text = output["text"]
+    assert "### Per-leg results" in text
     assert "| Project | BMT | Status | Avg. | Tests | Reason | Duration |" in text
     assert "| sk | false_rejects | FAIL | 41.25 | 22/24 passed | score dropped below baseline | 1m 5s |" in text
     assert "| sk | false_alarms | PASS | 56.80 | 30/30 passed | score met or exceeded baseline | 59s |" in text
@@ -288,7 +331,13 @@ def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> N
 def test_human_reason_runner_case_failures() -> None:
     from gcp.image.github.presentation import human_reason
 
-    assert human_reason("runner_case_failures") == "runner crashed on one or more test files"
+    assert human_reason("runner_case_failures") == "too many test files failed the runner (beyond configured grace)"
+
+
+def test_human_reason_case_failures_within_grace() -> None:
+    from gcp.image.github.presentation import human_reason
+
+    assert "within grace" in human_reason("case_failures_within_grace").lower()
 
 
 def test_human_reason_no_dataset_cases() -> None:
@@ -338,6 +387,41 @@ def test_render_final_check_output_per_case_failures_and_annotations() -> None:
     assert "annotations" in output
     assert output["annotations"][0]["path"].startswith("bmt/sk/false_alarms/")
     assert output["annotations"][0]["annotation_level"] == "failure"
+
+
+def test_render_final_check_output_grace_pass_shows_heads_up_and_warning_annotations() -> None:
+    output = render_final_check_output(
+        CheckFinalView(
+            state="success",
+            links=LiveLinks(workflow_execution_url="https://example.test/wf"),
+            bmts=[
+                FinalBmtRow(
+                    project="sk",
+                    bmt="false_rejects",
+                    status="pass",
+                    aggregate_score=81.0,
+                    reason_code="case_failures_within_grace",
+                    duration_sec=99,
+                    cases_detail="23/24 ok",
+                    score_direction_label="higher better",
+                    case_outcomes=[
+                        {
+                            "case_id": "bad.wav",
+                            "status": "failed",
+                            "namuh_count": 0.0,
+                            "error": "runner_exit_1",
+                            "log_name": "bad.wav.log",
+                        },
+                    ],
+                ),
+            ],
+        )
+    )
+    assert "### Heads-up: some files failed (within grace)" in output["summary"]
+    assert "sk" in output["summary"] and "false_rejects" in output["summary"]
+    assert "### Per-case failures" in output["text"]
+    assert "annotations" in output
+    assert output["annotations"][0]["annotation_level"] == "warning"
 
 
 def test_github_check_annotations_cap_at_50() -> None:

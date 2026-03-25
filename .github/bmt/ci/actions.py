@@ -35,8 +35,13 @@ def gh_endgroup() -> None:
 
 
 def write_github_output(github_output: str | None, key: str, value: str) -> None:
-    """Append key=value to GITHUB_OUTPUT file (silently no-ops if path is None)."""
+    """Append key=value to GITHUB_OUTPUT file (silently no-ops if path is None).
+
+    GitHub rejects raw newlines in ``key=value`` format, so collapse line breaks to
+    a single line to avoid ``Invalid format`` workflow failures.
+    """
     if not github_output:
         return
+    normalized = " ".join(value.replace("\r\n", "\n").replace("\r", "\n").splitlines())
     with Path(github_output).open("a", encoding="utf-8") as fh:
-        fh.write(f"{key}={value}\n")
+        fh.write(f"{key}={normalized}\n")

@@ -163,12 +163,9 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "## BMT Image Build"
-            echo "| Field | Value |"
-            echo "|-------|-------|"
-            echo "| Image | \`${{ steps.packer.outputs.image_name }}\` |"
-            echo "| Family | \`${{ inputs.image_family || 'bmt-runtime' }}\` |"
-            echo "| Provenance (L1) | \`gs://${{ env.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\` |"
-            echo "| Signature (L2) | \`gs://${{ env.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\` |"
-            echo "| Git SHA | \`${{ github.sha }}\` |"
+            echo "## BMT image"
+            echo ""
+            echo "- **Image:** \`${{ steps.packer.outputs.image_name }}\` · family \`${{ inputs.image_family || 'bmt-runtime' }}\` · **SHA:** \`${{ github.sha }}\`"
+            echo "- **Provenance:** \`gs://${{ env.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.json\`"
+            echo "- **Sig bundle:** \`gs://${{ env.GCS_BUCKET }}/provenance/images/${{ steps.packer.outputs.image_name }}.slsa.bundle\`"
           } >> "$GITHUB_STEP_SUMMARY"
