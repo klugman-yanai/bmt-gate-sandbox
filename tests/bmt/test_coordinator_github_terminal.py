@@ -9,6 +9,10 @@ from typing import Any, cast
 
 import pytest
 
+from gcp.image.config.constants import (
+    ENV_BMT_FINALIZE_HEAD_SHA,
+    ENV_BMT_FINALIZE_REPOSITORY,
+)
 from gcp.image.runtime.artifacts import write_plan, write_reporting_metadata
 from gcp.image.runtime.entrypoint import run_coordinator_mode, run_finalize_failure_mode
 from gcp.image.runtime.facade import RuntimeFacade, RuntimeMode
@@ -161,17 +165,41 @@ def test_coordinator_skips_recovery_when_first_publish_marks_github_complete(
     assert failure_calls == []
 
 
-def test_finalize_failure_mode_returns_zero_without_plan_and_does_not_call_publish(
+def test_finalize_failure_mode_returns_zero_without_plan_and_without_finalize_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stage_root = tmp_path / "stage"
     stage_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.delenv(ENV_BMT_FINALIZE_REPOSITORY, raising=False)
+    monkeypatch.delenv(ENV_BMT_FINALIZE_HEAD_SHA, raising=False)
 
     def _boom(**_kwargs: object) -> None:
-        raise AssertionError("publish_github_failure must not run when plan is missing")
+        raise AssertionError("publish_github_failure must not run when plan is missing and env unset")
 
     monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _boom)
     assert run_finalize_failure_mode(workflow_run_id="missing-plan-id", stage_root=stage_root) == 0
+
+
+def test_finalize_failure_mode_synthetic_plan_from_env_when_plan_file_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage_root = tmp_path / "stage"
+    stage_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(ENV_BMT_FINALIZE_REPOSITORY, "acme/widget")
+    monkeypatch.setenv(ENV_BMT_FINALIZE_HEAD_SHA, "a" * 40)
+    captured: dict[str, object] = {}
+
+    def _capture(*, plan: ExecutionPlan, **_kwargs: object) -> None:
+        captured["plan"] = plan
+
+    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _capture)
+    assert run_finalize_failure_mode(workflow_run_id="wf-no-plan", stage_root=stage_root) == 0
+    plan = captured["plan"]
+    assert isinstance(plan, ExecutionPlan)
+    assert plan.workflow_run_id == "wf-no-plan"
+    assert plan.repository == "acme/widget"
+    assert plan.head_sha == "a" * 40
+    assert plan.run_context == "pr"
 
 
 def test_finalize_failure_mode_passes_reason_from_env_to_publish_github_failure(

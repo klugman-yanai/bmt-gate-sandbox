@@ -80,6 +80,8 @@ def test_rendered_workflow_source_includes_connector_timeouts_for_direct_workflo
     assert 'value: "finalize-failure"' in rendered
     assert "bmt_pipeline:" in rendered
     assert "run_finalize_failure_job:" in rendered
+    assert "BMT_HANDOFF_RUN_URL" in rendered
+    assert "BMT_GCS_BUCKET_NAME" in rendered
 
 
 def test_enabled_github_app_secret_names_cover_primary_and_dev_profiles() -> None:

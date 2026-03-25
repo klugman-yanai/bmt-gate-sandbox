@@ -15,6 +15,11 @@ import typer
 from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from gcp.image.config.constants import (
     ENV_BMT_FAILURE_REASON,
+    ENV_BMT_FINALIZE_HEAD_SHA,
+    ENV_BMT_FINALIZE_PR_NUMBER,
+    ENV_BMT_FINALIZE_REPOSITORY,
+    ENV_BMT_GCS_BUCKET_NAME,
+    ENV_BMT_HANDOFF_RUN_URL,
     ENV_BMT_STATUS_CONTEXT,
     ENV_GCS_BUCKET,
     STATUS_CONTEXT,
@@ -154,6 +159,8 @@ def _workflow_request_from_env(*, workflow_run_id: str) -> WorkflowRequest:
         status_context=(os.environ.get(ENV_BMT_STATUS_CONTEXT) or STATUS_CONTEXT).strip(),
         # Default off: real plugin/runner unless env explicitly opts in (CI sets this from workflows only when requested).
         use_mock_runner=is_truthy_env_value(os.environ.get("BMT_USE_MOCK_RUNNER")),
+        handoff_run_url=(os.environ.get(ENV_BMT_HANDOFF_RUN_URL) or "").strip(),
+        gcs_bucket=((os.environ.get(ENV_BMT_GCS_BUCKET_NAME) or os.environ.get(ENV_GCS_BUCKET) or "").strip()),
     )
 
 
@@ -404,14 +411,48 @@ def run_finalize_failure_mode(*, workflow_run_id: str, stage_root: Path | None =
     if not workflow_run_id.strip():
         raise RuntimeError("BMT_WORKFLOW_RUN_ID is required for finalize-failure mode")
     runtime = _runtime_paths(stage_root=stage_root)
-    try:
-        plan = load_plan(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
-    except FileNotFoundError:
-        logger.info("finalize-failure: no plan on disk workflow_run_id=%s", workflow_run_id)
-        return 0
     reason = (os.environ.get(ENV_BMT_FAILURE_REASON) or "").strip() or (
         "BMT Google Workflow aborted before coordinator completed."
     )
+    plan: ExecutionPlan | None = None
+    try:
+        plan = load_plan(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
+    except FileNotFoundError:
+        repo = (os.environ.get(ENV_BMT_FINALIZE_REPOSITORY) or "").strip()
+        sha = (os.environ.get(ENV_BMT_FINALIZE_HEAD_SHA) or "").strip()
+        prn = (os.environ.get(ENV_BMT_FINALIZE_PR_NUMBER) or "").strip()
+        status_ctx = (os.environ.get(ENV_BMT_STATUS_CONTEXT) or STATUS_CONTEXT).strip()
+        if repo and sha:
+            logger.info(
+                "finalize-failure: no plan file; using %s / %s for GitHub close workflow_run_id=%s",
+                ENV_BMT_FINALIZE_REPOSITORY,
+                ENV_BMT_FINALIZE_HEAD_SHA,
+                workflow_run_id,
+            )
+            plan = ExecutionPlan(
+                workflow_run_id=workflow_run_id,
+                repository=repo,
+                head_sha=sha,
+                head_branch="",
+                head_event="pull_request",
+                pr_number=prn,
+                run_context="pr",
+                status_context=status_ctx,
+                handoff_run_url=(os.environ.get(ENV_BMT_HANDOFF_RUN_URL) or "").strip(),
+                gcs_bucket=(os.environ.get(ENV_BMT_GCS_BUCKET_NAME) or "").strip(),
+                legs=[],
+                standard_task_count=0,
+                heavy_task_count=0,
+                accepted_projects=[],
+            )
+        else:
+            logger.info(
+                "finalize-failure: no plan on disk and no %s/%s; cannot close GitHub check workflow_run_id=%s",
+                ENV_BMT_FINALIZE_REPOSITORY,
+                ENV_BMT_FINALIZE_HEAD_SHA,
+                workflow_run_id,
+            )
+            return 0
     publish_github_failure(plan=plan, runtime=runtime, reason=reason[:500])
     return 0
 

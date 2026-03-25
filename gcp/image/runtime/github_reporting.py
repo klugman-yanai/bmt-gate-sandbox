@@ -47,6 +47,21 @@ from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, Reporti
 logger = logging.getLogger(__name__)
 
 
+def _live_links_for_plan(
+    *,
+    plan: ExecutionPlan,
+    workflow_execution_url: str,
+    log_dump_url: str | None = None,
+) -> LiveLinks:
+    return LiveLinks(
+        workflow_execution_url=workflow_execution_url,
+        log_dump_url=log_dump_url,
+        workflow_run_id=plan.workflow_run_id,
+        handoff_run_url=plan.handoff_run_url,
+        gcs_bucket=plan.gcs_bucket,
+    )
+
+
 def _instant_now() -> whenever.Instant:
     """Wall clock for ETA elapsed time; separated for tests."""
     return whenever.Instant.now()
@@ -145,7 +160,10 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
         token=token,
         status_context=plan.status_context,
     )
-    view = StartedCommentView(head_sha=plan.head_sha, links=LiveLinks(workflow_execution_url=workflow_url))
+    view = StartedCommentView(
+        head_sha=plan.head_sha,
+        links=_live_links_for_plan(plan=plan, workflow_execution_url=workflow_url),
+    )
     try:
         check_run_id = reporter.create_started_check_run(
             view,
@@ -229,6 +247,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
     workflow_url = metadata.workflow_execution_url
     log_dump_url = _write_log_dump_and_sign(plan=plan, runtime=runtime, summaries=summaries)
     final_view = _final_view(
+        plan=plan,
         summaries=summaries,
         workflow_execution_url=workflow_url,
         log_dump_url=log_dump_url,
@@ -279,7 +298,11 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             view=FinalCommentView(
                 head_sha=plan.head_sha,
                 state=check_state,
-                links=LiveLinks(workflow_execution_url=workflow_url, log_dump_url=log_dump_url),
+                links=_live_links_for_plan(
+                    plan=plan,
+                    workflow_execution_url=workflow_url,
+                    log_dump_url=log_dump_url,
+                ),
                 failed_bmts=_final_comment_failed_rows(summaries),
                 case_failure_warnings=_pr_case_failure_warnings(summaries),
             ),
@@ -345,6 +368,7 @@ def _publish_github_failure_retry_pass(
     workflow_url = metadata.workflow_execution_url
     log_dump_url = _write_log_dump_and_sign(plan=plan, runtime=runtime, summaries=summaries)
     final_view = _final_view(
+        plan=plan,
         summaries=summaries,
         workflow_execution_url=workflow_url,
         log_dump_url=log_dump_url,
@@ -401,6 +425,7 @@ def _publish_github_failure_retry_commit_description(
     workflow_url = metadata.workflow_execution_url
     log_dump_url = _write_log_dump_and_sign(plan=plan, runtime=runtime, summaries=summaries)
     final_view = _final_view(
+        plan=plan,
         summaries=summaries,
         workflow_execution_url=workflow_url,
         log_dump_url=log_dump_url,
@@ -455,8 +480,12 @@ def publish_github_failure(
         return
     if fresh.check_run_id is None or not (fresh.workflow_execution_url or "").strip():
         logger.info(
-            "publish_github_failure skip: no in-progress check to close workflow_run_id=%s",
+            "publish_github_failure skip: no triggers/reporting metadata (check_run_id / "
+            "workflow_execution_url) for workflow_run_id=%s — expected if cancelled before the plan "
+            "job created the GitHub check. handoff_run_url=%r gcs_bucket=%r",
             plan.workflow_run_id,
+            (plan.handoff_run_url or "").strip() or None,
+            (plan.gcs_bucket or "").strip() or None,
         )
         return
 
@@ -624,7 +653,7 @@ def _progress_view(
         total_count=len(plan.legs),
         elapsed_sec=elapsed_sec,
         eta_sec=eta_sec,
-        links=LiveLinks(workflow_execution_url=workflow_execution_url),
+        links=_live_links_for_plan(plan=plan, workflow_execution_url=workflow_execution_url),
         bmts=rows,
     )
 
@@ -682,13 +711,21 @@ def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, s
 
 
 def _final_view(
-    *, summaries: list[LegSummary], workflow_execution_url: str, log_dump_url: str | None
+    *,
+    plan: ExecutionPlan,
+    summaries: list[LegSummary],
+    workflow_execution_url: str,
+    log_dump_url: str | None,
 ) -> CheckFinalView:
     is_pass = aggregate_status(summaries) == BmtLegStatus.PASS.value
     check_state = CheckConclusion.SUCCESS.value if is_pass else CheckConclusion.FAILURE.value
     return CheckFinalView(
         state=check_state,
-        links=LiveLinks(workflow_execution_url=workflow_execution_url, log_dump_url=log_dump_url),
+        links=_live_links_for_plan(
+            plan=plan,
+            workflow_execution_url=workflow_execution_url,
+            log_dump_url=log_dump_url,
+        ),
         bmts=[
             FinalBmtRow(
                 project=summary.project,

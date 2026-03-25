@@ -193,7 +193,9 @@ def run_e2e_preflight(
         elif step.name == "preflight":
             rc = run_just("workspace", "preflight", dry_run=False)
             if rc != 0:
-                detail = "Bucket listing/diff failed or workflow drift vs core-main. Check GCS_BUCKET, ADC, and network."
+                detail = (
+                    "Bucket listing/diff failed or workflow drift vs core-main. Check GCS_BUCKET, ADC, and network."
+                )
         elif step.name == "test":
             rc = run_just("test", dry_run=False)
             if rc != 0:
@@ -255,8 +257,7 @@ def _emit_result(
     title.append("  ", style="")
     title.append("bmt-gcloud", style="bold dim")
     subtitle = Text.from_markup(
-        "[dim]Readiness for Actions → handoff → GCS/Cloud Run. "
-        "Not a substitute for a real PR run on GitHub.[/]"
+        "[dim]Readiness for Actions → handoff → GCS/Cloud Run. Not a substitute for a real PR run on GitHub.[/]"
     )
     if dry_run:
         subtitle = Text.from_markup("[yellow]dry-run:[/] no checks executed; planned stages below.")
@@ -335,7 +336,9 @@ def _emit_result(
     if skip_bucket:
         foot.append_text(Text.from_markup("\n[dim]Note:[/] bucket preflight was [yellow]skipped[/]."))
     if not with_tests:
-        foot.append_text(Text.from_markup("\n[dim]Note:[/] full [cyan]just test[/] was not run; use [cyan]--with-tests[/]."))
+        foot.append_text(
+            Text.from_markup("\n[dim]Note:[/] full [cyan]just test[/] was not run; use [cyan]--with-tests[/].")
+        )
     console.print(Panel(foot, border_style="green", box=box.DOUBLE))
     console.print()
     return 0

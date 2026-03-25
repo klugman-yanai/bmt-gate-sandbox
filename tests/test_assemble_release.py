@@ -43,6 +43,5 @@ def test_assemble_release_skip_secrets() -> None:
     )
     missing = required_root - root_names
     assert not missing, (
-        f"missing root workflows {sorted(missing)}; "
-        f"have {sorted(root_names)} (extra root YAMLs are allowed)"
+        f"missing root workflows {sorted(missing)}; have {sorted(root_names)} (extra root YAMLs are allowed)"
     )

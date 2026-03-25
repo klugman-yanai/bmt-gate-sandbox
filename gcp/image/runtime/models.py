@@ -76,6 +76,10 @@ class WorkflowRequest(BaseModel):
     accepted_projects: list[str] = Field(default_factory=list)
     status_context: str = "BMT Gate"
     use_mock_runner: bool = False
+    #: GitHub Actions URL for the handoff job that dispatched this run (operator correlation).
+    handoff_run_url: str = ""
+    #: GCS stage bucket name (same as Workflow ``args.bucket``); for console browse links only.
+    gcs_bucket: str = ""
 
 
 class PlanLeg(BaseModel):
@@ -109,6 +113,8 @@ class ExecutionPlan(BaseModel):
     accepted_projects: list[str] = Field(default_factory=list)
     status_context: str = "BMT Gate"
     use_mock_runner: bool = False
+    handoff_run_url: str = ""
+    gcs_bucket: str = ""
     standard_task_count: int = 0
     heavy_task_count: int = 0
     legs: list[PlanLeg]

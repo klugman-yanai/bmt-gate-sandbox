@@ -104,6 +104,14 @@ ENV_BMT_TASK_HEAVY_JOB = "BMT_TASK_HEAVY_JOB"
 ENV_BMT_STATUS_CONTEXT = "BMT_STATUS_CONTEXT"
 ENV_BMT_WORKFLOW_EXECUTION_URL = "BMT_WORKFLOW_EXECUTION_URL"
 ENV_BMT_FAILURE_REASON = "BMT_FAILURE_REASON"
+# When ``finalize-failure`` runs before ``triggers/plans/{run}.json`` exists (e.g. very early cancel),
+# the Cloud Run job can still close the GitHub Check using these handoff fields from the pr-active index.
+ENV_BMT_FINALIZE_REPOSITORY = "BMT_FINALIZE_REPOSITORY"
+ENV_BMT_FINALIZE_HEAD_SHA = "BMT_FINALIZE_HEAD_SHA"
+ENV_BMT_FINALIZE_PR_NUMBER = "BMT_FINALIZE_PR_NUMBER"
+# Operator links (PR comment / checks): GitHub Actions handoff run URL; stage bucket name for GCS console.
+ENV_BMT_HANDOFF_RUN_URL = "BMT_HANDOFF_RUN_URL"
+ENV_BMT_GCS_BUCKET_NAME = "BMT_GCS_BUCKET_NAME"
 # Per-WAV subprocess timeout for kardome_runner (seconds). Unset or <=0 = no timeout.
 ENV_BMT_KARDOME_CASE_TIMEOUT_SEC = "BMT_KARDOME_CASE_TIMEOUT_SEC"
 

@@ -18,9 +18,7 @@ def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_pat
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
     add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
 
-    plugin_file = (
-        sp.plugin_workspace(SYNTH_PROJECT, "default") / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
-    )
+    plugin_file = sp.plugin_workspace(SYNTH_PROJECT, "default") / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
     plugin_file.write_text(
         plugin_file.read_text(encoding="utf-8") + "\nPLUGIN_SENTINEL = 'published'\n",
         encoding="utf-8",
@@ -73,9 +71,7 @@ def test_publish_bmt_fails_before_sync_when_workspace_plugin_is_invalid(tmp_path
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
     add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
 
-    plugin_file = (
-        sp.plugin_workspace(SYNTH_PROJECT, "default") / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
-    )
+    plugin_file = sp.plugin_workspace(SYNTH_PROJECT, "default") / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
     plugin_file.write_text("not valid python(", encoding="utf-8")
 
     called = False

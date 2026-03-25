@@ -76,9 +76,7 @@ def _assert_path_matches_manifest(stage_root: Path, manifest_path: Path, manifes
         f"Unexpected manifest path segments: {rel}"
     )
     assert parts[1] == manifest.project, f"path project {parts[1]!r} != manifest.project {manifest.project!r}"
-    assert parts[3] == manifest.bmt_slug, (
-        f"path BMT folder {parts[3]!r} != manifest.bmt_slug {manifest.bmt_slug!r}"
-    )
+    assert parts[3] == manifest.bmt_slug, f"path BMT folder {parts[3]!r} != manifest.bmt_slug {manifest.bmt_slug!r}"
 
 
 def _validate_published_bundle(stage_root: Path, manifest: BmtManifest) -> None:

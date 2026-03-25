@@ -59,6 +59,10 @@ main:
                               value: ${default(map.get(args, "use_mock_runner_str"), "false")}
                             - name: BMT_WORKFLOW_EXECUTION_URL
                               value: ${workflow_console_url}
+                            - name: BMT_HANDOFF_RUN_URL
+                              value: ${default(map.get(args, "github_handoff_run_url"), "")}
+                            - name: BMT_GCS_BUCKET_NAME
+                              value: ${bucket}
                 result: plan_job_execution
 
             - read_plan:
@@ -193,6 +197,10 @@ main:
                               value: ${workflow_run_id}
                             - name: BMT_FAILURE_REASON
                               value: ${bmt_failure_reason}
+                            - name: BMT_HANDOFF_RUN_URL
+                              value: ${default(map.get(args, "github_handoff_run_url"), "")}
+                            - name: BMT_GCS_BUCKET_NAME
+                              value: ${bucket}
                 result: coordinator_job_execution
 
     - done:

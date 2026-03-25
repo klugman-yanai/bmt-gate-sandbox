@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from gcp.image.config.status import CheckConclusion
@@ -47,7 +48,7 @@ def comment_marker() -> str:
 
 
 def _gcp_console_link(url: str) -> str:
-    return f'<a href="{url}" target="_blank" rel="noopener noreferrer">BMT Cloud Job (GCP Console)</a>'
+    return f'<a href="{url}" target="_blank" rel="noopener noreferrer">Google Cloud Workflow execution</a>'
 
 
 def human_reason(reason_code: str) -> str:
@@ -64,6 +65,39 @@ def human_reason(reason_code: str) -> str:
 class LiveLinks:
     workflow_execution_url: str
     log_dump_url: str | None = None
+    workflow_run_id: str = ""
+    handoff_run_url: str = ""
+    gcs_bucket: str = ""
+
+
+def _gcs_triggers_browser_url(bucket: str) -> str:
+    """Console URL to browse ``triggers/`` under the stage bucket (project from console context)."""
+    return f"https://console.cloud.google.com/storage/browser/{quote(bucket, safe='')}/triggers"
+
+
+def correlation_section_markdown(links: LiveLinks) -> str:
+    """Short operator block: run id, handoff Actions URL, GCS prefix (for PR comments and checks)."""
+    lines: list[str] = []
+    if links.workflow_run_id.strip():
+        wid = links.workflow_run_id.strip()
+        lines.append(
+            f"- **BMT workflow_run_id** (GCS: `triggers/plans/{wid}.json`, `triggers/reporting/{wid}.json`): `{wid}`"
+        )
+    if links.handoff_run_url.strip():
+        hu = links.handoff_run_url.strip()
+        lines.append(f"- **GitHub handoff workflow run:** [open]({hu})")
+    if links.gcs_bucket.strip():
+        bu = links.gcs_bucket.strip()
+        lines.append(f"- **GCS triggers folder:** [browse in console]({_gcs_triggers_browser_url(bu)})")
+    if not lines:
+        return ""
+    return "\n".join(["", "### Debug / correlation", "", *lines])
+
+
+def _append_correlation_pr(lines: list[str], links: LiveLinks) -> None:
+    cm = correlation_section_markdown(links)
+    if cm.strip():
+        lines.append(cm.strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +183,7 @@ def render_started_pr_comment(view: StartedCommentView) -> str:
     if view.links.workflow_execution_url:
         lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
     lines.append(f"- Detailed progress: see the **{CHECK_COPY_GATE}** check")
+    _append_correlation_pr(lines, view.links)
     return "\n".join(lines)
 
 
@@ -176,6 +211,7 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
                 ]
             )
             lines.extend(f"- `{bmt}`: {msg}" for bmt, msg in view.case_failure_warnings)
+        _append_correlation_pr(lines, view.links)
         return "\n".join(lines)
 
     lines = [
@@ -195,6 +231,7 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
     if view.failed_bmts:
         lines.extend(["", "Failed BMTs:"])
         lines.extend(f"- `{bmt}`: {reason}" for bmt, reason in view.failed_bmts)
+    _append_correlation_pr(lines, view.links)
     return "\n".join(lines)
 
 
@@ -432,6 +469,9 @@ def _progress_check_summary_markdown(view: CheckProgressView) -> str:
         lines.extend(["### BMT clock", "", clock, ""])
     if view.links.workflow_execution_url:
         lines.extend(["### Live execution", "", _gcp_console_link(view.links.workflow_execution_url), ""])
+    cm = correlation_section_markdown(view.links)
+    if cm.strip():
+        lines.extend([cm.strip(), ""])
     lines.extend(
         [
             "---",
@@ -547,11 +587,14 @@ def links_markdown(links: LiveLinks) -> str:
     """Shared Links block for check summary + body text (GitHub UI may hide summary)."""
     parts: list[str] = ["### Links", ""]
     if links.workflow_execution_url:
-        parts.append(f"- **Cloud Run / Workflows:** {_gcp_console_link(links.workflow_execution_url)}")
+        parts.append(f"- **Google Cloud Workflow:** {_gcp_console_link(links.workflow_execution_url)}")
     if links.log_dump_url:
         parts.append(f"- **Failure log bundle** (expires in 3 days): [open]({links.log_dump_url})")
     if not links.workflow_execution_url and not links.log_dump_url:
         parts.append("- *(no external links for this run)*")
+    cm = correlation_section_markdown(links)
+    if cm.strip():
+        parts.append(cm.strip())
     return "\n".join(parts)
 
 

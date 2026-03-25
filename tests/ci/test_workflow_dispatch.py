@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import pytest
 from ci.cloud_run_api import CloudRunJobsApiError
@@ -96,6 +96,7 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
     assert spy.argument["bucket"] == FAKE_BUCKET
     assert spy.argument["workflow_run_id"] == "12345"
     assert spy.argument["accepted_projects_json"] == '["sk"]'
+    assert spy.argument["github_handoff_run_url"] == f"https://github.com/{FAKE_REPO}/actions/runs/12345"
 
 
 def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch) -> None:
@@ -132,12 +133,15 @@ def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch
     WorkflowDispatchManager.from_env().invoke()
 
     assert seen["uri"] == f"gs://{FAKE_BUCKET}/triggers/reporting/pr-active/79.json"
-    payload = seen["payload"]
-    assert isinstance(payload, dict)
+    raw_payload = seen["payload"]
+    assert isinstance(raw_payload, dict)
+    payload = cast(dict[str, Any], raw_payload)
     assert payload["repository"] == FAKE_REPO
     assert payload["pr_number"] == "79"
-    assert payload["workflow_execution_name"].endswith("/executions/ex-123")
+    assert str(payload["workflow_execution_name"]).endswith("/executions/ex-123")
     assert payload["workflow_run_id"] == "54321"
+    assert "console.cloud.google.com" in str(payload.get("workflow_execution_url", ""))
+    assert payload.get("github_handoff_run_url") == f"https://github.com/{FAKE_REPO}/actions/runs/54321"
 
 
 def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, monkeypatch) -> None:
@@ -192,6 +196,10 @@ def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, mo
     assert run_calls[0]["env_vars"]["BMT_MODE"] == "finalize-failure"
     assert run_calls[0]["env_vars"]["BMT_WORKFLOW_RUN_ID"] == "111"
     assert "PR closed" in run_calls[0]["env_vars"]["BMT_FAILURE_REASON"]
+    assert run_calls[0]["env_vars"]["BMT_FINALIZE_REPOSITORY"] == FAKE_REPO
+    assert run_calls[0]["env_vars"]["BMT_FINALIZE_HEAD_SHA"] == FAKE_SHA_ALT
+    assert run_calls[0]["env_vars"]["BMT_FINALIZE_PR_NUMBER"] == "79"
+    assert run_calls[0]["env_vars"]["BMT_GCS_BUCKET_NAME"] == FAKE_BUCKET
 
 
 def test_cancel_pr_execution_no_index_is_safe(tmp_path: Path, monkeypatch) -> None:
@@ -283,10 +291,14 @@ def test_cancel_pr_execution_finalize_failed_when_run_job_raises(tmp_path: Path,
     assert outputs["finalize_outcome"].startswith("failed:")
 
 
-def test_cancel_pr_execution_head_sha_mismatch_skips_finalize(tmp_path: Path, monkeypatch) -> None:
+def test_cancel_pr_execution_head_sha_mismatch_still_cancels_and_finalizes(tmp_path: Path, monkeypatch) -> None:
+    """Close-PR event SHA can differ from the index (e.g. last push); we still cancel GCP + finalize GitHub."""
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
+    monkeypatch.setenv("BMT_CONTROL_JOB", FAKE_CONTROL_JOB)
     monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
@@ -305,15 +317,15 @@ def test_cancel_pr_execution_head_sha_mismatch_skips_finalize(tmp_path: Path, mo
     )
     called: list[str] = []
     monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", lambda **_: called.append("cancel"))
+    monkeypatch.setattr("ci.workflow_dispatch.delete_object", lambda _: None)
     monkeypatch.setattr("ci.workflow_dispatch.run_job", lambda **_: called.append("run_job"))
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
-    assert outputs["cancel_requested"] == "false"
-    assert outputs["cancel_reason"] == "head_sha_mismatch"
-    assert outputs["finalize_requested"] == "false"
-    assert outputs["finalize_outcome"] == "skipped_head_sha_mismatch"
-    assert called == []
+    assert outputs["cancel_requested"] == "true"
+    assert outputs["finalize_requested"] == "true"
+    assert outputs["finalize_outcome"] == "success"
+    assert called == ["cancel", "run_job"]
 
 
 def test_cancel_pr_execution_cancel_failure_skips_finalize(tmp_path: Path, monkeypatch) -> None:
@@ -353,9 +365,7 @@ def test_cancel_pr_execution_cancel_failure_skips_finalize(tmp_path: Path, monke
     assert called == []
 
 
-def test_cancel_pr_execution_cancel_failed_preserves_workflows_permission_error(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_cancel_pr_execution_cancel_failed_preserves_workflows_permission_error(tmp_path: Path, monkeypatch) -> None:
     """When cancel API fails (e.g. missing workflows.executions.cancel), reason is visible in GITHUB_OUTPUT."""
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
@@ -397,9 +407,7 @@ def test_cancel_pr_execution_cancel_failed_preserves_workflows_permission_error(
     assert "PERMISSION_DENIED" in outputs["cancel_reason"]
 
 
-def test_cancel_pr_execution_finalize_failed_preserves_cloud_run_permission_error(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_cancel_pr_execution_finalize_failed_preserves_cloud_run_permission_error(tmp_path: Path, monkeypatch) -> None:
     """When finalize Cloud Run job run fails (e.g. missing run.jobs.run), outcome carries API detail."""
     github_output = tmp_path / "github_output.txt"
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
@@ -443,3 +451,131 @@ def test_cancel_pr_execution_finalize_failed_preserves_cloud_run_permission_erro
     assert outputs["finalize_outcome"] == f"failed:{api_detail}"
     assert "403" in outputs["finalize_outcome"]
     assert "PERMISSION_DENIED" in outputs["finalize_outcome"]
+
+
+def _invoke_env_base(tmp_path: Path, monkeypatch, *, github_run_id: str) -> Path:
+    github_output = tmp_path / "github_output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    monkeypatch.setenv("GCP_PROJECT", FAKE_GCP_PROJECT)
+    monkeypatch.setenv("CLOUD_RUN_REGION", FAKE_REGION)
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+    monkeypatch.setenv("GITHUB_RUN_ID", github_run_id)
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
+    monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
+    monkeypatch.setenv("HEAD_BRANCH", "main")
+    monkeypatch.setenv("HEAD_EVENT", "pull_request")
+    monkeypatch.setenv("RUN_CONTEXT", "pr")
+    monkeypatch.setenv("PR_NUMBER", "79")
+    monkeypatch.setenv("FILTERED_MATRIX_JSON", json.dumps({"include": [{"project": "sk"}, {"project": "sk"}]}))
+    monkeypatch.setattr("ci.workflow_dispatch.upload_json", lambda *_a, **_k: None)
+    return github_output
+
+
+def test_invoke_cancels_superseded_pr_workflow_before_start(tmp_path: Path, monkeypatch) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="99999")
+    cancel_calls: list[str] = []
+
+    def _dl(_uri: str):
+        return (
+            {
+                "repository": FAKE_REPO,
+                "workflow_run_id": "111",
+                "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/old-ex",
+            },
+            None,
+        )
+
+    monkeypatch.setattr("ci.workflow_dispatch.download_json", _dl)
+    monkeypatch.setattr(
+        "ci.workflow_dispatch.cancel_execution",
+        lambda *, execution_name: cancel_calls.append(execution_name),
+    )
+
+    spy = _WorkflowDispatchSpy()
+
+    def _fake_start_execution(
+        *, project: str, region: str, workflow_name: str, argument: WorkflowDispatchInvokePayload
+    ) -> WorkflowExecutionStubResponse:
+        spy.project = project
+        spy.region = region
+        spy.workflow_name = workflow_name
+        spy.argument = argument
+        return {
+            "name": f"projects/demo/locations/{FAKE_REGION}/workflows/bmt-workflow/executions/new-ex",
+            "state": "ACTIVE",
+        }
+
+    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    WorkflowDispatchManager.from_env().invoke()
+    assert cancel_calls == ["projects/p/locations/r/workflows/w/executions/old-ex"]
+    assert spy.argument is not None
+    assert spy.argument["workflow_run_id"] == "99999"
+
+
+def test_invoke_skips_cancel_when_pr_active_same_workflow_run_id(tmp_path: Path, monkeypatch) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="111")
+    cancel_calls: list[str] = []
+
+    def _dl(_uri: str):
+        return (
+            {
+                "repository": FAKE_REPO,
+                "workflow_run_id": "111",
+                "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/same",
+            },
+            None,
+        )
+
+    monkeypatch.setattr("ci.workflow_dispatch.download_json", _dl)
+    monkeypatch.setattr(
+        "ci.workflow_dispatch.cancel_execution",
+        lambda *, execution_name: cancel_calls.append(execution_name),
+    )
+
+    def _fake_start_execution(
+        **kwargs: object,
+    ) -> WorkflowExecutionStubResponse:
+        return {
+            "name": f"projects/demo/locations/{FAKE_REGION}/workflows/bmt-workflow/executions/x",
+            "state": "ACTIVE",
+        }
+
+    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    WorkflowDispatchManager.from_env().invoke()
+    assert cancel_calls == []
+
+
+def test_invoke_starts_after_cancel_failure_on_supersede(tmp_path: Path, monkeypatch) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="222")
+    start_calls = 0
+
+    def _dl(_uri: str):
+        return (
+            {
+                "repository": FAKE_REPO,
+                "workflow_run_id": "111",
+                "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/old-ex",
+            },
+            None,
+        )
+
+    monkeypatch.setattr("ci.workflow_dispatch.download_json", _dl)
+
+    def _boom(*, execution_name: str):
+        raise WorkflowsApiError(f"cancel failed {execution_name}")
+
+    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", _boom)
+
+    def _fake_start_execution(
+        **kwargs: object,
+    ) -> WorkflowExecutionStubResponse:
+        nonlocal start_calls
+        start_calls += 1
+        return {
+            "name": f"projects/demo/locations/{FAKE_REGION}/workflows/bmt-workflow/executions/new",
+            "state": "ACTIVE",
+        }
+
+    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    WorkflowDispatchManager.from_env().invoke()
+    assert start_calls == 1

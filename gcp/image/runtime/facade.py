@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import enum
+import json
+import logging
 import os
 import signal
 import traceback
@@ -30,6 +32,8 @@ WORKSPACE_ROOT_ENV_VAR = "BMT_FRAMEWORK_WORKSPACE"
 DEFAULT_TASK_PROFILE = "standard"
 DEFAULT_WORKFLOW_RUN_ID = "local-run"
 SUPPORTED_MODES = ", ".join(mode.value for mode in RuntimeMode.__members__.values())
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +152,21 @@ class RuntimeFacade:
     def execute_runtime_stage(self) -> int:
         if self._selected_handler is None:
             raise RuntimeError("Pipeline stage must be selected before execution")
+        inv = self._require_invocation()
+        _logger.info(
+            "%s",
+            json.dumps(
+                {
+                    "bmt_run_bootstrap": True,
+                    "bmt_mode": inv.mode.value,
+                    "workflow_run_id": inv.workflow_run_id,
+                    "task_profile": inv.task_profile,
+                    "task_index": inv.task_index,
+                    "github_repository": (os.environ.get("GITHUB_REPOSITORY") or "").strip(),
+                },
+                separators=(",", ":"),
+            ),
+        )
         return self._selected_handler()
 
     def _require_invocation(self) -> RuntimeInvocation:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ci import core
-from ci.actions import gh_notice, gh_warning
+from ci.actions import gh_notice, gh_warning, write_github_output
 
 
 def _load_configure_presets(presets_file: Path) -> list[dict[str, Any]]:
@@ -111,8 +111,7 @@ class MatrixManager:
         }
         if not matrix["include"]:
             gh_warning("No supported release runner rows found in CMake presets.")
-        with Path(github_output).open("a", encoding="utf-8") as fh:
-            fh.write(f"{output_key}={json.dumps(matrix, separators=(',', ':'))}\n")
+        write_github_output(github_output, output_key, json.dumps(matrix, separators=(",", ":")))
         print(f"Built matrix rows: {len(matrix['include'])}")
 
     def filter_supported(self) -> None:
@@ -167,9 +166,8 @@ class MatrixManager:
             )
         else:
             gh_notice(f"Triggering BMT for {legs} leg(s) (supported runners only).")
-        with Path(github_output).open("a", encoding="utf-8") as fh:
-            fh.write(f"{output_key}={json.dumps(filtered, separators=(',', ':'))}\n")
-            fh.write(f"{has_legs_key}={has_legs}\n")
+        write_github_output(github_output, output_key, json.dumps(filtered, separators=(",", ":")))
+        write_github_output(github_output, has_legs_key, has_legs)
 
     def parse_release_runners(self) -> None:
         output_format = core.require_env("BMT_OUTPUT_FORMAT")
@@ -187,8 +185,7 @@ class MatrixManager:
         payload_json = json.dumps(payload, separators=(",", ":"))
         if github_output:
             key = (os.environ.get("BMT_OUTPUT_KEY", "") or "").strip() or default_key
-            with Path(github_output).open("a", encoding="utf-8") as fh:
-                fh.write(f"{key}={payload_json}\n")
+            write_github_output(github_output, key, payload_json)
         else:
             print(payload_json)
         if output_format == "ci":

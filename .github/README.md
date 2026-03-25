@@ -123,6 +123,16 @@ PR merge gate: **`internal/trigger-ci.yml`** — **`pull_request`** with base br
 
 **Notable job `if`:** `publish_runners` when `matrix_publish_keys != '[]'`; `start_bmt_workflow` when not cancelled, context job succeeded, and `publish_runners` succeeded or skipped; steps gated on `matrix.bmt_supported`, `use_mock_runner`, and `invoke-workflow` outcome.
 
+#### BMT run IDs and GCS paths (operators)
+
+- **`workflow_run_id`** (also `BMT_WORKFLOW_RUN_ID` in Cloud Run) is the GitHub Actions **dispatch job** run id: `WORKFLOW_RUN_ID` or `GITHUB_RUN_ID` on the **`bmt-handoff.yml` `dispatch` job** that runs `uv run bmt dispatch invoke-workflow`. It is **not** the caller build workflow’s `ci_run_id`.
+- **`ci_run_id`** (handoff input / `BMT_CI_RUN_ID` in Plan) is the **caller** workflow run used to list **`runner-*`** artifacts and correlate the upstream CI build.
+- **GCS** (bucket root = stage mirror): execution plan `triggers/plans/{workflow_run_id}.json`; reporting metadata `triggers/reporting/{workflow_run_id}.json`; PR “active execution” pointer `triggers/reporting/pr-active/{pr_number}.json`.
+
+#### Cloud Logging (Cloud Run jobs)
+
+Each container run logs one JSON line with `"bmt_run_bootstrap":true`, `bmt_mode`, `workflow_run_id`, `task_profile`, `task_index`, and `github_repository` when present. In **Logs Explorer** (Cloud Run job logs), use a query that matches log text, e.g. `textPayload=~"bmt_run_bootstrap"` or `textPayload=~"\"workflow_run_id\":\"12345\""` for a known GitHub Actions dispatch run id.
+
 ### `internal/bmt-handoff-dev.yml`
 
 | Trigger | Notes |

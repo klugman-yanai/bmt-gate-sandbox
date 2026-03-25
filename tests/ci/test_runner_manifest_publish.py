@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -105,9 +106,7 @@ def test_filter_binary_when_artifact_present_with_skip_missing(tmp_path: Path, m
     assert rows[0]["publish_mode"] == "binary"
 
 
-def test_filter_dev_omit_presets_without_bucket_bmts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_filter_dev_omit_presets_without_bucket_bmts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Dev skip_missing: only projects with objects under projects/<p>/bmts/ enter the matrix."""
     out = tmp_path / "gh_out"
     monkeypatch.setenv("GITHUB_OUTPUT", str(out))
@@ -292,8 +291,9 @@ def test_dev_manifest_payload_paths(monkeypatch: pytest.MonkeyPatch) -> None:
         RunnerManager.from_env().upload_dev_publish_manifest()
 
     assert uploaded["uri"] == ("gs://my-bucket/_workflow/dev_publish_manifest/99/sk__sk_gcc_release.json")
-    p = uploaded["payload"]
-    assert isinstance(p, dict)
+    raw_p = uploaded["payload"]
+    assert isinstance(raw_p, dict)
+    p = cast(dict[str, Any], raw_p)
     assert p["kind"] == "bmt_ci_dev_publish_manifest"
     assert p["would_publish"]["kardome_runner"] == "gs://my-bucket/projects/sk/kardome_runner"
     assert p["project"] == "sk"

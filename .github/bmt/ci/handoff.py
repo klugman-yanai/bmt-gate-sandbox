@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from ci import config, github, handoff_dataset
-from ci.actions import gh_notice, gh_warning
+from ci.actions import gh_notice, gh_warning, write_github_output
 from ci.config import BmtConfig, BmtContext
 from ci.handoff_env import HandoffEnv, resolve_repository_and_sha
 from ci.handoff_summary import write_handoff_step_summary
@@ -33,10 +32,9 @@ class HandoffManager:
             raise RuntimeError("GITHUB_OUTPUT is not set")
         env = HandoffEnv.resolve(self._ctx)
         mode = "no_context" if env.prepare_result == "failure" else "context"
-        with Path(path_str).open("a", encoding="utf-8") as f:
-            f.write(f"mode={mode}\n")
-            f.write(f"head_sha={env.head_sha}\n")
-            f.write(f"pr_number={env.pr_number}\n")
+        write_github_output(path_str, "mode", mode)
+        write_github_output(path_str, "head_sha", env.head_sha)
+        write_github_output(path_str, "pr_number", env.pr_number)
 
     def post_pending_status(self) -> None:
         repository, head_sha = resolve_repository_and_sha(self._ctx)

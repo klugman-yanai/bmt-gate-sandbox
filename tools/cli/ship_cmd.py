@@ -203,7 +203,9 @@ def register_ship(root: typer.Typer) -> None:
             bool,
             typer.Option("--skip-preflight", help="Skip `just workspace preflight`."),
         ] = False,
-        skip_deploy: Annotated[bool, typer.Option("--skip-deploy", help="Skip `just sync-to-bucket` (same as workspace deploy).")] = False,
+        skip_deploy: Annotated[
+            bool, typer.Option("--skip-deploy", help="Skip `just sync-to-bucket` (same as workspace deploy).")
+        ] = False,
         skip_image: Annotated[
             bool,
             typer.Option("--skip-image", help="Skip `tools build orchestrator-image` (always)."),

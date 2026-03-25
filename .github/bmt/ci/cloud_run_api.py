@@ -71,7 +71,9 @@ def run_job(
         operation_payload = poll_response.json()
         if bool(operation_payload.get("done")):
             if "error" in operation_payload:
-                raise CloudRunJobsApiError(f"Cloud Run job {job_name} failed: {operation_payload['error']}")
+                raise CloudRunJobsApiError(
+                    f"Cloud Run job {job_name} failed: {operation_payload['error']}"
+                )
             return operation_payload
         if time.monotonic() >= deadline:
             raise CloudRunJobsApiError(f"Timed out waiting for Cloud Run job {job_name} to finish")

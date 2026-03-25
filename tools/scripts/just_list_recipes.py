@@ -33,6 +33,7 @@ _INTRO_QUICK_STEPS: tuple[tuple[str, str, str], ...] = (
     ("6", "just test", "full verify (lint, pytest, …)"),
 )
 
+
 def _compact_just(name: str, _sig: str) -> str:
     """Short Run column / cheat-sheet line; full dump signature only in --verbose."""
     if name == "onboard":
@@ -72,6 +73,7 @@ def _compact_just(name: str, _sig: str) -> str:
     if name == "default":
         return "just default"
     return f"just {name}".strip()
+
 
 # Ultra-short task labels for the reference table (default mode).
 _RECIPE_TASK: dict[str, str] = {

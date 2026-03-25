@@ -77,6 +77,8 @@ def build_plan(*, runtime: StageRuntimePaths, options: PlanOptions) -> Execution
         accepted_projects=sorted(accepted_projects),
         status_context=options.request.status_context,
         use_mock_runner=options.request.use_mock_runner,
+        handoff_run_url=options.request.handoff_run_url,
+        gcs_bucket=options.request.gcs_bucket,
         standard_task_count=standard_task_count,
         heavy_task_count=heavy_task_count,
         legs=legs,

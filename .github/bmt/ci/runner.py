@@ -79,9 +79,7 @@ def _append_filter_matrix_step_summary(
             + " *(no `projects/…/bmts/`)*"
         )
     if skipped_preseeded:
-        extras.append(
-            "**Preseeded:** " + ", ".join(f"`{p}/{pr}`" for p, pr in skipped_preseeded)
-        )
+        extras.append("**Preseeded:** " + ", ".join(f"`{p}/{pr}`" for p, pr in skipped_preseeded))
     if skipped_same_ref:
         extras.append(
             "**Same SHA in GCS:** " + ", ".join(f"`{p}/{pr}`" for p, pr in skipped_same_ref)

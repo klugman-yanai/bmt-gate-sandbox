@@ -480,6 +480,8 @@ jobs:
       - id: invoke-workflow
         shell: bash
         env:
+          # BMT bucket paths and pr-active index use this id (this job's run, not ci_run_id).
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
           FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
           RUN_CONTEXT: ${{ needs.plan.outputs.run_context }}
           HEAD_EVENT: ${{ needs.plan.outputs.head_event }}
@@ -580,6 +582,7 @@ jobs:
         uses: ./.github/actions/bmt-failure-fallback
         with:
           handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
+          classify_step_outputs: ${{ toJson(steps.classify.outputs) }}
           setup_outputs: ${{ toJson(needs.plan.outputs) }}
           prepare_result: ${{ needs.plan.result }}
           classify_result: ${{ steps.classify.outcome || 'failure' }}

@@ -3,13 +3,13 @@ description: "On BMT failure: resolve context, write summary, cleanup, post stat
 
 inputs:
   handshake_outputs:
-    description: "JSON from toJson(needs.handshake.outputs)"
+    description: "JSON from toJson(steps.invoke-workflow.outputs); classify-shaped keys default if invoke was skipped or failed early."
     required: true
   setup_outputs:
-    description: "JSON from toJson(needs.setup.outputs)"
+    description: "JSON from toJson(needs.plan.outputs) (prepare / matrix / filter)."
     required: true
   prepare_result:
-    description: "needs.setup.result"
+    description: "needs.plan.result"
     required: true
   classify_result:
     description: "needs.handshake.outputs.classify_result"
@@ -46,6 +46,10 @@ inputs:
     description: JSON array of cloud job subtask project names from classify (e.g. ["sk"])
     required: false
     default: "[]"
+  classify_step_outputs:
+    description: JSON from toJson(steps.classify.outputs); merged over invoke-shaped defaults for accurate failure_ctx.
+    required: false
+    default: "{}"
 
 runs:
   using: composite
@@ -62,8 +66,22 @@ runs:
         DISPATCH_HEAD_SHA: ${{ inputs.dispatch_head_sha }}
         DISPATCH_PR_NUMBER: ${{ inputs.dispatch_pr_number }}
         FALLBACK_REF: ${{ inputs.fallback_ref }}
+        CLASSIFY_STEP_OUTPUTS: ${{ inputs.classify_step_outputs }}
       run: |
-        classify_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{path: (.classify_path // "unknown"), has_legs: (.has_legs // "false"), accepted_projects: (.accepted_projects // "[]"), filtered_matrix: (.filtered_matrix // "{\"include\":[]}")}')
+        set -euo pipefail
+        classify_from_invoke=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{path: (.classify_path // "unknown"), has_legs: (.has_legs // "false"), accepted_projects: (.accepted_projects // "[]"), filtered_matrix: (.filtered_matrix // "{\"include\":[]}")}')
+        if ! classify_steps=$(echo "${CLASSIFY_STEP_OUTPUTS:-{}}" | jq -c . 2>/dev/null); then
+          classify_steps="{}"
+        fi
+        classify_outputs=$(jq -n \
+          --argjson invoke "$classify_from_invoke" \
+          --argjson steps "$classify_steps" \
+          '{
+            path: ($steps.path // $invoke.path // "unknown"),
+            has_legs: ($steps.has_legs // $invoke.has_legs // "false"),
+            accepted_projects: ($steps.accepted_projects // $invoke.accepted_projects // "[]"),
+            filtered_matrix: ($steps.filtered_matrix // $invoke.filtered_matrix // "{\"include\":[]}")
+          }')
         handoff_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{handshake_ok: (.handshake_ok // "false"), handoff_reason: (.handoff_reason // "")}')
         jq -nc \
           --arg prepare_result "$PREPARE_RESULT" \

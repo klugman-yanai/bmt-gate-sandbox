@@ -26,7 +26,12 @@ def test_render_started_pr_comment_is_short_and_human_readable() -> None:
     rendered = render_started_pr_comment(
         StartedCommentView(
             head_sha="0123456789abcdef",
-            links=LiveLinks(workflow_execution_url="https://example.test/workflows/123"),
+            links=LiveLinks(
+                workflow_execution_url="https://example.test/workflows/123",
+                workflow_run_id="run-99",
+                handoff_run_url="https://github.com/o/r/actions/runs/42",
+                gcs_bucket="my-stage-bucket",
+            ),
         )
     )
 
@@ -34,10 +39,14 @@ def test_render_started_pr_comment_is_short_and_human_readable() -> None:
     assert "## BMT Started" in rendered
     assert "BMTs are running for `0123456`." in rendered
     assert (
-        'Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">BMT Cloud Job (GCP Console)</a>'
+        'Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">Google Cloud Workflow execution</a>'
         in rendered
     )
     assert "Detailed progress: see the **BMT Gate** check" in rendered
+    assert "### Debug / correlation" in rendered
+    assert "`run-99`" in rendered
+    assert "https://github.com/o/r/actions/runs/42" in rendered
+    assert "my-stage-bucket" in rendered
     assert "<details>" not in rendered
     assert "| Project |" not in rendered
 
@@ -55,7 +64,7 @@ def test_render_final_success_pr_comment_stays_brief() -> None:
     assert "BMTs passed for `fedcba9`." in rendered
     assert "- Status: `success`" in rendered
     assert (
-        '- Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">BMT Cloud Job (GCP Console)</a>'
+        '- Live runtime: <a href="https://example.test/workflows/123" target="_blank" rel="noopener noreferrer">Google Cloud Workflow execution</a>'
         in rendered
     )
     assert "- Full details: see the **BMT Gate** check" in rendered
@@ -132,7 +141,7 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     assert "### BMT clock" in output["summary"]
     assert "**2m 5s** on the **BMT clock**" in output["summary"]
     assert "### Live execution" in output["summary"]
-    assert "BMT Cloud Job (GCP Console)" in output["summary"]
+    assert "Google Cloud Workflow execution" in output["summary"]
     assert "| Project |" not in output["summary"]
     text = output["text"]
     assert "### Legs" in text

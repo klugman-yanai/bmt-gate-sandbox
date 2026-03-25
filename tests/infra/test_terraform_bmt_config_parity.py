@@ -12,7 +12,7 @@ from gcp.image.config.constants import DEFAULT_IMAGE_FAMILY
 
 # Load InfraConfig from the Pulumi project (not a regular package)
 _pulumi_dir = Path(__file__).resolve().parents[2] / "infra" / "pulumi"
-_spec = importlib.util.spec_from_file_location("pulumi_infra_config", _pulumi_dir / "config.py")
+_spec = importlib.util.spec_from_file_location("pulumi_infra_config", _pulumi_dir / "pulumi_stack_config.py")
 assert _spec and _spec.loader
 _mod = importlib.util.module_from_spec(_spec)
 sys.modules["pulumi_infra_config"] = _mod

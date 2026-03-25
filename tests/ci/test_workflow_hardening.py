@@ -115,15 +115,11 @@ def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
     assert "uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8" in setup_uv_repo
     assert "actions/upload-artifact@" not in build_test
     assert "actions/upload-artifact@" not in image_build
-    assert (
-        "uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f" in upload_artifact_repo
-    )
-    assert (
-        "uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
-        in download_artifact_repo
-    )
+    assert "uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f" in upload_artifact_repo
+    assert "uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0" in download_artifact_repo
     pin = "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
     assert pin in build_test
+    assert pin in build_dev
     assert pin in handoff
     assert pin in clang_format
     assert pin in image_build
