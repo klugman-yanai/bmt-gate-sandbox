@@ -25,6 +25,12 @@ sequenceDiagram
 
 The active runtime is [`gcp/image/bmt`](gcp/image/bmt).
 
+### Plugin SDK vs stage tree
+
+**Image (`gcp/image/`, including `gcp/image/runtime/sdk/`):** stable contributor imports (`BmtPlugin`, `ExecutionContext`, manifest helpers, compatibility checks). Updating this code requires a **new Cloud Run image**.
+
+**Stage mirror (`gcp/stage/` → GCS):** per-project plugins, `bmt.json`, inputs, `kardome_runner`. Updating these requires **syncing the bucket**, not necessarily an image rebuild. See [ADR 0004](adr/0004-plugin-sdk-boundary.md) and [bmt-python-contributor-protocol.md](bmt-python-contributor-protocol.md).
+
 - `plan` reads enabled manifests and writes `triggers/plans/<workflow_run_id>.json`
 - `task` reads the frozen plan and executes exactly one leg selected by `CLOUD_RUN_TASK_INDEX`
 - `coordinator` reads summaries, updates pointers, prunes snapshots, and posts GitHub results

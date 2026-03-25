@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,14 +13,14 @@ from gcp.image.runtime.kardome_batch_results import KardomeBatchFile
 from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
 from gcp.image.runtime.sdk.context import ExecutionContext
 from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from gcp.image.runtime.sdk.plugin import BmtPlugin
+from gcp.image.runtime.sdk.plugin import PLUGIN_EXECUTE_EXCEPTION_RAW_KEY, BmtPlugin
 from gcp.image.runtime.sdk.results import (
-    CaseResult,
     ExecutionResult,
     PreparedAssets,
     ScoreResult,
     VerdictResult,
 )
+from gcp.image.runtime.sdk.subprocess_batch import run_subprocess_in_workspace
 from gcp.image.runtime.stdout_counter_parse import StdoutCounterParseConfig
 from sk_plugin.sk_scoring_policy import (
     aggregate_mean_ok_cases,
@@ -30,65 +29,6 @@ from sk_plugin.sk_scoring_policy import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Allow this many per-file runner failures before failing the whole BMT leg. Set to 0 in
-# ``plugin_config`` (``max_grace_case_failures``) for strict “any failure fails the leg”.
-_DEFAULT_MAX_GRACE_CASE_FAILURES = 1
-
-_BATCH_CMD_TIMEOUT_DEFAULT_SEC = 6 * 3600
-_BATCH_CMD_TIMEOUT_MAX_SEC = 7 * 24 * 3600
-
-
-def _batch_command_timeout_sec() -> float:
-    raw = os.environ.get("BATCH_COMMAND_TIMEOUT_SEC", "").strip()
-    if not raw:
-        return float(_BATCH_CMD_TIMEOUT_DEFAULT_SEC)
-    try:
-        sec = int(raw)
-    except ValueError:
-        logger.warning("Invalid BATCH_COMMAND_TIMEOUT_SEC=%r; using default 6h", raw)
-        return float(_BATCH_CMD_TIMEOUT_DEFAULT_SEC)
-    if sec <= 0:
-        return float(_BATCH_CMD_TIMEOUT_DEFAULT_SEC)
-    return float(min(sec, _BATCH_CMD_TIMEOUT_MAX_SEC))
-
-
-def _resolve_batch_results_file(workspace_root: Path, results_relpath: str) -> Path | None:
-    """Return resolved results file path if it exists under workspace_root, else None."""
-    rel = str(results_relpath).strip()
-    if not rel:
-        return None
-    p = Path(rel)
-    if p.is_absolute():
-        logger.warning("batch_results_relpath must be relative, got %s", results_relpath)
-        return None
-    candidate = (workspace_root / rel).resolve()
-    base = workspace_root.resolve()
-    try:
-        candidate.relative_to(base)
-    except ValueError:
-        logger.warning(
-            "Batch results path escapes workspace (resolved %s not under %s)",
-            candidate,
-            base,
-        )
-        return None
-    return candidate if candidate.is_file() else None
-
-
-def _max_grace_case_failures(plugin_config: dict[str, Any]) -> int:
-    raw = plugin_config.get("max_grace_case_failures", _DEFAULT_MAX_GRACE_CASE_FAILURES)
-    if raw is None:
-        return _DEFAULT_MAX_GRACE_CASE_FAILURES
-    try:
-        n = int(raw)
-    except (TypeError, ValueError):
-        logger.warning("Invalid max_grace_case_failures=%r; using default %s", raw, _DEFAULT_MAX_GRACE_CASE_FAILURES)
-        return _DEFAULT_MAX_GRACE_CASE_FAILURES
-    if n < 0:
-        logger.warning("max_grace_case_failures must be >= 0; got %s, using 0", n)
-        return 0
-    return n
 
 
 class SkPlugin(BmtPlugin):
@@ -105,25 +45,16 @@ class SkPlugin(BmtPlugin):
         }
 
     def prepare(self, context: ExecutionContext) -> PreparedAssets:
-        return PreparedAssets(
-            dataset_root=context.dataset_root,
-            workspace_root=context.workspace_root,
-            runner_path=context.runner_path,
-        )
+        return self.prepared_assets_from_context(context)
 
     def execute(self, context: ExecutionContext, prepared_assets: PreparedAssets) -> ExecutionResult:
         try:
-            runner_env: dict[str, str] = {}
-            if context.deps_root is not None and context.deps_root.is_dir():
-                existing = os.environ.get("LD_LIBRARY_PATH", "").strip()
-                runner_env["LD_LIBRARY_PATH"] = (
-                    f"{context.deps_root}:{existing}" if existing else str(context.deps_root)
-                )
-            validated_parse = StdoutCounterParseConfig.model_validate(context.bmt_manifest.plugin_config)
+            runner_env = self.runner_env_with_deps(context)
+            validated_parse = self.parse_plugin_config(context, StdoutCounterParseConfig)
             legacy = LegacyKardomeStdoutExecutor(
                 LegacyKardomeStdoutConfig(
-                    runner_path=prepared_assets.runner_path or self._require_runner(context),
-                    template_path=(Path.cwd() / context.bmt_manifest.runner.template_path).resolve(),
+                    runner_path=prepared_assets.runner_path or self.require_runner(context),
+                    template_path=self.resolve_runner_template_path(context),
                     dataset_root=context.dataset_root,
                     runtime_root=context.workspace_root,
                     outputs_root=context.outputs_root,
@@ -142,22 +73,7 @@ class SkPlugin(BmtPlugin):
                 run_legacy=legacy.run,
             ).run()
         except Exception as exc:
-            logger.exception("SK plugin execute failed for bmt=%s", context.bmt_manifest.bmt_slug)
-            return ExecutionResult(
-                execution_mode_used="unknown",
-                case_results=[
-                    CaseResult(
-                        case_id="_execute_",
-                        input_path=prepared_assets.dataset_root,
-                        exit_code=-1,
-                        status="failed",
-                        metrics={},
-                        artifacts={},
-                        error=f"{type(exc).__name__}:{exc}",
-                    )
-                ],
-                raw_summary={"sk_plugin_execute_exception": True},
-            )
+            return self.execution_failure_result(exc, prepared=prepared_assets, context=context)
 
     def score(
         self,
@@ -174,7 +90,10 @@ class SkPlugin(BmtPlugin):
             "baseline_present": baseline is not None,
             "scoring_policy": policy,
         }
-        if execution_result.raw_summary.get("sk_plugin_execute_exception"):
+        if execution_result.raw_summary.get(PLUGIN_EXECUTE_EXCEPTION_RAW_KEY) or execution_result.raw_summary.get(
+            "sk_plugin_execute_exception"
+        ):
+            extra["plugin_execute_exception"] = True
             extra["sk_plugin_execute_exception"] = True
         return ScoreResult(
             aggregate_score=aggregate,
@@ -212,7 +131,7 @@ class SkPlugin(BmtPlugin):
             )
 
         cases_failed = int(score_result.metrics.get("cases_failed", 0))
-        if score_result.extra.get("sk_plugin_execute_exception"):
+        if score_result.extra.get("plugin_execute_exception") or score_result.extra.get("sk_plugin_execute_exception"):
             return VerdictResult(
                 passed=False,
                 status=BmtLegStatus.FAIL.value,
@@ -225,7 +144,7 @@ class SkPlugin(BmtPlugin):
                 },
             )
 
-        grace = _max_grace_case_failures(context.bmt_manifest.plugin_config)
+        grace = self.max_grace_case_failures(context.bmt_manifest.plugin_config)
         failed_ids = list(score_result.metrics.get("cases_failed_ids", []))
         if cases_failed > grace:
             return VerdictResult(
@@ -307,24 +226,22 @@ class SkPlugin(BmtPlugin):
             return None
         command = [
             part.format(
-                runner=str(prepared_assets.runner_path or self._require_runner(context)),
+                runner=str(prepared_assets.runner_path or self.require_runner(context)),
                 dataset=str(context.dataset_root),
                 workspace=str(context.workspace_root),
             )
             for part in batch_command
         ]
-        timeout_sec = _batch_command_timeout_sec()
+        timeout_sec = self.batch_command_timeout_seconds()
         try:
-            proc = subprocess.run(
+            proc = run_subprocess_in_workspace(
                 command,
-                cwd=str(context.workspace_root),
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout_sec,
+                cwd=context.workspace_root,
+                timeout_sec=timeout_sec,
+                log=logger,
+                label="batch",
             )
         except subprocess.TimeoutExpired:
-            logger.warning("Batch runner timed out after %s s; command=%s", timeout_sec, command)
             return None
         if proc.returncode != 0:
             logger.warning(
@@ -334,7 +251,7 @@ class SkPlugin(BmtPlugin):
                 proc.stderr[:2000],
             )
             return None
-        batch_path = _resolve_batch_results_file(context.workspace_root, results_relpath)
+        batch_path = self.resolve_workspace_file(context.workspace_root, results_relpath)
         if batch_path is None:
             logger.warning(
                 "Batch completed but results file missing or not under workspace: %s",
@@ -368,9 +285,3 @@ class SkPlugin(BmtPlugin):
             case_results=case_results,
             raw_summary=payload,
         )
-
-    @staticmethod
-    def _require_runner(context: ExecutionContext) -> Path:
-        if context.runner_path is None:
-            raise FileNotFoundError(f"Runner path is not configured for {context.bmt_manifest.bmt_slug}")
-        return context.runner_path

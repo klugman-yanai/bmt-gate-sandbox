@@ -1,6 +1,6 @@
 """Validate committed `gcp/stage` BMT manifests against runtime models.
 
-Discovery matches ``build_plan`` (``projects/*/bmts/*/bmt.json`` under the stage root).
+Discovery matches ``build_plan`` (``projects/*/{benchmarks,bmts}/*/bmt.json`` under the stage root).
 This suite performs a **full-tree scan**; a future optional **git-diff-only** mode could
 accelerate PRs but must not replace full validation on the default branch.
 
@@ -23,6 +23,11 @@ from gcp.image.runtime.models import BmtManifest, PluginManifest, ProjectManifes
 from gcp.image.runtime.planning import PlanOptions, build_plan
 from gcp.image.runtime.plugin_loader import load_plugin
 from gcp.image.runtime.plugin_publisher import plugin_digest
+from gcp.image.runtime.stage_paths import (
+    iter_bmt_manifest_paths,
+    resolve_plugin_workspace_dir,
+    resolve_published_plugin_dir,
+)
 
 pytestmark = pytest.mark.contract
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -42,11 +47,11 @@ class StageBmtRecord:
 def _discover_stage_bmt_manifests(stage_root: Path) -> list[StageBmtRecord]:
     if not stage_root.is_dir():
         return []
-    out: list[StageBmtRecord] = []
-    for path in sorted(stage_root.glob("projects/*/bmts/*/bmt.json")):
-        rel = path.relative_to(stage_root).as_posix()
-        out.append(StageBmtRecord(manifest_path=path, id_posix=rel))
-    return out
+    projects_root = stage_root / "projects"
+    return [
+        StageBmtRecord(manifest_path=path, id_posix=path.relative_to(stage_root).as_posix())
+        for path in iter_bmt_manifest_paths(projects_root=projects_root)
+    ]
 
 
 def _manifest_enabled(manifest_path: Path) -> bool:
@@ -62,7 +67,7 @@ _ENABLED_RECORDS = [r for r in _RECORDS if _manifest_enabled(r.manifest_path)]
 def test_stage_tree_has_bmt_manifests(repo_stage_root: Path) -> None:
     """Guard: parametrized tests vanish if the tree is empty—fail loudly instead."""
     assert _RECORDS, (
-        "Expected at least one projects/*/bmts/*/bmt.json under gcp/stage; "
+        "Expected at least one projects/*/{benchmarks,bmts}/*/bmt.json under gcp/stage; "
         "an empty tree would skip all parametrized manifest checks."
     )
     assert repo_stage_root.resolve() == _STAGE_ROOT.resolve()
@@ -72,7 +77,7 @@ def _assert_path_matches_manifest(stage_root: Path, manifest_path: Path, manifes
     rel = manifest_path.relative_to(stage_root)
     parts = rel.parts
     assert len(parts) == 5, f"Unexpected manifest path shape: {rel}"
-    assert parts[0] == "projects" and parts[2] == "bmts" and parts[4] == "bmt.json", (
+    assert parts[0] == "projects" and parts[2] in ("bmts", "benchmarks") and parts[4] == "bmt.json", (
         f"Unexpected manifest path segments: {rel}"
     )
     assert parts[1] == manifest.project, f"path project {parts[1]!r} != manifest.project {manifest.project!r}"
@@ -86,7 +91,7 @@ def _validate_published_bundle(stage_root: Path, manifest: BmtManifest) -> None:
     parts = manifest.plugin_ref.split(":", 2)
     assert len(parts) == 3, f"Malformed published ref: {manifest.plugin_ref!r}"
     _, plugin_name, digest_segment = parts
-    published_root = stage_root / "projects" / manifest.project / "plugins" / plugin_name / digest_segment
+    published_root = resolve_published_plugin_dir(stage_root, manifest.project, plugin_name, digest_segment)
     plugin_json = published_root / "plugin.json"
     assert plugin_json.is_file(), f"Missing published plugin bundle: {plugin_json}"
     raw = json.loads(plugin_json.read_text(encoding="utf-8"))
@@ -101,7 +106,7 @@ def _validate_workspace_ref(stage_root: Path, manifest: BmtManifest) -> None:
     if not manifest.plugin_ref.startswith("workspace:"):
         return
     name = manifest.plugin_ref.split(":", 1)[1]
-    ws = stage_root / "projects" / manifest.project / "plugin_workspaces" / name
+    ws = resolve_plugin_workspace_dir(stage_root, manifest.project, name)
     assert ws.is_dir(), f"workspace plugin_ref points to missing directory: {ws}"
 
 

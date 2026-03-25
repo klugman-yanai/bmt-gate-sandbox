@@ -25,7 +25,11 @@ def _project_has_bmt_stage_layout(project: str) -> bool:
     if not slug:
         return False
     base = Path("gcp/stage/projects") / slug
-    return (base / "project.json").is_file() or (base / "bmts").is_dir()
+    return (
+        (base / "project.json").is_file()
+        or (base / "bmts").is_dir()
+        or (base / "benchmarks").is_dir()
+    )
 
 
 def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any] | None:
@@ -37,19 +41,23 @@ def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any]
 
 
 def _project_has_bmts_in_bucket(root: str, project: str) -> bool:
-    """True when the bucket has at least one object under ``projects/<project>/bmts/``."""
+    """True when the bucket has objects under ``projects/<project>/benchmarks/`` or ``.../bmts/``."""
     slug = str(project).strip().lower()
     if not slug:
         return False
-    prefix_uri = f"{root.rstrip('/')}/projects/{slug}/bmts/"
-    try:
-        return len(gcs.list_prefix(prefix_uri)) > 0
-    except gcs.GcsError as exc:
-        gh_warning(
-            f"Could not list bucket BMT prefix for project {slug!r} ({exc}); "
-            "treating as no bucket BMT layout (dev publish matrix will omit this project)."
-        )
-        return False
+    base = root.rstrip("/")
+    for suffix in ("benchmarks/", "bmts/"):
+        prefix_uri = f"{base}/projects/{slug}/{suffix}"
+        try:
+            if len(gcs.list_prefix(prefix_uri)) > 0:
+                return True
+        except gcs.GcsError as exc:
+            gh_warning(
+                f"Could not list bucket BMT prefix for project {slug!r} ({exc}); "
+                "treating as no bucket BMT layout (dev publish matrix will omit this project)."
+            )
+            return False
+    return False
 
 
 def _append_filter_matrix_step_summary(
@@ -76,7 +84,7 @@ def _append_filter_matrix_step_summary(
         extras.append(
             "**No bucket BMT:** "
             + ", ".join(f"`{p}/{pr}`" for p, pr in omitted_bucket)
-            + " *(no `projects/…/bmts/`)*"
+            + " *(no `projects/…/benchmarks/` or `…/bmts/`)*"
         )
     if skipped_preseeded:
         extras.append("**Preseeded:** " + ", ".join(f"`{p}/{pr}`" for p, pr in skipped_preseeded))
@@ -323,7 +331,7 @@ class RunnerManager:
                 omitted_bucket_rows.append(sr)
                 print(
                     f"::notice::Omit {project}/{preset} from publish matrix: "
-                    f"no objects under projects/{project.lower()}/bmts/ in bucket."
+                    f"no objects under projects/{project.lower()}/benchmarks/ or .../bmts/ in bucket."
                 )
                 continue
             supported = "true" if _project_has_bmt_stage_layout(project) else "false"
@@ -375,7 +383,7 @@ class RunnerManager:
                 need_include.append(dict(entry))
         out = {"include": need_include}
         out_json = json.dumps(out, separators=(",", ":"))
-        # Bucket: omit legs with no objects under projects/<p>/bmts/ (dev and prod — no upload without bucket BMT).
+        # Bucket: omit legs with no objects under projects/<p>/benchmarks/ or .../bmts/ (dev and prod).
         # Dev skip_missing adds manifest-only legs for supported presets missing runner-* artifacts.
         # Production publish_for_workflow: supported + binary only (after publish_include).
         publish_for_workflow: list[dict[str, Any]]

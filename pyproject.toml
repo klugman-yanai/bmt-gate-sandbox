@@ -73,6 +73,7 @@ dev = [
     "pyjwt>=2.12.1",
     "pytest>=9.0.2",
     "pytest-github-actions-annotate-failures>=0.4.0",
+    "pytest-instafail>=0.5.0",
     "pytest-mock>=3.15.1",
     "pytest-randomly>=4.0.1",
     "pytest-rerunfailures>=16.1",
@@ -91,7 +92,24 @@ dev = [
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --timeout-method=thread"
+# importlib: isolates test module imports (avoids conftest/package shadowing surprises).
+# disable-socket + allow-unix-socket: no accidental TCP; unix sockets still work (e.g. xdist IPC).
+# --strict: strict_config + strict_markers + strict_xfail (default for @pytest.mark.xfail) + strict_parametrization_ids
+addopts = [
+    "--strict",
+    "-ra",
+    "--durations=25",
+    "--timeout=420",
+    "--timeout-method=thread",
+    "--import-mode=importlib",
+    "--disable-socket",
+    "--allow-unix-socket",
+    "--instafail",
+]
+xfail_strict = true
+filterwarnings = [
+    "error::ResourceWarning",
+]
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",

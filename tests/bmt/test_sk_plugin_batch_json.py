@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from gcp.image.runtime.sdk.plugin import BmtPlugin
+
 _SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
 
 pytestmark = pytest.mark.unit
@@ -27,31 +29,28 @@ def _make_plugin():
 
 
 def test_resolve_batch_results_rejects_absolute_relpath(tmp_path: Path) -> None:
-    sk_plugin_mod = _import_plugin_module()
     ws = tmp_path / "ws"
     ws.mkdir()
     outside = tmp_path / "out.json"
     outside.write_text("{}", encoding="utf-8")
-    assert sk_plugin_mod._resolve_batch_results_file(ws, str(outside)) is None
+    assert BmtPlugin.resolve_workspace_file(ws, str(outside)) is None
 
 
 def test_resolve_batch_results_rejects_parent_escape(tmp_path: Path) -> None:
-    sk_plugin_mod = _import_plugin_module()
     ws = tmp_path / "ws"
     ws.mkdir()
     target = tmp_path / "outside.json"
     target.write_text("{}", encoding="utf-8")
-    assert sk_plugin_mod._resolve_batch_results_file(ws, "../outside.json") is None
+    assert BmtPlugin.resolve_workspace_file(ws, "../outside.json") is None
 
 
 def test_resolve_batch_results_accepts_file_under_workspace(tmp_path: Path) -> None:
-    sk_plugin_mod = _import_plugin_module()
     ws = tmp_path / "ws"
     sub = ws / "r" / "out"
     sub.mkdir(parents=True)
     f = sub / "batch.json"
     f.write_text("{}", encoding="utf-8")
-    assert sk_plugin_mod._resolve_batch_results_file(ws, "r/out/batch.json") == f.resolve()
+    assert BmtPlugin.resolve_workspace_file(ws, "r/out/batch.json") == f.resolve()
 
 
 def test_parse_batch_json_rejects_path_outside_workspace(tmp_path: Path) -> None:

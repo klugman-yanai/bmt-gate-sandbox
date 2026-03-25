@@ -7,6 +7,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from gcp.image.runtime.stage_paths import published_dir_for_new_publish, resolve_plugin_workspace_dir
+
 
 def plugin_digest(plugin_root: Path) -> str:
     hasher = hashlib.sha256()
@@ -30,9 +32,9 @@ class PublishResult:
 
 
 def publish_workspace_plugin(stage_root: Path, project: str, plugin_name: str) -> PublishResult:
-    workspace_dir = stage_root / "projects" / project / "plugin_workspaces" / plugin_name
+    workspace_dir = resolve_plugin_workspace_dir(stage_root, project, plugin_name)
     digest = plugin_digest(workspace_dir)
-    published_dir = stage_root / "projects" / project / "plugins" / plugin_name / f"sha256-{digest}"
+    published_dir = published_dir_for_new_publish(stage_root, project, plugin_name, digest)
     if published_dir.exists():
         shutil.rmtree(published_dir)
     published_dir.parent.mkdir(parents=True, exist_ok=True)

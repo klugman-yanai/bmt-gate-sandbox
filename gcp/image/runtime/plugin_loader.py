@@ -10,19 +10,16 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from gcp.image.runtime.models import PluginManifest
+from gcp.image.runtime.plugin_errors import ManifestValidationError, PluginLoadError, WorkspacePluginRefError
 from gcp.image.runtime.sdk.plugin import BmtPlugin
+from gcp.image.runtime.stage_paths import resolve_plugin_workspace_dir, resolve_published_plugin_dir
 
-
-class ManifestValidationError(RuntimeError):
-    pass
-
-
-class PluginLoadError(RuntimeError):
-    pass
-
-
-class WorkspacePluginRefError(RuntimeError):
-    pass
+__all__ = [
+    "ManifestValidationError",
+    "PluginLoadError",
+    "WorkspacePluginRefError",
+    "load_plugin",
+]
 
 
 def _resolve_plugin_root(stage_root: Path, project: str, plugin_ref: str, *, allow_workspace: bool) -> Path:
@@ -30,10 +27,10 @@ def _resolve_plugin_root(stage_root: Path, project: str, plugin_ref: str, *, all
         if not allow_workspace:
             raise WorkspacePluginRefError(f"Workspace plugin refs are not allowed here: {plugin_ref}")
         plugin_name = plugin_ref.split(":", 1)[1]
-        return stage_root / "projects" / project / "plugin_workspaces" / plugin_name
+        return resolve_plugin_workspace_dir(stage_root, project, plugin_name)
     if plugin_ref.startswith("published:"):
-        _, plugin_name, digest = plugin_ref.split(":", 2)
-        return stage_root / "projects" / project / "plugins" / plugin_name / digest
+        _, plugin_name, digest_segment = plugin_ref.split(":", 2)
+        return resolve_published_plugin_dir(stage_root, project, plugin_name, digest_segment)
     raise ManifestValidationError(f"Unsupported plugin_ref: {plugin_ref}")
 
 
@@ -69,4 +66,5 @@ def load_plugin(stage_root: Path, project: str, plugin_ref: str, *, allow_worksp
     plugin = plugin_cls()
     if not isinstance(plugin, BmtPlugin):
         raise PluginLoadError(f"Entrypoint is not a BmtPlugin: {manifest.entrypoint}")
+    plugin.validate_against_loaded_manifest(manifest)
     return plugin, plugin_root

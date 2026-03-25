@@ -56,6 +56,53 @@ def stage_bmt(
     raise typer.Exit(add_bmt_impl(project, benchmark))
 
 
+@stage.command("manifest-template")
+def stage_manifest_template(
+    project: Annotated[str, typer.Argument(help="Staged project name.")],
+    benchmark: Annotated[
+        str,
+        typer.Argument(help="Benchmark folder name under bmts/ (must match bmt_slug in the JSON)."),
+    ],
+    plugin_ref: Annotated[
+        str,
+        typer.Option("--plugin-ref", help="Value for the plugin_ref field (default workspace:default)."),
+    ] = "workspace:default",
+    stdout: Annotated[
+        bool,
+        typer.Option("--stdout", help="Print JSON to stdout instead of writing a file."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Allow overwriting an existing bmt.json."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print target path only; do not write."),
+    ] = False,
+) -> None:
+    """Emit a default bmt.json from the shared Pydantic factory (opt-in; see docs/bmt-python-contributor-protocol.md §3)."""
+    from gcp.image.runtime.sdk.manifest_build import build_default_bmt_manifest
+    from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
+
+    manifest = build_default_bmt_manifest(project, benchmark, plugin_ref=plugin_ref)
+    text = manifest.model_dump_json(by_alias=True, indent=2) + "\n"
+    root = repo_root() / DEFAULT_STAGE_ROOT
+    path = root / "projects" / project / "bmts" / benchmark / "bmt.json"
+    if stdout:
+        typer.echo(text, nl=False)
+        raise typer.Exit(0)
+    if dry_run:
+        typer.echo(str(path))
+        raise typer.Exit(0)
+    if path.exists() and not force:
+        typer.echo(f"Refusing to overwrite {path} (use --force)", err=True)
+        raise typer.Exit(1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    typer.echo(f"Wrote {path}")
+    raise typer.Exit(0)
+
+
 @stage.command("publish")
 def stage_publish(
     project: Annotated[
@@ -86,6 +133,38 @@ def stage_publish(
     )
     typer.echo(result.plugin_ref)
     raise typer.Exit(0)
+
+
+@stage.command("publish-plugin")
+def stage_publish_plugin(
+    project: Annotated[str, typer.Argument(help="Project name.")],
+    plugin_name: Annotated[str, typer.Argument(help="Plugin name (e.g. default).")],
+    no_sync: Annotated[
+        bool,
+        typer.Option("--no-sync", help="Skip syncing the project subtree to GCS after publish."),
+    ] = False,
+) -> None:
+    """Publish workspace plugin once and update plugin_ref on every BMT that uses this plugin."""
+    from tools.bmt.publisher import publish_plugin_for_project
+
+    result = publish_plugin_for_project(project=project, plugin_name=plugin_name, sync=not no_sync)
+    typer.echo(result.plugin_ref)
+    raise typer.Exit(0)
+
+
+@stage.command("doctor")
+def stage_doctor(
+    project: Annotated[str, typer.Argument(help="Staged project name (gcp/stage/projects/<name>/).")],
+) -> None:
+    """Validate manifests, paths, published digests, and workspace loads for one project."""
+    from tools.bmt.stage_doctor import doctor_stage_project
+    from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
+
+    root = repo_root() / DEFAULT_STAGE_ROOT
+    code, lines = doctor_stage_project(stage_root=root, project=project)
+    for line in lines:
+        typer.echo(line)
+    raise typer.Exit(code)
 
 
 app.add_typer(stage, name="stage")

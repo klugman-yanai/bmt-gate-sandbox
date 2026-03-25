@@ -2,7 +2,7 @@
 
 For a compact ordered checklist, run **`just workflow`**. For repo hints (`.venv`, `gcp/stage/projects/`), run **`just status`** (alias: **`just workflow-status`**).
 
-**Unfamiliar commands?** See **[contributor-commands.md](contributor-commands.md)** and **[local-bmt-testing.md](local-bmt-testing.md)** (run checks before **`just publish`**).
+**Unfamiliar commands?** See **[contributor-commands.md](contributor-commands.md)** and **[local-bmt-testing.md](local-bmt-testing.md)** (run checks before **`just publish`**). **Short happy path:** [bmt-first-benchmark.md](bmt-first-benchmark.md).
 
 Everything under **`gcp/stage/`** is mirrored to your GCS bucket. Prefer **`just add`** (scaffold + optional BMT + optional dataset), **`just test-local`**, **`just publish`** (builds the plugin and sets **`enabled`: true** unless you pass **`--no-enable`**), then **`just sync-to-bucket`**. Lower-level Typer commands remain **`just stage …`** and **`just workspace …`**.
 
@@ -74,6 +74,7 @@ Edit `gcp/stage/projects/myproject/bmts/my_second_bmt/bmt.json`, upload WAVs (**
 
 - Work in `gcp/stage/projects/<project>/plugin_workspaces/<plugin>/`.
 - After publish, `bmt.json` should reference an immutable bundle under `projects/<project>/plugins/...`.
+- **API and runner behavior (stdout today, JSON later):** [bmt-python-contributor-protocol.md](bmt-python-contributor-protocol.md).
 
 ---
 

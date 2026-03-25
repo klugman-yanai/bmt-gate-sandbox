@@ -62,10 +62,18 @@ def execute_leg(*, plan: ExecutionPlan, leg: PlanLeg, runtime: StageRuntimePaths
         runner_path=(runtime.stage_root / bmt_manifest.runner.uri) if bmt_manifest.runner.uri else None,
         deps_root=(runtime.stage_root / deps_prefix) if deps_prefix else None,
     )
-    prepared = plugin.prepare(context)
-    execution_result = plugin.execute(context, prepared)
-    score = plugin.score(execution_result, None, context)
-    verdict = plugin.evaluate(score, None, context)
+    # Baseline scores are not loaded yet; plugins always see None here (see docs/adr/0005-baseline-scoring-not-loaded.md).
+    baseline = None
+
+    prepared = None
+    try:
+        prepared = plugin.prepare(context)
+        execution_result = plugin.execute(context, prepared)
+        score = plugin.score(execution_result, baseline, context)
+        verdict = plugin.evaluate(score, baseline, context)
+    finally:
+        if prepared is not None:
+            plugin.teardown(context, prepared)
 
     return LegSummary(
         project=leg.project,

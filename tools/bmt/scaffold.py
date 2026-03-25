@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
 from pathlib import Path
 
 from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
@@ -81,11 +80,7 @@ class {class_name}(BmtPlugin):
     api_version = "v1"
 
     def prepare(self, context: ExecutionContext) -> PreparedAssets:
-        return PreparedAssets(
-            dataset_root=context.dataset_root,
-            workspace_root=context.workspace_root,
-            runner_path=context.runner_path,
-        )
+        return self.prepared_assets_from_context(context)
 
     def execute(self, context: ExecutionContext, prepared_assets: PreparedAssets) -> ExecutionResult:
         case_results: list[CaseResult] = []
@@ -139,34 +134,10 @@ class {class_name}(BmtPlugin):
 
 
 def _bmt_manifest(project: str, bmt_slug: str, *, plugin_ref: str) -> str:
-    return (
-        json.dumps(
-            {
-                "schema_version": 1,
-                "project": project,
-                "bmt_slug": bmt_slug,
-                "bmt_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://bmt/{project}/{bmt_slug}")),
-                "enabled": False,
-                "plugin_ref": plugin_ref,
-                "inputs_prefix": f"projects/{project}/inputs/{bmt_slug}",
-                "results_prefix": f"projects/{project}/results/{bmt_slug}",
-                "outputs_prefix": f"projects/{project}/outputs/{bmt_slug}",
-                "runner": {
-                    "uri": "",
-                    "deps_prefix": "",
-                    "template_path": "gcp/image/runtime/assets/kardome_input_template.json",
-                },
-                "execution": {
-                    "policy": "adaptive_batch_then_legacy",
-                },
-                "plugin_config": {
-                    "pass_threshold": 1.0,
-                },
-            },
-            indent=2,
-        )
-        + "\n"
-    )
+    from gcp.image.runtime.sdk.manifest_build import build_default_bmt_manifest
+
+    manifest = build_default_bmt_manifest(project, bmt_slug, plugin_ref=plugin_ref)
+    return manifest.model_dump_json(by_alias=True, indent=2) + "\n"
 
 
 def add_project(project: str, *, stage_root: Path | None = None, dry_run: bool = False) -> int:

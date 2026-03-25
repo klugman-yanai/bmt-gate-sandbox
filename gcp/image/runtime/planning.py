@@ -17,6 +17,7 @@ from gcp.image.runtime.models import (
 )
 from gcp.image.runtime.plugin_loader import _resolve_plugin_root
 from gcp.image.runtime.plugin_publisher import plugin_digest
+from gcp.image.runtime.stage_paths import iter_bmt_manifest_paths
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +34,7 @@ def build_plan(*, runtime: StageRuntimePaths, options: PlanOptions) -> Execution
     legs: list[PlanLeg] = []
     projects_root = runtime.stage_root / "projects"
     accepted_projects = {project for project in options.request.accepted_projects if project}
-    for manifest_path in sorted(projects_root.glob("*/bmts/*/bmt.json")):
+    for manifest_path in iter_bmt_manifest_paths(projects_root=projects_root):
         bmt_manifest = BmtManifest.model_validate(json.loads(manifest_path.read_text(encoding="utf-8")))
         if not bmt_manifest.enabled:
             continue

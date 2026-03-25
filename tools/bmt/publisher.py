@@ -8,6 +8,8 @@ from pathlib import Path
 from gcp.image.runtime.models import BmtManifest, ProjectManifest
 from gcp.image.runtime.plugin_loader import load_plugin
 from gcp.image.runtime.plugin_publisher import PublishResult, publish_workspace_plugin
+from gcp.image.runtime.stage_paths import iter_bmt_manifest_paths_for_project, resolve_bmt_manifest_path
+from tools.bmt.manifest_serde import read_bmt_manifest, write_bmt_manifest_json
 from tools.remote.bucket_sync_project import BucketSyncProject
 from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
 from tools.shared.bucket_env import bucket_from_env
@@ -22,13 +24,17 @@ def _project_root(stage_root: Path, project: str) -> Path:
 
 
 def _manifest_path(stage_root: Path, project: str, bmt_slug: str) -> Path:
+    found = resolve_bmt_manifest_path(stage_root, project, bmt_slug)
+    if found is not None:
+        return found
     return _project_root(stage_root, project) / "bmts" / bmt_slug / "bmt.json"
 
 
 def _load_bmt_manifest(stage_root: Path, project: str, bmt_slug: str) -> BmtManifest:
-    return BmtManifest.model_validate(
-        json.loads(_manifest_path(stage_root, project, bmt_slug).read_text(encoding="utf-8"))
-    )
+    path = _manifest_path(stage_root, project, bmt_slug)
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing BMT manifest: {path}")
+    return BmtManifest.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def _plugin_name_for_publish(plugin_ref: str) -> str:
@@ -41,7 +47,7 @@ def _plugin_name_for_publish(plugin_ref: str) -> str:
 
 def validate_workspace_plugin(*, stage_root: Path, project: str, bmt_slug: str) -> str:
     project_root = _project_root(stage_root, project)
-    ProjectManifest.model_validate(json.loads((project_root / "project.json").read_text(encoding="utf-8")))
+    ProjectManifest.model_validate_json((project_root / "project.json").read_text(encoding="utf-8"))
     bmt_manifest = _load_bmt_manifest(stage_root, project, bmt_slug)
     plugin_name = _plugin_name_for_publish(bmt_manifest.plugin_ref)
     load_plugin(stage_root, project, f"workspace:{plugin_name}", allow_workspace=True)
@@ -77,6 +83,48 @@ def publish_bmt(
         if not bucket:
             raise RuntimeError("Unable to resolve GCS_BUCKET from env or GitHub repo vars")
         rc = sync_project(bucket=bucket, project=project, stage_root=resolved_stage_root)
+        if rc != 0:
+            raise RuntimeError(f"Failed to sync project {project} to gs://{bucket}")
+
+    return result
+
+
+def plugin_name_references_manifest(plugin_name: str, plugin_ref: str) -> bool:
+    """True if this manifest uses the given plugin (workspace or published name)."""
+    if plugin_ref.startswith("workspace:"):
+        return plugin_ref.split(":", 1)[1] == plugin_name
+    if plugin_ref.startswith("published:"):
+        parts = plugin_ref.split(":", 2)
+        return len(parts) >= 2 and parts[1] == plugin_name
+    return False
+
+
+def publish_plugin_for_project(
+    *,
+    stage_root: Path | None = None,
+    project: str,
+    plugin_name: str,
+    sync: bool = True,
+) -> PublishResult:
+    """Publish workspace plugin once and set ``plugin_ref`` on every BMT that uses this plugin name."""
+    resolved = _stage_root(stage_root)
+    project_root = _project_root(resolved, project)
+    ProjectManifest.model_validate_json((project_root / "project.json").read_text(encoding="utf-8"))
+    load_plugin(resolved, project, f"workspace:{plugin_name}", allow_workspace=True)
+
+    result = publish_workspace_plugin(resolved, project, plugin_name)
+
+    for manifest_path in iter_bmt_manifest_paths_for_project(stage_root=resolved, project=project):
+        manifest = read_bmt_manifest(manifest_path)
+        if not plugin_name_references_manifest(plugin_name, manifest.plugin_ref):
+            continue
+        write_bmt_manifest_json(manifest_path, manifest.model_copy(update={"plugin_ref": result.plugin_ref}))
+
+    if sync:
+        bucket = bucket_from_env()
+        if not bucket:
+            raise RuntimeError("Unable to resolve GCS_BUCKET from env or GitHub repo vars")
+        rc = sync_project(bucket=bucket, project=project, stage_root=resolved)
         if rc != 0:
             raise RuntimeError(f"Failed to sync project {project} to gs://{bucket}")
 
