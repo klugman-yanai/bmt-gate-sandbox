@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # LEGACY: Prefer Packer for image builds (infra/packer/bmt-runtime.pkr.hcl, .github/workflows/bmt-vm-image-build.yml).
-# This script remains for manual/one-off builds from local gcp/image without syncing to GCS.
+# This script remains for manual/one-off builds from local backend/ without syncing to GCS.
 """Build a pre-baked BMT runtime image (code + deps baked into /opt/bmt).
 
-Lives in infra/scripts/ as image-build tooling; uses local gcp/image as source (code is not in GCS).
+Lives in infra/scripts/ as image-build tooling; uses local backend/ as source (code is not in GCS).
 Required env: GCP_PROJECT, GCP_ZONE, BMT_LIVE_VM, GCS_BUCKET.
 Optional: BMT_IMAGE_FAMILY, BMT_IMAGE_NAME, BMT_BASE_IMAGE_*, BMT_IMAGE_BUILDER_*, BMT_KEEP_IMAGE_BUILDER.
 """
@@ -22,17 +22,17 @@ from pathlib import Path
 
 from whenever import Instant
 
-from gcp.image.config.constants import (
+from backend.config.constants import (
     DEFAULT_BASE_IMAGE_FAMILY,
     DEFAULT_BASE_IMAGE_PROJECT,
     DEFAULT_IMAGE_FAMILY,
 )
-from gcp.image.path_utils import IMAGE_SCRIPTS_SUBDIR
+from backend.path_utils import IMAGE_SCRIPTS_SUBDIR
 
-# Resolve gcp/image from repo root (script lives at infra/scripts/build_bmt_image.py).
+# Resolve backend/ from repo root (script lives at infra/scripts/build_bmt_image.py).
 _script_dir = Path(__file__).resolve().parent
 _repo_root = _script_dir.parent.parent
-_root = _repo_root / "gcp" / "image"
+_root = _repo_root / "backend"
 
 
 def _retry(max_attempts: int, delay_sec: int, fn, *args, **kwargs):
@@ -160,8 +160,8 @@ def main() -> int:
             code_dir = Path(tmp_dir) / "code"
             code_dir.mkdir(parents=True, exist_ok=True)
 
-            # Code is not in GCS; copy from repo gcp/image
-            print("Copying gcp/image to build dir (code is not in GCS)...")
+            # Code is not in GCS; copy from repo backend/
+            print("Copying backend/ to build dir (code is not in GCS)...")
             for item in _root.iterdir():
                 if item.name.startswith(".") or item.name == "__pycache__":
                     continue
@@ -174,10 +174,10 @@ def main() -> int:
             install_deps_path = code_dir / IMAGE_SCRIPTS_SUBDIR / "install_deps.py"
             vm_deps_path = code_dir / IMAGE_SCRIPTS_SUBDIR / "vm_deps.txt"
             if not install_deps_path.is_file():
-                print("::error::gcp/image is missing scripts/install_deps.py.", file=sys.stderr)
+                print("::error::backend/ is missing scripts/install_deps.py.", file=sys.stderr)
                 return 1
             if not vm_deps_path.is_file():
-                print("::error::gcp/image is missing scripts/vm_deps.txt.", file=sys.stderr)
+                print("::error::backend/ is missing scripts/vm_deps.txt.", file=sys.stderr)
                 return 1
 
             print("Uploading code snapshot to builder VM...")

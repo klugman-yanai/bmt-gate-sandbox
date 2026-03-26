@@ -1,12 +1,12 @@
-"""Terraform defaults and resource names must match gcp/image/config where shared."""
+"""Terraform defaults and resource names must match backend/config where shared."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from gcp.image.config.bmt_config import DEFAULT_REPO_ROOT
-from gcp.image.config.constants import DEFAULT_IMAGE_FAMILY, PUBSUB_TOPIC_NAME
+from backend.config.bmt_config import DEFAULT_REPO_ROOT
+from backend.config.constants import DEFAULT_IMAGE_FAMILY, PUBSUB_TOPIC_NAME
 from tools.repo.paths import repo_root, INFRA_TERRAFORM
 
 

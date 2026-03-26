@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ci import gcs
-from ci.runner import RunnerManager
+from bmt_gate import gcs
+from bmt_gate.runner import RunnerManager
 
 
 def test_resolve_uploaded_projects_uses_uploaded_markers(monkeypatch, tmp_path: Path) -> None:

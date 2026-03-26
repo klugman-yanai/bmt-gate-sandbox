@@ -2,8 +2,9 @@
 
 # Build/output junk
 build/
+dist/
+.ruff_cache/
 data/
-local_batch/
 sk_runtime/
 secrets/
 debug/
@@ -27,11 +28,8 @@ repo/staging/
 *.out
 bmt_root_results.json
 
-# VM/BMT runtime artifacts (bucket sync + handshake staging)
-gcp/local/runtime/triggers/
-gcp/local/runtime/**/inputs/**/*.wav
-gcp/local/runtime/**/outputs/
-gcp/local/runtime/**/results/
+# Local BMT runtime artifacts
+local_batch/
 
 # Tooling/editor
 compile_commands.json

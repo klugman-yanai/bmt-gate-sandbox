@@ -1,0 +1,53 @@
+[build-system]
+requires = ["uv_build>=0.10.7,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "bmt_gate"
+module-root = "src"
+
+[project]
+name = "bmt-gate"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+description = "BMT CI driver: matrix discovery, trigger, VM lifecycle, and runner upload."
+dependencies = [
+    "google-cloud-compute>=1.45",
+    "google-cloud-pubsub>=2.21",
+    "google-cloud-storage>=2.16",
+    "PyGithub>=2.0",
+    "pydantic>=2.12.5",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright",
+    "ruff>=0.15.0",
+]
+
+[project.scripts]
+bmt = "bmt_gate.driver:main"
+bmt-matrix = "bmt_gate.driver:main_matrix"
+bmt-trigger = "bmt_gate.driver:main_write_run_trigger"
+bmt-wait = "bmt_gate.driver:main_wait_handshake"
+bmt-start-vm = "bmt_gate.driver:main_start_vm"
+bmt-write-context = "bmt_gate.driver:main_write_context"
+bmt-write-summary = "bmt_gate.driver:main_write_handoff_summary"
+bmt-select-vm = "bmt_gate.driver:main_select_available_vm"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [".venv", "__pycache__", ".ruff_cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.basedpyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+reportMissingTypeStubs = false

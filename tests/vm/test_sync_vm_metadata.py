@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from ci.vm import VmManager
+from bmt_gate.vm import VmManager
 
 
 @pytest.fixture(autouse=True)
@@ -67,8 +67,8 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
             }
         }
 
-    monkeypatch.setattr("ci.vm.vm_add_metadata", _fake_add_metadata)
-    monkeypatch.setattr("ci.vm.vm_describe", _fake_describe)
+    monkeypatch.setattr("bmt_gate.vm.vm_add_metadata", _fake_add_metadata)
+    monkeypatch.setattr("bmt_gate.vm.vm_describe", _fake_describe)
 
     VmManager.from_env().sync_metadata()
 
@@ -97,7 +97,7 @@ def test_sync_vm_metadata_sets_startup_script(monkeypatch: pytest.MonkeyPatch) -
 def test_load_startup_entrypoint_script_from_packaged_resource() -> None:
     from importlib import resources as importlib_resources
 
-    entrypoint = importlib_resources.files("ci.resources").joinpath("startup_entrypoint.sh")
+    entrypoint = importlib_resources.files("bmt_gate.resources").joinpath("startup_entrypoint.sh")
     script_content = entrypoint.read_text(encoding="utf-8")
     assert script_content.startswith("#!/usr/bin/env bash")
     assert "_read_meta" in script_content
@@ -124,8 +124,8 @@ def test_sync_vm_metadata_does_not_require_bucket_code_objects(monkeypatch: pyte
             }
         }
 
-    monkeypatch.setattr("ci.vm.vm_describe", _fake_describe)
-    monkeypatch.setattr("ci.vm.vm_add_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("bmt_gate.vm.vm_describe", _fake_describe)
+    monkeypatch.setattr("bmt_gate.vm.vm_add_metadata", lambda *_args, **_kwargs: None)
 
     VmManager.from_env().sync_metadata()
 
@@ -149,7 +149,7 @@ def test_sync_vm_metadata_fails_when_legacy_prefix_exists(monkeypatch: pytest.Mo
             }
         }
 
-    monkeypatch.setattr("ci.vm.vm_describe", _fake_describe)
+    monkeypatch.setattr("bmt_gate.vm.vm_describe", _fake_describe)
 
     with pytest.raises(RuntimeError, match="Legacy BMT_BUCKET_PREFIX"):
         VmManager.from_env().sync_metadata()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify local gcp/remote matches runtime seed manifest in bucket."""
+"""Verify local benchmarks/ matches runtime seed manifest in bucket."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ RUNTIME_SEED_MANIFEST = "_meta/runtime_seed_manifest.json"
 
 
 class BucketVerifyRuntimeSeedSync:
-    """Verify local gcp/remote matches runtime seed manifest in bucket."""
+    """Verify local benchmarks/ matches runtime seed manifest in bucket."""
 
     def run(
         self,
@@ -51,7 +51,7 @@ class BucketVerifyRuntimeSeedSync:
             return 1
 
         if local_d != remote_digest or local_count != remote_count:
-            print(f"::error::gcp/remote is not in sync with {manifest_uri}", file=sys.stderr)
+            print(f"::error::benchmarks/ is not in sync with {manifest_uri}", file=sys.stderr)
             print(
                 f"Local digest={local_d} count={local_count}; manifest digest={remote_digest} count={remote_count}",
                 file=sys.stderr,

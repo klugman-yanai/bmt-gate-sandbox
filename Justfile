@@ -13,7 +13,7 @@ test:
     ruff format --check .
     basedpyright
     command -v shellcheck >/dev/null 2>&1 || (echo "Install shellcheck (e.g. apt install shellcheck)" >&2; exit 1)
-    shellcheck --severity=warning gcp/image/scripts/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
+    shellcheck --severity=warning backend/scripts/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
     uv run python -m tools.repo.gcp_layout_policy
     uv run python -m tools.repo.repo_layout_policy
 

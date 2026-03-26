@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gcp.image.github import github_checks  # type: ignore[import-not-found]
+from backend.github import github_checks  # type: ignore[import-not-found]
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 

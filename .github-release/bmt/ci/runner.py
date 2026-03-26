@@ -81,7 +81,7 @@ class RunnerManager:
         preset = core.require_env("PRESET")
         run_id = core.workflow_run_id()
         root = core.workflow_runtime_root()
-        runner_path = Path("gcp/remote") / project / "runners" / preset / "kardome_runner"
+        runner_path = Path("benchmarks") / project / "runners" / preset / "kardome_runner"
         if not runner_path.is_file():
             gh_warning(
                 f"VM does not support this BMT: requested runner not found at {runner_path}. "

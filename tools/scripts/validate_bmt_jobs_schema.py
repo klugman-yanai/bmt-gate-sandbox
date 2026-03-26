@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Validate all bmt_jobs.json files under gcp/image against schemas/bmt_jobs.schema.json.
+"""Validate all bmt_jobs.json files under backend/ against backend/schemas/bmt_jobs.schema.json.
 
-Config files in gcp/image are synced to the bucket and may be baked into the image;
+Config files in backend/ are synced to the bucket and may be baked into the image;
 they must not reference local paths (e.g. $schema). This script passes the schema
 explicitly. Exits 0 if all pass, 1 on first error. Use in CI or pre-commit.
 """
@@ -17,7 +17,7 @@ from tools.repo.paths import repo_root
 
 def main() -> int:
     root = repo_root()
-    schema_path = root / "schemas" / "bmt_jobs.schema.json"
+    schema_path = root / "backend" / "schemas" / "bmt_jobs.schema.json"
     if not schema_path.is_file():
         print(f"::error::Schema not found: {schema_path}", file=sys.stderr)
         return 1
@@ -31,10 +31,10 @@ def main() -> int:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     validator = jsonschema.Draft202012Validator(schema)
 
-    # Find all bmt_jobs.json under gcp/image (VM/bucket config; no $schema to keep paths portable).
-    jobs_files = sorted(root.glob("gcp/image/**/bmt_jobs.json"))
+    # Find all bmt_jobs.json under backend/ (VM/bucket config; no $schema to keep paths portable).
+    jobs_files = sorted(root.glob("backend/**/bmt_jobs.json"))
     if not jobs_files:
-        print("No bmt_jobs.json files found under gcp/image/", file=sys.stderr)
+        print("No bmt_jobs.json files found under backend/", file=sys.stderr)
         return 0
 
     for path in jobs_files:

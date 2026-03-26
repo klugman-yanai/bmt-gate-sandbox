@@ -9,7 +9,7 @@ import os
 import re
 from pathlib import Path
 
-from gcp.image.config.bmt_config import (
+from backend.config.bmt_config import (
     DEFAULT_RUNTIME_CONTEXT,
     PREEMPT_ON_PR_STALE_QUEUE,
     TRIGGER_METADATA_KEEP_RECENT,
@@ -17,7 +17,7 @@ from gcp.image.config.bmt_config import (
 )
 from whenever import Instant
 
-from gcp.image.config.bmt_config import BmtConfig
+from backend.config.bmt_config import BmtConfig
 
 from ci import config, core, gcs
 from ci.actions import gh_error, write_github_output

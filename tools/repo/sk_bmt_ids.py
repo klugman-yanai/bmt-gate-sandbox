@@ -1,6 +1,6 @@
 """Canonical BMT ids for the SK project (UUIDs).
 
-These match the keys in gcp/image/projects/sk/bmt_jobs.json. Deterministic:
+These match the keys in backend/projects/sk/bmt_jobs.json. Deterministic:
 uuid5(NAMESPACE_DNS, 'bmt-gcloud.sk.<logical_name>').
 Use these constants when a default or test needs to reference an SK BMT.
 """

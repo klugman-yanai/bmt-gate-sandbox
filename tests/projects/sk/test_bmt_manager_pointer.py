@@ -1,4 +1,4 @@
-"""Tests for pointer resolution and snapshot path construction in gcp/image/sk/bmt_manager.py."""
+"""Tests for pointer resolution and snapshot path construction in backend/projects/sk/bmt_manager.py."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import gcp.image.projects.shared.bmt_manager_base as base
-import gcp.image.projects.sk.bmt_manager as mgr
+import backend.projects.shared.bmt_manager_base as base
+import backend.projects.sk.bmt_manager as mgr
 
 
 def _make_mock_blob(exists: bool, text: str | None = None) -> MagicMock:
@@ -100,13 +100,13 @@ def test_dataset_local_path_used_when_set(tmp_path, monkeypatch):
         Path(dest).write_text("{}", encoding="utf-8")
 
     with (
-        patch("gcp.image.projects.sk.bmt_manager._gcloud_rsync", side_effect=record_rsync),
-        patch("gcp.image.projects.sk.bmt_manager._gcloud_cp", side_effect=fake_cp),
-        patch("gcp.image.projects.sk.bmt_manager._gcloud_ls_json", return_value=[{"name": "kardome_runner"}]),
-        patch("gcp.image.projects.sk.bmt_manager._gcs_exists", return_value=True),
-        patch("gcp.image.projects.sk.bmt_manager._gcs_object_meta", return_value={"generation": "1", "size": 0}),
+        patch("backend.projects.sk.bmt_manager._gcloud_rsync", side_effect=record_rsync),
+        patch("backend.projects.sk.bmt_manager._gcloud_cp", side_effect=fake_cp),
+        patch("backend.projects.sk.bmt_manager._gcloud_ls_json", return_value=[{"name": "kardome_runner"}]),
+        patch("backend.projects.sk.bmt_manager._gcs_exists", return_value=True),
+        patch("backend.projects.sk.bmt_manager._gcs_object_meta", return_value={"generation": "1", "size": 0}),
     ):
-        from gcp.image.projects.sk import bmt_manager as sk_mgr
+        from backend.projects.sk import bmt_manager as sk_mgr
 
         from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 

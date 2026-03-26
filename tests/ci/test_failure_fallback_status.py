@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ci import config
-from ci.handoff import HandoffManager
-from ci import github as github_api_module
+from bmt_gate import config
+from bmt_gate.handoff import HandoffManager
+from bmt_gate import github as github_api_module
 
 
 @pytest.fixture

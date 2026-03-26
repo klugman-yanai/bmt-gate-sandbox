@@ -1,7 +1,7 @@
 # Check that a successful BMT VM image build exists for the given ref when image-affecting paths changed.
 # Paths and workflow name must match bmt-vm-image-build.yml (paths: and workflow filename).
 name: Check image up to date
-description: Verifies BMT Image Build ran for this ref when infra/packer or gcp/image changed.
+description: Verifies BMT Image Build ran for this ref when infra/packer or backend/ changed.
 
 inputs:
   head_sha:
@@ -31,8 +31,8 @@ runs:
         DEFAULT_BRANCH: ${{ inputs.default_branch }}
       run: |
         set -euo pipefail
-        # Must match bmt-vm-image-build.yml paths (any change under gcp/image or infra/packer).
-        AFFECTED_PATHS=("infra/packer" "gcp/image")
+        # Must match bmt-vm-image-build.yml paths (any change under backend/ or infra/packer).
+        AFFECTED_PATHS=("infra/packer" "backend")
         WORKFLOW_FILE="bmt-vm-image-build.yml"
 
         git fetch origin "${DEFAULT_BRANCH}" --depth=1 2>/dev/null || true
@@ -56,6 +56,6 @@ runs:
           exit 0
         fi
 
-        echo "::error::Image-affecting paths changed (infra/packer or gcp/image), but no successful BMT Image Build run found for this ref (branch=${HEAD_BRANCH}, sha=${HEAD_SHA}). Run the BMT Image Build workflow for this branch/commit and re-run BMT."
+        echo "::error::Image-affecting paths changed (infra/packer or backend/), but no successful BMT Image Build run found for this ref (branch=${HEAD_BRANCH}, sha=${HEAD_SHA}). Run the BMT Image Build workflow for this branch/commit and re-run BMT."
         echo "passed=false" >> "$GITHUB_OUTPUT"
         exit 1

@@ -1,10 +1,10 @@
-"""BMT config: thin re-export from gcp.image.config.bmt_config. Load env into GITHUB_ENV."""
+"""BMT config: thin re-export from backend.config.bmt_config. Load env into GITHUB_ENV."""
 
 from __future__ import annotations
 
 import os
 
-from gcp.image.config.bmt_config import (
+from backend.config.bmt_config import (
     BmtConfig,
     BmtContext,
     get_config as _get_config_lib,

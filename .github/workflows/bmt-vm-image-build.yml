@@ -38,14 +38,14 @@ on:
         default: "e2-standard-4"
         type: string
   push:
-    # Rebuild VM image when Packer or any gcp/image code changes so the image stays up to date.
+    # Rebuild VM image when Packer or any backend/ code changes so the image stays up to date.
     branches:
       - main
       - ci/check-bmt-gate
       - dev
     paths:
       - 'infra/packer/**'
-      - 'gcp/image/**'
+      - 'backend/**'
 
 permissions:
   contents: read
@@ -84,8 +84,8 @@ jobs:
       - name: Sync code to GCS bucket
         run: |
           set -euo pipefail
-          echo "Syncing gcp/image/ -> gs://${{ vars.GCS_BUCKET }}/code/"
-          gcloud storage rsync gcp/image "gs://${{ vars.GCS_BUCKET }}/code" \
+          echo "Syncing backend/ -> gs://${{ vars.GCS_BUCKET }}/code/"
+          gcloud storage rsync backend "gs://${{ vars.GCS_BUCKET }}/code" \
             --recursive \
             --delete-unmatched-destination-objects \
             --exclude='(^|/)__pycache__(/|$)' \

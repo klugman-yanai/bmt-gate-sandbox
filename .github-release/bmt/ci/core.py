@@ -16,7 +16,7 @@ class GcloudError(RuntimeError):
     """Raised when a GCP operation fails in a non-recoverable way."""
 
 
-DEFAULT_CONFIG_ROOT = "gcp/image"
+DEFAULT_CONFIG_ROOT = "backend"
 DEFAULT_ENV_CONTRACT_PATH = "tools/repo/vars_contract.py"
 
 _RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")

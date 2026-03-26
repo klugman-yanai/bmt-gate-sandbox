@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import gcp.image.root_orchestrator as orchestrator
+import backend.root_orchestrator as orchestrator
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 

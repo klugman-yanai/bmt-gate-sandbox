@@ -100,7 +100,7 @@ permissions:
 
 jobs:
   # Pipeline: check-image-up-to-date → setup → (upload-runners ∥ handshake) → handoff (fallback on setup/handshake failure).
-  # Ensure VM image was built when image-affecting paths (infra/packer, gcp/image) changed.
+  # Ensure VM image was built when image-affecting paths (infra/packer, backend/) changed.
   check-image-up-to-date:
     name: Check image up to date
     runs-on: ubuntu-22.04

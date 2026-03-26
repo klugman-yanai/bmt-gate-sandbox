@@ -11,16 +11,16 @@ repos:
         language: system
         types: [python]
       - id: verify-gcp-bucket-sync
-        name: gcp/ bucket sync check
+        name: backend/ bucket sync check
         entry: tools/scripts/hooks/pre-commit-sync-gcp.sh
         language: script
-        files: ^gcp/
+        files: ^(backend/|benchmarks/)
         pass_filenames: false
       - id: image-build-warning
         name: image-build path warning
         entry: tools/scripts/hooks/pre-commit-image-build-warning.sh
         language: script
-        files: ^(infra/packer/|gcp/image/)
+        files: ^(infra/packer/|backend/)
         pass_filenames: false
       - id: pytest-fast
         name: pytest fast gate

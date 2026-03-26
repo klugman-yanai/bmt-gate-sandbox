@@ -8,11 +8,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.repo.paths import GITHUB_BMT_ROOT, IMAGE_SCRIPTS, INFRA_SCRIPTS, repo_root
+from tools.repo.paths import CI_RESOURCES, IMAGE_SCRIPTS, INFRA_SCRIPTS, repo_root
 
 
 def _vm_path(rel: str) -> Path:
-    """Scripts and deps live under gcp/image/scripts/ (single source of truth)."""
+    """Scripts and deps live under backend/scripts/ (single source of truth)."""
     return repo_root() / IMAGE_SCRIPTS / rel
 
 
@@ -23,7 +23,7 @@ def _bootstrap_path(rel: str) -> Path:
 
 def _metadata_entrypoint_path() -> Path:
     """Packaged entrypoint used by sync-vm-metadata (ci.resources)."""
-    return repo_root() / GITHUB_BMT_ROOT / "ci" / "resources" / "startup_entrypoint.sh"
+    return repo_root() / CI_RESOURCES / "startup_entrypoint.sh"
 
 
 def _packer_template_path() -> Path:
@@ -41,7 +41,7 @@ def _write_executable(path: Path, content: str) -> None:
 
 
 def test_bootstrap_scripts_parse_with_bash_n() -> None:
-    # Only shell scripts under gcp/image/scripts and metadata entrypoint; Python scripts are not bash-checked.
+    # Only shell scripts under backend/scripts and metadata entrypoint; Python scripts are not bash-checked.
     scripts = (
         _bootstrap_path("startup_entrypoint.sh"),
         _metadata_entrypoint_path(),
@@ -161,11 +161,11 @@ def test_install_deps_fails_when_import_check_fails(tmp_path: Path) -> None:
 
 
 def test_packer_and_install_deps_use_same_vm_deps_source() -> None:
-    """Packer template uses gcp/image/scripts/vm_deps.txt; install_deps uses pyproject [vm]."""
+    """Packer template uses backend/scripts/vm_deps.txt; install_deps uses pyproject [vm]."""
     packer_content = _packer_template_path().read_text(encoding="utf-8")
     assert "vm_deps.txt" in packer_content, "Packer should reference vm_deps.txt"
     deps_file = _vm_path("vm_deps.txt")
-    assert deps_file.exists(), "Single source of truth vm_deps.txt must exist under gcp/image/scripts/"
+    assert deps_file.exists(), "Single source of truth vm_deps.txt must exist under backend/scripts/"
     lines = [
         s.strip()
         for s in deps_file.read_text(encoding="utf-8").splitlines()
@@ -178,7 +178,7 @@ def test_run_watcher_handles_home_unset(tmp_path: Path) -> None:
     work_dir = tmp_path / "repo"
     (work_dir / "scripts").mkdir(parents=True, exist_ok=True)
     shutil.copy2(_bootstrap_path("run_watcher.py"), work_dir / "scripts" / "run_watcher.py")
-    shutil.copy2(repo_root() / "gcp" / "image" / "path_utils.py", work_dir / "path_utils.py")
+    shutil.copy2(repo_root() / "backend" / "path_utils.py", work_dir / "path_utils.py")
     (work_dir / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
     venv_python = work_dir / ".venv" / "bin" / "python"
@@ -210,7 +210,7 @@ def test_run_watcher_fails_fast_when_prebaked_python_missing(tmp_path: Path) -> 
     work_dir = tmp_path / "repo"
     (work_dir / "scripts").mkdir(parents=True, exist_ok=True)
     shutil.copy2(_bootstrap_path("run_watcher.py"), work_dir / "scripts" / "run_watcher.py")
-    shutil.copy2(repo_root() / "gcp" / "image" / "path_utils.py", work_dir / "path_utils.py")
+    shutil.copy2(repo_root() / "backend" / "path_utils.py", work_dir / "path_utils.py")
     (work_dir / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
     # No .venv/bin/python
 
@@ -232,7 +232,7 @@ def test_run_watcher_fails_fast_when_prebaked_imports_missing(tmp_path: Path) ->
     work_dir = tmp_path / "repo"
     (work_dir / "scripts").mkdir(parents=True, exist_ok=True)
     shutil.copy2(_bootstrap_path("run_watcher.py"), work_dir / "scripts" / "run_watcher.py")
-    shutil.copy2(repo_root() / "gcp" / "image" / "path_utils.py", work_dir / "path_utils.py")
+    shutil.copy2(repo_root() / "backend" / "path_utils.py", work_dir / "path_utils.py")
     (work_dir / "vm_watcher.py").write_text("print('ok')\n", encoding="utf-8")
 
     venv_python = work_dir / ".venv" / "bin" / "python"
@@ -275,7 +275,7 @@ def test_startup_entrypoint_uses_baked_runtime_only() -> None:
     content = _metadata_entrypoint_path().read_text(encoding="utf-8")
     assert "gcloud storage rsync" not in content
     assert "run_watcher.py" in content
-    # Bootstrap entrypoint in gcp/image/scripts/ may do eager code sync; ensure it runs the watcher.
+    # Bootstrap entrypoint in backend/scripts/ may do eager code sync; ensure it runs the watcher.
     bootstrap_content = _bootstrap_path("startup_entrypoint.sh").read_text(encoding="utf-8")
     assert "run_watcher.py" in bootstrap_content
 

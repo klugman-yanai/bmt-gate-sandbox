@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.config.constants import STATUS_CONTEXT
+from backend.config.constants import STATUS_CONTEXT
 from tools.repo import gh_repo_vars as repo_vars  # type: ignore[import-not-found]
 from tools.shared.env_contract import default_contract_path
 

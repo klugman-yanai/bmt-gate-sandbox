@@ -9,7 +9,7 @@ from importlib import resources as importlib_resources
 from pathlib import Path
 from typing import Any
 
-from gcp.image.config.bmt_config import (
+from backend.config.bmt_config import (
     VM_RECOVERY_START_DELAY_SEC,
     VM_STABILIZATION_SEC,
     VM_START_RECOVERY_ATTEMPTS,

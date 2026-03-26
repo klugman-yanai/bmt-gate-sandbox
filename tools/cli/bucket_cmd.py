@@ -16,7 +16,7 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.command()
 def deploy() -> None:
-    """Sync gcp/image to bucket and verify code + runtime seed."""
+    """Sync backend/ to bucket and verify code + runtime seed."""
     from tools.remote.bucket_sync_gcp import BucketSyncGcp
     from tools.remote.bucket_verify_gcp_sync import BucketVerifyGcpSync
     from tools.remote.bucket_verify_runtime_seed_sync import BucketVerifyRuntimeSeedSync

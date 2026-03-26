@@ -12,30 +12,29 @@ from pathlib import Path
 
 
 def repo_root() -> Path:
-    """Resolve repo root by walking up to a directory containing pyproject.toml, gcp/, and infra/."""
+    """Resolve repo root by walking up to a directory containing pyproject.toml, backend/, and infra/."""
     here = Path(__file__).resolve()
     for parent in here.parents:
-        if (parent / "pyproject.toml").is_file() and (parent / "gcp").is_dir() and (parent / "infra").is_dir():
+        if (parent / "pyproject.toml").is_file() and (parent / "backend").is_dir() and (parent / "infra").is_dir():
             return parent
     raise RuntimeError(f"Unable to resolve repo root from {here}")
 
 
-# Default roots for VM mirror and runtime seed (relative to repo root).
-DEFAULT_CONFIG_ROOT = Path("gcp/image")
-DEFAULT_RUNTIME_ROOT = Path("gcp/remote")
+# Default roots (relative to repo root).
+DEFAULT_CONFIG_ROOT = Path("backend")
+DEFAULT_STAGE_ROOT = Path("benchmarks")
+# Legacy alias; prefer DEFAULT_STAGE_ROOT in new code.
+DEFAULT_RUNTIME_ROOT = DEFAULT_STAGE_ROOT
 
 # Other canonical roots (relative to repo root).
-GITHUB_BMT_ROOT = Path(".github/bmt")
+CI_ROOT = Path("ci")
+CI_RESOURCES = CI_ROOT / "src" / "bmt_gate" / "resources"
 INFRA_TERRAFORM = Path("infra/terraform")
 INFRA_SCRIPTS = Path("infra/scripts")
-IMAGE_SCRIPTS = Path("gcp/image/scripts")
+IMAGE_SCRIPTS = Path("backend/scripts")
 TOOLS_SCRIPTS = Path("tools/scripts")
 
 # BMT local layout (runner libs + shared native deps). Relative to repo root.
-# Override with BMT_ROOT env (e.g. "gcp/local" or absolute path).
-DEFAULT_BMT_ROOT = Path("gcp/local")
+DEFAULT_BMT_ROOT = Path("local")
 BMT_DEPS_SUBDIR = Path("dependencies")
 BMT_PROJECT_LIB_SUBDIR = Path("lib")
-
-# Terraform is source of truth for repo vars; no legacy config paths.
-# Use shared env_contract.default_contract_path() for the contract.

@@ -1,7 +1,7 @@
 """Tests for .github/bmt/ci/core.py — pure functions only, no I/O."""
 
 import pytest
-from ci import core as models
+from bmt_gate import core as models
 
 # ── sanitize_run_id ───────────────────────────────────────────────────────────
 

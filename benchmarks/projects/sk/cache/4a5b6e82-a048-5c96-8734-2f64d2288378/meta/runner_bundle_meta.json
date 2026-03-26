@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-03-12T12:48:21Z",
+  "digest": "1e4aa4ac4f5082c1f3eec6648b8548fa391cc3564ca07f2583e2503470718e20",
+  "runner_uri": "gs://dummy-bucket/runtime/sk/runners/sk_gcc_release/kardome_runner",
+  "runner_bundle_uri": "gs://dummy-bucket/runtime/sk/runners/sk_gcc_release",
+  "deps_prefix": "sk/runners/lib"
+}

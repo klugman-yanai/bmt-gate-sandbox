@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from ci.vm import VmManager
+from bmt_gate.vm import VmManager
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +24,7 @@ def test_select_available_vm_reuses_running_without_stop(tmp_path: Path, monkeyp
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
 
     monkeypatch.setattr(
-        "ci.vm._vm_status",
+        "bmt_gate.vm._vm_status",
         lambda _p, _z, name: "RUNNING" if name == "vm-only" else "unknown",
     )
 
@@ -45,7 +45,7 @@ def test_select_available_vm_prefers_terminated(tmp_path: Path, monkeypatch: pyt
     def _status(_p: str, _z: str, name: str) -> str:
         return "TERMINATED" if name == "bmt-gate-blue" else "RUNNING"
 
-    monkeypatch.setattr("ci.vm._vm_status", _status)
+    monkeypatch.setattr("bmt_gate.vm._vm_status", _status)
 
     VmManager.from_env().select()
 
@@ -63,7 +63,7 @@ def test_select_available_vm_run_id_assigns_among_running(tmp_path: Path, monkey
     monkeypatch.setenv("GITHUB_RUN_ID", "1")
 
     monkeypatch.setattr(
-        "ci.vm._vm_status",
+        "bmt_gate.vm._vm_status",
         lambda _p, _z, _name: "RUNNING",
     )
 

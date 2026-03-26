@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Scaffold a new BMT project under gcp/image/<project>/ (generic template).
+"""Scaffold a new BMT project under backend/projects/<project>/ (generic template).
 
 Creates:
-  gcp/image/projects/<project>/bmt_manager.py
-  gcp/image/projects/<project>/bmt_jobs.json
+  backend/projects/<project>/bmt_manager.py
+  backend/projects/<project>/bmt_jobs.json
 
 The template is shared: all projects use projects/shared/input_template.json (no per-project input_template.json).
 
@@ -40,8 +40,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from gcp.image.config.constants import EXECUTABLE_MODE
-from gcp.image.projects.shared.bmt_manager_base import (
+from backend.config.constants import EXECUTABLE_MODE
+from backend.projects.shared.bmt_manager_base import (
     BmtManagerBase,
     _gate_result,
     _gcloud_cp,
@@ -51,7 +51,7 @@ from gcp.image.projects.shared.bmt_manager_base import (
     _write_runner_config,
     parse_args as _base_parse_args,
 )
-from gcp.image.utils import _bucket_uri, _runtime_bucket_root
+from backend.utils import _bucket_uri, _runtime_bucket_root
 
 
 def _score_regex(parsing: dict[str, Any]) -> re.Pattern[str] | None:
@@ -228,7 +228,7 @@ def _validate_project_name(name: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Scaffold a new BMT project under gcp/image/<project>/ (generic template)."
+        description="Scaffold a new BMT project under backend/projects/<project>/ (generic template)."
     )
     parser.add_argument("project", help="Project name (e.g. skyworth, myproject)")
     parser.add_argument("--dry-run", action="store_true", help="Print paths only, do not write")
@@ -263,7 +263,7 @@ def main() -> int:
         print(f"Wrote {path.relative_to(root)}")
 
     print("\nNext steps:")
-    print(f"  1. Edit gcp/image/projects/{args.project}/bmt_jobs.json (paths, gate, runner URI).")
+    print(f"  1. Edit backend/projects/{args.project}/bmt_jobs.json (paths, gate, runner URI).")
     print("  2. Run: just sync-gcp  (with GCS_BUCKET set) to push to the bucket.")
     print(f"  3. In the app repo: add CMake preset and runner upload for project={args.project}.")
     print("  4. See docs/adding-a-new-project.md for the full checklist.")

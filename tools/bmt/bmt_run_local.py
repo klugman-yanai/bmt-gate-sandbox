@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 """Local SK batch runner (config-first).
 
-Reads BMT behavior from gcp/image/projects/sk/bmt_jobs.json and runs
+Reads BMT behavior from backend/projects/sk/bmt_jobs.json and runs
 kardome_runner once per wav by creating a transient JSON from the configured
 template. CLI flags act as explicit overrides.
 """
@@ -64,7 +64,7 @@ class ResolvedConfig:
 
 @dataclass
 class RunOptions:
-    jobs_config: Path | str = "gcp/image/projects/sk/bmt_jobs.json"
+    jobs_config: Path | str = "backend/projects/sk/bmt_jobs.json"
     bmt_id: str = SK_BMT_FALSE_REJECT_NAMUH
     project_id: str = "sk"
     run_context: str = "manual"
@@ -623,7 +623,7 @@ class BmtRunLocal:
     def run(
         self,
         *,
-        jobs_config: Path | str = "gcp/image/projects/sk/bmt_jobs.json",
+        jobs_config: Path | str = "backend/projects/sk/bmt_jobs.json",
         bmt_id: str = SK_BMT_FALSE_REJECT_NAMUH,
         project_id: str = "sk",
         run_context: str = "manual",
@@ -683,7 +683,7 @@ if __name__ == "__main__":
     num_src = e("BMT_NUM_SOURCE_TEST")
     code_root: str | Path = (e("BMT_CODE_ROOT") or "").strip() or DEFAULT_CONFIG_ROOT
     runtime_root: str | Path = (e("BMT_RUNTIME_ROOT") or "").strip() or DEFAULT_RUNTIME_ROOT
-    jobs_config_val: str | Path = (e("BMT_JOBS_CONFIG") or "").strip() or "gcp/image/projects/sk/bmt_jobs.json"
+    jobs_config_val: str | Path = (e("BMT_JOBS_CONFIG") or "").strip() or "backend/projects/sk/bmt_jobs.json"
     raise SystemExit(
         BmtRunLocal().run(
             jobs_config=jobs_config_val,

@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
-from ci import gcs as gcs_module
-from ci.runner import RunnerManager
-from ci.runner import _sha256_file
+from bmt_gate import gcs as gcs_module
+from bmt_gate.runner import RunnerManager
+from bmt_gate.runner import _sha256_file
 
 
 def _write(path: Path, content: bytes) -> None:

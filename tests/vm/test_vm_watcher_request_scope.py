@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import gcp.image.vm_watcher as watcher  # type: ignore[import-not-found]
+import backend.vm_watcher as watcher  # type: ignore[import-not-found]
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 

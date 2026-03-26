@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify local gcp/image matches the manifest uploaded to code/_meta/remote_manifest.json."""
+"""Verify local backend/ matches the manifest uploaded to code/_meta/remote_manifest.json."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
 
 
 class BucketVerifyGcpSync:
-    """Verify local gcp/image matches the manifest uploaded to code/_meta/remote_manifest.json."""
+    """Verify local backend/ matches the manifest uploaded to code/_meta/remote_manifest.json."""
 
     def run(
         self,
@@ -44,7 +44,7 @@ class BucketVerifyGcpSync:
             return 1
 
         if local_d != remote_digest or local_count != remote_count:
-            print(f"::error::gcp/image is not in sync with {manifest_uri}", file=sys.stderr)
+            print(f"::error::backend/ is not in sync with {manifest_uri}", file=sys.stderr)
             print(
                 f"Local digest={local_d} count={local_count}; manifest digest={remote_digest} count={remote_count}",
                 file=sys.stderr,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate canonical gcp/ layout as a 1:1 bucket mirror."""
+"""Validate canonical backend/ and benchmarks/ layout."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from tools.shared.bucket_sync import matches
-from tools.shared.layout_patterns import ALLOWED_TOP_LEVEL, FORBIDDEN_CODE_PATTERNS, FORBIDDEN_RUNTIME_PATTERNS
+from tools.shared.layout_patterns import FORBIDDEN_CODE_PATTERNS, FORBIDDEN_RUNTIME_PATTERNS
 
 # Root-level code files required in every layout (no project-specific paths).
 SHARED_REQUIRED = (
@@ -24,25 +24,21 @@ SHARED_REQUIRED = (
 )
 
 
-def _discover_project_dirs(tracked_under_gcp: set[str]) -> set[str]:
-    """Return project dirs (paths under image/) that have bmt_manager.py tracked."""
-    code_prefix = "image/"
+def _discover_project_dirs(tracked_under_backend: set[str]) -> set[str]:
+    """Return project dirs (paths under backend/) that have bmt_manager.py tracked."""
     project_dirs: set[str] = set()
-    for rel in tracked_under_gcp:
-        if not rel.startswith(code_prefix):
-            continue
-        rel_in_code = rel[len(code_prefix) :].lstrip("/")
-        if rel_in_code.endswith("bmt_manager.py"):
-            prefix = rel_in_code[: -len("bmt_manager.py")].rstrip("/")
+    for rel in tracked_under_backend:
+        if rel.endswith("bmt_manager.py"):
+            prefix = rel[: -len("bmt_manager.py")].rstrip("/")
             if prefix:
                 project_dirs.add(prefix)
     return project_dirs
 
 
-def _required_code_files(tracked_under_gcp: set[str]) -> tuple[str, ...]:
+def _required_code_files(tracked_under_backend: set[str]) -> tuple[str, ...]:
     """Build required code file list: SHARED + per-project bmt_manager.py and bmt_jobs.json."""
     required: list[str] = list(SHARED_REQUIRED)
-    for project_dir in sorted(_discover_project_dirs(tracked_under_gcp)):
+    for project_dir in sorted(_discover_project_dirs(tracked_under_backend)):
         required.append(f"{project_dir}/bmt_manager.py")
         required.append(f"{project_dir}/bmt_jobs.json")
     return tuple(required)
@@ -53,103 +49,93 @@ REQUIRED_CODE_FILES = _required_code_files
 
 
 class GcpLayoutPolicy:
-    """Validate gcp/ layout as 1:1 bucket mirror."""
+    """Validate backend/ and benchmarks/ layout."""
 
     def run(self) -> int:
-        root = Path("gcp")
-        code_root = root / "image"
-        runtime_seed_root = root / "remote"
+        code_root = Path("backend")
+        runtime_seed_root = Path("benchmarks")
 
         missing = False
 
-        if not root.is_dir():
-            print("::error::Missing gcp/ directory", file=sys.stderr)
+        if not code_root.is_dir():
+            print("::error::Missing backend/ directory", file=sys.stderr)
             return 1
 
-        for path in (code_root, runtime_seed_root):
-            if not path.exists():
-                if path == runtime_seed_root:
-                    pass  # remote/ optional (may be empty or created later)
-                else:
-                    print(f"::error::Missing canonical path: {path}", file=sys.stderr)
-                    missing = True
+        if not runtime_seed_root.exists():
+            pass  # benchmarks/ optional (may be empty or created later)
 
         # Required = shared + per-project (discovered from tracked */bmt_manager.py)
         proc = subprocess.run(
-            ["git", "ls-files", "--", "gcp/"],
+            ["git", "ls-files", "--", "backend/"],
             capture_output=True,
             text=True,
             check=False,
             cwd=Path.cwd(),
         )
-        tracked_under_gcp = set()
+        tracked_under_backend = set()
         if proc.returncode == 0 and proc.stdout:
             for raw in proc.stdout.splitlines():
                 line = raw.strip()
-                if not line or not line.startswith("gcp/"):
+                if not line or not line.startswith("backend/"):
                     continue
-                tracked_under_gcp.add(line[4:])  # drop "gcp/" prefix
+                tracked_under_backend.add(line[len("backend/") :])  # drop "backend/" prefix
 
-        required_code_files = _required_code_files(tracked_under_gcp)
+        required_code_files = _required_code_files(tracked_under_backend)
         for rel in required_code_files:
             p = code_root / rel
             if not p.exists():
                 print(f"::error::Missing required code mirror object: {p}", file=sys.stderr)
                 missing = True
 
-        # Forbidden paths under image (code mirror)
-        code_prefix = "image/"
+        # Forbidden paths under backend/ (code mirror)
         forbidden_hits: list[str] = []
-        for rel in sorted(tracked_under_gcp):
-            if not rel.startswith(code_prefix):
-                continue
-            rel_in_code = rel[len(code_prefix) :]
-            if matches(FORBIDDEN_CODE_PATTERNS, rel_in_code):
-                forbidden_hits.append(rel_in_code)
+        for rel in sorted(tracked_under_backend):
+            if matches(FORBIDDEN_CODE_PATTERNS, rel):
+                forbidden_hits.append(rel)
 
         if forbidden_hits:
-            print("::error::Forbidden runtime/generated paths found in gcp/image:", file=sys.stderr)
+            print("::error::Forbidden runtime/generated paths found in backend/:", file=sys.stderr)
             for rel in forbidden_hits[:30]:
                 print(f"  - {rel}", file=sys.stderr)
             if len(forbidden_hits) > 30:
                 print(f"  ... and {len(forbidden_hits) - 30} more", file=sys.stderr)
             missing = True
 
-        runtime_prefix = "remote/"
+        # Check benchmarks/ for forbidden patterns
+        proc_benchmarks = subprocess.run(
+            ["git", "ls-files", "--", "benchmarks/"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=Path.cwd(),
+        )
+        tracked_under_benchmarks = set()
+        if proc_benchmarks.returncode == 0 and proc_benchmarks.stdout:
+            for raw in proc_benchmarks.stdout.splitlines():
+                line = raw.strip()
+                if not line or not line.startswith("benchmarks/"):
+                    continue
+                tracked_under_benchmarks.add(line[len("benchmarks/") :])
+
         forbidden_runtime_hits = []
-        for rel in sorted(tracked_under_gcp):
-            if not rel.startswith(runtime_prefix):
-                continue
-            rel_in_runtime = rel[len(runtime_prefix) :]
-            if matches(FORBIDDEN_RUNTIME_PATTERNS, rel_in_runtime):
-                forbidden_runtime_hits.append(rel_in_runtime)
+        for rel in sorted(tracked_under_benchmarks):
+            if matches(FORBIDDEN_RUNTIME_PATTERNS, rel):
+                forbidden_runtime_hits.append(rel)
 
         if forbidden_runtime_hits:
-            print("::error::Forbidden generated/runtime paths found in gcp/remote:", file=sys.stderr)
+            print("::error::Forbidden generated/runtime paths found in benchmarks/:", file=sys.stderr)
             for rel in forbidden_runtime_hits[:30]:
                 print(f"  - {rel}", file=sys.stderr)
             if len(forbidden_runtime_hits) > 30:
                 print(f"  ... and {len(forbidden_runtime_hits) - 30} more", file=sys.stderr)
             missing = True
 
-        unexpected_top_level = sorted(
-            entry.name
-            for entry in root.iterdir()
-            if entry.name not in ALLOWED_TOP_LEVEL and not entry.name.startswith(".") and entry.name != "__pycache__"
-        )
-        if unexpected_top_level:
-            print("::error::gcp/ must have image/ (code mirror) and remote/ only.", file=sys.stderr)
-            for name in unexpected_top_level:
-                print(f"  - unexpected: gcp/{name}", file=sys.stderr)
-            missing = True
-
         if missing:
             return 1
 
-        print("GCP layout policy check passed")
-        print(f"Code mirror root (image): {code_root}")
+        print("Layout policy check passed")
+        print(f"Code root: {code_root}")
         print(f"Runtime seed root: {runtime_seed_root}")
-        print(f"Top-level entries: {', '.join(sorted(ALLOWED_TOP_LEVEL))}")
         return 0
 
 

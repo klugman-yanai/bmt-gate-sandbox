@@ -3,11 +3,11 @@
 import time
 
 import pytest
-import ci
-from ci.core import require_env as _required_env
-from ci.vm import VmManager
-from ci.vm import _is_truthy
-from ci import core as core_module
+import bmt_gate
+from bmt_gate.core import require_env as _required_env
+from bmt_gate.vm import VmManager
+from bmt_gate.vm import _is_truthy
+from bmt_gate import core as core_module
 
 
 @pytest.fixture(autouse=True)
@@ -90,8 +90,8 @@ def test_start_vm_waits_for_running_and_advanced_start(
     # monotonic: main-loop polls, then stabilization enters and immediately expires
     monotonic_values = iter([0.0, 1.0, 2.0, 3.0, 100.0, 200.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr("ci.vm.vm_start", _fake_start)
-    monkeypatch.setattr("ci.vm.vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr("bmt_gate.vm.vm_start", _fake_start)
+    monkeypatch.setattr("bmt_gate.vm.vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     VmManager.from_env().start()
@@ -102,11 +102,11 @@ def test_start_vm_times_out_when_not_running(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("GCP_PROJECT", "proj")
     monkeypatch.setenv("BMT_LIVE_VM", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setattr("ci.vm.VM_START_TIMEOUT_SEC", 1)
+    monkeypatch.setattr("bmt_gate.vm.VM_START_TIMEOUT_SEC", 1)
 
-    monkeypatch.setattr("ci.vm.vm_start", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("bmt_gate.vm.vm_start", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        "ci.vm.vm_describe",
+        "bmt_gate.vm.vm_describe",
         lambda *_args, **_kwargs: {"status": "STAGING", "lastStartTimestamp": "old-ts"},
     )
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
@@ -137,8 +137,8 @@ def test_start_vm_continues_when_already_running_error(monkeypatch: pytest.Monke
     )
     monotonic_values = iter([0.0, 1.0, 100.0, 200.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr("ci.vm.vm_start", _raise_already_running)
-    monkeypatch.setattr("ci.vm.vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr("bmt_gate.vm.vm_start", _raise_already_running)
+    monkeypatch.setattr("bmt_gate.vm.vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     VmManager.from_env().start()
@@ -162,8 +162,8 @@ def test_start_vm_allows_manual_with_flag(monkeypatch: pytest.MonkeyPatch) -> No
     )
     monotonic_values = iter([0.0, 1.0, 100.0, 200.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(ci.vm, "vm_start", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ci.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(bmt_gate.vm, "vm_start", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bmt_gate.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     VmManager.from_env().start()
@@ -191,8 +191,8 @@ def test_start_vm_recovers_when_status_drops_during_stabilization(monkeypatch: p
     def _fake_start(*_args, **_kwargs) -> None:
         started.append(True)
 
-    monkeypatch.setattr(ci.vm, "vm_start", _fake_start)
-    monkeypatch.setattr(ci.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(bmt_gate.vm, "vm_start", _fake_start)
+    monkeypatch.setattr(bmt_gate.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 100.0, 101.0])
@@ -208,7 +208,7 @@ def test_start_vm_fails_when_recovery_attempts_are_exhausted(monkeypatch: pytest
     monkeypatch.setenv("BMT_LIVE_VM", "vm")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("BMT_VM_START_TIMEOUT_SEC", "10")
-    monkeypatch.setattr(ci.vm, "VM_START_RECOVERY_ATTEMPTS", 1)
+    monkeypatch.setattr(bmt_gate.vm, "VM_START_RECOVERY_ATTEMPTS", 1)
 
     describe_calls = iter(
         [
@@ -219,8 +219,8 @@ def test_start_vm_fails_when_recovery_attempts_are_exhausted(monkeypatch: pytest
             {"status": "STOPPING", "lastStartTimestamp": "new-ts-2"},
         ]
     )
-    monkeypatch.setattr(ci.vm, "vm_start", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ci.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(bmt_gate.vm, "vm_start", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bmt_gate.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
@@ -257,8 +257,8 @@ def test_start_vm_treats_fingerprint_race_as_idempotent_recovery_error(monkeypat
                 "'The resource fingerprint changed during the start operation.'"
             )
 
-    monkeypatch.setattr(ci.vm, "vm_start", _fake_start)
-    monkeypatch.setattr(ci.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(bmt_gate.vm, "vm_start", _fake_start)
+    monkeypatch.setattr(bmt_gate.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 100.0, 101.0])
@@ -296,8 +296,8 @@ def test_start_vm_recovers_from_terminal_state_after_fingerprint_race(monkeypatc
                 "'The resource fingerprint changed during the start operation.'"
             )
 
-    monkeypatch.setattr(ci.vm, "vm_start", _fake_start)
-    monkeypatch.setattr(ci.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(bmt_gate.vm, "vm_start", _fake_start)
+    monkeypatch.setattr(bmt_gate.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 100.0, 101.0])
@@ -335,8 +335,8 @@ def test_start_vm_recovers_after_initial_idempotent_start_when_not_running(
                 "Failed to start VM vm: The resource is currently stopping. Please try again."
             )
 
-    monkeypatch.setattr(ci.vm, "vm_start", _fake_start)
-    monkeypatch.setattr(ci.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
+    monkeypatch.setattr(bmt_gate.vm, "vm_start", _fake_start)
+    monkeypatch.setattr(bmt_gate.vm, "vm_describe", lambda *_args, **_kwargs: next(describe_calls))
     monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
 
     monotonic_values = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 100.0])

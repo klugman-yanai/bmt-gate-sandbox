@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gcp.image.projects.shared import bmt_manager_base as base
+from backend.projects.shared import bmt_manager_base as base
 
 
 def test_normalize_comparison_gte() -> None:

@@ -39,7 +39,7 @@ class HandoffManager:
         return cls(config.get_config(), config.get_context())
 
     def write_context(self) -> None:
-        from gcp.image.config.bmt_config import context_from_env, get_context_path, write_context_to_file
+        from backend.config.bmt_config import context_from_env, get_context_path, write_context_to_file
 
         ctx = context_from_env(runtime=os.environ)
         path = get_context_path(runtime=os.environ)

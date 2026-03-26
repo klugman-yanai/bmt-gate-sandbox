@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Pre-flight: diff bucket code/ listing vs gcp/image and report.
+"""Pre-flight: diff bucket code/ listing vs backend and report.
 
 Reads a saved preflight report (from preflight_bucket_vs_remote.sh) or runs
-gcloud to list gs://BUCKET/code/, then lists gcp/image files and reports:
-- In bucket but not in gcp/image (would be dropped when code leaves bucket)
-- In gcp/image but not in bucket (expected if never synced or excluded)
+gcloud to list gs://BUCKET/code/, then lists backend files and reports:
+- In bucket but not in backend (would be dropped when code leaves bucket)
+- In backend but not in bucket (expected if never synced or excluded)
 
 Usage:
   GCS_BUCKET=<bucket> uv run python tools/scripts/preflight_bucket_vs_remote.py
   uv run python tools/scripts/preflight_bucket_vs_remote.py --report .local/preflight-bucket-YYYYMMDD-HHMMSS.txt
-  uv run python tools/scripts/preflight_bucket_vs_remote.py --local-only   # only list gcp/image, no gcloud
+  uv run python tools/scripts/preflight_bucket_vs_remote.py --local-only   # only list backend, no gcloud
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from tools.shared.layout_patterns import DEFAULT_CODE_EXCLUDES
 
 
 def _gcp_image_files(root: Path) -> set[str]:
-    """Return relative paths under gcp/image that are not excluded by code sync."""
+    """Return relative paths under backend that are not excluded by code sync."""
     image_root = root / DEFAULT_CONFIG_ROOT
     if not image_root.is_dir():
         return set()
@@ -82,13 +82,13 @@ def _fetch_bucket_code_listing(bucket: str) -> set[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Pre-flight: diff bucket code/ vs gcp/image")
+    parser = argparse.ArgumentParser(description="Pre-flight: diff bucket code/ vs backend")
     parser.add_argument("--report", type=Path, help="Path to saved preflight report (.txt)")
-    parser.add_argument("--local-only", action="store_true", help="Only list gcp/image, no gcloud")
+    parser.add_argument("--local-only", action="store_true", help="Only list backend, no gcloud")
     args = parser.parse_args()
     root = repo_root()
     image_paths = _gcp_image_files(root)
-    print(f"gcp/image files (excludes sync-excluded): {len(image_paths)}")
+    print(f"backend files (excludes sync-excluded): {len(image_paths)}")
     if args.local_only:
         for p in sorted(image_paths):
             print(p)
@@ -111,15 +111,15 @@ def main() -> int:
     in_bucket_not_image = bucket_paths - image_paths
     in_image_not_bucket = image_paths - bucket_paths
     if in_bucket_not_image:
-        print("\nIn bucket code/ but NOT in gcp/image (would be dropped when code leaves bucket):")
+        print("\nIn bucket code/ but NOT in backend (would be dropped when code leaves bucket):")
         for p in sorted(in_bucket_not_image)[:50]:
             print(f"  {p}")
         if len(in_bucket_not_image) > 50:
             print(f"  ... and {len(in_bucket_not_image) - 50} more")
     else:
-        print("\nAll bucket code/ paths have a counterpart in gcp/image.")
+        print("\nAll bucket code/ paths have a counterpart in backend.")
     if in_image_not_bucket:
-        print("\nIn gcp/image but NOT in bucket (ok if never synced or excluded):")
+        print("\nIn backend but NOT in bucket (ok if never synced or excluded):")
         for p in sorted(in_image_not_bucket)[:50]:
             print(f"  {p}")
         if len(in_image_not_bucket) > 50:

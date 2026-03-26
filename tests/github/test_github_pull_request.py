@@ -1,10 +1,10 @@
-"""Tests for gcp/image/lib/github_pull_request.py."""
+"""Tests for backend/github/github_pull_request.py."""
 
 from __future__ import annotations
 
 import urllib.error
 
-from gcp.image.github import github_pull_request  # type: ignore[import-not-found]
+from backend.github import github_pull_request  # type: ignore[import-not-found]
 
 
 class _Resp:

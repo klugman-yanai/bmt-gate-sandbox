@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync local gcp/image mirror into bucket code namespace."""
+"""Sync local backend/ mirror into bucket code namespace."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _upload_manifest(dest_root: str, manifest: dict[str, object]) -> int:
 
 
 class BucketSyncGcp:
-    """Sync local gcp/image mirror into bucket code namespace."""
+    """Sync local backend/ mirror into bucket code namespace."""
 
     def run(
         self,

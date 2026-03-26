@@ -7,7 +7,7 @@ not a literal-backslash pattern (\\\\d+) as was present before the fix.
 import importlib
 
 # bmt_manager (VM path) and bmt_run_local (local path) should share regex behavior.
-bmt_manager = importlib.import_module("gcp.image.projects.sk.bmt_manager")
+bmt_manager = importlib.import_module("backend.projects.sk.bmt_manager")
 batch = importlib.import_module("tools.bmt.bmt_run_local")
 
 _SAMPLE_LINE = "Hi NAMUH counter = 42"

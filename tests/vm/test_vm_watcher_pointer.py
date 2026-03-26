@@ -6,7 +6,7 @@ import importlib
 import json
 from pathlib import Path
 
-import gcp.image.vm_watcher as watcher  # type: ignore[import-not-found]
+import backend.vm_watcher as watcher  # type: ignore[import-not-found]
 from tools.repo.sk_bmt_ids import SK_BMT_FALSE_REJECT_NAMUH
 
 
@@ -133,7 +133,7 @@ def test_cleanup_workflow_artifacts_targets_prefixed_and_base_status(monkeypatch
 
 def test_keep_recent_workflow_files_from_env(monkeypatch):
     # keep_recent is now a constant (TRIGGER_METADATA_KEEP_RECENT) in bmt_config; env no longer overrides.
-    from gcp.image.config import bmt_config
+    from backend.config import bmt_config
 
     reloaded = importlib.reload(watcher)
     assert reloaded._KEEP_RECENT_WORKFLOW_FILES == bmt_config.TRIGGER_METADATA_KEEP_RECENT

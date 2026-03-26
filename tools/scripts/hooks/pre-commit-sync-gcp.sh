@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Pre-commit hook: if gcp/ changed, require that gcp/ is in sync with GCS
+# Pre-commit hook: if backend/ or benchmarks/ changed, require sync with GCS
 # (code + runtime manifests). Block commit until sync is done or SKIP_SYNC_VERIFY=1.
 set -euo pipefail
 if [[ -n "${SKIP_SYNC_VERIFY:-}" ]]; then
   exit 0
 fi
 if [[ -z "${GCS_BUCKET:-}" ]]; then
-  echo "gcp/ changed but GCS_BUCKET is not set; sync cannot be verified."
+  echo "backend/ or benchmarks/ changed but GCS_BUCKET is not set; sync cannot be verified."
   echo "Set GCS_BUCKET and run: just deploy"
   echo "Or set SKIP_SYNC_VERIFY=1 to skip this check (e.g. in CI or when not using this bucket)."
   exit 1
@@ -22,7 +22,7 @@ if uv run python -m tools.remote.bucket_verify_runtime_seed_sync; then
 fi
 
 if [[ "$code_ok" -ne 1 || "$runtime_ok" -ne 1 ]]; then
-  echo "gcp/ is out of sync with bucket; BMT workflow may fail (VM will accept zero legs)."
+  echo "backend/ or benchmarks/ is out of sync with bucket; BMT workflow may fail (VM will accept zero legs)."
   echo "Run: just deploy"
   echo "Or set SKIP_SYNC_VERIFY=1 to skip this check."
   exit 1
