@@ -7,20 +7,24 @@ name = "bmt-gcloud"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "archivefile>=1.0.0",
-    "bmt-gate",
+    "bmt",
+    "PyGithub>=2.0",
+    "google-cloud-storage>=2.16",
+    "google-cloud-artifact-registry>=1.14.0",
     "orjson>=3.10",
     "prek>=0.3.5",
+    "pulumi-gcp>=9.15.0",
     "pydantic>=2.12.5",
+    "pydantic-settings>=2.0.0",
     "requests>=2.31.0",
     "rich>=13.0",
-    "typer[all]>=0.15.0",
+    "typer>=0.15.0",
     "whenever>=0.9.5",
 ]
 
 [tool.uv.sources]
-bmt-gate = { workspace = true }
-# So that member ci/ can depend on bmt-gcloud without listing it (keeps that pyproject portable).
+bmt = { workspace = true }
+# So that member ci can depend on bmt-gcloud without listing it (keeps that pyproject portable).
 bmt-gcloud = { workspace = true }
 
 # Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
@@ -31,44 +35,32 @@ members = ["ci", "backend"]
 [tool.uv]
 package = true
 
-[project.optional-dependencies]
-# Runtime extras: install with pip install -e ".[vm]" or ".[monitor]" when using root env for VM/monitor.
-# For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
-vm = ["PyJWT>=2.0", "cryptography>=41.0"]
-# For live BMT monitor TUI (install with: pip install -e ".[monitor]")
-monitor = ["rich>=13.0", "whenever>=0.9.0"]
-
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# Root package exposes backend + tools. Workspace members: ci (bmt-gate CLI), backend (bmt-vm-runtime).
-# Run a member with: uv run --package bmt-gate … or uv run --package bmt-vm-runtime …
+# Root package exposes backend + tools. Workspace members: ci (bmt CLI), backend (bmt-runtime).
+# Run a member with: uv run --package bmt … or uv run --package bmt-runtime …
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["backend*", "tools*"]
 
-[tool.basedpyright]
-include = ["."]
+# Typecheck: `uv run ty check` (see `[tool.ty]`). IDE: Pylance/Cursor uses [pyrightconfig.json].
+[tool.ty.environment]
+python-version = "3.12"
+extra-paths = [
+	"ci",
+	"benchmarks/projects/sk/plugin_workspaces/default/src",
+]
+
+[tool.ty.src]
 exclude = [
-    "**/.venv",
-    "**/node_modules",
-    "**/__pycache__",
     "data",
     "sk_runtime",
     "local_batch",
     "secrets",
+    # Bucket mirror; layout mirrors image but imports are not a full package tree.
+    "benchmarks",
 ]
-venvPath = "."
-venv = ".venv"
-pythonVersion = "3.12"
-# Root package provides backend, tools; bmt-gate is installed from workspace.
-extraPaths = ["ci/src"]
-# Scripts parse arbitrary JSON (dict[str, Any]); keep Any/unknown reporting off.
-reportExplicitAny = false
-reportAny = false
-reportUnknownMemberType = false
-reportUnknownVariableType = false
-reportUnknownArgumentType = false
 
-# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Install with: uv sync --group dev
+# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Included by default on `uv sync`; omit with `uv sync --no-dev`.
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
@@ -76,9 +68,12 @@ dev = [
     "httpx>=0.28.1",
     "jsonschema>=4.21",
     "prek>=0.3.5",
-    "pyjwt>=2.11.0",
+    "pulumi>=3.226.0",
+    "pulumi-gcp>=9.15.0",
+    "pyjwt>=2.12.1",
     "pytest>=9.0.2",
     "pytest-github-actions-annotate-failures>=0.4.0",
+    "pytest-instafail>=0.5.0",
     "pytest-mock>=3.15.1",
     "pytest-randomly>=4.0.1",
     "pytest-rerunfailures>=16.1",
@@ -86,18 +81,38 @@ dev = [
     "pytest-subprocess>=1.5.3",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.15.0",
+    "ruff>=0.15.6",
+    "ty>=0.0.1",
     "typer>=0.24.1",
+    "vulture>=2.11",
+    "pylint>=3.3.0",
     "whenever>=0.9.5",
 ]
 
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --timeout-method=thread"
+# importlib: isolates test module imports (avoids conftest/package shadowing surprises).
+# disable-socket + allow-unix-socket: no accidental TCP; unix sockets still work (e.g. xdist IPC).
+# --strict: strict_config + strict_markers + strict_xfail (default for @pytest.mark.xfail) + strict_parametrization_ids
+addopts = [
+    "--strict",
+    "-ra",
+    "--durations=25",
+    "--timeout=420",
+    "--timeout-method=thread",
+    "--import-mode=importlib",
+    "--disable-socket",
+    "--allow-unix-socket",
+    "--instafail",
+]
+xfail_strict = true
+filterwarnings = [
+    "error::ResourceWarning",
+]
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
     "integration: subprocess/filesystem orchestration tests with local fakes",
-    "live_smoke: cloud-backed smoke tests (scheduled/manual only; not for default PR fast gate)",
+    "bmt_plugin_load: load published BMT plugins from committed benchmarks (import side effects)",
 ]

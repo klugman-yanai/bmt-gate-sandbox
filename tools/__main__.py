@@ -1,28 +1,73 @@
 """Unified CLI for bmt-gcloud dev tools. Run: uv run python -m tools --help"""
+
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import typer
 
+
+@dataclass
+class _SubcommandRegistration:
+    """Process-wide flag: ``register_subcommands`` attached to the CLI (mutate ``.done``, no ``global``)."""
+
+    done: bool = False
+
+
+_registration = _SubcommandRegistration()
+
 app = typer.Typer(
     name="tools",
-    help="bmt-gcloud dev tools. Run any subcommand with --help for details.",
+    help="bmt-gcloud dev tools. Run any subcommand with [bold]--help[/bold] for details.",
     no_args_is_help=True,
+    rich_markup_mode="rich",
 )
 
 
-def main() -> None:
-    from tools.cli.bucket_cmd import app as bucket_app
-    from tools.cli.terraform_cmd import app as terraform_app
-    from tools.cli.repo_cmd import app as repo_app
-    from tools.cli.build_cmd import app as build_app
+def register_subcommands(target: typer.Typer) -> None:
+    """Attach all subcommand groups to ``target`` (idempotent: second call in-process is a no-op)."""
+    if _registration.done:
+        return
+    from tools.cli.add_cmd import register_add_command
     from tools.cli.bmt_cmd import app as bmt_app
+    from tools.cli.bucket_cmd import app as bucket_app
+    from tools.cli.build_cmd import app as build_app
+    from tools.cli.e2e_preflight_cmd import register_e2e_preflight
+    from tools.cli.maintainer_cmd import register_maintainer_commands
+    from tools.cli.onboard_cmd import register_onboard
+    from tools.cli.publish_cmd import register_publish_command
+    from tools.cli.pulumi_cmd import app as pulumi_app
+    from tools.cli.repo_cmd import app as repo_app
+    from tools.cli.ship_cmd import register_ship
+    from tools.cli.workflow_cmd import register_workflow
+    from tools.cli.workspace_cmd import register_workspace
 
-    app.add_typer(bucket_app, name="bucket", help="GCS bucket operations")
-    app.add_typer(terraform_app, name="terraform", help="Infrastructure management")
-    app.add_typer(repo_app, name="repo", help="Repository validation and env")
-    app.add_typer(build_app, name="build", help="VM image build")
-    app.add_typer(bmt_app, name="bmt", help="BMT execution and monitoring")
+    register_onboard(target)
+    register_add_command(target)
+    register_publish_command(target)
+    register_workflow(target)
+    register_maintainer_commands(target)
+    register_ship(target)
+    register_e2e_preflight(target)
+    register_workspace(target)
+    target.add_typer(bucket_app, name="bucket", help="GCS bucket operations", rich_help_panel="Storage & deploy")
+    target.add_typer(
+        pulumi_app, name="pulumi", help="Infrastructure management (Pulumi)", rich_help_panel="Infrastructure"
+    )
+    target.add_typer(repo_app, name="repo", help="Repository validation and env", rich_help_panel="Repo & config")
+    target.add_typer(build_app, name="build", help="Container image build", rich_help_panel="Infrastructure")
+    target.add_typer(
+        bmt_app,
+        name="bmt",
+        help="Staged BMT projects: [bold]bmt stage[/bold] (project · bmt · publish), symlink-deps",
+        rich_help_panel="BMT",
+    )
 
+    _registration.done = True
+
+
+def main() -> None:
+    register_subcommands(app)
     app()
 
 

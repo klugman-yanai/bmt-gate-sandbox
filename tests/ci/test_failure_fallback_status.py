@@ -5,27 +5,17 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from ci.handoff import HandoffManager
 
-from bmt_gate import config
-from bmt_gate.handoff import HandoffManager
-from bmt_gate import github as github_api_module
+from backend.config.constants import STATUS_CONTEXT
+from tests.support.fixtures.ci import BMT_FAILURE_DESCRIPTION, mock_config, mock_github_api
+from tests.support.sentinels import FAKE_REPO
 
+__all__ = ["mock_config", "mock_github_api"]  # re-export for pytest fixture discovery
 
-@pytest.fixture
-def mock_github_api(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    mock = MagicMock()
-    monkeypatch.setattr(github_api_module, "should_post_failure_status", mock.should_post_failure_status)
-    monkeypatch.setattr(github_api_module, "post_commit_status", mock.post_commit_status)
-    return mock
+pytestmark = pytest.mark.unit
 
-
-@pytest.fixture
-def mock_config(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    mock = MagicMock()
-    mock.bmt_status_context = "BMT Gate"
-    mock.bmt_failure_status_description = "BMT failed to complete handshake."
-    monkeypatch.setattr(config, "get_config", lambda: mock)
-    return mock
+_TEST_SHA = "abc123"
 
 
 def test_post_handoff_timeout_status_posts_when_not_terminal(
@@ -33,15 +23,15 @@ def test_post_handoff_timeout_status_posts_when_not_terminal(
     mock_github_api: MagicMock,
     mock_config: MagicMock,
 ) -> None:
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
-    monkeypatch.setenv("HEAD_SHA", "abc123")
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
+    monkeypatch.setenv("HEAD_SHA", _TEST_SHA)
     mock_github_api.should_post_failure_status.return_value = True
 
     HandoffManager.from_env().post_handoff_timeout_status()
 
-    mock_github_api.should_post_failure_status.assert_called_once_with("owner/repo", "abc123", "BMT Gate")
+    mock_github_api.should_post_failure_status.assert_called_once_with(FAKE_REPO, _TEST_SHA, STATUS_CONTEXT)
     mock_github_api.post_commit_status.assert_called_once_with(
-        "owner/repo", "abc123", "error", "BMT Gate", "BMT failed to complete handshake."
+        FAKE_REPO, _TEST_SHA, "error", STATUS_CONTEXT, BMT_FAILURE_DESCRIPTION
     )
 
 
@@ -50,8 +40,8 @@ def test_post_handoff_timeout_status_skips_when_terminal(
     mock_github_api: MagicMock,
     mock_config: MagicMock,
 ) -> None:
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
-    monkeypatch.setenv("HEAD_SHA", "abc123")
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
+    monkeypatch.setenv("HEAD_SHA", _TEST_SHA)
     mock_github_api.should_post_failure_status.return_value = False
 
     HandoffManager.from_env().post_handoff_timeout_status()

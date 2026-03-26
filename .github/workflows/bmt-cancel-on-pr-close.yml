@@ -1,0 +1,47 @@
+name: BMT Cancel (PR Closed)
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bmt_cancel:
+    name: Cancel
+    runs-on: ubuntu-22.04
+    env:
+      GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      BMT_CONTROL_JOB: ${{ vars.BMT_CONTROL_JOB }}
+      BMT_FAILURE_REASON: PR closed before BMT finished; Google Workflow execution was cancelled.
+      PR_NUMBER: ${{ format('{0}', github.event.pull_request.number) }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
+          python_version: "3.12"
+
+      - name: Cancel active execution for closed PR
+        run: uv run bmt dispatch cancel-pr-execution

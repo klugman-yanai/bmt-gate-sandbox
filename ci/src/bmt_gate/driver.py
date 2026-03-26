@@ -1,108 +1,191 @@
 #!/usr/bin/env python3
-"""BMT CI entrypoint. COMMANDS dict dispatch; each command reads inputs from environment."""
+"""BMT CI entrypoint (Typer)."""
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
 
-from bmt_gate import config
+import typer
+
+from ci import config
 from bmt_gate.actions import gh_error
 from bmt_gate.handoff import HandoffManager
-from bmt_gate.handshake import HandshakeManager
 from bmt_gate.matrix import MatrixManager
 from bmt_gate.preset import PresetManager
 from bmt_gate.runner import RunnerManager
-from bmt_gate.trigger import TriggerManager
-from bmt_gate.vm import VmManager
+from bmt_gate.workflow_dispatch import WorkflowDispatchManager
+
+app = typer.Typer(
+    no_args_is_help=True,
+    help="BMT CI driver: matrix, runners, handoff, Workflows dispatch.",
+)
+
+meta_app = typer.Typer(help="Bootstrap helpers.")
+app.add_typer(meta_app, name="meta")
+
+matrix_app = typer.Typer(help="CMake preset matrix for CI and BMT.")
+app.add_typer(matrix_app, name="matrix")
+
+runner_app = typer.Typer(help="Runner artifacts and upload matrix.")
+app.add_typer(runner_app, name="runner")
+
+handoff_app = typer.Typer(help="Context file, status, and summaries.")
+app.add_typer(handoff_app, name="handoff")
+
+dispatch_app = typer.Typer(help="Google Workflows dispatch.")
+app.add_typer(dispatch_app, name="dispatch")
+
+preset_app = typer.Typer(help="Release preset staging.")
+app.add_typer(preset_app, name="preset")
 
 
-def _load_env() -> None:
+@meta_app.command("load-env")
+def meta_load_env() -> None:
+    """Write BmtConfig fields to GITHUB_ENV."""
     config.load_env()
 
 
-COMMANDS: dict[str, Callable[[], None]] = {
-    "load-env": _load_env,
-    "matrix": lambda: MatrixManager.from_env().build(),
-    "filter-supported-matrix": lambda: MatrixManager.from_env().filter_supported(),
-    "parse-release-runners": lambda: MatrixManager.from_env().parse_release_runners(),
-    "upload-runner": lambda: RunnerManager.from_env().upload(),
-    "select-available-vm": lambda: VmManager.from_env().select(),
-    "start-vm": lambda: VmManager.from_env().start(),
-    "sync-vm-metadata": lambda: VmManager.from_env().sync_metadata(),
-    "write-context": lambda: HandoffManager.from_env().write_context(),
-    "wait-handshake": lambda: HandshakeManager.from_env().wait(),
-    "resolve-failure-context": lambda: HandoffManager.from_env().resolve_failure_context(),
-    "filter-upload-matrix": lambda: RunnerManager.from_env().filter_upload_matrix(),
-    "upload-runner-to-gcs": lambda: RunnerManager.from_env().upload_runner_to_gcs(),
-    "validate-runner-in-repo": lambda: RunnerManager.from_env().validate_in_repo(),
-    "resolve-uploaded-projects": lambda: RunnerManager.from_env().resolve_uploaded_projects(),
-    "summarize-matrix-handshake": lambda: RunnerManager.from_env().summarize_matrix_handshake(),
-    "preflight-trigger-queue": lambda: TriggerManager.from_env().preflight_queue(),
-    "write-run-trigger": lambda: TriggerManager.from_env().write(),
-    "force-clean-vm-restart": lambda: HandshakeManager.from_env().force_clean_vm_restart(),
-    "handshake-timeout-diagnostics": lambda: HandshakeManager.from_env().timeout_diagnostics(),
-    "post-pending-status": lambda: HandoffManager.from_env().post_pending_status(),
-    "post-handoff-timeout-status": lambda: HandoffManager.from_env().post_handoff_timeout_status(),
-    "cleanup-failed-trigger-artifacts": lambda: HandoffManager.from_env().cleanup_failed_trigger_artifacts(),
-    "write-handoff-summary": lambda: HandoffManager.from_env().write_summary(),
-    "stage-release-runner": lambda: PresetManager.from_env().stage_release_runner(),
-    "compute-preset-info": lambda: PresetManager.from_env().compute_preset_info(),
-}
+@matrix_app.command("build")
+def matrix_build() -> None:
+    """Emit BMT matrix JSON to the ``matrix`` key in ``GITHUB_OUTPUT``."""
+    MatrixManager.from_env().build()
+
+
+@matrix_app.command("filter-supported")
+def matrix_filter_supported() -> None:
+    """Filter matrix to supported runner projects."""
+    MatrixManager.from_env().filter_supported()
+
+
+@matrix_app.command("parse-release-runners")
+def matrix_parse_release_runners() -> None:
+    """Parse CMakePresets for CI or BMT runner rows."""
+    MatrixManager.from_env().parse_release_runners()
+
+
+@runner_app.command("upload")
+def runner_upload() -> None:
+    """Upload runner binaries to GCS."""
+    RunnerManager.from_env().upload()
+
+
+@runner_app.command("filter-upload-matrix")
+def runner_filter_upload_matrix() -> None:
+    """Compute matrix_need_upload from context and GCS."""
+    RunnerManager.from_env().filter_upload_matrix()
+
+
+@runner_app.command("upload-to-gcs")
+def runner_upload_to_gcs() -> None:
+    """chmod + upload runner from artifact/Runners."""
+    RunnerManager.from_env().upload_runner_to_gcs()
+
+
+@runner_app.command("validate-in-repo")
+def runner_validate_in_repo() -> None:
+    """Validate runner exists in bucket or stage mirror."""
+    RunnerManager.from_env().validate_in_repo()
+
+
+@runner_app.command("upload-dev-publish-manifest")
+def runner_upload_dev_publish_manifest() -> None:
+    """Write dev placeholder manifest (no binaries) for manifest_only publish legs."""
+    RunnerManager.from_env().upload_dev_publish_manifest()
+
+
+@runner_app.command("resolve-uploaded-projects")
+def runner_resolve_uploaded_projects() -> None:
+    """Resolve accepted_projects from upload markers."""
+    RunnerManager.from_env().resolve_uploaded_projects()
+
+
+@runner_app.command("summarize-handshake")
+def runner_summarize_handshake() -> None:
+    """Log matrix handshake line."""
+    RunnerManager.from_env().summarize_matrix_handshake()
+
+
+@handoff_app.command("write-context")
+def handoff_write_context() -> None:
+    """Serialize BmtContext to .bmt/context.json."""
+    HandoffManager.from_env().write_context()
+
+
+@handoff_app.command("resolve-failure-context")
+def handoff_resolve_failure_context() -> None:
+    """Emit mode/head_sha/pr_number for failure fallback."""
+    HandoffManager.from_env().resolve_failure_context()
+
+
+@handoff_app.command("post-pending-status")
+def handoff_post_pending_status() -> None:
+    """Post pending commit status for BMT."""
+    HandoffManager.from_env().post_pending_status()
+
+
+@handoff_app.command("post-timeout-status")
+def handoff_post_timeout_status() -> None:
+    """Post error commit status on handoff timeout."""
+    HandoffManager.from_env().post_handoff_timeout_status()
+
+
+@handoff_app.command("validate-dataset-inputs")
+def handoff_validate_dataset_inputs() -> None:
+    """Validate .wav inputs in GCS for accepted BMTs."""
+    HandoffManager.from_env().validate_dataset_inputs()
+
+
+@handoff_app.command("write-summary")
+def handoff_write_summary() -> None:
+    """Append Markdown to GITHUB_STEP_SUMMARY."""
+    HandoffManager.from_env().write_summary()
+
+
+@dispatch_app.command("invoke-workflow")
+def dispatch_invoke_workflow() -> None:
+    """Start Google Workflow execution for BMT handoff."""
+    WorkflowDispatchManager.from_env().invoke()
+
+
+@dispatch_app.command("cancel-pr-execution")
+def dispatch_cancel_pr_execution() -> None:
+    """Cancel active Google Workflow execution recorded for a PR."""
+    WorkflowDispatchManager.from_env().cancel_pr_execution()
+
+
+@preset_app.command("stage-release-runner")
+def preset_stage_release_runner() -> None:
+    """Stage release runner paths for upload job."""
+    PresetManager.from_env().stage_release_runner()
+
+
+@preset_app.command("compute-info")
+def preset_compute_info() -> None:
+    """Compute preset binary dir for GITHUB_OUTPUT."""
+    PresetManager.from_env().compute_preset_info()
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        print(f"Usage: bmt <command>\nCommands: {', '.join(sorted(COMMANDS))}", file=sys.stderr)
-        sys.exit(1)
-    if sys.argv[1] in ("-h", "--help"):
-        print(f"Usage: bmt <command>\nCommands: {', '.join(sorted(COMMANDS))}", file=sys.stderr)
-        sys.exit(0)
-    cmd = sys.argv[1]
-    if cmd not in COMMANDS:
-        print(f"Usage: bmt <command>\nCommands: {', '.join(sorted(COMMANDS))}", file=sys.stderr)
-        sys.exit(1)
-    COMMANDS[cmd]()
-
-
-def _main_with(subcommand: str) -> None:
-    sys.argv = ["bmt", subcommand] + sys.argv[1:]
-    main()
-
-
-def main_matrix() -> None:
-    _main_with("matrix")
-
-
-def main_write_run_trigger() -> None:
-    _main_with("write-run-trigger")
-
-
-def main_wait_handshake() -> None:
-    _main_with("wait-handshake")
-
-
-def main_start_vm() -> None:
-    _main_with("start-vm")
-
-
-def main_write_context() -> None:
-    _main_with("write-context")
-
-
-def main_write_handoff_summary() -> None:
-    _main_with("write-handoff-summary")
-
-
-def main_select_available_vm() -> None:
-    _main_with("select-available-vm")
-
-
-if __name__ == "__main__":
     try:
-        main()
+        app()
     except SystemExit:
         raise
     except Exception as exc:
         gh_error(str(exc))
         sys.exit(1)
+
+
+def main_matrix() -> None:
+    MatrixManager.from_env().build()
+
+
+def main_write_context() -> None:
+    HandoffManager.from_env().write_context()
+
+
+def main_write_handoff_summary() -> None:
+    HandoffManager.from_env().write_summary()
+
+
+if __name__ == "__main__":
+    main()

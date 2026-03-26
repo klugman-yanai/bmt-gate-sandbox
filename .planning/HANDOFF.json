@@ -1,0 +1,77 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-03-26T14:08:21.541Z",
+  "phase": "01",
+  "phase_name": "ci-contract-drift-guard",
+  "phase_dir": ".planning/phases/01-ci-contract-drift-guard",
+  "plan": 1,
+  "task": 3,
+  "total_tasks": 4,
+  "status": "paused",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Draft phase-1 scaffolding and requirements traceability",
+      "status": "done",
+      "commit": null
+    },
+    {
+      "id": 2,
+      "name": "Implement the CI-local contract modules and parity test",
+      "status": "done",
+      "commit": null
+    },
+    {
+      "id": 3,
+      "name": "Verify phase-1 work and diagnose failed GSD bookkeeping",
+      "status": "in_progress",
+      "progress": "A targeted pytest run for tests/ci/test_ci_contract_parity.py passed, summary and verification files were written, then gsd-tools phase-complete could not find plan files and the code/planning artifacts disappeared from the working tree."
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 4,
+      "name": "Reconstruct missing phase-1 source/planning files, rerun verification, and only then resume autonomous execution with phase 2",
+      "status": "not_started"
+    }
+  ],
+  "blockers": [
+    {
+      "description": "The phase-1 code files (.github/bmt/ci/env_contract.py, gate_contract.py, env_parse.py, workflow_links.py, and tests/ci/test_ci_contract_parity.py) are no longer present even though they were created and tested earlier in the session.",
+      "type": "technical",
+      "workaround": "Use the surviving summary/verification files plus terminal history and .pytest_cache node IDs to recreate the missing files before trusting phase-1 completion."
+    },
+    {
+      "description": "Core GSD planning files (.planning/ROADMAP.md, .planning/STATE.md, .planning/REQUIREMENTS.md, and phase 1 CONTEXT/RESEARCH/PLAN) are missing, so gsd-tools cannot advance roadmap/state or detect the current plan correctly.",
+      "type": "technical",
+      "workaround": "Recreate the planning files first or fall back to manual roadmap/state repair before resuming gsd-autonomous."
+    }
+  ],
+  "human_actions_pending": [],
+  "decisions": [
+    {
+      "decision": "Keep phase 1 read-only with respect to existing .github/bmt/ci call sites.",
+      "rationale": "Phase 2 should switch imports only after a tested CI-local contract exists.",
+      "phase": "01"
+    },
+    {
+      "decision": "Use four small CI-local modules: env/default contract, gate contract, env parsing, and workflow links.",
+      "rationale": "This mirrors only the runtime symbols the CI package actually uses and keeps the future import rewrites obvious.",
+      "phase": "01"
+    },
+    {
+      "decision": "Verify the parity test with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 and -o addopts=''.",
+      "rationale": "The sandbox blocks the repo's default socket-using pytest plugins, but the code itself passed once those environmental addopts/plugins were neutralized.",
+      "phase": "01"
+    }
+  ],
+  "background_processes": [],
+  "uncommitted_files": [
+    ".planning/phases/01-ci-contract-drift-guard/01-01-SUMMARY.md",
+    ".planning/phases/01-ci-contract-drift-guard/01-VERIFICATION.md",
+    ".planning/HANDOFF.json",
+    ".planning/phases/01-ci-contract-drift-guard/.continue-here.md"
+  ],
+  "next_action": "Start by recreating the missing phase-1 planning files and CI contract/test files from the surviving summary, verification report, and terminal evidence; do not trust the current 'phase complete' appearance until those files exist again.",
+  "context_notes": "The trustworthy evidence from this session is the content in 01-01-SUMMARY.md, 01-VERIFICATION.md, the successful targeted pytest output, and the cache entries for test_ci_contract_parity. The dangerous trap is assuming phase 1 is actually complete: the underlying source files and roadmap/state inputs disappeared, so resume work should begin with reconstruction and bookkeeping repair."
+}

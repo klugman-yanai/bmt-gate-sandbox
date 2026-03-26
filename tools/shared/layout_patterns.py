@@ -6,12 +6,11 @@ verify_runtime_seed_sync, clean_bloat, and gcp_layout_policy.
 
 from __future__ import annotations
 
-# Layout policy: allowed top-level entries under backend/ (formerly gcp/)
-ALLOWED_TOP_LEVEL = {"README.md", "config", "github", "projects", "scripts", "schemas", "__init__.py",
-                     "path_utils.py", "root_orchestrator.py", "utils.py", "vm_watcher.py", "pyproject.toml", "uv.lock"}
+# Layout policy: allowed top-level entries under gcp/
+ALLOWED_TOP_LEVEL = {"README.md", "image", "stage", "local", "__init__.py"}
 
-# Code namespace: exclude from sync/verify and forbid in layout (backend/).
-DEFAULT_CODE_EXCLUDES = (
+# Shared: bytecode, virtualenvs, tool caches, packaging metadata (used by multiple policy tuples).
+_ARTIFACT_EXCLUDES: tuple[str, ...] = (
     r"(^|/)__pycache__(/|$)",
     r"__pycache__",
     r"\.pyc$",
@@ -26,82 +25,48 @@ DEFAULT_CODE_EXCLUDES = (
     r"(^|/)\.eggs(/|$)",
     r"(^|/)[^/]+\.egg-info(/|$)",
     r"\.egg$",
+)
+
+# Code namespace: exclude from sync/verify and forbid in layout (gcp/image).
+DEFAULT_CODE_EXCLUDES: tuple[str, ...] = (
+    *_ARTIFACT_EXCLUDES,
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/inputs(/|$)",
-    r"(^|/)sk/outputs(/|$)",
-    r"(^|/)sk/results(/|$)",
+    r"(^|/)projects/[^/]+/inputs(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
+    r"(^|/)projects/[^/]+/results(/|$)",
 )
 
 # Runtime seed: exclude from sync/verify when allow_generated_artifacts=False.
 # Same list for sync and verify so digest matches.
-FORBIDDEN_RUNTIME_SEED = (
-    r"(^|/)__pycache__(/|$)",
-    r"__pycache__",
-    r"\.pyc$",
-    r"\.pyo$",
-    r"(^|/)\.venv(/|$)",
-    r"(^|/)venv(/|$)",
-    r"(^|/)\.uv(/|$)",
-    r"(^|/)\.mypy_cache(/|$)",
-    r"(^|/)\.pytest_cache(/|$)",
-    r"(^|/)\.ruff_cache(/|$)",
-    r"(^|/)\.tox(/|$)",
-    r"(^|/)\.eggs(/|$)",
-    r"(^|/)[^/]+\.egg-info(/|$)",
-    r"\.egg$",
+# NOTE: inputs/ is NOT excluded here because .keep and dataset_manifest.json need to be
+# synced to GCS. Data files (WAVs etc.) are excluded via _is_inputs_data_path() in bucket_sync.py.
+FORBIDDEN_RUNTIME_SEED: tuple[str, ...] = (
+    *_ARTIFACT_EXCLUDES,
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/results(/|$)",
-    r"(^|/)sk/outputs(/|$)",
+    r"(^|/)projects/[^/]+/results(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
 )
 
-# Bloat-only (clean_bloat runtime); do not include triggers/sk paths under runtime.
-BLOAT_PATTERNS = (
-    r"(^|/)__pycache__(/|$)",
-    r"__pycache__",
-    r"\.pyc$",
-    r"\.pyo$",
-    r"(^|/)\.venv(/|$)",
-    r"(^|/)venv(/|$)",
-    r"(^|/)\.uv(/|$)",
-    r"(^|/)\.mypy_cache(/|$)",
-    r"(^|/)\.pytest_cache(/|$)",
-    r"(^|/)\.ruff_cache(/|$)",
-    r"(^|/)\.tox(/|$)",
-    r"(^|/)\.eggs(/|$)",
-    r"(^|/)[^/]+\.egg-info(/|$)",
-    r"\.egg$",
-)
+# Bloat-only (clean_bloat runtime); do not include triggers/project paths under runtime.
+BLOAT_PATTERNS: tuple[str, ...] = _ARTIFACT_EXCLUDES
 
-# Code namespace clean = bloat + errant triggers/sk paths.
+# Code namespace clean = bloat + errant triggers/project paths.
 CODE_CLEAN_PATTERNS = (
     *BLOAT_PATTERNS,
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/inputs(/|$)",
-    r"(^|/)sk/outputs(/|$)",
-    r"(^|/)sk/results(/|$)",
+    r"(^|/)projects/[^/]+/inputs(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
+    r"(^|/)projects/[^/]+/results(/|$)",
 )
 
-# Layout policy: forbid these in backend/ (same as code excludes).
+# Layout policy: forbid these in gcp/image (same as code excludes).
 FORBIDDEN_CODE_PATTERNS = DEFAULT_CODE_EXCLUDES
 
-# Layout policy: forbid these in benchmarks/ (includes .wav under inputs).
-FORBIDDEN_RUNTIME_PATTERNS = (
+# Layout policy: forbid these in gcp/stage (includes .wav under inputs).
+FORBIDDEN_RUNTIME_PATTERNS: tuple[str, ...] = (
     r"(^|/)triggers(/|$)",
-    r"(^|/)sk/results(/|$)",
-    r"(^|/)sk/outputs(/|$)",
-    r"(^|/)inputs(/|$).*\.wav$",
-    r"(^|/)__pycache__(/|$)",
-    r"__pycache__",
-    r"\.pyc$",
-    r"\.pyo$",
-    r"(^|/)\.venv(/|$)",
-    r"(^|/)venv(/|$)",
-    r"(^|/)\.uv(/|$)",
-    r"(^|/)\.mypy_cache(/|$)",
-    r"(^|/)\.pytest_cache(/|$)",
-    r"(^|/)\.ruff_cache(/|$)",
-    r"(^|/)\.tox(/|$)",
-    r"(^|/)\.eggs(/|$)",
-    r"(^|/)[^/]+\.egg-info(/|$)",
-    r"\.egg$",
+    r"(^|/)projects/[^/]+/results(/|$)",
+    r"(^|/)projects/[^/]+/outputs(/|$)",
+    r"(^|/)projects/[^/]+/inputs/.*\.wav$",
+    *_ARTIFACT_EXCLUDES,
 )

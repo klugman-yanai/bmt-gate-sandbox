@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show env vars used by CI, VM, and tools."""
+"""Show env vars used by CI, Cloud Run, and local tooling."""
 
 from __future__ import annotations
 
@@ -13,6 +13,18 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
+from backend.config.constants import (
+    ENV_BMT_CONTROL_JOB,
+    ENV_BMT_STATUS_CONTEXT,
+    ENV_BMT_TASK_HEAVY_JOB,
+    ENV_BMT_TASK_STANDARD_JOB,
+    ENV_CLOUD_RUN_REGION,
+    ENV_GCP_PROJECT,
+    ENV_GCP_SA_EMAIL,
+    ENV_GCP_WIF_PROVIDER,
+    ENV_GCS_BUCKET,
+)
+from tools.shared.cli_availability import command_available
 from tools.shared.env_contract import (
     default_contract_path,
     list_context_vars,
@@ -30,24 +42,26 @@ class SecretHint:
     absent_label: str = "(unset)"
 
 
-APP_TRIGGER_VAR_NAMES: tuple[str, ...] = ("BMT_DISPATCH_APP_ID",)
-# Private key may live in bucket; not in repo vars contract when not used at repo level.
-APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = ()
-
-
-def cmd_exists(name: str) -> bool:
-    return subprocess.run(["which", name], capture_output=True, check=False).returncode == 0
+APP_TRIGGER_VAR_NAMES: tuple[str, ...] = ()
+APP_TRIGGER_SECRET_HINTS: tuple[SecretHint, ...] = (
+    SecretHint("BMT_GITHUB_APP_ID", "(present)"),
+    SecretHint("BMT_GITHUB_APP_INSTALLATION_ID", "(present)"),
+    SecretHint("BMT_GITHUB_APP_PRIVATE_KEY", "(present)"),
+    SecretHint("BMT_GITHUB_APP_DEV_ID", "(present)"),
+    SecretHint("BMT_GITHUB_APP_DEV_INSTALLATION_ID", "(present)"),
+    SecretHint("BMT_GITHUB_APP_DEV_PRIVATE_KEY", "(present)"),
+)
 
 
 def gh_var(name: str) -> str | None:
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(["gh", "variable", "get", name], capture_output=True, text=True, check=False)
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def gh_secret_names() -> set[str] | None:
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(["gh", "secret", "list", "--json", "name"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
@@ -60,7 +74,7 @@ def gh_secret_names() -> set[str] | None:
 
 
 def gh_repo_slug() -> str | None:
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(
         ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
@@ -110,7 +124,7 @@ def gh_required_status_contexts(repo_slug: str, branch: str) -> list[str] | None
 
 
 def gcloud_config(name: str) -> str | None:
-    if not cmd_exists("gcloud"):
+    if not command_available("gcloud"):
         return None
     result = subprocess.run(["gcloud", "config", "get-value", name], capture_output=True, text=True, check=False)
     val = result.stdout.strip()
@@ -144,30 +158,34 @@ def _vars_table(rows: list[tuple[str, Text]]) -> Table:
 
 
 def print_github_section(contract: dict[str, object]) -> None:
-    description = (
-        "Used by: build-and-test.yml, start_vm, run_trigger, job_matrix, wait; VM bootstrap. Unset = CI uses default."
-    )
+    description = "Used by: build-and-test.yml, bmt-handoff.yml, direct Workflow dispatch, and Cloud Run jobs."
     content_parts: list = []
 
     contract_path = default_contract_path()
     content_parts.append(Text(f"Contract: {contract_path}", style="dim"))
     content_parts.append(Text())
 
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         content_parts.append(Text("(gh not available; run 'gh auth login' in repo to list GitHub vars)", style="dim"))
         console.print(Panel(Text.assemble(*content_parts), title="[bold]GitHub (gh)[/]", subtitle=description))
         return
 
     required_vars = list_context_vars(contract, "github_repo_vars", "required")
     if not required_vars:
-        required_vars = ["GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_SA_EMAIL", "GCP_PROJECT", "BMT_LIVE_VM"]
+        required_vars = [
+            ENV_GCS_BUCKET,
+            ENV_GCP_PROJECT,
+            ENV_CLOUD_RUN_REGION,
+            ENV_BMT_CONTROL_JOB,
+            ENV_BMT_TASK_STANDARD_JOB,
+            ENV_BMT_TASK_HEAVY_JOB,
+            ENV_GCP_SA_EMAIL,
+        ]
 
     defaults = _contract_defaults(contract)
     optional_vars = list_context_vars(contract, "github_repo_vars", "optional")
     if not optional_vars:
-        optional_vars = [
-            "BMT_STATUS_CONTEXT",
-        ]
+        optional_vars = [ENV_BMT_STATUS_CONTEXT, ENV_GCP_WIF_PROVIDER]
     rows: list[tuple[str, Text]] = []
     for name in required_vars:
         rows.append((name, _var_value_cell(gh_var(name))))
@@ -216,7 +234,7 @@ def print_github_section(contract: dict[str, object]) -> None:
     for h in APP_TRIGGER_SECRET_HINTS:
         val = Text(h.present_label, style="green") if h.name in secret_names else Text(h.absent_label, style="dim red")
         secret_rows.append((h.name, val))
-    content_parts.append(Text("App-trigger auth config (CI trigger-bmt):", style="bold"))
+    content_parts.append(Text("GitHub App secrets:", style="bold"))
     content_parts.append(_vars_table(secret_rows))
 
     # Build panel content
@@ -224,130 +242,21 @@ def print_github_section(contract: dict[str, object]) -> None:
 
 
 def print_gcloud_section() -> None:
-    description = (
-        "Used by: audit_vm_and_bucket, ssh_install, set_startup_script_url. Tools require explicit canonical vars."
-    )
-    if not cmd_exists("gcloud"):
+    description = "Used by: local uploads, Pulumi apply, and ad-hoc Cloud Run / Storage diagnostics."
+    if not command_available("gcloud"):
         console.print(Panel(Text("(gcloud not available)", style="dim"), title="[bold]gcloud[/]", subtitle=description))
         return
 
     rows: list[tuple[str, Text]] = [
         ("project", _var_value_cell(gcloud_config("project"))),
         ("account", _var_value_cell(gcloud_config("account"))),
-        ("compute/zone", _var_value_cell(gcloud_config("compute/zone"))),
+        ("run/region", _var_value_cell(gcloud_config("run/region"))),
     ]
     console.print(Panel(_vars_table(rows), title="[bold]gcloud[/]", subtitle=description))
 
 
-def get_vm_project() -> str | None:
-    return gh_var("GCP_PROJECT")
-
-
-def print_vm_section() -> None:
-    description = "Used by: vm_watcher.py (App auth, statuses/checks). VM must be running to read."
-
-    if not cmd_exists("gh") or not cmd_exists("gcloud"):
-        console.print(
-            Panel(
-                Text("(need gh and gcloud to read VM env)", style="dim"), title="[bold]VM env[/]", subtitle=description
-            )
-        )
-        return
-
-    vm_project = get_vm_project()
-    vm_zone = "europe-west4-a"  # Fixed; not a repo var
-    vm_name = gh_var("BMT_LIVE_VM")
-
-    if not vm_project or not vm_zone or not vm_name:
-        console.print(
-            Panel(
-                Text("(need GCP_PROJECT, BMT_LIVE_VM from gh; zone defaults to europe-west4-a)", style="dim"),
-                title="[bold]VM env[/]",
-                subtitle=description,
-            )
-        )
-        return
-
-    result = subprocess.run(
-        [
-            "gcloud",
-            "compute",
-            "instances",
-            "describe",
-            vm_name,
-            f"--zone={vm_zone}",
-            f"--project={vm_project}",
-            "--format=value(status)",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    vm_status = result.stdout.strip() if result.returncode == 0 else ""
-
-    if vm_status != "RUNNING":
-        console.print(
-            Panel(
-                Text(f"VM {vm_name} not RUNNING — start VM to see VM env", style="dim"),
-                title="[bold]VM env[/]",
-                subtitle=description,
-            )
-        )
-        return
-
-    ssh_result = subprocess.run(
-        [
-            "gcloud",
-            "compute",
-            "ssh",
-            vm_name,
-            f"--zone={vm_zone}",
-            f"--project={vm_project}",
-            (
-                "--command=for name in "
-                "GITHUB_APP_TEST_ID GITHUB_APP_TEST_INSTALLATION_ID GITHUB_APP_TEST_PRIVATE_KEY "
-                "GITHUB_APP_PROD_ID GITHUB_APP_PROD_INSTALLATION_ID GITHUB_APP_PROD_PRIVATE_KEY; do "
-                'if [ -n "${!name:-}" ]; then echo "$name=set"; else echo "$name=unset"; fi; '
-                "done"
-            ),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if ssh_result.returncode != 0:
-        console.print(
-            Panel(Text("(VM unreachable or ssh failed)", style="dim"), title="[bold]VM env[/]", subtitle=description)
-        )
-        return
-
-    states: dict[str, str] = {}
-    for raw_line in ssh_result.stdout.splitlines():
-        line = raw_line.strip()
-        if "=" not in line:
-            continue
-        name, value = line.split("=", 1)
-        states[name.strip()] = value.strip()
-
-    def app_bundle_state(prefix: str) -> Text:
-        names = [f"{prefix}_ID", f"{prefix}_INSTALLATION_ID", f"{prefix}_PRIVATE_KEY"]
-        values = [states.get(name, "unset") for name in names]
-        if all(v == "set" for v in values):
-            return Text("ready", style="green")
-        if all(v == "unset" for v in values):
-            return Text("unset", style="dim red")
-        return Text("partial", style="yellow")
-
-    rows: list[tuple[str, Text]] = [
-        ("GITHUB_APP_TEST_*", app_bundle_state("GITHUB_APP_TEST")),
-        ("GITHUB_APP_PROD_*", app_bundle_state("GITHUB_APP_PROD")),
-    ]
-    hint = Text("Hint: each enabled repo needs *_ID + *_INSTALLATION_ID + *_PRIVATE_KEY", style="dim")
-    console.print(Panel(Group(_vars_table(rows), Text(), hint), title="[bold]VM env[/]", subtitle=description))
-
-
 class GhShowEnv:
-    """Show env vars used by CI, VM, and tools."""
+    """Show env vars used by CI, Cloud Run, and local tooling."""
 
     def run(self) -> int:
         try:
@@ -357,8 +266,6 @@ class GhShowEnv:
         print_github_section(contract)
         console.print()
         print_gcloud_section()
-        console.print()
-        print_vm_section()
         return 0
 
 

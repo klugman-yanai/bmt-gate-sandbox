@@ -1,249 +1,332 @@
 # Configuration
 
-This document describes **current** configuration: Terraform for infra-derived repo vars and a Python contract ([tools/repo/vars_contract.py](../tools/repo/vars_contract.py)) for required/optional/secrets and defaults.
+This repo now has one supported execution model: direct GitHub Actions handoff to Google Workflows, then Cloud Run Jobs.
 
-**Behavioral defaults** live in [gcp/image/config/bmt_config.py](../gcp/image/config/bmt_config.py). Only values that vary per repo or deployment are repo vars; see [What must be an env var vs constant](#what-must-be-an-env-var-vs-constant). Terraform, vars_contract, and other code reference bmt_config (parity test: [tests/infra/test_terraform_bmt_config_parity.py](../tests/infra/test_terraform_bmt_config_parity.py)). Secrets: [infra/README.md](../infra/README.md). Quick start: [README.md](../README.md).
+**Environment variable inventory:** [below](#environment-variable-reference). Refresh commands: [Env inventory appendix](#env-inventory-appendix).
 
----
+## Centralized config and repo variables
 
-## Terraform as source of truth
+**Single config file:** `infra/pulumi/bmt.config.json` is the source of truth for all non-secret infra and repo variables. You do not set `GCP_*` or `GCS_BUCKET` (or `GCP_WIF_PROVIDER`) in the GitHub UI for normal use.
 
-**infra/terraform** defines GCP resources and outputs infra-derived values (bucket, project, zone, VM name, Pub/Sub, etc.). **tools/repo/vars_contract.py** defines the repo vars contract (required, optional, secrets) and default values for vars that have a default. Export combines both: Terraform for infra vars, contract defaults for the rest.
-
-```bash
-just terraform                      # Preflight, apply infra, push repo vars to GitHub
-just terraform --verbose            # Same with full output
-just terraform-import-topics        # Import Pub/Sub topics into state (fix 409), then apply
-```
-
-Infra-derived vars come from Terraform outputs ([outputs.tf](../infra/terraform/outputs.tf)); the mapping to GitHub var names and the full list are in **tools/repo/vars_contract.py**. **Secrets** (`GCP_WIF_PROVIDER`, `BMT_DISPATCH_APP_ID`) are set manually and never in Terraform. The GitHub App private key may live in the bucket; it is not a repo var when not used at repo level.
-
----
-
-## Environment contract (Python + branch-status)
-
-The "contract" is built from **tools/repo/vars_contract.py** (Python) and **infra/branch-status-context.json**:
-
-- **required** / **optional** / **secrets_not_in_terraform** — Defined in `REPO_VARS_CONTRACT` in repo_vars_contract.py.
-- **defaults** — Var defaults (e.g. BMT_STATUS_CONTEXT, BMT_REPO_ROOT) in the same module.
-- **repo_var_vs_branch_required_status_context** (in branch-status-context.json) — Ensures `BMT_STATUS_CONTEXT` matches branch protection.
-
-Tooling (`tools/repo/gh_repo_vars.py`, `tools/repo/gh_validate_vm_vars.py`, `tools/repo/gh_show_env.py`) uses this contract to check and apply repo vars and to validate VM metadata.
-
----
-
-## What must be an env var vs constant
-
-Repo vars (GitHub Variables) and env vars are only for values that **vary per repo or deployment** or are **secrets**. Everything else is a **constant** in code (no user override).
-
-### What you actually configure
-
-Realistically you only change:
-
-| Where | What |
-|-------|------|
-| **Repo** | Which GitHub repo (clone/origin). |
-| **Declarative config** (`infra/terraform/bmt.tfvars.json`) | **Four required:** `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`. **Optional:** `bmt_vm_name` (default `bmt-gate-blue`). Run `just terraform` to apply and push to GitHub as `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. Zone is not exported; it is fixed in code at runtime. See [infra/terraform/README.md](../../infra/terraform/README.md). |
-| **GitHub (vars/secrets)** | **GCP_WIF_PROVIDER** (WIF for CI). **BMT_DISPATCH_APP_ID** and **BMT_DISPATCH_APP_PRIVATE_KEY** (GitHub App for workflow_dispatch). Set these by hand; they are not in Terraform. |
-
-So: project, zone, bucket, and SA are the required four in `bmt.tfvars.json`; VM name is optional (default). WIF and GitHub App credentials are the only things you set directly in GitHub.
-
-### Not repo vars — derived or declarative (YAGNI)
-
-These are derived in code or come from Terraform/constants; do not set as GitHub variables:
-
-| Name | Source |
-|------|--------|
-| **BMT_PUBSUB_SUBSCRIPTION** | Derived: `bmt-vm-` + **BMT_LIVE_VM** (BmtConfig.effective_pubsub_subscription). |
-| **BMT_PUBSUB_TOPIC** | Constant: `bmt-triggers` (constants.PUBSUB_TOPIC_NAME). |
-| **BMT_REPO_ROOT** | Default in code: `/opt/bmt` (DEFAULT_REPO_ROOT). Terraform can override VM metadata only. |
-| **BMT_VM_POOL** | Derived when **BMT_LIVE_VM** ends with `-blue` or `-green`: `<base>-blue,<base>-green`. Else single-VM from BMT_LIVE_VM. |
-| **BMT_STATUS_CONTEXT** | Constant in code: `BMT Gate` (constants.STATUS_CONTEXT). Branch protection must match. |
-| **GCP_ZONE** | Constant: `europe-west4-a` (europe-west4 only; not a repo var). |
-
-### Not repo vars — constants in code (do not override)
-
-These are **behavioral constants** in **gcp/image/config/bmt_config.py**. Code uses the default; there is no repo var or env for them.
-
-| Name (in code) | Purpose | Value |
-|----------------|---------|--------|
-| **BMT_HANDSHAKE_TIMEOUT_SEC** | How long CI waits for VM handshake ack. | 420s (BmtConfig default). |
-| **BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING** | Handshake timeout when reusing a RUNNING VM. | 600s. |
-| **DEFAULT_REPO_ROOT** | Repo root on VM when not set via metadata. | `/opt/bmt`. |
-| **DEFAULT_RUNTIME_CONTEXT** | Label for runtime Check Run (non-gating). | `BMT Runtime`. |
-| **IDLE_TIMEOUT_SEC** | Idle period before VM self-stops. | 600. |
-| **TRIGGER_STALE_SEC**, **STALE_TRIGGER_AGE_HOURS** | Stale trigger thresholds. | 900, 2. |
-| **VM_STABILIZATION_SEC**, **VM_START_RECOVERY_ATTEMPTS**, **VM_STOP_WAIT_TIMEOUT_SEC** | VM lifecycle timing. | Fixed in module. |
-| **TRIGGER_METADATA_KEEP_RECENT** | How many trigger metadata entries to keep. | 2. |
-
-Handoff workflow **env** does not set `BMT_HANDSHAKE_TIMEOUT_SEC`; the CLI uses `get_config().bmt_handshake_timeout_sec`, which falls back to the model default when unset.
-
-### Not repo var — secret in bucket or caller
-
-| Name | Why not repo var |
-|------|-------------------|
-| **BMT_DISPATCH_APP_PRIVATE_KEY** | When the GitHub App private key (PEM) is stored in the bucket and the **caller repo** (e.g. build-and-test) uses it to dispatch, bmt-gcloud does not need this as a repo secret. Only set as a repo secret when CI in this repo must mint the dispatch token itself. |
-
-### Workflow-only / tool-only env (not in repo vars contract)
-
-Used by jobs or local tools; not part of the canonical repo vars list:
-
-- **BMT_VM_POOL_LABEL** — Optional. Label filter to discover VM pool from GCP (overrides derived blue/green pool). **BMT_VM_POOL** is no longer a repo var; pool is derived from **BMT_LIVE_VM** when name ends with `-blue`/`-green`.
-- **BMT_CONFIG**, **BMT_FORCE**, **BMT_CONTRACT**, **BMT_PRUNE_EXTRA** — Tool flags for repo-vars (paths/behavior). Use `--apply` with `gh_repo_vars` or `terraform_repo_vars` to write vars; Terraform recipe passes `--apply` automatically.
-- **BMT_SRC_DIR**, **BMT_DELETE**, **BMT_FORCE**, **GCS_BUCKET** — Bucket sync/verify tools.
-- **GITHUB_TOKEN**, **GITHUB_RUN_ID**, **GITHUB_REPOSITORY**, etc. — Set by Actions; not repo vars.
-
----
-
-## Repository variables (GitHub)
-
-Set in **Settings → Secrets and variables → Actions → Variables** (or via `gh variable set`). Canonical names only; no aliases (e.g. no `VM_NAME` or `BUCKET`). Set `GCP_PROJECT` explicitly; do not rely on a derived project fallback.
-
-### Repo variables: from Terraform vs set by hand
-
-| Variable | Set by | Purpose |
-| --- | --- | --- |
-| `GCS_BUCKET` | **Terraform export** (from `bmt.tfvars.json` → `gcs_bucket`) | GCS bucket name. |
-| `GCP_PROJECT` | **Terraform export** (from `gcp_project`) | GCP project ID. |
-| `GCP_SA_EMAIL` | **Terraform export** (from `service_account`) | Service account for WIF and VM. |
-| `BMT_LIVE_VM` | **Terraform export** (from `bmt_vm_name`) | VM instance name. Declared in declarative config, not in GitHub UI. |
-| `GCP_WIF_PROVIDER` | **You set in GitHub** | Workload Identity Federation provider for CI. |
-| `BMT_DISPATCH_APP_ID` | **You set in GitHub** | GitHub App ID for workflow_dispatch. (Private key as repo secret when needed.) |
-
-Run `just terraform` (with `bmt.tfvars.json` filled in) to apply infra and push the first four to GitHub. Set `GCP_WIF_PROVIDER` and the App credentials manually in GitHub. GCP_ZONE is fixed (europe-west4-a). Subscription, topic, repo root, and VM pool are derived in code.
-
-### Optional / workflow-only (not in Terraform export)
-
-| Variable | Purpose |
-| --- | --- |
-| `BMT_VM_POOL_LABEL` | Label filter to discover VM pool from GCP (e.g. `bmt-gate:true`). Overrides derived blue/green pool when set. |
-| `BMT_HANDSHAKE_TIMEOUT_SEC_REUSE_RUNNING` | `"600"` | When select-available-vm reuses a RUNNING VM (no TERMINATED available), this timeout is used for handshake so the workflow does not fail while the VM finishes the previous trigger. Consecutive runs within the VM idle window reuse the same VM without cold boot. |
-| `BMT_IDLE_TIMEOUT_SEC` | `"600"` (VM/env) | Idle period in seconds after each run with no new trigger before the VM exits and self-stops. Set in VM metadata or env; `0` = exit immediately after one run (legacy behavior). |
-| `BMT_TRIGGER_STALE_SEC` | `"900"` | Stale-trigger threshold used in preflight diagnostics/summaries. |
-| `BMT_DISPATCH_APP_ID` | — | GitHub App ID for BMT handoff dispatch (see [Secrets and variables](#secrets-and-variables-github-actions)). Required for the “Trigger BMT” job in `dummy-build-and-test.yml`. |
-
-**Behavioral constants (not repo vars):** Handshake timeouts, runtime context label, trigger metadata keep-recent count, VM stabilization/recovery values, preempt-on-PR-stale, and stale trigger age in hours are fixed in **gcp/image/config/bmt_config.py** (e.g. `DEFAULT_RUNTIME_CONTEXT`, `TRIGGER_METADATA_KEEP_RECENT`, `VM_STABILIZATION_SEC`). They are not configurable via environment or Terraform.
-
-Omitted vars inherit from current GitHub repo context first, then from Terraform outputs (when you run `just terraform`) or contract defaults.
-
-**VM pool (concurrent runs):** When using blue/green VM names (e.g. **BMT_LIVE_VM** = `bmt-gate-blue`), the VM pool is derived in code (no `BMT_VM_POOL` repo var) so you don’t set it manually. For other schemes, use **`BMT_VM_POOL_LABEL`** to discover VMs by GCP instance label.
-
-**Status context:** The commit status name is a constant in code (`gcp/image/config/constants.py` → `STATUS_CONTEXT`). Configure branch protection to require that same name; there is no repo var.
-
-### Useful commands
+**Apply infra and push repo vars:**
 
 ```bash
-just terraform                  # Preflight, apply, and push repo vars to GitHub
-just validate                   # Check repo vars vs Terraform/contract and VM metadata
-just show-env                   # Print env var names used by CI, VM, tools
-just sync-vm-metadata           # Sync startup-critical VM metadata from repo
+just workspace pulumi
 ```
 
----
+That command runs Pulumi and then syncs its outputs to GitHub repo variables. So:
 
-## VM metadata
+- **Infra config owners set:** `bmt.config.json` (must include `gcp_project`, `gcp_zone`, `gcs_bucket`, `service_account`, and `gcp_wif_provider`).
+- **Pulumi sets for you:** `GCS_BUCKET`, `GCP_PROJECT`, `GCP_ZONE`, `CLOUD_RUN_REGION`, `BMT_CONTROL_JOB`, `BMT_TASK_STANDARD_JOB`, `BMT_TASK_HEAVY_JOB`, `GCP_SA_EMAIL`, `GCP_WIF_PROVIDER` — all synced from config when you run `just workspace pulumi`.
 
-The workflow syncs **VM metadata** from repo config so the VM uses the same bucket without a manual bootstrap rerun. Keys synced:
+Defaults in the config file (e.g. `cloud_run_region`, job names) are used by Pulumi; you only override what you need.
 
-- **GCS_BUCKET** (required)
-- **BMT_REPO_ROOT** (optional; default `/opt/bmt`)
-- **BMT_IDLE_TIMEOUT_SEC** (optional; default `600`) — Idle period in seconds after each run before VM exits; `0` = exit immediately after one run.
-- **startup-script** (set from packaged `cli.resources/startup_entrypoint.sh` by `sync-vm-metadata`)
-- **startup-script-url** (cleared by workflow metadata sync; optional/manual URL mode can be set by `gcp/image/scripts/set_startup_script_url.py`)
+## Required Manual GitHub Configuration (secrets and optional overrides)
 
-`sync-vm-metadata` also validates that required VM code objects exist in `<code-root>` before starting the VM.
-This includes pinned UV tool artifacts under `<code-root>/_tools/uv/linux-x86_64/`.
+- GitHub repo secret: `BMT_GITHUB_APP_ID`
+- GitHub repo secret: `BMT_GITHUB_APP_INSTALLATION_ID`
+- GitHub repo secret: `BMT_GITHUB_APP_PRIVATE_KEY`
+- GitHub repo secret: `BMT_GITHUB_APP_DEV_ID`
+- GitHub repo secret: `BMT_GITHUB_APP_DEV_INSTALLATION_ID`
+- GitHub repo secret: `BMT_GITHUB_APP_DEV_PRIVATE_KEY`
+- GCP Secret Manager secret: `GITHUB_APP_ID`
+- GCP Secret Manager secret: `GITHUB_APP_INSTALLATION_ID`
+- GCP Secret Manager secret: `GITHUB_APP_PRIVATE_KEY`
+- GCP Secret Manager secret: `GITHUB_APP_DEV_ID`
+- GCP Secret Manager secret: `GITHUB_APP_DEV_INSTALLATION_ID`
+- GCP Secret Manager secret: `GITHUB_APP_DEV_PRIVATE_KEY`
 
-Defined under `vm_metadata` in the Terraform-backed contract. Consistency check `repo_vs_vm_metadata` ensures `GCS_BUCKET` matches between repo vars and VM metadata.
+`BMT_STATUS_CONTEXT` is optional. If unset, the default is `BMT Gate`.
 
----
+GitHub reporting chooses the credential profile from the repository (`owner/repo`):
 
-## VM runtime environment
+- `Kardome-org/*` uses `GITHUB_APP_*`
+- all other repositories use `GITHUB_APP_DEV_*`
 
-On the VM, these are the runtime credentials expected by `vm_watcher.py`. For every enabled repository in `gcp/image/config/github_repos.json`, the matching App credential triple must be resolvable at startup:
+GitHub Actions reads the `BMT_GITHUB_APP_*` secrets from the repository. Cloud Run reads the `GITHUB_APP_*` names from GCP Secret Manager. While both the personal dev repo and the org repo are active, keep both profiles populated in Secret Manager so runtime reporting can finalize against either repository without any manual GCP secret swaps.
 
-| Variable | Purpose |
-| --- | --- |
-| `GITHUB_APP_TEST_ID`, `GITHUB_APP_TEST_INSTALLATION_ID`, `GITHUB_APP_TEST_PRIVATE_KEY` | GitHub App credentials (test). |
-| `GITHUB_APP_PROD_ID`, `GITHUB_APP_PROD_INSTALLATION_ID`, `GITHUB_APP_PROD_PRIVATE_KEY` | GitHub App credentials (production). |
-| `GH_APP_TEST_ID`, `GH_APP_TEST_INSTALLATION_ID`, `GH_APP_TEST_PRIVATE_KEY` | Alias fallback names accepted by VM/runtime tooling (canonical `GITHUB_APP_*` takes precedence). |
-| `GH_APP_PROD_ID`, `GH_APP_PROD_INSTALLATION_ID`, `GH_APP_PROD_PRIVATE_KEY` | Alias fallback names accepted by VM/runtime tooling (canonical `GITHUB_APP_*` takes precedence). |
-| `BMT_UV_BIN` | Optional debug override for uv binary path on VM (bootstrap default is self-heal from pinned code artifact). |
+Use standard global Secret Manager secrets for the Cloud Run path. Regional secrets are not supported for Cloud Run secret injection.
 
-Repository mapping is in **gcp/image/config/github_repos.json**. See [../gcp/image/lib/github_auth.py](../gcp/image/lib/github_auth.py) for resolution logic.
+## Local Tooling Environment
 
----
+Typical local commands use:
 
-## Secrets and variables (GitHub Actions)
+- `GCS_BUCKET`
+- `GCP_PROJECT`
+- `CLOUD_RUN_REGION`
 
-| Name | Type | Purpose |
-| --- | --- | --- |
-| `BMT_DISPATCH_APP_ID` | **Variable** | GitHub App ID used to mint a token for dispatching the BMT handoff workflow (`workflow_dispatch`). Set in **Variables** (not Secrets); same name in test and prod repos. |
-| `BMT_DISPATCH_APP_PRIVATE_KEY` | **Secret** (optional) | GitHub App private key (PEM). Only needed at repo level when CI in this repo mints the dispatch token. When the key lives in the bucket and the **caller repo** dispatches, this repo does not need this secret. |
+Optional local inspection helpers also use:
 
-**IDE warning:** Editors using the GitHub Actions JSON schema may show “Context access might be invalid” for `vars.BMT_DISPATCH_APP_ID` and `secrets.BMT_DISPATCH_APP_PRIVATE_KEY`. The schema only knows built-in names (e.g. `GITHUB_TOKEN`); these custom names are valid at runtime once the variable and secret are set in **Settings → Variables and secrets → Actions**.
+- `GCP_ZONE` for image-build and compute-image tooling
 
-**Migration:** If you previously used `APP_TEST_ID` / `APP_TEST_PRIVATE_KEY`, set **variable** `BMT_DISPATCH_APP_ID` and **secret** `BMT_DISPATCH_APP_PRIVATE_KEY` (same values). Prod repos use the same names with the prod App’s credentials.
-
----
-
-## Bucket structure (summary)
-
-Use:
-
-- `<code-root> = gs://<bucket>/code`
-- `<runtime-root> = gs://<bucket>/runtime`
-
-`gcp/image` is the manual-sync source of truth for `<code-root>` only.
-`gcp/remote` is the manual-sync source for runtime seed artifacts under `<runtime-root>`.
-Local large WAV corpora remain under `data/` (not inside `gcp/remote`).
-Local mirror policy details: [../gcp/README.md](../gcp/README.md).
-
-- **`<code-root>/...`** — deployable watcher/orchestrator/manager/vm scripts/config mirrored from `gcp/image`.
-- **`<code-root>/pyproject.toml`** — VM runtime package (build-system + config package). Bootstrap `install_deps.py` runs `pip install -e ".[vm]"` from the code root so the config package and VM deps are installed in the venv; no PYTHONPATH.
-- **`<code-root>/uv.lock`** — optional pinned lock for `gcp/image` when using `uv sync` from code root.
-- **`<code-root>/_tools/uv/linux-x86_64/uv`** — pinned uv binary uploaded by `just deploy`.
-- **`<code-root>/_tools/uv/linux-x86_64/uv.sha256`** — pinned uv checksum tracked in repo and verified at boot.
-- **`<runtime-root>/triggers/runs/<workflow_run_id>.json`** — Run trigger (CI writes; VM deletes after process).
-- **`<runtime-root>/triggers/acks/<workflow_run_id>.json`** — VM handshake ack.
-- **`<runtime-root>/triggers/status/<workflow_run_id>.json`** — VM progress heartbeat.
-- **`<runtime-root>/_meta/runtime_seed_manifest.json`** — runtime seed sync manifest (written by `tools/remote/bucket_sync_runtime_seed.py`).
-- **`<runtime-root>/<project>/runners/<preset>/...`** — Runner bundles (uploaded by workflow/tools).
-- **`<runtime-root>/<project>/inputs/...`** — Runtime input objects in bucket; local source is explicit upload from `data/...` (keep `gcp/remote/**/inputs` as placeholders only).
-- **`<runtime-root>/<results_prefix>/current.json`** — Pointer (`latest`, `last_passing` run_id); updated by watcher.
-- **`<runtime-root>/<results_prefix>/snapshots/<run_id>/`** — Per-run artifacts (`latest.json`, `ci_verdict.json`, logs).
-
-Pointer semantics and retention: [architecture.md](architecture.md#results-contract) and [architecture.md](architecture.md#implementation--data-flow).
-
----
-
-## Pyproject files and uv workspace
-
-The repo uses a **uv workspace** ([uv docs](https://docs.astral.sh/uv/concepts/projects/workspaces/)): one lockfile at root, multiple packages. `uv lock` resolves all members; `uv run` and `uv sync` operate on the workspace root by default. To run a specific member: `uv run --package bmt …` or `uv run --package bmt-vm-runtime …`.
-
-**Dependency groups (per-workspace):**
-
-- **Root** — `[dependency-groups] dev`: tests, ruff, basedpyright, pytest, etc. Install with `uv sync --group dev`.
-- **.github/bmt** — `[dependency-groups] dev`: ruff, basedpyright for lint/typecheck of the CLI. Install with `uv sync --package bmt --group dev`.
-- **gcp/image** — `[dependency-groups] dev = []`; dev tooling runs from root. Optional runtime extra `[vm]` for PyJWT/cryptography when running VM watcher from root or on the image.
-
-The repo has three `pyproject.toml` files:
-
-| Location | Purpose | Necessary? |
-| --- | --- | --- |
-| **Root** (`pyproject.toml`) | Installable package **bmt-gcloud**: exposes `gcp` and `tools` for CLI and tests. Workspace members: `.github/bmt`, `gcp/image`. CLI and tests assume an **editable install from repo root** (`uv sync` or `pip install -e .`); no PYTHONPATH or sys.path. | **Yes** |
-| **`.github/bmt/pyproject.toml`** | BMT CLI package: build backend, `bmt` entrypoint, depends on **bmt-gcloud**. **Portable:** copy `.github/bmt/` into a production repo's `.github/`; no workspace or parent-repo reference. In this repo the root provides `bmt-gcloud` via `tool.uv.sources` so the member resolves from the workspace. In production, use PyPI or set `tool.uv.sources` in the enclosing project. | **Yes** |
-| **`gcp/image/pyproject.toml`** | VM runtime package (**bmt-vm-runtime**): build-system, installable packages. Bootstrap `install_deps.py` runs `pip install -e ".[vm]"` from the code root so the venv has config and VM deps; no PYTHONPATH. | **Yes** — VM code uses `from config.*`; image build and local VM-style runs rely on this. |
-
----
-
-## Branch protection
-
-Require the **commit status** named by `BMT_STATUS_CONTEXT` (value from Terraform) to pass before merge.
-The runtime context label (e.g. "BMT Runtime") is a non-gating constant in **gcp/image/lib/bmt_config.py** (`DEFAULT_RUNTIME_CONTEXT`) and must not be used as a protected merge gate.
-
-GitHub branch rules are the source of truth for that context. Keep branch rules and repo vars aligned via:
+Print the current expected environment with:
 
 ```bash
-just validate
+just tools repo show-env
 ```
+
+## GitHub Actions hosted runners
+
+Linux CI jobs in **`.github/workflows/`** use **`ubuntu-22.04`** (pinned label) for reproducible system packages and CMake/apt setup. Bump the label deliberately after smoke-testing builds; **`ubuntu-latest`** is intentionally avoided for the main build matrices. Details and composite action pins live in [`.github/README.md`](../.github/README.md).
+
+## Pulumi Config
+
+`infra/pulumi/bmt.config.json` must define:
+
+- `gcp_project`
+- `gcp_zone`
+- `gcs_bucket`
+- `service_account`
+- `gcp_wif_provider` — Workload Identity Federation provider (GitHub Actions OIDC). Synced to `GCP_WIF_PROVIDER` by `just workspace pulumi` like the other GCP_* vars.
+
+Common optional fields:
+
+- `cloud_run_region`
+- `cloud_run_job_sa_name`
+- `cloud_run_workflow_sa_name`
+- `artifact_registry_repo`
+- `github_repo_owner`
+- `github_repo_name`
+
+There is no VM name or startup-script setting in the active system.
+
+## Config layers and consistency
+
+Three places touch the same logical settings; they stay consistent as follows:
+
+| Layer | Role | Source of values |
+|-------|------|-------------------|
+| **`infra/pulumi/pulumi_stack_config.py`** | Pulumi only. Loads `bmt.config.json`, defines `InfraConfig` (gcp_project, gcs_bucket, service_account, cloud_run_region, gcp_wif_provider, etc.). | `infra/pulumi/bmt.config.json` |
+| **`.github/bmt/ci/config.py`** | CI only. Builds `BmtConfig` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
+| **`gcp/image/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
+
+**Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.config.json → Pulumi → `just workspace pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.config.json`; CI reads what was synced.
+
+**Pulumi consistency:** `infra/pulumi/pulumi_stack_config.py` uses defaults that match `gcp/image/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
+
+**`GCP_WIF_PROVIDER`:** Required in `bmt.config.json` as `gcp_wif_provider` and synced by Pulumi like the other GCP_* vars. The handoff workflow needs it for OIDC auth.
+
+## Runtime Storage Contract
+
+The active runtime writes:
+
+- `triggers/plans/<workflow_run_id>.json`
+- `triggers/summaries/<workflow_run_id>/<project>-<benchmark>.json`
+- `projects/<project>/results/<benchmark>/snapshots/<run_id>/latest.json`
+- `projects/<project>/results/<benchmark>/snapshots/<run_id>/ci_verdict.json`
+- `projects/<project>/results/<benchmark>/current.json`
+
+Published staged control-plane content lives under:
+
+- `projects/<project>/project.json`
+- `projects/<project>/bmts/<benchmark>/bmt.json`
+- `projects/<project>/plugins/<plugin>/sha256-<digest>/...`
+- `projects/<project>/inputs/<dataset>/...`
+
+## Packages
+
+The repo is a uv workspace with two active packages:
+
+- `bmt` under [`.github/bmt`](.github/bmt)
+- `bmt-runtime` under [`gcp/image`](gcp/image)
+
+Run a specific member with:
+
+```bash
+uv run --package bmt …
+uv run --package bmt-runtime …
+```
+
+That command runs Pulumi and then syncs its outputs to GitHub repo variables. So:
+
+## Environment variable reference
+
+This document inventories **process environment** and closely related names used across GitHub Actions, the `bmt` CI package (`.github/bmt/ci`), Cloud Run runtime (`gcp/image`), and local `tools/` scripts. It complements the high-level flow in [Centralized config and repo variables](#centralized-config-and-repo-variables) above.
+
+**Secrets:** Never commit secrets. Repo **Variables** are not encrypted; use **Secrets** for tokens and keys.
+
+**Large values:** Prefer files or step outputs (`GITHUB_OUTPUT`, `.bmt/context.json`) for big JSON blobs. Environment variables have size and escaping constraints in Actions.
+
+## Env usage to avoid or minimize
+
+New work should not add more of these patterns; refactors that touch them should prefer files, secrets stores, or typed resolution (see [tools/shared/github_app_settings.py](../tools/shared/github_app_settings.py) for GitHub App id/path precedence).
+
+| Avoid or minimize | Why | Prefer instead |
+| ----------------- | --- | -------------- |
+| Large JSON or matrices in env | Size/escaping limits in Actions | `.bmt/context.json`, `GITHUB_OUTPUT`, artifacts |
+| Secret bodies in env | Exposure in logs and dumps | GitHub Secrets, GCP Secret Manager; env holds paths/refs only |
+| New parallel names for the same fact | Operator confusion | One name per layer; consolidate aliases in code (see GitHub App module) |
+| New undocumented `BMT_*` for local tools | Hard to discover | Typer options with `envvar=` (e.g. `tools bucket upload-runner --help`) |
+| Duplicating infra values already in `bmt.config.json` | Drift vs Pulumi | `just workspace pulumi` / repo variables |
+| Constants as env | False configurability | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
+
+## GitHub Actions precedence
+
+When the same name appears at multiple levels:
+
+1. Step `env` overrides job `env` overrides workflow `env`.
+2. `secrets.*` injects masked values; `vars.*` is repository/org variables (non-secret); `env.*` is the computed env for the step.
+
+Official behavior: [GitHub Docs — Workflow syntax](https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#env).
+
+## Where canonical names live
+
+| Mechanism | Location |
+| --------- | -------- |
+| GitHub repo variables (Pulumi-synced) | [tools/repo/vars_contract.py](../tools/repo/vars_contract.py) |
+| Aggregated contract (contexts) | [tools/shared/env_contract.py](../tools/shared/env_contract.py) |
+| CI typed settings (`BmtConfig`) | [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) |
+| `ENV_*` string constants | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
+| Infra file (not process env) | `infra/pulumi/bmt.config.json` via [infra/pulumi/pulumi_stack_config.py](../infra/pulumi/pulumi_stack_config.py) |
+
+## Infra and CI (`BmtConfig` / repo vars)
+
+These names are synced from Pulumi to GitHub **Variables** for normal use. See [Centralized config and repo variables](#centralized-config-and-repo-variables).
+
+| Name | Layer | Required | Notes |
+| ---- | ----- | -------- | ----- |
+| `GCS_BUCKET` | Repo var, CI, runtime | Yes | Bucket root mirror of `gcp/stage/` |
+| `GCP_PROJECT` | Repo var, CI, runtime | Yes | |
+| `GCP_ZONE` | Repo var, tooling | Yes | Image/compute helpers |
+| `GCP_SA_EMAIL` | Repo var, CI | Yes | Service account email |
+| `GCP_WIF_PROVIDER` | Repo var, CI | Yes | OIDC / WIF provider resource |
+| `CLOUD_RUN_REGION` | Repo var, CI, runtime opt | Has default | Default `europe-west4` in code/docs |
+| `BMT_CONTROL_JOB` | Repo var, local tools | Yes | Cloud Run job name |
+| `BMT_TASK_STANDARD_JOB` | Repo var, local tools | Yes | |
+| `BMT_TASK_HEAVY_JOB` | Repo var, local tools | Yes | |
+| `BMT_STATUS_CONTEXT` | Repo var, CI, runtime | Optional | Default status context (e.g. `BMT Gate`) |
+
+## Workflow handoff context (CI)
+
+Read by `context_from_env` / `WorkflowContext` in [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) (`_WORKFLOW_CONTEXT_ENV_KEYS`). Typical sources: workflow `env`, prior step outputs, and Actions built-ins.
+
+| Name | Purpose (summary) |
+| ---- | ------------------- |
+| `ACCEPTED` | Accepted line / marker |
+| `ACCEPTED_PROJECTS` | JSON array of projects |
+| `AVAILABLE_ARTIFACTS` | Artifact listing |
+| `BMT_RUNNERS_PRESEEDED_IN_GCS` | Runner seeding flag |
+| `BMT_SKIP_PUBLISH_RUNNERS` | Skip publish |
+| `DISPATCH_HEAD_SHA` | Dispatch SHA |
+| `DISPATCH_PR_NUMBER` | Dispatch PR |
+| `FAILURE_REASON` | Failure text |
+| `FILTERED_MATRIX` | Matrix JSON |
+| `GITHUB_REPOSITORY` | `owner/name` |
+| `GITHUB_RUN_ID` | Workflow run id |
+| `GITHUB_SERVER_URL` | Git host URL |
+| `HANDSHAKE_OK` | Handshake |
+| `HEAD_BRANCH` | Branch |
+| `HEAD_SHA` | Commit |
+| `MODE` | Mode string |
+| `ORCH_HANDSHAKE_OK` | Orchestrator handshake |
+| `ORCH_HAS_LEGS` | Has legs |
+| `ORCH_TRIGGER_WRITTEN` | Trigger written |
+| `PREPARE_HEAD_SHA` | Prepare SHA |
+| `PREPARE_PR_NUMBER` | Prepare PR |
+| `PREPARE_RESULT` | Prepare result |
+| `PR_NUMBER` | Pull request number |
+| `REPOSITORY` | Repository `owner/repo` (alternate) |
+| `RUNNER_MATRIX` | Runner matrix JSON |
+| `TARGET_URL` | Target URL |
+| `TRIGGER_WRITTEN` | Trigger written |
+
+Additional names used by handoff / matrix code without being in `_WORKFLOW_CONTEXT_ENV_KEYS` include `GITHUB_OUTPUT`, `GITHUB_ENV`, `GITHUB_STEP_SUMMARY`, `GITHUB_TOKEN`, `FILTERED_MATRIX_JSON`, `GITHUB_SHA`, and orchestration flags such as `ORCH_*` read in [.github/bmt/ci/handoff.py](../.github/bmt/ci/handoff.py).
+
+## Pipeline mapping: Actions → Cloud Run
+
+Workflows pass run metadata into Google Workflows and then into Cloud Run. **Names differ** between the Actions step environment and the runtime container:
+
+| Concept | Typical Actions / `bmt` env | Cloud Run runtime env |
+| ------- | --------------------------- | ---------------------- |
+| Commit SHA | `HEAD_SHA` | `BMT_HEAD_SHA` |
+| Branch | `HEAD_BRANCH` | `BMT_HEAD_BRANCH` |
+| Event | `HEAD_EVENT` | `BMT_HEAD_EVENT` |
+| PR number | `PR_NUMBER` | `BMT_PR_NUMBER` |
+| Run context | `RUN_CONTEXT` | `BMT_RUN_CONTEXT` |
+| Accepted projects JSON | (in workflow argument) | `BMT_ACCEPTED_PROJECTS_JSON` |
+
+`GITHUB_REPOSITORY` is shared. See [.github/bmt/ci/workflow_dispatch.py](../.github/bmt/ci/workflow_dispatch.py) and [gcp/image/runtime/entrypoint.py](../gcp/image/runtime/entrypoint.py).
+
+## GitHub App and tooling aliases
+
+Local and CI tools resolve credentials with several alternate variable names (first match wins):
+
+| Role | Alternate names |
+| ---- | ---------------- |
+| Repository (`owner/repo`) | `BMT_GITHUB_REPOSITORY`, `GITHUB_REPOSITORY` |
+| App profile | `BMT_GITHUB_APP_PROFILE` |
+| App id (dev) | `GITHUB_APP_DEV_ID`, `GH_APP_DEV_ID` |
+| App id (primary) | `GITHUB_APP_ID`, `GH_APP_ID` |
+| App id (override) | `BMT_APP_ID` |
+| Private key path (dev) | `GITHUB_APP_DEV_PRIVATE_KEY_PATH`, `GH_APP_DEV_PRIVATE_KEY_PATH`, `BMT_APP_PRIVATE_KEY_PATH` |
+| Private key path (primary) | `GITHUB_APP_PRIVATE_KEY_PATH`, `GH_APP_PRIVATE_KEY_PATH`, `BMT_APP_PRIVATE_KEY_PATH` |
+| Utility | `BMT_JQ_PATH` |
+
+**Resolution:** App id and PEM path precedence (per profile) are implemented in [tools/shared/github_app_settings.py](../tools/shared/github_app_settings.py) (`first_nonempty_env`, `app_id_for_profile`, `private_key_path_for_profile`). Empty string does not block a later alias in the chain (same as the former `a or b` behavior).
+
+Secrets for production paths are listed in [Required Manual GitHub Configuration](#required-manual-github-configuration-secrets-and-optional-overrides).
+
+## Local `tools/` and scripts (selected)
+
+| Name | Purpose |
+| ---- | ------- |
+| `BMT_CONFIG` | Path for gh repo vars config |
+| `BMT_CONTRACT` | Contract path override |
+| `BMT_FORCE`, `BMT_PRUNE_EXTRA` | Tool flags |
+| `BMT_PROJECT`, `BMT_DATASET`, `BMT_STAGE_ROOT`, `BMT_DRY_RUN` | Manifest / dataset helpers |
+| `BMT_SRC_DIR`, `BMT_DELETE`, `BMT_ALLOW_GENERATED_ARTIFACTS` | Bucket sync / verify |
+| `BMT_RUNNER_PATH`, `BMT_RUNNER_URI`, `BMT_SOURCE`, `SOURCE_REF` | Runner upload / CLI (`upload-runner` also exposes Typer options with these `envvar` names) |
+| `BMT_ROOT` | Symlink helper |
+| `BMT_BUILD_REPO` | Build command |
+| `BMT_CONTEXT_FILE` | Override context file path (CI) |
+| `MATRIX_CONFIGURE`, `BMT_OUTPUT_KEY`, `BMT_PRESETS_FILE`, `BMT_HAS_LEGS_KEY` | Matrix / presets |
+| `BOOTSTRAP_NONINTERACTIVE`, `SKIP_UV_INSTALL` | Bootstrap script |
+
+## Boolean env strings
+
+Flags such as `BMT_USE_MOCK_RUNNER` and `tools.shared.env.get_bool` treat these as true (case-insensitive, stripped): `1`, `true`, `yes`. Implementation: [gcp/image/config/env_parse.py](../gcp/image/config/env_parse.py) (`is_truthy_env_value`).
+
+## Regenerating the machine-oriented inventory
+
+See [Env inventory appendix](#env-inventory-appendix) for `rg` recipes and optional `vulture` / `pylint` duplicate-code scopes.
+
+GitHub reporting chooses the credential profile from the repository (`owner/repo`):
+
+## Env inventory appendix
+
+First-party Python and automation live outside mirrored plugin trees under `gcp/stage/**`. Exclude that path when scanning for **new** env usage to avoid duplicated generated bundles.
+
+## Discover `os.environ` / `getenv` keys (Python)
+
+From the repo root (exclude mirrored stage plugins):
+
+```bash
+rg 'os\.environ\.get\(' -g '*.py' --glob '!gcp/stage/**'
+rg 'os\.getenv\(' -g '*.py' --glob '!gcp/stage/**'
+```
+
+Narrow to string literals:
+
+```bash
+rg 'os\.environ\.get\("[A-Z0-9_]+"' -g '*.py' --glob '!gcp/stage/**'
+rg "os\.environ\.get\\('[A-Z0-9_]+'" -g '*.py' --glob '!gcp/stage/**'
+```
+
+## Optional code health (env-related paths)
+
+After `uv sync` (includes optional dev tools):
+
+```bash
+uv run vulture gcp/image/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
+```
+
+```bash
+uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 \
+  gcp/image/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py .github/bmt/ci/workflow_dispatch.py
+```
+
+Or use `just tools doctor` from the repo root.
+
+These checks are **optional** for contributors; the default gate remains `just test` (pytest, ruff, `ty`, etc.).
+
+**GitHub App id / key path precedence** is implemented in [tools/shared/github_app_settings.py](../tools/shared/github_app_settings.py) (see [GitHub App and tooling aliases](#github-app-and-tooling-aliases)).

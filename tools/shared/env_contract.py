@@ -11,7 +11,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from backend.config.constants import ENV_CLOUD_RUN_REGION, ENV_GCP_PROJECT, ENV_GCS_BUCKET
 from tools.repo.paths import repo_root
+
 
 def _contract_module_path() -> Path:
     return repo_root() / "tools" / "repo" / "vars_contract.py"
@@ -32,13 +34,13 @@ def _build_contract_from_python() -> dict[str, Any]:
 
     required = list(REPO_VARS_CONTRACT.required)
     optional = list(REPO_VARS_CONTRACT.optional)
-    secrets = list(REPO_VARS_CONTRACT.secrets_not_in_terraform)
+    secrets = list(REPO_VARS_CONTRACT.manual_vars)
     optional = [s for s in optional if s not in required]
     optional.extend(s for s in secrets if s not in optional)
 
     defaults = REPO_VARS_CONTRACT.default_dict()
 
-    consistency_checks: dict[str, Any] = {"repo_vs_vm_metadata": ["GCS_BUCKET"]}
+    consistency_checks: dict[str, Any] = {"repo_vs_vm_metadata": [ENV_GCS_BUCKET]}
     branch_path = _branch_status_context_path()
     if branch_path.is_file():
         with branch_path.open(encoding="utf-8") as f:
@@ -53,9 +55,11 @@ def _build_contract_from_python() -> dict[str, Any]:
         "description": "Contract built from vars_contract and branch-status-context.",
         "contexts": {
             "github_repo_vars": {"required": required, "optional": optional},
-            "vm_metadata": {"required": ["GCS_BUCKET"], "optional": ["BMT_REPO_ROOT"]},
-            "vm_runtime_env": {"optional": []},
-            "local_dev_env": {"optional": ["GCS_BUCKET", "GCP_PROJECT", "BMT_LIVE_VM"]},
+            "cloud_run_runtime_env": {
+                "required": [ENV_GCS_BUCKET, ENV_GCP_PROJECT],
+                "optional": [ENV_CLOUD_RUN_REGION],
+            },
+            "local_dev_env": {"optional": [ENV_GCS_BUCKET, ENV_GCP_PROJECT, ENV_CLOUD_RUN_REGION]},
         },
         "consistency_checks": consistency_checks,
         "defaults": defaults,

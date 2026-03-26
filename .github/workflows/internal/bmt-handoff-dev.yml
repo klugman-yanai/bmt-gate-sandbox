@@ -1,0 +1,56 @@
+name: BMT (mock)
+# Dev-only: trigger bmt-handoff.yml with mock runner enabled for pipeline plumbing tests.
+# Passes use_mock_runner: true so no real dataset or runner is required.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: "GitHub run ID of the caller workflow."
+        required: true
+        type: string
+      head_sha:
+        description: "Full commit SHA under test."
+        required: true
+        type: string
+      head_branch:
+        description: "Branch name containing head_sha."
+        required: true
+        type: string
+      head_event:
+        description: "Event that triggered the caller: push or pull_request."
+        required: false
+        type: string
+        default: "push"
+      pr_number:
+        description: "PR number when head_event is pull_request; leave empty for push."
+        required: false
+        type: string
+        default: ""
+      available_artifacts:
+        description: "JSON array of artifact names the caller uploaded."
+        required: false
+        type: string
+        default: "[]"
+
+jobs:
+  bmt:
+    name: BMT
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      statuses: write
+    uses: ./.github/workflows/bmt-handoff.yml
+    with:
+      ci_run_id: ${{ inputs.ci_run_id }}
+      head_sha: ${{ inputs.head_sha }}
+      head_branch: ${{ inputs.head_branch }}
+      head_event: ${{ inputs.head_event }}
+      pr_number: ${{ inputs.pr_number }}
+      available_artifacts: ${{ inputs.available_artifacts }}
+      use_mock_runner: true
+      skip_missing_runner_artifacts: true
+      cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
+      bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
+    secrets: inherit

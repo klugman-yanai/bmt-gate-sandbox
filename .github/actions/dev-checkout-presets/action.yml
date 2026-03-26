@@ -1,0 +1,71 @@
+name: Dev repo snapshot + CMake presets
+description: >
+  After the workflow runs actions/checkout, create repo-snapshot artifact and emit
+  release_presets / non_release_presets JSON for matrix jobs. (Local composite actions
+  must not be the first step — checkout is required so action.yml is present on disk.)
+
+outputs:
+  artifact_size:
+    description: Human-readable size of repo-snapshot.tar.gz
+    value: ${{ steps.report.outputs.artifact_size }}
+  release_presets:
+    description: JSON array for matrix.include (release build presets)
+    value: ${{ steps.parse.outputs.release_presets }}
+  non_release_presets:
+    description: JSON array for matrix.include (non-release build presets)
+    value: ${{ steps.parse.outputs.non_release_presets }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create repo snapshot
+      shell: bash
+      run: |
+        tar --exclude='.git' \
+            --exclude='.ruff_cache' \
+            --exclude='.venv' --exclude='venv' --exclude='.uv' \
+            --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.tox' --exclude='*.egg-info' \
+            --exclude='.cursor' --exclude='.vscode' \
+            --exclude='node_modules' \
+            -czf /tmp/repo-snapshot.tar.gz .
+        mv /tmp/repo-snapshot.tar.gz repo-snapshot.tar.gz
+
+    - name: Report repo-snapshot size
+      id: report
+      shell: bash
+      run: |
+        size=$(du -h repo-snapshot.tar.gz | cut -f1)
+        echo "::notice::repo-snapshot artifact size: $size"
+        echo "artifact_size=$size" >>"$GITHUB_OUTPUT"
+
+    - name: Upload repo-snapshot
+      uses: ./.github/actions/upload-artifact-repo
+      with:
+        name: repo-snapshot
+        path: repo-snapshot.tar.gz
+        retention-days: "5"
+
+    - name: Parse CMakePresets.json
+      id: parse
+      shell: bash
+      run: |
+        presets=$(jq -c '
+          [ (.buildPresets // [])[]
+            | (.configurePreset // "") as $cfg
+            | select($cfg != "")
+            | { build: .name
+              , configure: $cfg
+              , short: (.name | sub("-build$"; ""))
+              , is_release: (
+                  ($cfg | test("_gcc_Release")) and
+                  (($cfg | test("xtensa"; "i")) | not) and
+                  (($cfg | test("hexagon"; "i")) | not)
+                )
+              , soft_fail: (
+                  ($cfg | test("xtensa"; "i")) or
+                  ($cfg | test("hexagon"; "i"))
+                )
+              }
+          ]' CMakePresets.json)
+        echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
+        echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"

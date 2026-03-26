@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from backend.config.constants import STATUS_CONTEXT
-from tools.repo import gh_repo_vars as repo_vars  # type: ignore[import-not-found]
+from tools.repo import gh_repo_vars as repo_vars
 from tools.shared.env_contract import default_contract_path
+
+pytestmark = pytest.mark.unit
 
 
 def _cp(*, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:
@@ -20,7 +21,7 @@ def _cp(*, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.Comple
 def test_load_contract_parses_branch_rule_checks() -> None:
     """Load real contract (Python module + branch-status-context) and assert structure."""
     contract_path = default_contract_path()
-    ordered, required, defaults, checks = repo_vars._load_contract(contract_path)
+    ordered, required, _defaults, checks = repo_vars._load_contract(contract_path)
 
     assert "GCS_BUCKET" in required
     assert "GCS_BUCKET" in ordered
@@ -142,7 +143,7 @@ def test_validate_wif_provider_mismatch_raises(monkeypatch: pytest.MonkeyPatch) 
         "GCP_PROJECT": "proj-a",
     }
 
-    monkeypatch.setattr(repo_vars.shutil, "which", lambda _name: "/usr/bin/gcloud")
+    monkeypatch.setattr(repo_vars, "command_available", lambda _name: True)
     monkeypatch.setattr(
         repo_vars,
         "_run",
@@ -157,6 +158,6 @@ def test_validate_wif_provider_skips_when_gcloud_missing(monkeypatch: pytest.Mon
         "GCP_WIF_PROVIDER": "projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
         "GCP_PROJECT": "proj-a",
     }
-    monkeypatch.setattr(repo_vars.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(repo_vars, "command_available", lambda _name: False)
     warnings = repo_vars._validate_wif_provider_consistency(desired)
     assert any("gcloud not found" in item for item in warnings)

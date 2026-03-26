@@ -14,6 +14,13 @@ inputs:
   service_account:
     description: GCP service account email for WIF
     required: true
+  gcp_project:
+    description: Same as setup-gcp-uv gcp_project input (typically env.GCP_PROJECT).
+    required: true
+  setup_gcp:
+    description: Whether to run setup-gcp-uv. Set to "false" when the caller already ran it in the same job.
+    required: false
+    default: "true"
 
 outputs:
   path:
@@ -33,17 +40,18 @@ runs:
   using: composite
   steps:
     - name: Setup GCP and uv
+      if: inputs.setup_gcp != 'false'
       uses: ./.github/actions/setup-gcp-uv
       with:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}
         service_account: ${{ inputs.service_account }}
-        python_version: "3.12"
+        gcp_project: ${{ inputs.gcp_project }}
 
     - id: list
       env:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
       shell: bash
-      run: uv run bmt write-context && uv run bmt resolve-uploaded-projects
+      run: uv run bmt handoff write-context && uv run bmt runner resolve-uploaded-projects
 
     - id: filter
       shell: bash
@@ -51,7 +59,7 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         FULL_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED_PROJECTS: ${{ steps.list.outputs.accepted_projects }}
-      run: uv run bmt filter-supported-matrix
+      run: uv run bmt matrix filter-supported
 
     - name: Show matrix classification details
       shell: bash
@@ -59,7 +67,7 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED: ${{ steps.list.outputs.accepted_projects }}
         FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
-      run: uv run bmt write-context && uv run bmt summarize-matrix-handshake
+      run: uv run bmt handoff write-context && uv run bmt runner summarize-handshake
 
     - id: route
       shell: bash

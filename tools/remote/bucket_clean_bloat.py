@@ -29,7 +29,7 @@ def _list_uris(prefix_uri: str) -> list[str]:
         check=False,
     )
     out = (proc.stdout or "").strip()
-    uris = [line.strip() for line in out.splitlines() if line.strip()]
+    uris: list[str] = [line.strip() for line in out.splitlines() if line.strip()]
     if proc.returncode != 0 and not uris:
         no_match = "One or more URLs matched no objects" in (proc.stderr or "")
         if not no_match:

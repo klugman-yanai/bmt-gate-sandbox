@@ -1,18 +1,8 @@
-# BMT config (production)
+# BMT config
 
-Used by the BMT CI pipeline in this repo. **Local bootstrap and repo setup live in the bmt-gcloud repo.**
+YAML and Python config consumed by **`uv run bmt`** (see [.github/README.md](../../README.md)).
 
-## What CI uses
-
-- **`load-env`** — Run in CI by `bmt-runner-env`: loads BMT config (env from workflow `env:` / vars first, then built-in defaults in code) and appends to `GITHUB_ENV` so downstream steps don’t need per-step `env:` blocks. No config file is required; optional override via `BMT_CONFIG_PATH` if you need a JSON file.
-- **`secrets/`** — Place `*.pem` (e.g. GitHub App private keys) here when testing locally; directory is gitignored for `*.pem`. CI uses GitHub repo secrets, not files from this tree.
-
-CI does **not** read any `.env` file. Variables are supplied by the workflow’s `env:` block from GitHub repo variables/secrets. Required vars such as `BMT_STATUS_CONTEXT`, `BMT_HANDSHAKE_TIMEOUT_SEC` are set from Terraform via `just terraform-export-vars-apply` in bmt-gcloud; the CLI `shared/config.py` still provides fallback defaults when env is missing (e.g. local runs).
-
-## Bootstrapping repo variables (local dev / one-time setup)
-
-To set or refresh GitHub repo variables and secrets for the repo that runs the workflow (e.g. this repo), use the **bmt-gcloud** repo:
-
-- See **bmt-gcloud** devtools/docs for the list of required variables and how to set them (`gh variable set` / `gh secret set`), or use the bootstrap helper and `.env.example` there.
-
-Required variables set by Terraform export: `GCS_BUCKET`, `GCP_PROJECT`, `GCP_SA_EMAIL`, `BMT_LIVE_VM`. Set manually: `GCP_WIF_PROVIDER`. Zone, subscription, topic, status context, and handshake timeouts are fixed or derived in code (not overridable via env). Optional and secrets are documented in bmt-gcloud.
+- **Infra and repo variables:** Pulumi and **`just workspace pulumi`** — [infra/README.md](../../../infra/README.md), [docs/configuration.md](../../../docs/configuration.md).
+- **`secrets/`:** optional local `*.pem` for GitHub App testing (gitignored). **CI** should use a **GitHub Actions secret** (multiline PEM) and, if code requires a path, write to **`RUNNER_TEMP`** at runtime — do **not** commit keys to the repo.
+- **core-main / production:** Prefer **no** tracked `*.pem` under `.github/`. The release assembler can copy a PEM into `.github-release/` for **local** promotion only; treat promotion to `core-main` as **secrets-only** unless your org explicitly approves an exception.
+- **`meta load-env`:** `uv run bmt meta load-env` materializes config into `GITHUB_ENV` when bootstrapping; most handoff flows pass vars via `setup-gcp-uv` and nested commands such as `uv run bmt handoff write-context`.

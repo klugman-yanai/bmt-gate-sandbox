@@ -10,27 +10,35 @@ from pathlib import Path
 from tools.repo.paths import DEFAULT_CONFIG_ROOT
 
 ALLOWED_TRACKED_TOP_LEVEL = {
+    ".actrc",
     ".cursorignore",
+    ".env.example",
     ".gitattributes",
     ".github",
     ".gitignore",
     ".pre-commit-config.yaml",
     ".python-version",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
     "CLAUDE.md",
+    "CONTRIBUTING.md",
     "CMakePresets.json",
     "CMakeLists.txt",
     "Justfile",
     "README.md",
-    "tools",
+    "ROADMAP.md",
+    "cache",
     "docs",
+    "gcp",
     "infra",
     "pyproject.toml",
     "pyrightconfig.json",
-    "backend",
-    "benchmarks",
     "ruff.toml",
+    "schemas",
     "scripts",
     "tests",
+    "tools",
     "uv.lock",
     ".canary-bmt-pr-test-20260305",
 }
@@ -38,7 +46,6 @@ ALLOWED_TRACKED_TOP_LEVEL = {
 FORBIDDEN_TRACKED_PREFIXES = (
     "debug/",
     "resources/",
-    ".cursor/plans/",
 )
 
 FORBIDDEN_EXISTING_TOP_LEVEL = {
@@ -52,7 +59,7 @@ REQUIRED_PATHS = (
     DEFAULT_CONFIG_ROOT,
     "tools/scripts/hooks/pre-commit-sync-gcp.sh",
 )
-# benchmarks/ (DEFAULT_RUNTIME_ROOT) is optional: populated by sync; not required to exist for policy pass.
+# gcp/stage (DEFAULT_STAGE_ROOT) is optional: populated by sync; not required to exist for policy pass.
 
 
 def _tracked_paths() -> list[str]:
@@ -106,15 +113,6 @@ class RepoLayoutPolicy:
         if forbidden_existing:
             failures.append("Forbidden top-level local directories exist:")
             failures.extend([f"  - {name}" for name in forbidden_existing])
-
-        cursor_plans = root / ".cursor" / "plans"
-        if cursor_plans.exists():
-            existing_plan_files = sorted(p.relative_to(root).as_posix() for p in cursor_plans.rglob("*") if p.is_file())
-            if existing_plan_files:
-                failures.append("Editor plan artifacts must be archived under docs/plans/archive/cursor/:")
-                failures.extend([f"  - {path}" for path in existing_plan_files[:30]])
-                if len(existing_plan_files) > 30:
-                    failures.append(f"  ... and {len(existing_plan_files) - 30} more")
 
         if failures:
             for line in failures:

@@ -1,0 +1,57 @@
+# Validates scripts/assemble_release.py output (no local PEM required in CI).
+name: Validate release bundle
+
+on:
+  push:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+    paths:
+      - "scripts/assemble_release.py"
+      - "scripts/release_templates/**"
+      - "ci/**"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+  pull_request:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+    paths:
+      - "scripts/assemble_release.py"
+      - "scripts/release_templates/**"
+      - "ci/**"
+      - ".github/workflows/**"
+      - ".github/actions/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assemble:
+    name: Assemble .github-release (skip secrets)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-uv-repo
+
+      - name: Assemble release bundle
+        run: uv run python scripts/assemble_release.py --skip-secrets
+
+      - name: Verify provenance and key files
+        run: |
+          set -euo pipefail
+          test -f .github-release/bmt_release.json
+          test -f .github-release/workflows/bmt-handoff.yml
+          test -f .github-release/workflows/build-and-test.yml
+          test -f .github-release/workflows/clang-format-auto-fix.yml
+          test -f .github-release/workflows/internal/trigger-ci.yml
+          test -f .github-release/workflows/internal/code-owner-enforcement.yml
+          test -f .github-release/bmt/pyproject.toml
+          jq -e '.source_sha | length >= 7' .github-release/bmt_release.json
+          jq -e '.skip_secrets == true' .github-release/bmt_release.json

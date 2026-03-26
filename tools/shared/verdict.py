@@ -7,30 +7,40 @@ so tools/ does not depend on .github/bmt CLI.
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from typing import Any
 
-_RUN_ID_SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
+from backend.config.value_types import (
+    ResultsPath,
+    RunId,
+    as_results_path,
+    results_path_str,
+    sanitize_run_id,
+)
+
+__all__ = [
+    "ResultsPath",
+    "RunId",
+    "as_results_path",
+    "current_pointer_uri",
+    "download_json",
+    "results_path_str",
+    "sanitize_run_id",
+    "snapshot_verdict_uri",
+]
 
 
-def sanitize_run_id(raw: str) -> str:
-    value = _RUN_ID_SAFE.sub("-", raw.strip()).strip("-._")
-    if not value:
-        raise ValueError("run_id is empty after sanitization")
-    return value[:200]
-
-
-def snapshot_verdict_uri(bucket_root: str, results_prefix: str, run_id: str) -> str:
+def snapshot_verdict_uri(bucket_root: str, results_path: ResultsPath | str, run_id: RunId | str) -> str:
     """GCS URI for ci_verdict.json of a given run."""
-    cleaned = results_prefix.rstrip("/")
-    safe = sanitize_run_id(run_id)
-    return f"{bucket_root}/{cleaned}/snapshots/{safe}/ci_verdict.json"
+    rp = results_path_str(as_results_path(str(results_path)))
+    safe = sanitize_run_id(str(run_id))
+    return f"{bucket_root}/{rp}/snapshots/{safe}/ci_verdict.json"
 
 
-def current_pointer_uri(bucket_root: str, results_prefix: str) -> str:
-    """GCS URI for current.json pointer at results prefix."""
-    return f"{bucket_root}/{results_prefix.rstrip('/')}/current.json"
+def current_pointer_uri(bucket_root: str, results_path: ResultsPath | str) -> str:
+    """GCS URI for current.json pointer under the results path."""
+    rp = results_path_str(as_results_path(str(results_path)))
+    return f"{bucket_root}/{rp}/current.json"
 
 
 def download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:

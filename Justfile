@@ -1,106 +1,173 @@
-# bmt-gcloud dev tools (run `just` for list)
+# default/list → tools/scripts/just_list_recipes.py (Rich). Repo: bmt-gcloud.
 
-default:
-    @just --list --unsorted
+alias help := default
 
-# -- Pre-push ---------------------------------------------------------------
+[doc('Typical contributor workflow; `just list` for all recipes.')]
+[group('help')]
+default *args:
+    @uv run python tools/scripts/just_list_recipes.py --intro {{ args }} "{{ justfile() }}"
 
+[doc('Command table (task + run); `just list --verbose` for Justfile docs. No intro.')]
+[group('help')]
+list *args:
+    @uv run python tools/scripts/just_list_recipes.py {{ args }} "{{ justfile() }}"
+
+[doc('Full Typer CLI (bucket, repo, build, bmt, …); see --help.')]
+[group('cli')]
+tools *args:
+    @uv run python -m tools {{ args }}
+
+[doc('Pre-push: pytest, ruff, ty, actionlint, shellcheck, layout.')]
 [group('pre-push')]
 test:
-    uv sync
-    uv run python -m pytest tests/ -v
-    ruff check .
-    ruff format --check .
-    basedpyright
-    command -v shellcheck >/dev/null 2>&1 || (echo "Install shellcheck (e.g. apt install shellcheck)" >&2; exit 1)
-    shellcheck --severity=warning backend/scripts/*.sh .github/bmt/ci/resources/startup_entrypoint.sh tools/scripts/hooks/*.sh
-    uv run python -m tools.repo.gcp_layout_policy
-    uv run python -m tools.repo.repo_layout_policy
+    @bash tools/scripts/verify_repo.sh
 
-# -- Bucket ------------------------------------------------------------------
+[doc('Quick pytest + ruff before publish. See docs/local-bmt-testing.md.')]
+[group('pre-push')]
+test-local:
+    @uv run python -m tools repo test-local
 
-[group('bucket')]
-deploy:
-    uv run python -m tools bucket deploy
-
-[group('bucket')]
-preflight:
-    uv run python -m tools bucket preflight
-
-[group('bucket')]
-clean-bloat *args:
-    uv run python -m tools bucket clean-bloat {{ args }}
-
-# -- Infrastructure ----------------------------------------------------------
-
-[group('infra')]
-terraform *args:
-    uv run python -m tools terraform apply {{ args }}
-
-[group('infra')]
-terraform-import-topics *args:
-    uv run python -m tools terraform import-topics {{ args }}
-
-# Build VM image (dispatch trigger-image-build.yml). Pass --repo owner/name after 'build' if origin is a different repo (e.g. sandbox).
-[group('infra')]
-build *args:
-    uv run python -m tools build image --branch "`git rev-parse --abbrev-ref HEAD`" {{ args }}
-
-[group('infra')]
-packer-validate:
-    uv run python -m tools build packer-validate
-
-# -- Validation & debug ------------------------------------------------------
+[group('pre-push')]
+[private]
+ship *args:
+    @uv run python -m tools ship {{ args }}
 
 [group('validate')]
-validate:
-    uv run python -m tools repo validate
-
-[group('validate')]
+[private]
 show-env:
-    uv run python -m tools repo show-env
+    @uv run python -m tools repo show-env
+
+[doc('tools workspace <cmd>: deploy syncs benchmarks→GCS; also pulumi, validate, preflight, e2e. See docs/contributor-commands.md.')]
+[group('workspace')]
+workspace *args:
+    @uv run python -m tools workspace {{ args }}
+
+[doc('Upload local benchmarks/ config to your GCS bucket so CI matches the repo (same as `just workspace deploy`). Needs GCS_BUCKET. See docs/contributor-commands.md.')]
+[group('workspace')]
+sync-to-bucket *args:
+    @uv run python -m tools workspace deploy {{ args }}
+
+alias sync-stage := sync-to-bucket
+
+[doc('project=benchmarks/projects/<name>; source=local .zip or WAV folder. See docs/contributor-commands.md.')]
+[group('bucket')]
+upload-wav project source *args:
+    @uv run python -m tools bucket upload-wav "{{ project }}" "{{ source }}" {{ args }}
+
+[doc('FUSE mount project inputs (list: `just tools bucket --help`).')]
+[group('bucket')]
+[private]
+mount project:
+    @uv run python -m tools bucket mount-project "{{ project }}"
+
+[doc('Unmount FUSE mount (see `just tools bucket umount-project --help`).')]
+[group('bucket')]
+[private]
+unmount project:
+    @uv run python -m tools bucket umount-project "{{ project }}"
+
+[doc('Project and/or BMT scaffold and/or WAV upload. See `just tools add --help`.')]
+[group('dev')]
+add *argv:
+    @uv run python -m tools add {{ argv }}
+
+[doc('bmt stage: project|bmt|publish — lower-level; prefer `just add` / `just publish`.')]
+[group('dev')]
+stage *argv:
+    @uv run python -m tools bmt stage {{ argv }}
+
+[doc('New project scaffold (same as `just add <name>`).')]
+[group('dev')]
+[private]
+add-project *argv:
+    @uv run python -m tools bmt stage project {{ argv }}
+
+[doc('New BMT (same as `just add <proj> --bmt=<name>`).')]
+[group('dev')]
+[private]
+add-bmt *argv:
+    @uv run python -m tools bmt stage bmt {{ argv }}
+
+[doc('Publish plugin; enables BMT by default. See `just tools publish --help`.')]
+[group('dev')]
+publish *argv:
+    @uv run python -m tools publish {{ argv }}
+
+[doc('Two-arg publish (same as `just publish PROJ BMT`).')]
+[group('dev')]
+[private]
+publish-bmt project benchmark *args:
+    @uv run python -m tools publish "{{ project }}" "{{ benchmark }}" {{ args }}
+
+[doc('Contributor checklist (same as `just tools workflow overview`).')]
+[group('help')]
+workflow:
+    @uv run python -m tools workflow overview
+
+[doc('Repo status: .venv, benchmarks/projects (same as `just tools workflow status`).')]
+[group('help')]
+status:
+    @uv run python -m tools workflow status
+
+alias workflow-status := status
+
+[doc('Bootstrap script; *args forwarded (e.g. --dry-run). vs tools onboard: see docs/contributor-commands.md.')]
+[group('dev')]
+onboard *args:
+    @bash tools/scripts/bootstrap_dev_env.sh {{ args }}
+
+[group('bucket')]
+[private]
+project-sync project:
+    @uv run python -m tools bucket project-sync "{{ project }}"
+
+[group('bucket')]
+[private]
+clean-bloat *args:
+    @uv run python -m tools bucket clean-bloat {{ args }}
+
+[group('bucket')]
+[private]
+fetch-inputs project dataset:
+    @gcloud storage cp -r "gs://$GCS_BUCKET/projects/{{ project }}/inputs/{{ dataset }}/" \
+        "benchmarks/projects/{{ project }}/inputs/{{ dataset }}/"
+
+[group('bucket')]
+[private]
+fetch-wav path:
+    @gcloud storage cp "gs://$GCS_BUCKET/{{ path }}" "benchmarks/{{ path }}"
+
+[group('bucket')]
+[private]
+gen-manifest project dataset:
+    @BMT_PROJECT={{ project }} BMT_DATASET={{ dataset }} uv run python -m tools.remote.gen_input_manifest
+
+[group('bucket')]
+[private]
+mount-data project:
+    @bash tools/scripts/mount_project_inputs_fuse.sh "{{ project }}"
+
+[group('bucket')]
+[private]
+umount-data project:
+    @fusermount -u benchmarks/mnt/{{ project }}-inputs
+
+[group('bucket')]
+[private]
+set-bucket-var:
+    @gh variable set GCS_BUCKET --body "$(cd infra/pulumi && pulumi stack output gcs_bucket)"
 
 [group('validate')]
-monitor:
-    uv run python -m tools bmt monitor
+[private]
+repo-vars-apply:
+    @uv run python -m tools.repo.gh_repo_vars --apply
 
-# -- Scaffolding & release ---------------------------------------------------
+[group('infra')]
+[private]
+build *args:
+    @uv run python -m tools build image --branch "`git rev-parse --abbrev-ref HEAD`" {{ args }}
 
-[group('dev')]
-add-project project:
-    uv run python -m tools bmt add-project "{{ project }}"
-
-[group('dev')]
-release-package:
-    rm -rf .github-release/bmt/ci .github-release/bmt/config .github-release/bmt/pyproject.toml .github-release/bmt/uv.lock
-    cp -r .github/bmt/ci .github/bmt/config .github/bmt/pyproject.toml .github/bmt/uv.lock .github-release/bmt/
-    @echo "Updated .github-release/bmt/ from .github/bmt/ (ci, config, pyproject.toml, uv.lock)"
-
-# -- Local CI ----------------------------------------------------------------
-
-[group('local-ci')]
-act which="":
-    #!/usr/bin/env -S bash -eu
-    VAR_ARG=""
-    [[ -f .env ]] && VAR_ARG="--var-file .env"
-    W=".github/workflows/build-and-test.yml"
-    case "{{ which }}" in
-      handoff)
-        act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
-          -i ci_run_id=$${GITHUB_RUN_ID:-local123} \
-          -i head_sha="$(git rev-parse HEAD)" \
-          -i head_branch="$(git branch --show-current)" \
-          -i head_event=push \
-          -i pr_number= \
-          $VAR_ARG
-        ;;
-      trigger)
-        act pull_request -W .github/workflows/trigger-ci.yml -e .github/workflows/events/pull_request.json $VAR_ARG
-        ;;
-      "")
-        act workflow_dispatch -W "$W" $VAR_ARG
-        ;;
-      *)
-        act workflow_dispatch -W "$W" -j "{{ which }}" $VAR_ARG
-        ;;
-    esac
+[group('infra')]
+[private]
+packer-validate:
+    @uv run python -m tools build packer-validate

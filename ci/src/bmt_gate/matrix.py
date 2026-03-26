@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from bmt_gate import core
-from bmt_gate.actions import gh_notice, gh_warning
+from ci import core
+from bmt_gate.actions import gh_notice, gh_warning, write_github_output
 
 
 def _load_configure_presets(presets_file: Path) -> list[dict[str, Any]]:
@@ -37,10 +37,15 @@ def _build_bmt_rows(presets: list[dict[str, Any]]) -> dict[str, list[dict[str, s
             continue
         project = name[: -len("_gcc_Release")].lower()
         binary_dir = str(preset.get("binaryDir", "")).replace("${sourceDir}/", "", 1)
-        include.append({
-            "configure": name, "preset": name_lower, "project": project,
-            "bmt_id": name_lower, "binary_dir": binary_dir,
-        })
+        include.append(
+            {
+                "configure": name,
+                "preset": name_lower,
+                "project": project,
+                "bmt_id": name_lower,
+                "binary_dir": binary_dir,
+            }
+        )
     include.sort(key=lambda row: (row["project"], row["bmt_id"]))
     return {"include": include}
 
@@ -88,12 +93,12 @@ def _project_set_from_include(payload: dict[str, Any], label: str) -> list[str]:
 
 
 class MatrixManager:
-    def __init__(self, _cfg: Any = None) -> None:
-        pass
-
     @classmethod
     def from_env(cls) -> MatrixManager:
         return cls()
+
+    def __init__(self) -> None:
+        pass
 
     def build(self) -> None:
         github_output = core.require_env("GITHUB_OUTPUT")
@@ -101,11 +106,12 @@ class MatrixManager:
         presets_file = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
         presets = _load_configure_presets(presets_file)
         rows = _build_bmt_rows(presets).get("include", [])
-        matrix = {"include": [{"project": str(r["project"]), "bmt_id": str(r["bmt_id"])} for r in rows]}
+        matrix = {
+            "include": [{"project": str(r["project"]), "bmt_id": str(r["bmt_id"])} for r in rows]
+        }
         if not matrix["include"]:
             gh_warning("No supported release runner rows found in CMake presets.")
-        with Path(github_output).open("a", encoding="utf-8") as fh:
-            fh.write(f"{output_key}={json.dumps(matrix, separators=(',', ':'))}\n")
+        write_github_output(github_output, output_key, json.dumps(matrix, separators=(",", ":")))
         print(f"Built matrix rows: {len(matrix['include'])}")
 
     def filter_supported(self) -> None:
@@ -114,8 +120,14 @@ class MatrixManager:
         has_legs_key = os.environ.get("BMT_HAS_LEGS_KEY", "has_legs")
         runner_matrix = _load_json(core.require_env("RUNNER_MATRIX"), "RUNNER_MATRIX")
         full_matrix = _load_json(core.require_env("FULL_MATRIX"), "FULL_MATRIX")
-        accepted_projects = _load_json(os.environ.get("ACCEPTED_PROJECTS", "[]"), "ACCEPTED_PROJECTS")
-        if not isinstance(runner_matrix, dict) or not isinstance(full_matrix, dict) or not isinstance(accepted_projects, list):
+        accepted_projects = _load_json(
+            os.environ.get("ACCEPTED_PROJECTS", "[]"), "ACCEPTED_PROJECTS"
+        )
+        if (
+            not isinstance(runner_matrix, dict)
+            or not isinstance(full_matrix, dict)
+            or not isinstance(accepted_projects, list)
+        ):
             raise TypeError("RUNNER_MATRIX/FULL_MATRIX/ACCEPTED_PROJECTS type mismatch")
         accepted_set = {str(x).strip() for x in accepted_projects if str(x).strip()}
         requested = _project_set_from_include(runner_matrix, "RUNNER_MATRIX")
@@ -135,7 +147,12 @@ class MatrixManager:
                 continue
             row = dict(entry)
             if not str(row.get("bmt_id", "")).strip():
-                row["bmt_id"] = str(row.get("preset", "") or row.get("configure", "") or f"{project}_default").strip().lower() or f"{project}_default"
+                row["bmt_id"] = (
+                    str(row.get("preset", "") or row.get("configure", "") or f"{project}_default")
+                    .strip()
+                    .lower()
+                    or f"{project}_default"
+                )
             filtered_include.append(row)
         filtered = {"include": filtered_include}
         supported_legs = len(include)
@@ -144,12 +161,13 @@ class MatrixManager:
         if supported_legs == 0:
             print("::warning::No supported BMT projects in requested runner set; skipping BMT.")
         elif legs == 0:
-            raise RuntimeError("Supported BMT projects exist but no supported runner upload succeeded.")
+            raise RuntimeError(
+                "Supported BMT projects exist but no supported runner upload succeeded."
+            )
         else:
             gh_notice(f"Triggering BMT for {legs} leg(s) (supported runners only).")
-        with Path(github_output).open("a", encoding="utf-8") as fh:
-            fh.write(f"{output_key}={json.dumps(filtered, separators=(',', ':'))}\n")
-            fh.write(f"{has_legs_key}={has_legs}\n")
+        write_github_output(github_output, output_key, json.dumps(filtered, separators=(",", ":")))
+        write_github_output(github_output, has_legs_key, has_legs)
 
     def parse_release_runners(self) -> None:
         output_format = core.require_env("BMT_OUTPUT_FORMAT")
@@ -167,8 +185,7 @@ class MatrixManager:
         payload_json = json.dumps(payload, separators=(",", ":"))
         if github_output:
             key = (os.environ.get("BMT_OUTPUT_KEY", "") or "").strip() or default_key
-            with Path(github_output).open("a", encoding="utf-8") as fh:
-                fh.write(f"{key}={payload_json}\n")
+            write_github_output(github_output, key, payload_json)
         else:
             print(payload_json)
         if output_format == "ci":

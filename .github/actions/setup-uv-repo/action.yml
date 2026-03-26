@@ -1,0 +1,30 @@
+name: Install uv (repo workspace)
+description: >
+  Single source of truth for astral-sh/setup-uv SHA and uv CLI version.
+  Optionally runs `uv sync` at the repository root. Use for jobs that need the BMT workspace
+  without GCP; composite `setup-gcp-uv` wraps this after WIF + gcloud.
+
+inputs:
+  python-version:
+    description: Python version for setup-uv.
+    required: false
+    default: "3.12"
+  run-sync:
+    description: Run `uv sync` after installing uv (set false only if the job will not use the synced env).
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+      with:
+        version: "0.10.9"
+        python-version: ${{ inputs.python-version }}
+        enable-cache: true
+
+    - name: Sync uv workspace
+      if: ${{ inputs.run-sync == 'true' }}
+      shell: bash
+      run: uv sync
