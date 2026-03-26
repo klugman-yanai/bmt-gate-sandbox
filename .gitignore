@@ -42,7 +42,7 @@ local_batch/
 # Upload to GCS with: just upload-wav <project> <zip-or-folder>
 # Pass --local to also mirror locally: just upload-wav <project> <source> --local
 *.wav
-gcp/stage/**/inputs/**/*.wav
+benchmarks/**/inputs/**/*.wav
 
 # Local audio dataset trees (e.g. audio/sk/false_rejects/)
 audio/

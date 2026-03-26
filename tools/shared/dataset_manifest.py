@@ -6,7 +6,7 @@ Provides:
   InputFileRegistry — manifest-aware WAV enumeration; replaces rglob("*.wav").
 
 Manifest lives at:
-  gcp/stage/projects/<project>/inputs/<dataset>/dataset_manifest.json
+  benchmarks/projects/<project>/inputs/<dataset>/dataset_manifest.json
 
 It is tracked in git so any git clone gives the full directory tree shape
 without the actual audio files. Real WAVs are fetched on demand via

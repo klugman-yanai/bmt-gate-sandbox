@@ -1,4 +1,4 @@
-"""Project-level checks for ``gcp/stage`` layout (manifests, paths, plugin digests)."""
+"""Project-level checks for ``benchmarks`` layout (manifests, paths, plugin digests)."""
 
 from __future__ import annotations
 

@@ -199,7 +199,7 @@ def _docker_build_orchestrator_local() -> int:
             "-t",
             "bmt-orchestrator:latest",
             "-f",
-            str(root / "gcp/image/Dockerfile"),
+            str(root / "backend/Dockerfile"),
             ".",
         ],
         cwd=root,
@@ -246,7 +246,7 @@ def _docker_push_orchestrator_registry() -> int:
 
 @app.command("orchestrator-image")
 def orchestrator_image_cmd() -> None:
-    """Cloud Run image: docker buildx (gcp/image/Dockerfile) + push to Artifact Registry with git-SHA tag."""
+    """Cloud Run image: docker buildx (backend/Dockerfile) + push to Artifact Registry with git-SHA tag."""
     rc = _docker_build_orchestrator_local()
     if rc != 0:
         raise typer.Exit(rc)

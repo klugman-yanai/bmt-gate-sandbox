@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from ci import gcs as gcs_module
-from ci.runner import RunnerManager, _pair_sha256_from_file_rows, _sha256_file
+from bmtgate.clients import gcs as gcs_module
+from bmtgate.matrix.runner import RunnerManager, _pair_sha256_from_file_rows, _sha256_file
 
 pytestmark = pytest.mark.contract
 

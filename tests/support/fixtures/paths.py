@@ -15,13 +15,13 @@ _ROOT = Path(__file__).resolve().parents[3]  # tests/support/fixtures/paths.py �
 
 
 # ---------------------------------------------------------------------------
-# StagePaths — mirrors the GCS bucket / gcp/stage layout for tests
+# StagePaths — mirrors the GCS bucket / benchmarks layout for tests
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class StagePaths:
-    """Path builder that mirrors the ``gcp/stage`` / GCS bucket layout.
+    """Path builder that mirrors the ``benchmarks`` / GCS bucket layout.
 
     Centralises path-segment construction so tests never hard-code strings
     like ``"projects" / project / "bmts" / <benchmark> / "bmt.json"`` inline (folder = manifest ``bmt_slug``).
@@ -79,9 +79,9 @@ def repo_root() -> Path:
 
 @pytest.fixture(scope="session")
 def gcp_code_root(repo_root: Path) -> Path:
-    """VM deployable code root (gcp/image mirrors bucket code/)."""
-    path = repo_root / "gcp" / "image"
-    assert path.exists(), f"Expected gcp image root to exist: {path}"
+    """VM deployable code root (backend mirrors bucket code/)."""
+    path = repo_root / "backend"
+    assert path.exists(), f"Expected backend root to exist: {path}"
     return path
 
 
@@ -94,12 +94,12 @@ def github_bmt_root(repo_root: Path) -> Path:
 
 @pytest.fixture(scope="session")
 def repo_stage_root(repo_root: Path) -> Path:
-    path = repo_root / "gcp" / "stage"
-    assert path.exists(), f"Expected gcp/stage to exist: {path}"
+    path = repo_root / "benchmarks"
+    assert path.exists(), f"Expected benchmarks to exist: {path}"
     return path
 
 
 @pytest.fixture
 def stage_paths(tmp_path: Path) -> StagePaths:
-    """Ephemeral ``StagePaths`` rooted in ``tmp_path / "gcp" / "stage"``."""
-    return StagePaths(tmp_path / "gcp" / "stage")
+    """Ephemeral ``StagePaths`` rooted in ``tmp_path / "benchmarks"``."""
+    return StagePaths(tmp_path / "benchmarks")

@@ -11,8 +11,8 @@ from tools.shared.artifact_registry_uri import (
     resolve_bmt_orchestrator_image_base,
 )
 
-# Paths that invalidate the Cloud Run image (see gcp/image/Dockerfile COPY lines).
-IMAGE_GIT_PATHSPECS: tuple[str, ...] = ("gcp/image", "gcp/__init__.py")
+# Paths that invalidate the Cloud Run image (see backend/Dockerfile COPY lines).
+IMAGE_GIT_PATHSPECS: tuple[str, ...] = ("backend", "backend/__init__.py")
 
 
 def _git_nonempty_lines(cmd: list[str], *, cwd: str) -> list[str]:
@@ -82,7 +82,7 @@ def evaluate_image_skip(
     if dry_run:
         head_preview = (_git_head_sha(root_s) or "?")[:7]
         return True, (
-            "[dim]image auto-skipped (dry-run):[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
+            "[dim]image auto-skipped (dry-run):[/] no git changes under [cyan]backend[/] or [cyan]backend/__init__.py[/].\n"
             "[dim]Artifact Registry is not queried in dry-run;[/] run without [cyan]--dry-run[/] to check "
             f"[cyan]bmt-orchestrator:{head_preview}[/] [dim]before skipping the image step.[/]"
         )
@@ -96,7 +96,7 @@ def evaluate_image_skip(
     if ar_status == "present":
         short = head_sha[:7]
         return True, (
-            "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/]; "
+            "[dim]image auto-skipped:[/] no git changes under [cyan]backend[/] or [cyan]backend/__init__.py[/]; "
             f"Artifact Registry has [cyan]bmt-orchestrator:{short}[/].\n"
             "[dim]Still wrong bits?[/] base-image-only updates or policy rebuilds — "
             "[dim]run[/] [cyan]tools ship --force-image[/] [dim]or[/] [cyan]just workspace preflight --with-image --force-image[/][dim].[/]"

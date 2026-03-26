@@ -14,9 +14,7 @@ sk_runtime/
 bmt_workspace/
 secrets/
 *.md
-!gcp/image/README.md
+!backend/README.md
 .env
 .local/
-gcp/stage/
-gcp/mnt/
-gcp/local/
+benchmarks/

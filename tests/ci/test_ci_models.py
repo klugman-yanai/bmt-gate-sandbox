@@ -1,7 +1,7 @@
 """Tests for .github/bmt/ci/core.py — pure functions only, no I/O."""
 
 import pytest
-from bmt_gate import core as models
+from bmtgate import core as models
 
 from backend.config import value_types as vt
 from backend.config.decisions import GateDecision
@@ -10,7 +10,9 @@ pytestmark = pytest.mark.unit
 
 
 def test_sanitize_run_id_is_value_types_reexport() -> None:
-    assert models.sanitize_run_id is vt.sanitize_run_id
+    # bmtgate.contract.value_types has its own copy; verify behavioural equivalence (drift guard).
+    assert models.sanitize_run_id("hello world") == vt.sanitize_run_id("hello world")
+    assert models.sanitize_run_id("a/b/c") == vt.sanitize_run_id("a/b/c")
 
 
 # ── decision_exit ────────────────────────────────────────────────────────────

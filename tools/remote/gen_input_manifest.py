@@ -5,7 +5,7 @@ Enumerates objects under gs://<bucket>/projects/<project>/inputs/<dataset>/
 using ``gcloud storage ls --json``, normalises paths, and writes
 ``dataset_manifest.json`` to the local staging area at:
 
-    gcp/stage/projects/<project>/inputs/<dataset>/dataset_manifest.json
+    benchmarks/projects/<project>/inputs/<dataset>/dataset_manifest.json
 
 The manifest is tracked in git so any clone gives the full directory tree shape
 without the actual audio files (offline manifest-only visibility).

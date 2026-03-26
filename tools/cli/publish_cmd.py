@@ -46,7 +46,7 @@ def _resolve_publish_targets(
 
     if not pairs:
         raise typer.BadParameter(
-            "No projects with bmts/*/bmt.json under gcp/stage/projects/. Create one with `just add <project>` first.",
+            "No projects with bmts/*/bmt.json under benchmarks/projects/. Create one with `just add <project>` first.",
         )
 
     lines = "\n".join(f"  {p[0]}  {p[1]}" for p in pairs)

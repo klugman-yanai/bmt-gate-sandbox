@@ -11,7 +11,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_add_project_creates_stage_scaffold(tmp_path: Path) -> None:
-    stage_root = tmp_path / "gcp" / "stage"
+    stage_root = tmp_path / "benchmarks"
 
     rc = add_project("acme", stage_root=stage_root, dry_run=False)
 
@@ -28,7 +28,7 @@ def test_add_project_creates_stage_scaffold(tmp_path: Path) -> None:
 
 
 def test_add_bmt_creates_disabled_manifest(tmp_path: Path) -> None:
-    stage_root = tmp_path / "gcp" / "stage"
+    stage_root = tmp_path / "benchmarks"
     add_project("acme", stage_root=stage_root, dry_run=False)
 
     rc = add_bmt("acme", "wake_word_quality", stage_root=stage_root, plugin="default")

@@ -75,7 +75,7 @@ def _default_runtime_root() -> Path:
     mounted_root = Path("/mnt/runtime")
     if mounted_root.exists():
         return mounted_root.resolve()
-    return Path("gcp/stage").resolve()
+    return Path("benchmarks").resolve()
 
 
 def _default_workspace_root() -> Path:

@@ -63,7 +63,7 @@ def workspace_preflight(
     ] = None,
     local_only: Annotated[
         bool,
-        typer.Option("--local-only", help="Only list gcp/image, no GCS."),
+        typer.Option("--local-only", help="Only list backend, no GCS."),
     ] = False,
     with_image: Annotated[
         bool,
@@ -82,7 +82,7 @@ def workspace_preflight(
         ),
     ] = False,
 ) -> None:
-    """GCS vs gcp/image diff + core-main workflow drift (`tools bucket preflight`)."""
+    """GCS vs backend diff + core-main workflow drift (`tools bucket preflight`)."""
     args: list[str] = ["bucket", "preflight"]
     if snapshot is not None:
         args.extend(["--snapshot", str(snapshot)])
@@ -117,7 +117,7 @@ def workspace_preflight(
 
 @app.command("deploy")
 def workspace_deploy() -> None:
-    """Sync gcp/stage runtime seed to GCS and verify (`tools bucket deploy`)."""
+    """Sync benchmarks runtime seed to GCS and verify (`tools bucket deploy`)."""
     raise typer.Exit(_run_tools(["bucket", "deploy"]))
 
 

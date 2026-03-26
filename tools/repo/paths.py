@@ -20,22 +20,22 @@ from pathlib import Path
 
 
 def repo_root() -> Path:
-    """Resolve repo root by walking up to a directory containing pyproject.toml, gcp/, and infra/."""
+    """Resolve repo root by walking up to a directory containing pyproject.toml, backend/, and infra/."""
     here = Path(__file__).resolve()
     for parent in here.parents:
-        if (parent / "pyproject.toml").is_file() and (parent / "gcp").is_dir() and (parent / "infra").is_dir():
+        if (parent / "pyproject.toml").is_file() and (parent / "backend").is_dir() and (parent / "infra").is_dir():
             return parent
     raise RuntimeError(f"Unable to resolve repo root from {here}")
 
 
-# Default roots for VM mirror and staging area (relative to repo root).
-DEFAULT_CONFIG_ROOT = Path("gcp/image")
-DEFAULT_STAGE_ROOT = Path("gcp/stage")
+# Default roots (relative to repo root).
+DEFAULT_CONFIG_ROOT = Path("backend")
+DEFAULT_STAGE_ROOT = Path("benchmarks")
 # Legacy alias; prefer DEFAULT_STAGE_ROOT in new code.
 DEFAULT_RUNTIME_ROOT = DEFAULT_STAGE_ROOT
 
 # Other canonical roots (relative to repo root).
-GITHUB_BMT_ROOT = Path(".github/bmt")
+CI_ROOT = Path("ci")
 INFRA_PULUMI = Path("infra/pulumi")
 
 
@@ -66,8 +66,8 @@ class WorkspaceLayout:
     a ``WorkspaceLayout`` instance will automatically pick up the change.
 
     Attributes:
-        stage_root:  gcp/stage/ — local staging mirror of GCS (renamed from gcp/remote/).
-        image_root:  gcp/image/ — VM code baked into image (read-only locally).
+        stage_root:  benchmarks/ — local staging mirror of GCS (renamed from gcp/remote/).
+        image_root:  backend/ — VM code baked into image (read-only locally).
         mnt_root:    gcp/mnt/   — FUSE mount points (gitignored, opt-in).
         data_root:   data/      — local dataset archives and optional scratch data.
 
@@ -95,8 +95,8 @@ class WorkspaceLayout:
         """Construct from environment variables, falling back to defaults.
 
         Override any root via:
-          BMT_STAGE_ROOT  — overrides stage_root (gcp/stage/)
-          BMT_IMAGE_ROOT  — overrides image_root (gcp/image/)
+          BMT_STAGE_ROOT  — overrides stage_root (benchmarks/)
+          BMT_IMAGE_ROOT  — overrides image_root (backend/)
           BMT_MNT_ROOT    — overrides mnt_root   (gcp/mnt/)
           BMT_DATA_ROOT   — overrides data_root   (data/)
         """

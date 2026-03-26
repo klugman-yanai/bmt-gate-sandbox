@@ -41,7 +41,7 @@ REPO = Path(__file__).parent.parent
 SRC = REPO / ".github"
 TEMPLATES = Path(__file__).parent / "release_templates"
 DEST = REPO / ".github-release"
-SECRETS_SRC = REPO / "gcp" / "image" / "github" / "secrets"
+SECRETS_SRC = REPO / "backend" / "github" / "secrets"
 PEM_NAME = "Kardome-org_core-main.pem"
 
 EXCLUDE_ACTIONS = {"check-image-up-to-date"}
@@ -124,10 +124,11 @@ def _copy_actions_bundle() -> None:
 
 
 def _copy_bmt_package() -> None:
-    _copy_tree(SRC / "bmt" / "ci", DEST / "bmt" / "ci")
-    _copy(SRC / "bmt" / "pyproject.toml", DEST / "bmt" / "pyproject.toml")
-    _copy(SRC / "bmt" / "uv.lock", DEST / "bmt" / "uv.lock")
-    _copy(SRC / "bmt" / "config" / "README.md", DEST / "bmt" / "config" / "README.md")
+    ci_root = REPO / "ci"
+    _copy_tree(ci_root / "src" / "bmtgate", DEST / "bmt" / "src" / "bmtgate")
+    _copy(ci_root / "pyproject.toml", DEST / "bmt" / "pyproject.toml")
+    if (ci_root / "README.md").is_file():
+        _copy(ci_root / "README.md", DEST / "bmt" / "README.md")
 
 
 def _copy_pem_or_exit(*, skip_secrets: bool) -> None:
@@ -174,7 +175,7 @@ def _write_provenance_and_manifest(*, skip_secrets: bool, workflows_dest: Path, 
     pem_row = (
         "| `bmt/config/secrets/` PEM | *(omitted — use `--skip-secrets`)* |\n"
         if skip_secrets
-        else f"| `bmt/config/secrets/{PEM_NAME}` | `gcp/image/github/secrets/` |\n"
+        else f"| `bmt/config/secrets/{PEM_NAME}` | `backend/github/secrets/` |\n"
     )
 
     manifest_body = (

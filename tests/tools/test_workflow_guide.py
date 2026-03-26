@@ -32,7 +32,7 @@ def test_repo_hints_fresh_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 def test_repo_hints_lists_stage_projects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    projs = tmp_path / "gcp" / "stage" / "projects"
+    projs = tmp_path / "benchmarks" / "projects"
     projs.mkdir(parents=True)
     (projs / "alpha").mkdir()
     (projs / "beta").mkdir()

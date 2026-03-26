@@ -97,12 +97,12 @@ Three places touch the same logical settings; they stay consistent as follows:
 | Layer | Role | Source of values |
 |-------|------|-------------------|
 | **`infra/pulumi/pulumi_stack_config.py`** | Pulumi only. Loads `bmt.config.json`, defines `InfraConfig` (gcp_project, gcs_bucket, service_account, cloud_run_region, gcp_wif_provider, etc.). | `infra/pulumi/bmt.config.json` |
-| **`.github/bmt/ci/config.py`** | CI only. Builds `BmtConfig` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
-| **`gcp/image/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
+| **`ci/src/bmtgate/config/settings.py`** | CI (`bmt-gate`). Builds `BmtConfig` / `WorkflowContext` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
+| **`backend/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
 
 **Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.config.json → Pulumi → `just workspace pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.config.json`; CI reads what was synced.
 
-**Pulumi consistency:** `infra/pulumi/pulumi_stack_config.py` uses defaults that match `gcp/image/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
+**Pulumi consistency:** `infra/pulumi/pulumi_stack_config.py` uses defaults that match `backend/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
 
 **`GCP_WIF_PROVIDER`:** Required in `bmt.config.json` as `gcp_wif_provider` and synced by Pulumi like the other GCP_* vars. The handoff workflow needs it for OIDC auth.
 
@@ -125,23 +125,19 @@ Published staged control-plane content lives under:
 
 ## Packages
 
-The repo is a uv workspace with two active packages:
+The repo is a uv workspace with two members:
 
-- `bmt` under [`.github/bmt`](.github/bmt)
-- `bmt-runtime` under [`gcp/image`](gcp/image)
-
-Run a specific member with:
+- **`bmt-gate`** — [`ci/`](../ci/) (CLI `uv run bmt`, package `ci/src/bmtgate/`)
+- **`bmt-runtime`** — [`backend/`](../backend/) (Cloud Run image code)
 
 ```bash
-uv run --package bmt …
+uv run --package bmt-gate …
 uv run --package bmt-runtime …
 ```
 
-That command runs Pulumi and then syncs its outputs to GitHub repo variables. So:
-
 ## Environment variable reference
 
-This document inventories **process environment** and closely related names used across GitHub Actions, the `bmt` CI package (`.github/bmt/ci`), Cloud Run runtime (`gcp/image`), and local `tools/` scripts. It complements the high-level flow in [Centralized config and repo variables](#centralized-config-and-repo-variables) above.
+This document inventories **process environment** and closely related names used across GitHub Actions, **`bmt-gate`** (`ci/src/bmtgate/`), Cloud Run runtime (`backend/`), and local `tools/` scripts. It complements [Centralized config and repo variables](#centralized-config-and-repo-variables) above.
 
 **Secrets:** Never commit secrets. Repo **Variables** are not encrypted; use **Secrets** for tokens and keys.
 
@@ -158,7 +154,7 @@ New work should not add more of these patterns; refactors that touch them should
 | New parallel names for the same fact | Operator confusion | One name per layer; consolidate aliases in code (see GitHub App module) |
 | New undocumented `BMT_*` for local tools | Hard to discover | Typer options with `envvar=` (e.g. `tools bucket upload-runner --help`) |
 | Duplicating infra values already in `bmt.config.json` | Drift vs Pulumi | `just workspace pulumi` / repo variables |
-| Constants as env | False configurability | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
+| Constants as env | False configurability | [backend/config/constants.py](../backend/config/constants.py) |
 
 ## GitHub Actions precedence
 
@@ -175,8 +171,8 @@ Official behavior: [GitHub Docs — Workflow syntax](https://docs.github.com/en/
 | --------- | -------- |
 | GitHub repo variables (Pulumi-synced) | [tools/repo/vars_contract.py](../tools/repo/vars_contract.py) |
 | Aggregated contract (contexts) | [tools/shared/env_contract.py](../tools/shared/env_contract.py) |
-| CI typed settings (`BmtConfig`) | [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) |
-| `ENV_*` string constants | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
+| CI typed settings (`BmtConfig`) | [ci/src/bmtgate/config/settings.py](../ci/src/bmtgate/config/settings.py) |
+| `ENV_*` string constants | [backend/config/constants.py](../backend/config/constants.py) |
 | Infra file (not process env) | `infra/pulumi/bmt.config.json` via [infra/pulumi/pulumi_stack_config.py](../infra/pulumi/pulumi_stack_config.py) |
 
 ## Infra and CI (`BmtConfig` / repo vars)
@@ -185,7 +181,7 @@ These names are synced from Pulumi to GitHub **Variables** for normal use. See [
 
 | Name | Layer | Required | Notes |
 | ---- | ----- | -------- | ----- |
-| `GCS_BUCKET` | Repo var, CI, runtime | Yes | Bucket root mirror of `gcp/stage/` |
+| `GCS_BUCKET` | Repo var, CI, runtime | Yes | Bucket root mirror of `benchmarks/` |
 | `GCP_PROJECT` | Repo var, CI, runtime | Yes | |
 | `GCP_ZONE` | Repo var, tooling | Yes | Image/compute helpers |
 | `GCP_SA_EMAIL` | Repo var, CI | Yes | Service account email |
@@ -198,7 +194,7 @@ These names are synced from Pulumi to GitHub **Variables** for normal use. See [
 
 ## Workflow handoff context (CI)
 
-Read by `context_from_env` / `WorkflowContext` in [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) (`_WORKFLOW_CONTEXT_ENV_KEYS`). Typical sources: workflow `env`, prior step outputs, and Actions built-ins.
+Read by `context_from_env` / `WorkflowContext` in [ci/src/bmtgate/config/settings.py](../ci/src/bmtgate/config/settings.py) (`workflow_context_env_keys()`). Typical sources: workflow `env`, prior step outputs, and Actions built-ins.
 
 | Name | Purpose (summary) |
 | ---- | ------------------- |
@@ -230,7 +226,7 @@ Read by `context_from_env` / `WorkflowContext` in [.github/bmt/ci/config.py](../
 | `TARGET_URL` | Target URL |
 | `TRIGGER_WRITTEN` | Trigger written |
 
-Additional names used by handoff / matrix code without being in `_WORKFLOW_CONTEXT_ENV_KEYS` include `GITHUB_OUTPUT`, `GITHUB_ENV`, `GITHUB_STEP_SUMMARY`, `GITHUB_TOKEN`, `FILTERED_MATRIX_JSON`, `GITHUB_SHA`, and orchestration flags such as `ORCH_*` read in [.github/bmt/ci/handoff.py](../.github/bmt/ci/handoff.py).
+Additional names used by handoff / matrix code without being in that set include `GITHUB_OUTPUT`, `GITHUB_ENV`, `GITHUB_STEP_SUMMARY`, `GITHUB_TOKEN`, `FILTERED_MATRIX_JSON`, `GITHUB_SHA`, and orchestration flags such as `ORCH_*` (see [ci/src/bmtgate/handoff/env.py](../ci/src/bmtgate/handoff/env.py), [ci/src/bmtgate/handoff/manager.py](../ci/src/bmtgate/handoff/manager.py)).
 
 ## Pipeline mapping: Actions → Cloud Run
 
@@ -245,7 +241,7 @@ Workflows pass run metadata into Google Workflows and then into Cloud Run. **Nam
 | Run context | `RUN_CONTEXT` | `BMT_RUN_CONTEXT` |
 | Accepted projects JSON | (in workflow argument) | `BMT_ACCEPTED_PROJECTS_JSON` |
 
-`GITHUB_REPOSITORY` is shared. See [.github/bmt/ci/workflow_dispatch.py](../.github/bmt/ci/workflow_dispatch.py) and [gcp/image/runtime/entrypoint.py](../gcp/image/runtime/entrypoint.py).
+`GITHUB_REPOSITORY` is shared. See [ci/src/bmtgate/handoff/dispatch.py](../ci/src/bmtgate/handoff/dispatch.py) and [backend/runtime/entrypoint.py](../backend/runtime/entrypoint.py).
 
 ## GitHub App and tooling aliases
 
@@ -284,32 +280,30 @@ Secrets for production paths are listed in [Required Manual GitHub Configuration
 
 ## Boolean env strings
 
-Flags such as `BMT_USE_MOCK_RUNNER` and `tools.shared.env.get_bool` treat these as true (case-insensitive, stripped): `1`, `true`, `yes`. Implementation: [gcp/image/config/env_parse.py](../gcp/image/config/env_parse.py) (`is_truthy_env_value`).
+Flags such as `BMT_USE_MOCK_RUNNER` and `tools.shared.env.get_bool` treat these as true (case-insensitive, stripped): `1`, `true`, `yes`. Implementation: [backend/config/env_parse.py](../backend/config/env_parse.py) (`is_truthy_env_value`).
 
 ## Regenerating the machine-oriented inventory
 
 See [Env inventory appendix](#env-inventory-appendix) for `rg` recipes and optional `vulture` / `pylint` duplicate-code scopes.
 
-GitHub reporting chooses the credential profile from the repository (`owner/repo`):
-
 ## Env inventory appendix
 
-First-party Python and automation live outside mirrored plugin trees under `gcp/stage/**`. Exclude that path when scanning for **new** env usage to avoid duplicated generated bundles.
+First-party Python and automation live outside mirrored plugin trees under `benchmarks/**`. Exclude that path when scanning for **new** env usage to avoid duplicated generated bundles.
 
 ## Discover `os.environ` / `getenv` keys (Python)
 
 From the repo root (exclude mirrored stage plugins):
 
 ```bash
-rg 'os\.environ\.get\(' -g '*.py' --glob '!gcp/stage/**'
-rg 'os\.getenv\(' -g '*.py' --glob '!gcp/stage/**'
+rg 'os\.environ\.get\(' -g '*.py' --glob '!benchmarks/**'
+rg 'os\.getenv\(' -g '*.py' --glob '!benchmarks/**'
 ```
 
 Narrow to string literals:
 
 ```bash
-rg 'os\.environ\.get\("[A-Z0-9_]+"' -g '*.py' --glob '!gcp/stage/**'
-rg "os\.environ\.get\\('[A-Z0-9_]+'" -g '*.py' --glob '!gcp/stage/**'
+rg 'os\.environ\.get\("[A-Z0-9_]+"' -g '*.py' --glob '!benchmarks/**'
+rg "os\.environ\.get\\('[A-Z0-9_]+'" -g '*.py' --glob '!benchmarks/**'
 ```
 
 ## Optional code health (env-related paths)
@@ -317,12 +311,12 @@ rg "os\.environ\.get\\('[A-Z0-9_]+'" -g '*.py' --glob '!gcp/stage/**'
 After `uv sync` (includes optional dev tools):
 
 ```bash
-uv run vulture gcp/image/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
+uv run vulture backend/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
 ```
 
 ```bash
 uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 \
-  gcp/image/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py .github/bmt/ci/workflow_dispatch.py
+  backend/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py ci/src/bmtgate/handoff/dispatch.py
 ```
 
 Or use `just tools doctor` from the repo root.

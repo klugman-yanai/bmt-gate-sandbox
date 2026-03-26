@@ -1,4 +1,4 @@
-"""Unit tests for ``gcp.image.runtime.stage_paths``."""
+"""Unit tests for ``backend.runtime.stage_paths``."""
 
 from __future__ import annotations
 

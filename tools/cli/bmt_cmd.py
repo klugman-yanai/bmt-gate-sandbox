@@ -22,7 +22,7 @@ def stage_project(
         str,
         typer.Argument(
             help="Project name: lowercase letters, digits, underscores; start with a letter (e.g. myproject). "
-            "Becomes the folder under gcp/stage/projects/."
+            "Becomes the folder under benchmarks/projects/."
         ),
     ],
     dry_run: Annotated[
@@ -30,7 +30,7 @@ def stage_project(
         typer.Option("--dry-run", help="Print paths only, don't write"),
     ] = False,
 ) -> None:
-    """Create gcp/stage/projects/<project>/ (plugin workspace + default example BMT)."""
+    """Create benchmarks/projects/<project>/ (plugin workspace + default example BMT)."""
     from tools.bmt.scaffold import add_project as add_project_impl
 
     raise typer.Exit(add_project_impl(project, dry_run=dry_run))
@@ -50,7 +50,7 @@ def stage_bmt(
         ),
     ],
 ) -> None:
-    """Add gcp/stage/projects/<project>/bmts/<benchmark>/bmt.json (disabled manifest)."""
+    """Add benchmarks/projects/<project>/bmts/<benchmark>/bmt.json (disabled manifest)."""
     from tools.bmt.scaffold import add_bmt as add_bmt_impl
 
     raise typer.Exit(add_bmt_impl(project, benchmark))
@@ -154,7 +154,7 @@ def stage_publish_plugin(
 
 @stage.command("doctor")
 def stage_doctor(
-    project: Annotated[str, typer.Argument(help="Staged project name (gcp/stage/projects/<name>/).")],
+    project: Annotated[str, typer.Argument(help="Staged project name (benchmarks/projects/<name>/).")],
 ) -> None:
     """Validate manifests, paths, published digests, and workspace loads for one project."""
     from tools.bmt.stage_doctor import doctor_stage_project
@@ -172,7 +172,7 @@ app.add_typer(stage, name="stage")
 
 @app.command("verify")
 def bmt_verify(
-    project: Annotated[str, typer.Argument(help="Staged project name (gcp/stage/projects/<name>/).")],
+    project: Annotated[str, typer.Argument(help="Staged project name (benchmarks/projects/<name>/).")],
     benchmark: Annotated[
         str,
         typer.Argument(help="BMT folder under bmts/ (must match bmt_slug in bmt.json)."),

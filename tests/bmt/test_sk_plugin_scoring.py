@@ -13,7 +13,7 @@ from backend.runtime.sdk.results import CaseResult, ExecutionResult, ScoreResult
 
 pytestmark = pytest.mark.unit
 
-_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/plugin_workspaces/default/src")
 
 
 def _make_plugin():

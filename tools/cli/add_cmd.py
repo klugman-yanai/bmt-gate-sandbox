@@ -18,7 +18,7 @@ def register_add_command(target: typer.Typer) -> None:
         project: Annotated[
             str,
             typer.Argument(
-                help="Project name (folder under gcp/stage/projects/). "
+                help="Project name (folder under benchmarks/projects/). "
                 "With no flags, creates the scaffold only if it does not exist yet."
             ),
         ],
@@ -47,7 +47,7 @@ def register_add_command(target: typer.Typer) -> None:
             bool,
             typer.Option(
                 "--local",
-                help="Also mirror uploaded WAVs into gcp/stage/ (off by default; datasets can be huge).",
+                help="Also mirror uploaded WAVs into benchmarks/ (off by default; datasets can be huge).",
             ),
         ] = False,
         force: Annotated[

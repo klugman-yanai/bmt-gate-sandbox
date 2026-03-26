@@ -69,9 +69,9 @@ def test_coordinator_finally_invokes_github_failure_when_publish_does_not_comple
     def _track_failure(**_kwargs: object) -> None:
         hook.append("failure")
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_final_results", _track_publish)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _track_failure)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_final_results", _track_publish)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _track_failure)
+    monkeypatch.setattr("backend.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
     exit_code = run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root)
     assert exit_code == 0
@@ -105,9 +105,9 @@ def test_coordinator_publish_crash_still_invokes_failure_publisher(
     def _track_failure(**_kwargs: object) -> None:
         calls.append("failure")
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_final_results", _raise_publish)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _track_failure)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_final_results", _raise_publish)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _track_failure)
+    monkeypatch.setattr("backend.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
     with pytest.raises(RuntimeError, match="injected publish crash"):
         run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root)
@@ -152,13 +152,13 @@ def test_coordinator_skips_recovery_when_first_publish_marks_github_complete(
             ),
         )
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_final_results", _publish_then_complete)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_final_results", _publish_then_complete)
 
     def _track_failure(**_kwargs: object) -> None:
         failure_calls.append(True)
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _track_failure)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _track_failure)
+    monkeypatch.setattr("backend.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
     assert run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 0
     assert publish_calls == ["publish"]
@@ -176,7 +176,7 @@ def test_finalize_failure_mode_returns_zero_without_plan_and_without_finalize_en
     def _boom(**_kwargs: object) -> None:
         raise AssertionError("publish_github_failure must not run when plan is missing and env unset")
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _boom)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _boom)
     assert run_finalize_failure_mode(workflow_run_id="missing-plan-id", stage_root=stage_root) == 0
 
 
@@ -192,7 +192,7 @@ def test_finalize_failure_mode_synthetic_plan_from_env_when_plan_file_missing(
     def _capture(*, plan: ExecutionPlan, **_kwargs: object) -> None:
         captured["plan"] = plan
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _capture)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _capture)
     assert run_finalize_failure_mode(workflow_run_id="wf-no-plan", stage_root=stage_root) == 0
     plan = captured["plan"]
     assert isinstance(plan, ExecutionPlan)
@@ -224,7 +224,7 @@ def test_finalize_failure_mode_passes_reason_from_env_to_publish_github_failure(
     def _capture_failure(*, reason: str, **_kwargs: object) -> None:
         captured["reason"] = reason
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _capture_failure)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _capture_failure)
     monkeypatch.setenv("BMT_FAILURE_REASON", "workflow_step_read_plan_failed")
 
     assert run_finalize_failure_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 0
@@ -253,7 +253,7 @@ def test_finalize_failure_mode_uses_default_reason_when_env_unset(
     def _capture_failure(*, reason: str, **_kwargs: object) -> None:
         captured["reason"] = reason
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _capture_failure)
+    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _capture_failure)
     monkeypatch.delenv("BMT_FAILURE_REASON", raising=False)
 
     assert run_finalize_failure_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 0

@@ -11,7 +11,7 @@ from backend.runtime.sdk.results import ExecutionResult, PreparedAssets, ScoreRe
 
 @runtime_checkable
 class BmtPluginProtocol(Protocol):
-    """Mirror of the :class:`~gcp.image.runtime.sdk.plugin.BmtPlugin` lifecycle for type checkers."""
+    """Mirror of the :class:`~backend.runtime.sdk.plugin.BmtPlugin` lifecycle for type checkers."""
 
     plugin_name: str
     api_version: str

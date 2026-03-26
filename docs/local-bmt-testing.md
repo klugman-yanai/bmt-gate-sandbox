@@ -34,7 +34,7 @@ When you are satisfied:
 just publish
 ```
 
-If more than one BMT exists under `gcp/stage/projects/`, pass **project** and **benchmark folder**, or set **`BMT_PROJECT`** and **`BMT_BENCHMARK`**. See **`just tools publish --help`**.
+If more than one BMT exists under `benchmarks/projects/`, pass **project** and **benchmark folder**, or set **`BMT_PROJECT`** and **`BMT_BENCHMARK`**. See **`just tools publish --help`**.
 
 ## Related
 

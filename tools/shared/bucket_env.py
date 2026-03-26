@@ -32,7 +32,7 @@ def truthy(val: str | None) -> bool:
 def bucket_root_uri(bucket: str) -> str:
     """Bucket root: gs://<bucket>.
 
-    The bucket is a 1:1 mirror of gcp/stage/. All runtime data
+    The bucket is a 1:1 mirror of benchmarks/. All runtime data
     (triggers, runners, datasets, results) lives directly under this root.
     """
     return f"gs://{bucket}"
@@ -41,6 +41,6 @@ def bucket_root_uri(bucket: str) -> str:
 def runtime_bucket_root_uri(bucket: str) -> str:
     """Bucket root (alias): gs://<bucket>.
 
-    The bucket is a 1:1 mirror of gcp/stage/; there is no runtime/ prefix.
+    The bucket is a 1:1 mirror of benchmarks/; there is no runtime/ prefix.
     """
     return bucket_root_uri(bucket)

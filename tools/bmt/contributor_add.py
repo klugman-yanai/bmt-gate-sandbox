@@ -122,7 +122,7 @@ def run_contributor_add(
     if data is not None:
         bucket = bucket_from_env()
         dataset_name = dataset if dataset is not None else bmt
-        local_mirror = repo_root() / "gcp" / "stage" if upload_local_mirror else None
+        local_mirror = repo_root() / "benchmarks" if upload_local_mirror else None
         try:
             with prepared_dataset_source(data) as source:
                 return BucketUploadDataset().run(

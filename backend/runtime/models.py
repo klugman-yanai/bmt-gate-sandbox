@@ -37,7 +37,7 @@ class ProjectManifest(BaseModel):
 class RunnerConfig(BaseModel):
     uri: str = ""
     deps_prefix: str = ""
-    template_path: str = "gcp/image/runtime/assets/kardome_input_template.json"
+    template_path: str = "backend/runtime/assets/kardome_input_template.json"
 
 
 class ExecutionConfig(BaseModel):

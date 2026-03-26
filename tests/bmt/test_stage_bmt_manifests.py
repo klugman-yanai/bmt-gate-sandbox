@@ -1,4 +1,4 @@
-"""Validate committed `gcp/stage` BMT manifests against runtime models.
+"""Validate committed `benchmarks` BMT manifests against runtime models.
 
 Discovery matches ``build_plan`` (``projects/*/{benchmarks,bmts}/*/bmt.json`` under the stage root).
 This suite performs a **full-tree scan**; a future optional **git-diff-only** mode could
@@ -31,7 +31,7 @@ from backend.runtime.stage_paths import (
 
 pytestmark = pytest.mark.contract
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_STAGE_ROOT = _REPO_ROOT / "gcp" / "stage"
+_STAGE_ROOT = _REPO_ROOT / "benchmarks"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +39,7 @@ class StageBmtRecord:
     """One discovered ``bmt.json`` under the stage tree."""
 
     manifest_path: Path
-    """Path relative to ``gcp/stage``, posix, for stable pytest ids."""
+    """Path relative to ``benchmarks``, posix, for stable pytest ids."""
 
     id_posix: str
 
@@ -67,7 +67,7 @@ _ENABLED_RECORDS = [r for r in _RECORDS if _manifest_enabled(r.manifest_path)]
 def test_stage_tree_has_bmt_manifests(repo_stage_root: Path) -> None:
     """Guard: parametrized tests vanish if the tree is empty—fail loudly instead."""
     assert _RECORDS, (
-        "Expected at least one projects/*/{benchmarks,bmts}/*/bmt.json under gcp/stage; "
+        "Expected at least one projects/*/{benchmarks,bmts}/*/bmt.json under benchmarks; "
         "an empty tree would skip all parametrized manifest checks."
     )
     assert repo_stage_root.resolve() == _STAGE_ROOT.resolve()

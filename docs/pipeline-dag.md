@@ -1,8 +1,6 @@
-# BMT Pipeline — Architecture Diagrams
+# BMT pipeline — diagrams
 
-> **New to this project?** These diagrams are written to help you understand how the system works. All terms are defined below.
->
-> Current state: `ci/check-bmt-gate`, 2026-03-19.
+Visual companion to [architecture.md](architecture.md). **Canonical paths:** stage mirror = `benchmarks/`; container runtime = `backend/`.
 
 ---
 
@@ -143,7 +141,7 @@ flowchart TD
 
 ## 3. Cloud Run workflow: test execution + reporting (`bmt-workflow`)
 
-This runs entirely in Google Cloud after CI has exited. It executes in three sequential stages: **Plan** → **Parallel Tasks** → **Coordinator**.
+Runs in GCP after CI exits. **Stages:** **Plan** → **task invocations** (one leg per job) → **Coordinator**. The Workflow schedules task jobs; **standard** and **heavy** profiles are **not** meant to run as one unstructured parallel blob—see [architecture.md](architecture.md) and [ROADMAP.md](../ROADMAP.md) for the ordered execution map.
 
 ```mermaid
 %%{init: {'flowchart': {'curve': 'basis'}}}%%
@@ -163,7 +161,7 @@ flowchart TD
         P1 --> P2 --> P3
     end
 
-    subgraph TASKS[Stage 2 — Task Jobs in Parallel]
+    subgraph TASKS[Stage 2 — Task jobs (one leg each)]
         direction TB
         T1[(Read Plan)]:::gcs
         T2[Run Audio Tests]:::gcp
@@ -186,16 +184,16 @@ flowchart TD
     CI([🐙 Post Score Summary to PR]):::gh
 
     ENTRY --> PLAN
-    PLAN -->|Spawns N Standard + M Heavy Jobs| TASKS
+    PLAN -->|Workflow runs N task executions| TASKS
     TASKS --> COORD
     C4 --> CG & CH & CI
 ```
 
 | Stage | What it does |
 | --- | --- |
-| **Plan** | Reads project settings from GCS, partitions the test cases into standard or heavy workloads, and writes a test plan file. |
-| **Task jobs** | Each job handles one test leg independently. It invokes the plugin, runs the runner, and **evaluates** the leg (including score vs baseline) inside the plugin. It captures NAMUH scores and logs, saves a snapshot to GCS, writes `triggers/progress/` and `triggers/summaries/`, and calls `publish_progress` for the Check Run. Standard and heavy tasks run in parallel. |
-| **Coordinator** | Runs after the Workflow has finished all task jobs. It loads each **leg summary** from GCS, reads the prior **`last_passing`** pointer from `current.json`, **updates** `current.json` and prunes old snapshots, posts the final GitHub payload (`publish_final_results`), then **deletes** ephemeral `triggers/` files for this run (`cleanup_ephemeral_triggers`). It does **not** re-run scoring; comparison already happened in the task. |
+| **Plan** | Reads project settings from GCS, partitions legs (e.g. standard vs heavy), writes the frozen plan. |
+| **Task jobs** | Each invocation runs **one** leg: plugin + runner, **evaluate** vs baseline, snapshot + `triggers/summaries/`, `publish_progress` on the shared Check Run. |
+| **Coordinator** | After all task work completes: load summaries, update `current.json`, prune snapshots, `publish_final_results`, `cleanup_ephemeral_triggers`. Does **not** re-score. |
 
 > **Understanding `current.json`:** This file acts as a pointer. It stores the `run_id` of the `latest` run and the `last_passing` run. **Baseline comparison for gating** happens during each **task** (plugin `evaluate` using the prior `last_passing` snapshot). The **coordinator** only merges **leg outcomes** into new pointer values and prunes snapshots.
 > **GitHub Check Runs:** After the plan is written to GCS, the **plan job** creates an in-progress Check Run (GitHub App) and writes `triggers/reporting/{run_id}.json` with `check_run_id`, `workflow_execution_url` (from `BMT_WORKFLOW_EXECUTION_URL`, set by the parent GCP Workflow from built-in env vars), and `started_at`. Task jobs call `publish_progress` to update that Check Run; the coordinator finalizes it. If GitHub is unavailable, the job logs a warning and BMT still runs; **commit status** and **PR comment** remain the primary pass/fail signals.

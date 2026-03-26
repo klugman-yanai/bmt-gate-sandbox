@@ -41,7 +41,7 @@ Avoid `time.time()` / `datetime.now()` for new code.
 ## Lint / types
 
 ```bash
-uv sync && ruff check . && ruff format --check . && basedpyright
+uv sync && ruff check . && ruff format --check . && uv run ty check
 ```
 
 ## Tests

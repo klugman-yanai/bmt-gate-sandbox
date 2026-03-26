@@ -9,7 +9,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_repo_stage_sk_project_is_discoverable(repo_root) -> None:
-    stage_root = repo_root / "gcp" / "stage"
+    stage_root = repo_root / "benchmarks"
     workspace_root = repo_root / ".local" / "test-bmt-framework"
     plan = build_plan(
         runtime=StageRuntimePaths(stage_root=stage_root, workspace_root=workspace_root),

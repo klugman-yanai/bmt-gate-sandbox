@@ -1,7 +1,7 @@
 """BMT pipeline domain status strings (leg verdict + in-flight progress).
 
 These are **not** GitHub Check Run / commit-status API values; those live in
-``gcp.image.config.status`` (``CheckConclusion``, ``CommitStatus``, etc.).
+``backend.config.status`` (``CheckConclusion``, ``CommitStatus``, etc.).
 
 JSON artifacts (e.g. ``ci_verdict.json``) continue to use the same string values;
 this module is the single source of truth for those literals in Python code.

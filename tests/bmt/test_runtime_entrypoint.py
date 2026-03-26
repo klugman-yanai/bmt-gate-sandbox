@@ -19,7 +19,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatch) -> None:
-    sp = StagePaths(tmp_path / "gcp" / "stage")
+    sp = StagePaths(tmp_path / "benchmarks")
     workspace_root = tmp_path / "workspace"
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
     add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
@@ -65,7 +65,7 @@ def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatc
 
 
 def test_run_task_mode_writes_failure_summary_when_execute_leg_raises(tmp_path: Path, monkeypatch) -> None:
-    sp = StagePaths(tmp_path / "gcp" / "stage")
+    sp = StagePaths(tmp_path / "benchmarks")
     workspace_root = tmp_path / "workspace"
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
     add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")

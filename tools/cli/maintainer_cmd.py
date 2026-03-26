@@ -24,14 +24,14 @@ def register_maintainer_commands(target: typer.Typer) -> None:
 
     @target.command("doctor", rich_help_panel=_PANEL)
     def doctor_cmd() -> None:
-        """Vulture + pylint duplicate-code on env-related paths (includes gcp/image/config)."""
+        """Vulture + pylint duplicate-code on env-related paths (includes backend/config)."""
         repo = repo_root()
         for args in (
             [
                 "uv",
                 "run",
                 "vulture",
-                "gcp/image/config",
+                "backend/config",
                 "tools/shared/env.py",
                 "tools/shared/bucket_env.py",
                 "--min-confidence",
@@ -44,10 +44,10 @@ def register_maintainer_commands(target: typer.Typer) -> None:
                 "--disable=all",
                 "--enable=duplicate-code",
                 "--min-similarity-lines=6",
-                "gcp/image/config/env_parse.py",
+                "backend/config/env_parse.py",
                 "tools/shared/env.py",
                 "tools/shared/bucket_env.py",
-                ".github/bmt/ci/workflow_dispatch.py",
+                "ci/src/bmtgate/handoff/dispatch.py",
             ],
         ):
             rc = subprocess.run(args, cwd=repo, check=False).returncode
@@ -61,23 +61,23 @@ def register_maintainer_commands(target: typer.Typer) -> None:
             typer.Argument(help="all | ci | runtime | gcp | infra | tools | tests | stage"),
         ] = "all",
     ) -> None:
-        """Run ``uv run ty check`` on CI, runtime, infra, tools, tests, or gcp/stage slices."""
+        """Run ``uv run ty check`` on CI, runtime, infra, tools, tests, or benchmarks slices."""
         repo = repo_root()
         key = section.strip().lower()
         plans: list[tuple[str, str]]
         if key == "all":
             plans = [
-                ("CI", ".github/bmt"),
-                ("Runtime (gcp/image)", "gcp/image"),
+                ("CI", "ci"),
+                ("Runtime (backend)", "backend"),
                 ("Infra", "infra"),
                 ("Tools", "tools"),
                 ("Tests", "tests"),
-                ("Stage mirror", "gcp/stage"),
+                ("Stage mirror", "benchmarks"),
             ]
         elif key == "ci":
-            plans = [("CI", ".github/bmt")]
+            plans = [("CI", "ci")]
         elif key in ("runtime", "gcp"):
-            plans = [("Runtime (gcp/image)", "gcp/image")]
+            plans = [("Runtime (backend)", "backend")]
         elif key == "infra":
             plans = [("Infra", "infra")]
         elif key == "tools":
@@ -85,7 +85,7 @@ def register_maintainer_commands(target: typer.Typer) -> None:
         elif key == "tests":
             plans = [("Tests", "tests")]
         elif key == "stage":
-            plans = [("Stage mirror", "gcp/stage")]
+            plans = [("Stage mirror", "benchmarks")]
         else:
             typer.echo(
                 "error: unknown section; use: all | ci | runtime | infra | tools | tests | stage",

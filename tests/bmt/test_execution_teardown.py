@@ -1,4 +1,4 @@
-"""Tests for plugin ``teardown`` ordering (mirrors :func:`gcp.image.runtime.execution.execute_leg`)."""
+"""Tests for plugin ``teardown`` ordering (mirrors :func:`backend.runtime.execution.execute_leg`)."""
 
 from __future__ import annotations
 

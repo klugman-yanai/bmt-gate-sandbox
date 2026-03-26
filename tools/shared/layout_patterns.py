@@ -27,7 +27,7 @@ _ARTIFACT_EXCLUDES: tuple[str, ...] = (
     r"\.egg$",
 )
 
-# Code namespace: exclude from sync/verify and forbid in layout (gcp/image).
+# Code namespace: exclude from sync/verify and forbid in layout (backend).
 DEFAULT_CODE_EXCLUDES: tuple[str, ...] = (
     *_ARTIFACT_EXCLUDES,
     r"(^|/)triggers(/|$)",
@@ -59,10 +59,10 @@ CODE_CLEAN_PATTERNS = (
     r"(^|/)projects/[^/]+/results(/|$)",
 )
 
-# Layout policy: forbid these in gcp/image (same as code excludes).
+# Layout policy: forbid these in backend (same as code excludes).
 FORBIDDEN_CODE_PATTERNS = DEFAULT_CODE_EXCLUDES
 
-# Layout policy: forbid these in gcp/stage (includes .wav under inputs).
+# Layout policy: forbid these in benchmarks (includes .wav under inputs).
 FORBIDDEN_RUNTIME_PATTERNS: tuple[str, ...] = (
     r"(^|/)triggers(/|$)",
     r"(^|/)projects/[^/]+/results(/|$)",

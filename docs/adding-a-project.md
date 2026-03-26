@@ -1,10 +1,10 @@
 # Adding a project or BMT
 
-For a compact ordered checklist, run **`just workflow`**. For repo hints (`.venv`, `gcp/stage/projects/`), run **`just status`** (alias: **`just workflow-status`**).
+For a compact ordered checklist, run **`just workflow`**. For repo hints (`.venv`, `benchmarks/projects/`), run **`just status`** (alias: **`just workflow-status`**).
 
 **Unfamiliar commands?** See **[contributor-commands.md](contributor-commands.md)** and **[local-bmt-testing.md](local-bmt-testing.md)** (run checks before **`just publish`**). **Short happy path:** [bmt-first-benchmark.md](bmt-first-benchmark.md).
 
-Everything under **`gcp/stage/`** is mirrored to your GCS bucket. Prefer **`just add`** (scaffold + optional BMT + optional dataset), **`just test-local`**, **`just publish`** (builds the plugin and sets **`enabled`: true** unless you pass **`--no-enable`**), then **`just sync-to-bucket`**. Lower-level Typer commands remain **`just stage …`** and **`just workspace …`**.
+Everything under **`benchmarks/`** is mirrored to your GCS bucket. Prefer **`just add`** (scaffold + optional BMT + optional dataset), **`just test-local`**, **`just publish`** (builds the plugin and sets **`enabled`: true** unless you pass **`--no-enable`**), then **`just sync-to-bucket`**. Lower-level Typer commands remain **`just stage …`** and **`just workspace …`**.
 
 Each benchmark has a **folder** under `bmts/` (e.g. `example`, `my_second_bmt`). The manifest is always **`bmt.json`** inside that folder.
 
@@ -26,8 +26,8 @@ Same as **`just stage project`** when you only create the tree; **`--bmt`** matc
 
 ### 2. Edit the scaffold
 
-- Plugin: `gcp/stage/projects/myproject/plugin_workspaces/default/`
-- Manifests: `gcp/stage/projects/myproject/bmts/<folder>/bmt.json`
+- Plugin: `benchmarks/projects/myproject/plugin_workspaces/default/`
+- Manifests: `benchmarks/projects/myproject/bmts/<folder>/bmt.json`
 
 ### 3. Quick checks before publish
 
@@ -42,12 +42,12 @@ See **[local-bmt-testing.md](local-bmt-testing.md)**.
 
 ```bash
 just publish myproject example
-# if only one BMT exists under gcp/stage/projects/, you can use: just publish
+# if only one BMT exists under benchmarks/projects/, you can use: just publish
 ```
 
 This updates **`plugin_ref`**, sets **`enabled`: true** by default, and syncs the project subtree to GCS unless **`--no-sync`**.
 
-### 5. Sync the full `gcp/` tree to the bucket
+### 5. Sync the full `benchmarks/` tree to the bucket
 
 ```bash
 just sync-to-bucket
@@ -66,13 +66,13 @@ Once the bucket matches, the next BMT run that includes this project can pick up
 just add myproject --bmt=my_second_bmt
 ```
 
-Edit `gcp/stage/projects/myproject/bmts/my_second_bmt/bmt.json`, upload WAVs (**`just add myproject --bmt=my_second_bmt --data=…`** or **`just upload-wav`**), then **`just test-local`**, **`just publish myproject my_second_bmt`**, **`just sync-to-bucket`**.
+Edit `benchmarks/projects/myproject/bmts/my_second_bmt/bmt.json`, upload WAVs (**`just add myproject --bmt=my_second_bmt --data=…`** or **`just upload-wav`**), then **`just test-local`**, **`just publish myproject my_second_bmt`**, **`just sync-to-bucket`**.
 
 ---
 
 ## Plugin code (reminder)
 
-- Work in `gcp/stage/projects/<project>/plugin_workspaces/<plugin>/`.
+- Work in `benchmarks/projects/<project>/plugin_workspaces/<plugin>/`.
 - After publish, `bmt.json` should reference an immutable bundle under `projects/<project>/plugins/...`.
 - **API and runner behavior (stdout today, JSON later):** [bmt-python-contributor-protocol.md](bmt-python-contributor-protocol.md).
 

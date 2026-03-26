@@ -2,7 +2,7 @@
 """Upload a WAV dataset (zip or folder) to the canonical project inputs path.
 
 GCS destination:  gs://<bucket>/projects/<project>/inputs/<dataset>/
-Local mirror:     gcp/stage/projects/<project>/inputs/<dataset>/  (opt-in only)
+Local mirror:     benchmarks/projects/<project>/inputs/<dataset>/  (opt-in only)
 
 Archives are always imported via Cloud Run (BMT_CONTROL_JOB + CLOUD_RUN_REGION +
 GCP_PROJECT required). The Cloud Run job downloads the zip from a staging prefix,
@@ -392,7 +392,7 @@ if __name__ == "__main__":
     from tools.repo.paths import repo_root
 
     local_str = os.environ.get("BMT_LOCAL_MIRROR", "").strip()
-    local_mirror = repo_root() / "gcp" / "stage" if truthy(local_str) else None
+    local_mirror = repo_root() / "benchmarks" if truthy(local_str) else None
     raise SystemExit(
         BucketUploadDataset().run(
             bucket=bucket,

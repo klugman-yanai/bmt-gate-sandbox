@@ -16,7 +16,7 @@ from backend.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ProgressR
 
 logger = logging.getLogger(__name__)
 
-# Pointer / snapshot JSON keys (bucket layout under ``gcp/stage``).
+# Pointer / snapshot JSON keys (bucket layout under ``benchmarks``).
 _CURRENT_JSON_LATEST_KEY = "latest"
 _SNAPSHOT_DURATION_SEC_KEY = "duration_sec"
 

@@ -71,9 +71,9 @@ uv run python -m tools onboard
 
 `uv sync` includes the **`dev`** dependency group by default (**ruff**, **pytest**, **prek**, **PyJWT** for GitHub App helpers, etc.) and installs this workspace in editable mode. Use `uv sync --no-dev` only when you explicitly want to drop dev tooling. A separate `uv pip install -e .` is not required for normal work.
 
-**Workspace:** the repo root is a **uv workspace** with one lockfile. Member packages include **`bmt`** (under `.github/bmt`) and **`bmt-runtime`** (`gcp/image`). Run commands in a member’s context with `uv run --package bmt …` or `uv run --package bmt-runtime …`; list members with `uv workspace list`.
+**Workspace:** one **uv** workspace, one lockfile. Members: **`bmt-gate`** (`ci/`) and **`bmt-runtime`** (`backend`). Examples: `uv run --package bmt-gate …`, `uv run --package bmt-runtime …`; list with `uv workspace list`.
 
-**CLIs:** CI/driver commands use **`uv run bmt`** (console scripts from the `bmt` member). Contributor tooling uses **`uv run python -m tools`** (Typer). The root package does not define a separate `[project.scripts]` alias for `tools`—one entrypoint keeps docs and PATH predictable.
+**CLIs:** **`uv run bmt`** — console script from **`bmt-gate`** (implementation under `ci/src/bmtgate/`). **`uv run python -m tools`** — Typer CLI for repo tooling.
 
 **Rare escape hatch:** ad-hoc `uv pip install …` in an existing venv is sometimes used in CI or one-off debugging; for reproducible work, prefer **`uv sync`** (and lockfile changes) so everyone matches `uv.lock`.
 
@@ -104,8 +104,8 @@ uv run prek install -t pre-push -f
 | --- | --- |
 | **ruff check** | Lint with auto-fix where safe (`ruff check --fix`). |
 | **ruff format** | Format Python. |
-| **gcp/ bucket sync check** | If you changed `gcp/`, verifies stage matches the bucket (or set `SKIP_SYNC_VERIFY=1` when intentional). |
-| **image-build warning** | Reminder when **infra/packer/** or **gcp/image/** change. |
+| **bucket sync check** | If you changed `backend/` or `benchmarks/`, verifies stage matches the bucket (or set `SKIP_SYNC_VERIFY=1` when intentional). |
+| **image-build warning** | Reminder when **infra/packer/** or **backend/** change. |
 
 ### On `git push` (pre-push stage)
 
@@ -130,7 +130,7 @@ Run hooks manually: `prek run --all-files` (see `prek run --help` for `--stage`)
 | Format | `ruff format .` or rely on prek on commit |
 | Types | `uv run ty check` (also on **pre-push** via prek) |
 
-Config lives in [pyproject.toml](pyproject.toml) and [pyrightconfig.json](pyrightconfig.json). Keep Python version aligned with `requires-python` (3.12).
+Types: `uv run ty check` — config under `[tool.ty]` in [pyproject.toml](pyproject.toml). Ruff: [ruff.toml](ruff.toml). Python **3.12** (`requires-python` on the workspace packages).
 
 **Optional env / duplication sweep:** `just tools doctor` (vulture + pylint duplicate-code on env-related modules). Not part of `just test`; see [docs/configuration.md — Env inventory appendix](docs/configuration.md#env-inventory-appendix).
 
@@ -138,29 +138,28 @@ Config lives in [pyproject.toml](pyproject.toml) and [pyrightconfig.json](pyrigh
 
 ## Adding or changing a project
 
-Use the scaffold and CLI flow—see **[docs/adding-a-project.md](docs/adding-a-project.md)** and **[docs/local-bmt-testing.md](docs/local-bmt-testing.md)**. **What `just add`, `just publish`, `sync-to-bucket`, `upload-wav`, `stage`, and `workspace` mean**: **[docs/contributor-commands.md](docs/contributor-commands.md)**. For a terminal checklist, run **`just workflow`**; **`just status`** shows `.venv` and folders under `gcp/stage/projects/` (alias: `just workflow-status`).
+Use the scaffold and CLI flow—see **[docs/adding-a-project.md](docs/adding-a-project.md)** and **[docs/local-bmt-testing.md](docs/local-bmt-testing.md)**. **What `just add`, `just publish`, `sync-to-bucket`, `upload-wav`, `stage`, and `workspace` mean**: **[docs/contributor-commands.md](docs/contributor-commands.md)**. For a terminal checklist, run **`just workflow`**; **`just status`** shows `.venv` and folders under `benchmarks/projects/` (alias: `just workflow-status`).
 
-Short version: **`just add <name> [--bmt=<folder>] [--data=<path>]`** → edit under `gcp/stage/projects/<name>/` → **`just test-local`** → **`just tools bmt verify <name> <benchmark>`** → **`just publish`** (or `just publish <name> <benchmark>` if several BMTs exist; **`publish` sets `enabled`: true** by default) → **`just sync-to-bucket`** (same as `just workspace deploy`). `<benchmark>` is the folder under `bmts/`; the manifest field is still `bmt_slug`.
+Short version: **`just add <name> [--bmt=<folder>] [--data=<path>]`** → edit under `benchmarks/projects/<name>/` → **`just test-local`** → **`just tools bmt verify <name> <benchmark>`** → **`just publish`** (or `just publish <name> <benchmark>` if several BMTs exist; **`publish` sets `enabled`: true** by default) → **`just sync-to-bucket`** (same as `just workspace deploy`). `<benchmark>` is the folder under `bmts/`; the manifest field is still `bmt_slug`.
 
 ---
 
-## Bucket and `gcp/`
+## Bucket and `benchmarks/`
 
-- If you change files under `gcp/`, pre-commit may expect the bucket to match **`just sync-to-bucket`** (same as **`just workspace deploy`**, with `GCS_BUCKET` set). If you must commit without syncing, use `SKIP_SYNC_VERIFY=1` on purpose only.
+- If you change files under `benchmarks/`, pre-commit may expect the bucket to match **`just sync-to-bucket`** (same as **`just workspace deploy`**, with `GCS_BUCKET` set). If you must commit without syncing, use `SKIP_SYNC_VERIFY=1` on purpose only.
 - Infra and GitHub vars: Pulumi is the source of truth; **`just workspace pulumi`** applies. Details: [docs/configuration.md](docs/configuration.md), [infra/README.md](infra/README.md).
 
 ---
 
-## Local layout (contributor)
+## Local layout
 
-- [`gcp/image`](gcp/image) — Image-baked framework and runtime
-- [`gcp/stage`](gcp/stage) — Editable staged mirror of bucket manifests, plugins, assets
-- [`gcp/mnt`](gcp/mnt) — Optional read-only bucket mount for inspection
-- Dataset archives may live anywhere; `just upload-wav` takes an explicit path
+| Path | Role |
+| --- | --- |
+| `backend/` | Cloud Run runtime (image) |
+| `benchmarks/` | Staged bucket mirror (projects, plugins, inputs) |
+| `gcp/mnt/` | Optional FUSE mount points (gitignored) |
 
-**Common commands:** bare **`just`** (typical path) · **`just list`** (all recipes) · **`just workflow`** / **`just status`**. Also **`just add`**, **`just test-local`**, **`just publish`**, **`just sync-to-bucket`**, **`just stage`**, **`just upload-wav`**, **`just test`**. FUSE inputs: **`just tools bucket mount-project`** / **`umount-project`**. Pre-push / infra / image: **`just tools ship`**, **`just tools build …`**, etc.
-
-**Maintainer-only commands** are top-level on Typer (same as `just tools …`): **`release`**, **`release-check`**, **`set-lifecycle`**, **`act`** — see **`just tools --help`**.
+**Recipes:** `just list` · `just workflow` / `just status` · `just add` · `just test-local` · `just publish` · `just sync-to-bucket` · `just test`. FUSE: `just mount <project>` / `just unmount <project>` (wraps `tools bucket …`). Maintainer Typer: `just tools --help`.
 
 ## WAV dataset upload (`just upload-wav`)
 
@@ -234,4 +233,4 @@ Local readiness: **`just workspace e2e`** (or `uv run python -m tools e2e-prefli
 
 ## Maintainer-heavy areas
 
-Big changes to orchestration or GitHub reporting may touch `gcp/image/runtime/`, `.github/bmt/ci/`, or `tools/repo/gh_repo_vars.py`—call that out in the PR.
+Orchestration / GitHub reporting often touches **`backend/runtime/`**, **`ci/src/bmtgate/`**, **`infra/pulumi/`**, or **`tools/repo/`** — mention these in the PR when relevant.

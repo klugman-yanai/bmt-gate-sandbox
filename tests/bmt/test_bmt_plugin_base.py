@@ -1,4 +1,4 @@
-"""Tests for :class:`gcp.image.runtime.sdk.plugin.BmtPlugin` framework helpers."""
+"""Tests for :class:`backend.runtime.sdk.plugin.BmtPlugin` framework helpers."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tests.support.fixtures.bmt_sdk import minimal_execution_context
 
 pytestmark = pytest.mark.unit
 
-_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/plugin_workspaces/default/src")
 
 
 def _sk_plugin():

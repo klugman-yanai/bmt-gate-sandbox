@@ -2,7 +2,7 @@
 
 This document tracks **design-level** and **implementation-level** issues called out in [bmt-architecture-deep-dive.md](../bmt-architecture-deep-dive.md) (§10–11). For each item: **why it matters**, then **recommendations** to fix or harden.
 
-**Related:** [bmt-architecture-deep-dive.md §15](../bmt-architecture-deep-dive.md#15-prioritized-remediation-roadmap) (summary table). Implementation work should be done in focused PRs, not as a single batch unless scoped.
+**Related:** [bmt-architecture-deep-dive.md §11](../bmt-architecture-deep-dive.md#11-remediation-index) (summary table). Implementation work should be done in focused PRs, not as a single batch unless scoped.
 
 ---
 
@@ -57,7 +57,7 @@ This document tracks **design-level** and **implementation-level** issues called
 
 ### B.2 Missing summary conflated with runner failure
 
-**Why it matters:** `_load_summary_or_failure` in `gcp/image/runtime/entrypoint.py` maps `FileNotFoundError` to `reason_code="runner_failures"`, mixing **missing artifact** with **real runner failure** — wrong ops signals.
+**Why it matters:** `_load_summary_or_failure` in `backend/runtime/entrypoint.py` maps `FileNotFoundError` to `reason_code="runner_failures"`, mixing **missing artifact** with **real runner failure** — wrong ops signals.
 
 **Recommendations:**
 
@@ -71,13 +71,11 @@ This document tracks **design-level** and **implementation-level** issues called
 
 - **P1/P2:** Retries with backoff for finalize; structured logging; metrics on finalize failures; optional non-zero exit or reconciliation job.
 
-### B.4 `object_exists` hides infra errors (CI)
+### B.4 `object_exists` and infra errors (CI)
 
-**Why it matters:** In `.github/bmt/ci/gcs.py`, `object_exists` returns `False` on **any** exception — auth/quota/network look like “missing object” and wrong branches run.
+**Status:** **`ci/src/bmtgate/clients/gcs.py`** — `object_exists` raises **`GcsError`** on non–not-found failures (does not treat auth/quota/network as “missing”).
 
-**Recommendations:**
-
-- **P1:** Return **False** only for not-found; raise or return **`GcsError`** for other failures so callers can distinguish.
+**Residual:** Audit other GCS helpers for the same anti-pattern if any remain.
 
 ### B.5 Workflows `start_execution` single HTTP attempt
 
@@ -87,17 +85,17 @@ This document tracks **design-level** and **implementation-level** issues called
 
 - **P2:** Retry with backoff; design **idempotency** if the API can be invoked twice for the same logical run.
 
-### B.6 CI ↔ `gcp.image` import coupling
+### B.6 CI ↔ runtime contract drift
 
-**Why it matters:** `.github/bmt/ci/core.py` imports `gcp.image.config`; refactors there can break `uv run bmt` unexpectedly.
+**Why it matters:** **`bmt-gate`** and **`bmt-runtime`** are separate packages; duplicated constants or path logic can drift.
 
 **Recommendations:**
 
-- **P3:** Thin **stable facade** for constants/decisions used only by CI.
+- **P3:** Shared **contract tests** and, where justified, a thin shared constants module or generated parity checks.
 
 ### B.7 Broad `except Exception`
 
-**Why it matters:** Collapses error types; hides validation failures in `ci/github.py`, `ci/config.py`, etc.
+**Why it matters:** Collapses error types; hides validation failures in `ci/src/bmtgate/clients/github.py`, `ci/src/bmtgate/config/settings.py`, etc.
 
 **Recommendations:**
 

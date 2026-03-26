@@ -1,0 +1,93 @@
+"""Errors, URI helpers, env helpers, JSON loading. No GCS/VM (use clients.gcs and clients.cloud_run)."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from bmtgate.contract import constants as _bmt_constants
+from bmtgate.contract.constants import GateDecision
+from bmtgate.contract.value_types import (
+    sanitize_run_id as sanitize_run_id,  # noqa: F811 — re-export
+)
+
+# Re-export gate decision strings for `from bmtgate.core import DECISION_*` (tests, callers).
+DECISION_ACCEPTED = _bmt_constants.DECISION_ACCEPTED
+DECISION_ACCEPTED_WITH_WARNINGS = _bmt_constants.DECISION_ACCEPTED_WITH_WARNINGS
+DECISION_REJECTED = _bmt_constants.DECISION_REJECTED
+DECISION_TIMEOUT = _bmt_constants.DECISION_TIMEOUT
+
+
+class ConfigError(RuntimeError):
+    """Raised when CI config files are missing or invalid."""
+
+
+class GcloudError(RuntimeError):
+    """Raised when a GCP operation fails in a non-recoverable way."""
+
+
+DEFAULT_CONFIG_ROOT = os.environ.get("BMT_CONFIG_ROOT", "").strip() or "backend"
+DEFAULT_STAGE_ROOT = os.environ.get("BMT_STAGE_ROOT", "").strip() or "benchmarks"
+DEFAULT_ENV_CONTRACT_PATH = "tools/repo/vars_contract.py"
+
+# Trigger path subdirectories under {bucket_root}/triggers/
+TRIGGER_REPORTING_SUBDIR = "reporting"
+
+
+def bucket_uri(bucket_root: str, rel_path: str) -> str:
+    return f"{bucket_root}/{rel_path.lstrip('/')}"
+
+
+def bucket_root_uri(bucket: str) -> str:
+    """Bucket root: gs://<bucket>. No code/ or runtime/ prefix."""
+    return f"gs://{bucket}"
+
+
+def decision_exit(decision: str | GateDecision) -> int:
+    """Return exit code for a gate decision: 0 for accepted, non-zero for rejected/timeout."""
+    if isinstance(decision, GateDecision):
+        d = decision
+    else:
+        try:
+            d = GateDecision(decision)
+        except ValueError:
+            return 1
+    return 0 if d in (GateDecision.ACCEPTED, GateDecision.ACCEPTED_WITH_WARNINGS) else 1
+
+
+def require_env(name: str) -> str:
+    """Return env var value or raise RuntimeError if unset/empty."""
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise RuntimeError(f"Required env var {name!r} is not set or empty")
+    return value
+
+
+def workflow_run_id() -> str:
+    """Return WORKFLOW_RUN_ID or GITHUB_RUN_ID; raise if unset."""
+    run_id = (os.environ.get("WORKFLOW_RUN_ID") or os.environ.get("GITHUB_RUN_ID") or "").strip()
+    if not run_id:
+        raise RuntimeError("WORKFLOW_RUN_ID or GITHUB_RUN_ID is required")
+    return run_id
+
+
+def workflow_runtime_root() -> str:
+    """Return gs://{GCS_BUCKET} (bucket root); raise if GCS_BUCKET unset."""
+    from bmtgate.contract.constants import ENV_GCS_BUCKET
+
+    return f"gs://{require_env(ENV_GCS_BUCKET)}"
+
+
+def read_json_object(path: Path) -> dict[str, Any]:
+    """Load and validate a JSON file as a single object; raises ConfigError if missing/invalid."""
+    if not path.is_file():
+        raise ConfigError(f"Missing JSON file: {path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"Invalid JSON in {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"Expected JSON object at {path}")
+    return data

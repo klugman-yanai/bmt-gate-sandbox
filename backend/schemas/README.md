@@ -14,7 +14,7 @@ Schemas in this directory describe runtime-generated JSON artifacts written by t
 | `latest_result.schema.json` | `snapshots/<run_id>/latest.json` (full outcome) | Cloud Run task runtime |
 ## Schema Versioning & Compatibility Policy
 
-Every canonical JSON artifact includes an optional `schema_version` integer field. The current version is **1** (defined in `gcp.image.config.constants.ARTIFACT_SCHEMA_VERSION`).
+Every canonical JSON artifact includes an optional `schema_version` integer field. The current version is **1** (defined in `backend.config.constants.ARTIFACT_SCHEMA_VERSION`).
 
 **Rules:**
 

@@ -4,14 +4,14 @@
   "bmt_slug": "false_alarms",
   "bmt_id": "ac73397e-1162-5004-9ca2-17c969f53ee5",
   "enabled": true,
-  "plugin_ref": "published:default:sha256-e2500400d6bc3b3e617f835b7e31efdcf408ca16150dd73253cabc4ebb5dfde4",
+  "plugin_ref": "published:default:sha256-d33fb0dba12e4a20787bf59ebf18d1189a164115e24ab74665a9f7adeec78c56",
   "inputs_prefix": "projects/sk/inputs/false_alarms",
   "results_prefix": "projects/sk/results/false_alarms",
   "outputs_prefix": "projects/sk/outputs/false_alarms",
   "runner": {
     "uri": "projects/sk/runner_bundle/kardome_runner",
     "deps_prefix": "projects/shared/dependencies",
-    "template_path": "gcp/image/runtime/assets/kardome_input_template.json"
+    "template_path": "backend/runtime/assets/kardome_input_template.json"
   },
   "execution": {
     "policy": "adaptive_batch_then_legacy"

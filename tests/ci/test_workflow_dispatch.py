@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Any, TypedDict, cast
 
 import pytest
-from ci.cloud_run_api import CloudRunJobsApiError
-from ci.workflow_dispatch import (
+from bmtgate.clients.cloud_run import CloudRunJobsApiError
+from bmtgate.handoff.dispatch import (
     WorkflowDispatchInvokePayload,
     WorkflowDispatchManager,
 )
-from ci.workflows_api import WorkflowsApiError
+from bmtgate.clients.workflows import WorkflowsApiError
 
 from tests.support.sentinels import (
     FAKE_BUCKET,
@@ -77,7 +77,7 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
             "state": "ACTIVE",
         }
 
-    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.start_execution", _fake_start_execution)
 
     WorkflowDispatchManager.from_env().invoke()
 
@@ -115,7 +115,7 @@ def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch
     monkeypatch.setenv("FILTERED_MATRIX_JSON", json.dumps({"include": [{"project": "sk"}]}))
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.start_execution",
+        "bmtgate.handoff.dispatch.start_execution",
         lambda **_: {
             "name": "projects/demo/locations/europe-west4/workflows/bmt-workflow/executions/ex-123",
             "state": "ACTIVE",
@@ -128,7 +128,7 @@ def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch
         seen["uri"] = uri
         seen["payload"] = payload
 
-    monkeypatch.setattr("ci.workflow_dispatch.upload_json", _fake_upload_json)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.upload_json", _fake_upload_json)
 
     WorkflowDispatchManager.from_env().invoke()
 
@@ -156,7 +156,7 @@ def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, mo
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.download_json",
+        "bmtgate.handoff.dispatch.download_json",
         lambda _: (
             {
                 "repository": FAKE_REPO,
@@ -170,10 +170,10 @@ def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, mo
     )
     seen: dict[str, str] = {}
     monkeypatch.setattr(
-        "ci.workflow_dispatch.cancel_execution",
+        "bmtgate.handoff.dispatch.cancel_execution",
         lambda *, execution_name: seen.setdefault("execution_name", execution_name),
     )
-    monkeypatch.setattr("ci.workflow_dispatch.delete_object", lambda uri: seen.setdefault("deleted_uri", uri))
+    monkeypatch.setattr("bmtgate.handoff.dispatch.delete_object", lambda uri: seen.setdefault("deleted_uri", uri))
 
     run_calls: list[dict] = []
 
@@ -181,7 +181,7 @@ def test_cancel_pr_execution_requests_cancel_and_clears_index(tmp_path: Path, mo
         run_calls.append(kwargs)
         return {"done": True}
 
-    monkeypatch.setattr("ci.workflow_dispatch.run_job", _fake_run_job)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.run_job", _fake_run_job)
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
 
@@ -208,7 +208,7 @@ def test_cancel_pr_execution_no_index_is_safe(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
     monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
     monkeypatch.setenv("PR_NUMBER", "79")
-    monkeypatch.setattr("ci.workflow_dispatch.download_json", lambda _: (None, "not_found"))
+    monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", lambda _: (None, "not_found"))
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
@@ -230,7 +230,7 @@ def test_cancel_pr_execution_skips_finalize_without_control_job(tmp_path: Path, 
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.download_json",
+        "bmtgate.handoff.dispatch.download_json",
         lambda _: (
             {
                 "repository": FAKE_REPO,
@@ -241,10 +241,10 @@ def test_cancel_pr_execution_skips_finalize_without_control_job(tmp_path: Path, 
             None,
         ),
     )
-    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", lambda **_: None)
-    monkeypatch.setattr("ci.workflow_dispatch.delete_object", lambda _: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", lambda **_: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.delete_object", lambda _: None)
     called: list[str] = []
-    monkeypatch.setattr("ci.workflow_dispatch.run_job", lambda **_: called.append("run"))
+    monkeypatch.setattr("bmtgate.handoff.dispatch.run_job", lambda **_: called.append("run"))
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
@@ -266,7 +266,7 @@ def test_cancel_pr_execution_finalize_failed_when_run_job_raises(tmp_path: Path,
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.download_json",
+        "bmtgate.handoff.dispatch.download_json",
         lambda _: (
             {
                 "repository": FAKE_REPO,
@@ -277,13 +277,13 @@ def test_cancel_pr_execution_finalize_failed_when_run_job_raises(tmp_path: Path,
             None,
         ),
     )
-    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", lambda **_: None)
-    monkeypatch.setattr("ci.workflow_dispatch.delete_object", lambda _: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", lambda **_: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.delete_object", lambda _: None)
 
     def _boom(**_kwargs):
         raise CloudRunJobsApiError("boom")
 
-    monkeypatch.setattr("ci.workflow_dispatch.run_job", _boom)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.run_job", _boom)
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
@@ -304,7 +304,7 @@ def test_cancel_pr_execution_head_sha_mismatch_still_cancels_and_finalizes(tmp_p
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.download_json",
+        "bmtgate.handoff.dispatch.download_json",
         lambda _: (
             {
                 "repository": FAKE_REPO,
@@ -316,9 +316,9 @@ def test_cancel_pr_execution_head_sha_mismatch_still_cancels_and_finalizes(tmp_p
         ),
     )
     called: list[str] = []
-    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", lambda **_: called.append("cancel"))
-    monkeypatch.setattr("ci.workflow_dispatch.delete_object", lambda _: None)
-    monkeypatch.setattr("ci.workflow_dispatch.run_job", lambda **_: called.append("run_job"))
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", lambda **_: called.append("cancel"))
+    monkeypatch.setattr("bmtgate.handoff.dispatch.delete_object", lambda _: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.run_job", lambda **_: called.append("run_job"))
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
@@ -337,7 +337,7 @@ def test_cancel_pr_execution_cancel_failure_skips_finalize(tmp_path: Path, monke
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.download_json",
+        "bmtgate.handoff.dispatch.download_json",
         lambda _: (
             {
                 "repository": FAKE_REPO,
@@ -353,8 +353,8 @@ def test_cancel_pr_execution_cancel_failure_skips_finalize(tmp_path: Path, monke
         raise WorkflowsApiError("cancel boom")
 
     called: list[str] = []
-    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", _cancel_boom)
-    monkeypatch.setattr("ci.workflow_dispatch.run_job", lambda **_: called.append("run_job"))
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", _cancel_boom)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.run_job", lambda **_: called.append("run_job"))
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
@@ -375,7 +375,7 @@ def test_cancel_pr_execution_cancel_failed_preserves_workflows_permission_error(
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.download_json",
+        "bmtgate.handoff.dispatch.download_json",
         lambda _: (
             {
                 "repository": FAKE_REPO,
@@ -395,7 +395,7 @@ def test_cancel_pr_execution_cancel_failed_preserves_workflows_permission_error(
     def _cancel_denied(**_kwargs):
         raise WorkflowsApiError(api_detail)
 
-    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", _cancel_denied)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", _cancel_denied)
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
@@ -420,7 +420,7 @@ def test_cancel_pr_execution_finalize_failed_preserves_cloud_run_permission_erro
     monkeypatch.setenv("HEAD_SHA", FAKE_SHA_ALT)
 
     monkeypatch.setattr(
-        "ci.workflow_dispatch.download_json",
+        "bmtgate.handoff.dispatch.download_json",
         lambda _: (
             {
                 "repository": FAKE_REPO,
@@ -431,8 +431,8 @@ def test_cancel_pr_execution_finalize_failed_preserves_cloud_run_permission_erro
             None,
         ),
     )
-    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", lambda **_: None)
-    monkeypatch.setattr("ci.workflow_dispatch.delete_object", lambda _: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", lambda **_: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.delete_object", lambda _: None)
 
     api_detail = (
         "POST https://run.googleapis.com/v2/projects/p/locations/europe-west4/jobs/bmt-control:run failed: 403 "
@@ -442,7 +442,7 @@ def test_cancel_pr_execution_finalize_failed_preserves_cloud_run_permission_erro
     def _run_denied(**_kwargs):
         raise CloudRunJobsApiError(api_detail)
 
-    monkeypatch.setattr("ci.workflow_dispatch.run_job", _run_denied)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.run_job", _run_denied)
 
     WorkflowDispatchManager.from_env().cancel_pr_execution()
     outputs = _read_outputs(github_output)
@@ -467,7 +467,7 @@ def _invoke_env_base(tmp_path: Path, monkeypatch, *, github_run_id: str) -> Path
     monkeypatch.setenv("RUN_CONTEXT", "pr")
     monkeypatch.setenv("PR_NUMBER", "79")
     monkeypatch.setenv("FILTERED_MATRIX_JSON", json.dumps({"include": [{"project": "sk"}, {"project": "sk"}]}))
-    monkeypatch.setattr("ci.workflow_dispatch.upload_json", lambda *_a, **_k: None)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.upload_json", lambda *_a, **_k: None)
     return github_output
 
 
@@ -485,9 +485,9 @@ def test_invoke_cancels_superseded_pr_workflow_before_start(tmp_path: Path, monk
             None,
         )
 
-    monkeypatch.setattr("ci.workflow_dispatch.download_json", _dl)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", _dl)
     monkeypatch.setattr(
-        "ci.workflow_dispatch.cancel_execution",
+        "bmtgate.handoff.dispatch.cancel_execution",
         lambda *, execution_name: cancel_calls.append(execution_name),
     )
 
@@ -505,7 +505,7 @@ def test_invoke_cancels_superseded_pr_workflow_before_start(tmp_path: Path, monk
             "state": "ACTIVE",
         }
 
-    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.start_execution", _fake_start_execution)
     WorkflowDispatchManager.from_env().invoke()
     assert cancel_calls == ["projects/p/locations/r/workflows/w/executions/old-ex"]
     assert spy.argument is not None
@@ -526,9 +526,9 @@ def test_invoke_skips_cancel_when_pr_active_same_workflow_run_id(tmp_path: Path,
             None,
         )
 
-    monkeypatch.setattr("ci.workflow_dispatch.download_json", _dl)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", _dl)
     monkeypatch.setattr(
-        "ci.workflow_dispatch.cancel_execution",
+        "bmtgate.handoff.dispatch.cancel_execution",
         lambda *, execution_name: cancel_calls.append(execution_name),
     )
 
@@ -540,7 +540,7 @@ def test_invoke_skips_cancel_when_pr_active_same_workflow_run_id(tmp_path: Path,
             "state": "ACTIVE",
         }
 
-    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.start_execution", _fake_start_execution)
     WorkflowDispatchManager.from_env().invoke()
     assert cancel_calls == []
 
@@ -559,12 +559,12 @@ def test_invoke_starts_after_cancel_failure_on_supersede(tmp_path: Path, monkeyp
             None,
         )
 
-    monkeypatch.setattr("ci.workflow_dispatch.download_json", _dl)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", _dl)
 
     def _boom(*, execution_name: str):
         raise WorkflowsApiError(f"cancel failed {execution_name}")
 
-    monkeypatch.setattr("ci.workflow_dispatch.cancel_execution", _boom)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", _boom)
 
     def _fake_start_execution(
         **kwargs: object,
@@ -576,6 +576,6 @@ def test_invoke_starts_after_cancel_failure_on_supersede(tmp_path: Path, monkeyp
             "state": "ACTIVE",
         }
 
-    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.start_execution", _fake_start_execution)
     WorkflowDispatchManager.from_env().invoke()
     assert start_calls == 1

@@ -28,7 +28,7 @@ class InfraConfig:
     disk_size_gb: int = 100
     disk_type: str = "pd-ssd"
     # Cloud Run
-    cloud_run_region: str = "europe-west4"  # Must match gcp.image.config.constants.DEFAULT_CLOUD_RUN_REGION
+    cloud_run_region: str = "europe-west4"  # Must match backend.config.constants.DEFAULT_CLOUD_RUN_REGION
     cloud_run_memory_standard: str = "8Gi"
     cloud_run_cpu_standard: str = "4"
     cloud_run_memory_heavy: str = "16Gi"

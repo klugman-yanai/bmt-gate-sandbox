@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_planner_discovers_enabled_bmt_and_executor_runs_plugin(tmp_path: Path) -> None:
-    stage_root = tmp_path / "gcp" / "stage"
+    stage_root = tmp_path / "benchmarks"
     workspace_root = tmp_path / "workspace"
     add_project("acme", stage_root=stage_root, dry_run=False)
     add_bmt("acme", "wake_word_quality", stage_root=stage_root, plugin="default")
@@ -57,7 +57,7 @@ def test_planner_discovers_enabled_bmt_and_executor_runs_plugin(tmp_path: Path) 
 
 
 def test_planner_rejects_workspace_plugins_in_production_mode(tmp_path: Path) -> None:
-    stage_root = tmp_path / "gcp" / "stage"
+    stage_root = tmp_path / "benchmarks"
     workspace_root = tmp_path / "workspace"
     add_project("acme", stage_root=stage_root, dry_run=False)
     add_bmt("acme", "wake_word_quality", stage_root=stage_root, plugin="default")

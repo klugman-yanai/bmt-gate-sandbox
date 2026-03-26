@@ -46,7 +46,7 @@ def test_non_inputs_path_is_not_data():
 
 @pytest.fixture
 def staging_tree(tmp_path: Path) -> Path:
-    """Create a synthetic gcp/stage tree with runner, inputs (.keep + WAV), and manifest."""
+    """Create a synthetic benchmarks tree with runner, inputs (.keep + WAV), and manifest."""
     # Runner binary
     runner = tmp_path / "projects" / "sk" / "kardome_runner"
     runner.parent.mkdir(parents=True)

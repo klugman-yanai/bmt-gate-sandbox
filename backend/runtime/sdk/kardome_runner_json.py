@@ -1,7 +1,7 @@
 """Future adapter: structured JSON from ``kardome_runner`` (see docs/bmt-python-contributor-protocol.md).
 
-Today the runtime uses :mod:`gcp.image.runtime.legacy_kardome` and log regex parsing
-(:mod:`gcp.image.runtime.stdout_counter_parse`). When the native binary emits a
+Today the runtime uses :mod:`backend.runtime.legacy_kardome` and log regex parsing
+(:mod:`backend.runtime.stdout_counter_parse`). When the native binary emits a
 versioned JSON payload, implement the functions below and wire them from the plugin
 or executor policy — do not parse free-form stdout for scores.
 """

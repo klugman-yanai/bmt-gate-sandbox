@@ -8,7 +8,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
-from ci.runner import RunnerManager
+from bmtgate.matrix.runner import RunnerManager
 
 pytestmark = pytest.mark.unit
 
@@ -40,9 +40,9 @@ def test_filter_manifest_only_when_skip_missing_no_artifact(tmp_path: Path, monk
 
     with (
         patch.object(RunnerManager, "_w", return_value=None),
-        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("bmtgate.matrix.runner.gcs.download_json", return_value=(None, "missing")),
         patch(
-            "ci.runner.gcs.list_prefix",
+            "bmtgate.matrix.runner.gcs.list_prefix",
             return_value=["gs://fake-bucket/projects/sk/bmts/false_rejects/bmt.json"],
         ),
     ):
@@ -90,9 +90,9 @@ def test_filter_binary_when_artifact_present_with_skip_missing(tmp_path: Path, m
 
     with (
         patch.object(RunnerManager, "_w", return_value=None),
-        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("bmtgate.matrix.runner.gcs.download_json", return_value=(None, "missing")),
         patch(
-            "ci.runner.gcs.list_prefix",
+            "bmtgate.matrix.runner.gcs.list_prefix",
             return_value=["gs://fake-bucket/projects/sk/bmts/false_rejects/bmt.json"],
         ),
     ):
@@ -146,8 +146,8 @@ def test_filter_dev_omit_presets_without_bucket_bmts(tmp_path: Path, monkeypatch
 
     with (
         patch.object(RunnerManager, "_w", return_value=None),
-        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
-        patch("ci.runner.gcs.list_prefix", side_effect=fake_list),
+        patch("bmtgate.matrix.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("bmtgate.matrix.runner.gcs.list_prefix", side_effect=fake_list),
     ):
         RunnerManager.from_env().filter_upload_matrix()
 
@@ -195,8 +195,8 @@ def test_filter_dev_synthetic_unsupported_without_bucket_when_flag_set(
 
     with (
         patch.object(RunnerManager, "_w", return_value=None),
-        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
-        patch("ci.runner.gcs.list_prefix", return_value=[]),
+        patch("bmtgate.matrix.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("bmtgate.matrix.runner.gcs.list_prefix", return_value=[]),
     ):
         RunnerManager.from_env().filter_upload_matrix()
 
@@ -251,8 +251,8 @@ def test_filter_production_matrix_only_binary_supported_uploads(
 
     with (
         patch.object(RunnerManager, "_w", return_value=None),
-        patch("ci.runner.gcs.download_json", return_value=(None, "missing")),
-        patch("ci.runner.gcs.list_prefix", side_effect=fake_list),
+        patch("bmtgate.matrix.runner.gcs.download_json", return_value=(None, "missing")),
+        patch("bmtgate.matrix.runner.gcs.list_prefix", side_effect=fake_list),
     ):
         RunnerManager.from_env().filter_upload_matrix()
 
@@ -287,7 +287,7 @@ def test_dev_manifest_payload_paths(monkeypatch: pytest.MonkeyPatch) -> None:
         uploaded["uri"] = uri
         uploaded["payload"] = payload
 
-    with patch("ci.runner.gcs.upload_json", side_effect=fake_upload):
+    with patch("bmtgate.matrix.runner.gcs.upload_json", side_effect=fake_upload):
         RunnerManager.from_env().upload_dev_publish_manifest()
 
     assert uploaded["uri"] == ("gs://my-bucket/_workflow/dev_publish_manifest/99/sk__sk_gcc_release.json")

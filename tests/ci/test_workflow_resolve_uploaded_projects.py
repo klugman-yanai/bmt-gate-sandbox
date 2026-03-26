@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-from ci import gcs
-from ci.runner import RunnerManager
+from bmtgate.clients import gcs
+from bmtgate.matrix.runner import RunnerManager
 
 pytestmark = pytest.mark.unit
 

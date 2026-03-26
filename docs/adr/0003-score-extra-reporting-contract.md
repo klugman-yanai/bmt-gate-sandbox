@@ -6,7 +6,7 @@ Accepted (2026-03-23)
 
 ## Context
 
-BMT legs produce [`LegSummary`](../../gcp/image/runtime/models.py) with [`ScorePayload`](../../gcp/image/runtime/models.py): `aggregate_score`, `metrics`, and `extra`. Multiple projects and BMTs can coexist; each [`BmtPlugin`](../../gcp/image/runtime/sdk/plugin.py) may attach **plugin-specific** metadata for GitHub Checks and GCS snapshots.
+BMT legs produce [`LegSummary`](../../backend/runtime/models.py) with [`ScorePayload`](../../backend/runtime/models.py): `aggregate_score`, `metrics`, and `extra`. Multiple projects and BMTs can coexist; each [`BmtPlugin`](../../backend/runtime/sdk/plugin.py) may attach **plugin-specific** metadata for GitHub Checks and GCS snapshots.
 
 The presentation layer must stay **generic**: it should branch on **declared structure** in `extra`, not on `project` or `bmt_slug`.
 
@@ -18,7 +18,7 @@ The presentation layer must stay **generic**: it should branch on **declared str
 
 2. **Versioning** — `scoring_policy` SHOULD include `schema_version` (string) so formatters can evolve. Consumers MUST treat unknown versions as opaque or fall back to generic display.
 
-3. **Optional `reporting_hints` in manifest** — [`plugin_config`](../../gcp/stage/projects/sk/bmts/) MAY include a `reporting_hints` object copied into `scoring_policy` for operator-facing copy. This does not change gating math.
+3. **Optional `reporting_hints` in manifest** — [`plugin_config`](../../benchmarks/projects/sk/bmts/) MAY include a `reporting_hints` object copied into `scoring_policy` for operator-facing copy. This does not change gating math.
 
    Documented optional keys (plugins MAY add more; formatters SHOULD ignore unknown keys):
 
@@ -37,9 +37,9 @@ The presentation layer must stay **generic**: it should branch on **declared str
 ## Consequences
 
 - New plugins SHOULD document their `extra` / `metrics` shapes (short appendix or follow-up ADR).
-- GitHub Checks output MUST respect API size limits; [`github_checks`](../gcp/image/github/github_checks.py) clamps UTF-8 byte length for `summary` / `text`.
+- GitHub Checks output MUST respect API size limits; [`github_checks`](../../backend/github/github_checks.py) clamps UTF-8 byte length for `summary` / `text`.
 
 ## References
 
 - [`docs/architecture.md`](../architecture.md) — pipeline and storage
-- [`gcp/image/github/presentation.py`](../../gcp/image/github/presentation.py) — Check Run Markdown
+- [`backend/github/presentation.py`](../../backend/github/presentation.py) — Check Run Markdown

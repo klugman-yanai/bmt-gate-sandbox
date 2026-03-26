@@ -15,7 +15,7 @@ Workers must agree on **paths**, **ordering**, and **cleanup** without transacti
 
 ## Decision
 
-Treat the bucket (mirroring **`gcp/stage`**) as the **single coordination plane**:
+Treat the bucket (mirroring **`benchmarks/`**) as the **single coordination plane**:
 
 - Ephemeral objects under `triggers/` for the active run
 - Persistent results under `projects/.../results/...`
@@ -28,5 +28,5 @@ Treat the bucket (mirroring **`gcp/stage`**) as the **single coordination plane*
 
 ## References
 
-- [gcp/README.md](../../gcp/README.md)
+- [tools/repo/paths.py](../../tools/repo/paths.py) — `DEFAULT_STAGE_ROOT` / `benchmarks/`
 - [docs/bmt-architecture-deep-dive.md](../bmt-architecture-deep-dive.md)

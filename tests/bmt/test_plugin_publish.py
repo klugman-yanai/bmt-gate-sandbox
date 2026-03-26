@@ -14,7 +14,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_path: Path, monkeypatch) -> None:
-    sp = StagePaths(tmp_path / "gcp" / "stage")
+    sp = StagePaths(tmp_path / "benchmarks")
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
     add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
 
@@ -48,7 +48,7 @@ def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_pat
 
 
 def test_publish_bmt_can_skip_sync(tmp_path: Path, monkeypatch) -> None:
-    sp = StagePaths(tmp_path / "gcp" / "stage")
+    sp = StagePaths(tmp_path / "benchmarks")
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
     add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
 
@@ -67,7 +67,7 @@ def test_publish_bmt_can_skip_sync(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_publish_bmt_fails_before_sync_when_workspace_plugin_is_invalid(tmp_path: Path, monkeypatch) -> None:
-    sp = StagePaths(tmp_path / "gcp" / "stage")
+    sp = StagePaths(tmp_path / "benchmarks")
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
     add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
 

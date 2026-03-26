@@ -45,7 +45,7 @@ class BmtPlugin(ABC):
     def validate_against_loaded_manifest(self, manifest: PluginManifest) -> None:
         """Ensure ``plugin.json`` matches :attr:`plugin_name` and :attr:`api_version`.
 
-        Called from :func:`~gcp.image.runtime.plugin_loader.load_plugin` after the
+        Called from :func:`~backend.runtime.plugin_loader.load_plugin` after the
         entrypoint is instantiated.
         """
         if self.plugin_name != manifest.plugin_name:

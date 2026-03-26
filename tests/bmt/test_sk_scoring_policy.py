@@ -9,7 +9,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-_SK_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
+_SK_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/plugin_workspaces/default/src")
 
 
 def _sp():

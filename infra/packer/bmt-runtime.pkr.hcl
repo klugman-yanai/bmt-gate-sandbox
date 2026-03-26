@@ -57,8 +57,8 @@ variable "bmt_repo_root" {
   default = "/opt/bmt"
 }
 
-# Path to the gcp/image/ checkout directory on the build machine.
-# Set PKR_VAR_bmt_repo_source to the gcp/image/ dir from the CI checkout.
+# Path to the backend/ checkout directory on the build machine.
+# Set PKR_VAR_bmt_repo_source to the backend/ dir from the CI checkout.
 variable "bmt_repo_source" {
   type    = string
   default = ""
@@ -84,7 +84,7 @@ source "googlecompute" "bmt_runtime" {
 
   image_name        = local.image_name
   image_family      = var.image_family
-  image_description = "BMT runtime image — code baked from repo checkout (gcp/image/)"
+  image_description = "BMT runtime image — code baked from repo checkout (backend/)"
   image_labels = {
     bmt-image-family   = replace(lower(var.image_family), "_", "-")
     bmt-image-version  = replace(lower(local.image_name), "_", "-")
@@ -132,7 +132,7 @@ build {
     ]
   }
 
-  # 1b. Upload gcp/image/ from the CI checkout directly into the baked image.
+  # 1b. Upload backend/ from the CI checkout directly into the baked image.
   #     This replaces the old gs://bucket/code sync; code is now part of the image,
   #     not fetched from GCS at runtime or during bake.
   provisioner "file" {
@@ -224,7 +224,7 @@ build {
       "    'image_family': '${var.image_family}',",
       "    'base_image_family': '${var.base_image_family}',",
       "    'base_image_project': '${var.base_image_project}',",
-      "    'image_source': {'type': 'repo_checkout', 'path': 'gcp/image/'},",
+      "    'image_source': {'type': 'repo_checkout', 'path': 'backend/'},",
       "    'deps_fingerprint': digest(repo/'pyproject.toml'),",
       "    'pyproject_sha256': digest(repo/'pyproject.toml'),",
       "    'glibc_version': build_meta.get('GLIBC_VERSION', ''),",

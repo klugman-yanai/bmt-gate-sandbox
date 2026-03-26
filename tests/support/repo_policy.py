@@ -13,15 +13,15 @@ SAMPLE_BMT = "false_rejects"
 
 
 def repo_stage_root(repo_root: Path) -> Path:
-    """Path to the gcp/stage directory (local mirror of the GCS bucket)."""
-    return repo_root / "gcp" / "stage"
+    """Path to the benchmarks directory (local mirror of the GCS bucket)."""
+    return repo_root / "benchmarks"
 
 
 def repo_stage_bmt_manifest(project: str, bmt_slug: str, *, repo_root: Path | None = None) -> Path:
-    """Absolute path to a BMT manifest in gcp/stage, or relative path when repo_root is None.
+    """Absolute path to a BMT manifest in benchmarks, or relative path when repo_root is None.
 
     When ``repo_root`` is None, returns a path relative to the repo root — safe to
     use in tests that rely on the ``_stable_repo_cwd`` conftest fixture.
     """
-    rel = Path("gcp") / "stage" / "projects" / project / "bmts" / bmt_slug / "bmt.json"
+    rel = Path("benchmarks") / "projects" / project / "bmts" / bmt_slug / "bmt.json"
     return repo_root / rel if repo_root is not None else rel

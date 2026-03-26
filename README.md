@@ -1,49 +1,44 @@
 # bmt-gcloud
 
-Development repo for the BMT (Benchmark/Milestone Testing) cloud pipeline. Orchestrates remote VM-based BMT execution via Google Cloud, scoring audio quality metrics against a baseline to gate CI.
+**BMT (benchmark / milestone testing)** for audio models: GitHub Actions hands off to **Google Workflows** and **Cloud Run**, using **GCS** as the shared store. CI exits after dispatch; Cloud Run runs legs, compares scores to a **baseline**, and posts **status / check runs** back to GitHub.
 
-## Repository layout
+## Layout
 
-```
+```text
 bmt-gcloud/
-├── benchmarks/       # 1:1 GCS bucket mirror — projects, runners, inputs, outputs
-├── backend/          # VM runtime — config, orchestrator, watcher, per-project managers
-├── ci/               # BMT CI package (bmt-gate) — portable, distributable
-│   └── src/bmt_gate/ #   matrix, trigger, handshake, VM lifecycle
-├── tools/            # Developer CLI — bucket sync, layout policy, shared libs
-├── tests/            # pytest (unit + integration)
-├── infra/            # Terraform IaC
-└── docs/             # Architecture, configuration, development guides
+├── benchmarks/   # 1:1 GCS mirror — projects, plugins, inputs, results
+├── backend/      # Cloud Run runtime (image-baked)
+├── ci/           # bmt-gate — matrix, handoff, workflow dispatch (`uv run bmt`)
+├── tools/        # Developer CLI (`uv run python -m tools`)
+├── tests/
+├── infra/        # Pulumi, Packer, scripts
+└── docs/
 ```
-
-**Benchmark work:** `benchmarks/` — projects, runner binaries, datasets.
-**Framework code:** `backend/` — the VM runtime that executes benchmarks.
-**CI package:** `ci/` — standalone `bmt-gate` package; consumer repos install via git dep.
 
 ## Quick start
 
 ```bash
-uv sync                          # Install all deps
-uv run python -m pytest tests/   # Run tests (no GCS/VM needed)
-just                             # See all recipes
+uv sync
+uv run python -m pytest tests/ -v
+just list
 ```
 
-## Features
+## Highlights
 
-- **Trigger-and-stop handoff** — CI writes a run trigger, starts the VM, waits for handshake, then exits. The VM runs BMT legs and posts final outcome.
-- **Commit status and Check Run** — VM posts pending then success/failure; branch protection gates on `BMT_STATUS_CONTEXT`.
-- **Pointer-based results** — `current.json` points to latest and last-passing runs; baseline from last-passing snapshot.
-- **Portable CI** — `ci/` package has zero `backend.*` imports; works in consumer repos via `bmt-gate` git dependency.
+- **Async handoff** — Actions starts Workflows and stops; runtime finishes on GCP.
+- **Pointer results** — `current.json` tracks `latest` / `last_passing`; tasks evaluate against baseline.
+- **Portable CI package** — `ci/` is the `bmt-gate` workspace member; consumers can depend on it via git/subdir (see `ci/pyproject.toml`).
 
 ## Configuration
 
-**Terraform is the source of truth** for all non-secret configuration. See [infra/README.md](infra/README.md) and [docs/configuration.md](docs/configuration.md).
+**Infra and repo vars:** Pulumi in `infra/pulumi/` — see [infra/README.md](infra/README.md) and [docs/configuration.md](docs/configuration.md).
 
 ## Documentation
 
-| Doc | Description |
+| Doc | Purpose |
 | --- | --- |
-| [CLAUDE.md](CLAUDE.md) | AI/maintainer guide — layout, devtools, lint/test |
-| [docs/README.md](docs/README.md) | Full docs index |
-| [docs/architecture.md](docs/architecture.md) | Pipeline, GCS contract, script map |
-| [docs/configuration.md](docs/configuration.md) | Env vars, repo vars, secrets |
+| [docs/README.md](docs/README.md) | Doc index |
+| [docs/architecture.md](docs/architecture.md) | Pipeline, paths, storage |
+| [docs/pipeline-dag.md](docs/pipeline-dag.md) | Diagrams + glossary |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, hooks, PR checks |
+| [CLAUDE.md](CLAUDE.md) | Agent / maintainer conventions |

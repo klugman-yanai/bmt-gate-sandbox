@@ -3,7 +3,7 @@ requires = ["uv_build>=0.10.7,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "bmt_gate"
+module-name = "bmtgate"
 module-root = "src"
 
 [project]
@@ -21,19 +21,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "basedpyright",
+    "ty",
     "ruff>=0.15.0",
 ]
 
 [project.scripts]
-bmt = "bmt_gate.driver:main"
-bmt-matrix = "bmt_gate.driver:main_matrix"
-bmt-trigger = "bmt_gate.driver:main_write_run_trigger"
-bmt-wait = "bmt_gate.driver:main_wait_handshake"
-bmt-start-vm = "bmt_gate.driver:main_start_vm"
-bmt-write-context = "bmt_gate.driver:main_write_context"
-bmt-write-summary = "bmt_gate.driver:main_write_handoff_summary"
-bmt-select-vm = "bmt_gate.driver:main_select_available_vm"
+bmt = "bmtgate.main:main"
+bmt-matrix = "bmtgate.main:main_matrix"
+bmt-write-context = "bmtgate.main:main_write_context"
+bmt-write-summary = "bmtgate.main:main_write_handoff_summary"
 
 [tool.ruff]
 target-version = "py312"
@@ -47,7 +43,5 @@ ignore = ["E501"]
 [tool.ruff.format]
 quote-style = "double"
 
-[tool.basedpyright]
-typeCheckingMode = "basic"
-pythonVersion = "3.12"
-reportMissingTypeStubs = false
+[tool.ty.environment]
+python-version = "3.12"

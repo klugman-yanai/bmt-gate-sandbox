@@ -36,16 +36,16 @@ Root **`.github/workflows/*.yml`** includes reusable CI (`build-and-test*.yml`, 
 
 - **Missing local actions** — `bmt-handoff.yml` uses `bmt-prepare-context`, `setup-gcp-uv`, **`setup-uv-repo`** (via `setup-gcp-uv`), `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary` under `.github/actions/`. (`check-image-up-to-date` exists for optional image gates; it is not referenced by the current handoff workflow in this repo.)
 - **Missing BMT CLI** — Steps run `uv run bmt …` (write-context, filter-upload-matrix, invoke-workflow, etc.). The package lives under `.github/bmt/` (pyproject.toml, ci/, config/); core-main needs it.
-- **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
-- **Check image up to date** — Composite action `check-image-up-to-date` takes **`image_build_workflow`** (default **`internal/bmt-image-build.yml`** in this repo). On core-main, pass **`bmt-image-build.yml`** if the image workflow lives at the workflows root. It fails when `infra/packer` or `gcp/image` change but no successful image build run exists for the ref.
+- **Missing `backend`** — The failure-fallback path runs `from backend.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `backend`, so at least `backend/config/` (with `constants.py`) must exist in the repo.
+- **Check image up to date** — Composite action `check-image-up-to-date` takes **`image_build_workflow`** (default **`internal/bmt-image-build.yml`** in this repo). On core-main, pass **`bmt-image-build.yml`** if the image workflow lives at the workflows root. It fails when `infra/packer` or `backend` change but no successful image build run exists for the ref.
 - **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.CLOUD_RUN_REGION`, and the Workflow / job names exported by Pulumi. These must be set in core-main (or the org).
 - **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `repo_snapshot` → `build_release` ∥ `build_non_release` → `bmt_handoff` (when `if` passes). In **this repo**, `bmt_handoff.if` uses **head ref** allowlisting (`dev`, `ci/check-bmt-gate`, `test/check-bmt-gate*`, other `test/*`) in PR-driven CI. Runner `runner-*` artifact names are listed inside handoff **Plan**, not in a separate CI job. In core-main the same graph applies with real builds.
 
-**For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `gcp/image` for the fallback constant; set the repo vars; and either add `bmt-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
+**For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `backend` for the fallback constant; set the repo vars; and either add `bmt-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
 
 ## File release checklist (Kardome-org/core-main)
 
-Mechanical bundle: **`just tools release`** (requires `gcp/image/github/secrets/Kardome-org_core-main.pem` for a full copy), or **`just tools release --skip-secrets`** / **`RELEASE_SKIP_SECRETS=1`** when no local PEM (CI, or secrets-only promotion). Output: **`.github-release/`** (gitignored here). Copy into **`core-main/.github/`** as one atomic PR. **`bmt_release.json`** records **`source_sha`** from this repo for drift tracking.
+Mechanical bundle: **`just tools release`** (requires `backend/github/secrets/Kardome-org_core-main.pem` for a full copy), or **`just tools release --skip-secrets`** / **`RELEASE_SKIP_SECRETS=1`** when no local PEM (CI, or secrets-only promotion). Output: **`.github-release/`** (gitignored here). Copy into **`core-main/.github/`** as one atomic PR. **`bmt_release.json`** records **`source_sha`** from this repo for drift tracking.
 
 | Source in bmt-gcloud | On core-main | Mechanism |
 | ---------------------- | ------------- | --------- |
@@ -54,7 +54,7 @@ Mechanical bundle: **`just tools release`** (requires `gcp/image/github/secrets/
 | `.github/actions/*` (excl. `check-image-up-to-date`) | `.github/actions/` | assembler |
 | `.github/bmt/` (`ci/`, `pyproject.toml`, `uv.lock`, `config/README.md`) | `.github/bmt/` | assembler |
 | `scripts/release_templates/actionlint.yaml` | `.github/actionlint.yaml` | assembler |
-| `gcp/image/**` needed for `gcp.image.*` imports | repo root `gcp/` | **Not** in assembler — keep in sync with bmt-gcloud or copy minimal tree separately (see above) |
+| `backend/**` needed for `backend.*` imports | repo root `backend/` | **Not** in assembler — keep in sync with bmt-gcloud or copy minimal tree separately (see above) |
 | `bmt-gcloud` Python package for `uv sync` in `.github/bmt` | consumer resolution | Documented in [`bmt/README.md`](bmt/README.md) — git source or private index |
 
 **Secrets:** Do **not** commit `*.pem` to `core-main`. Use **GitHub Secrets** for the GitHub App private key; optional local file paths are for dev only (see [`bmt/config/README.md`](bmt/config/README.md)).
@@ -151,7 +151,7 @@ Each container run logs one JSON line with `"bmt_run_bootstrap":true`, `bmt_mode
 | Trigger | Notes |
 | ------- | ----- |
 | `workflow_dispatch` / `workflow_call` | Packer inputs |
-| `push` | Branches: `main`, `ci/check-bmt-gate`, `dev`; **paths:** `infra/packer/**`, `gcp/image/**` |
+| `push` | Branches: `main`, `ci/check-bmt-gate`, `dev`; **paths:** `infra/packer/**`, `backend/**` |
 
 ### `internal/trigger-image-build.yml` / `internal/trigger-ci.yml` / `internal/trigger-ci-dispatch.yml`
 
@@ -219,7 +219,7 @@ Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `pe
 
 ## Optional CODEOWNERS
 
-To require review for specific paths (e.g. workflows or `gcp/image/`), add a `.github/CODEOWNERS` file and enable **Require review from Code Owners** on protected branches. See [About code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
+To require review for specific paths (e.g. workflows or `backend/`), add a `.github/CODEOWNERS` file and enable **Require review from Code Owners** on protected branches. See [About code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
 
 ## Auth boundaries
 

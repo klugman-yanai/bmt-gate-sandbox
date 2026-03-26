@@ -1,18 +1,22 @@
 # Documentation
 
-**Start here:** [README](../README.md) · **Contributing:** [CONTRIBUTING](../CONTRIBUTING.md)
+**Start:** [README](../README.md) · **Contribute:** [CONTRIBUTING](../CONTRIBUTING.md)
 
-| I want to… | Doc |
-| ---------- | --- |
-| **System architecture** (pipeline, diagrams, maintainer notes) | [architecture.md](architecture.md) |
-| **Configuration / env / Pulumi** | [configuration.md](configuration.md) |
-| **Add a project or BMT** | [adding-a-project.md](adding-a-project.md) |
-| **Python BMT / plugin + runner contract** | [bmt-python-contributor-protocol.md](bmt-python-contributor-protocol.md) |
-| **First benchmark (happy path)** | [bmt-first-benchmark.md](bmt-first-benchmark.md) |
-| **Checks before publish** | [local-bmt-testing.md](local-bmt-testing.md) |
-| **What `just add` / `just publish` / `upload-wav` / `workspace` mean** | [contributor-commands.md](contributor-commands.md) |
-| **Production incidents / GCS** | [runbook.md](runbook.md) |
-| **Roadmap / priorities** | [ROADMAP.md](../ROADMAP.md) |
-| **ADRs** (contracts, decisions) | [adr/README.md](adr/README.md) |
+| Goal | Doc |
+| --- | --- |
+| Pipeline, bucket layout, runtime modes | [architecture.md](architecture.md) |
+| Diagrams, terms, handoff steps | [pipeline-dag.md](pipeline-dag.md) |
+| Maintainer risks & contracts | [bmt-architecture-deep-dive.md](bmt-architecture-deep-dive.md) |
+| Env vars, Pulumi, secrets | [configuration.md](configuration.md) |
+| New project / BMT | [adding-a-project.md](adding-a-project.md) |
+| Plugin + runner contract | [bmt-python-contributor-protocol.md](bmt-python-contributor-protocol.md) |
+| Happy-path benchmark | [bmt-first-benchmark.md](bmt-first-benchmark.md) |
+| Pre-publish checks | [local-bmt-testing.md](local-bmt-testing.md) |
+| `just` / CLI vocabulary | [contributor-commands.md](contributor-commands.md) |
+| Incidents, GCS | [runbook.md](runbook.md) |
+| Priorities | [ROADMAP.md](../ROADMAP.md) |
+| Decisions (ADRs) | [adr/README.md](adr/README.md) |
 
-Everything above is for the **Workflows + Cloud Run** pipeline; ignore legacy VM-era references if you see them in old issues or git history.
+Design notes and historical plans live under `docs/plans/`, `docs/roadmap/`, and `docs/archive/`. **Path vocabulary:** current code uses **`benchmarks/`** (GCS mirror) and **`backend/`** (Cloud Run image); older write-ups may still say `gcp/stage` or `gcp/image`—treat as the same unless the text is explicitly historical.
+
+**Maintainer index:** [bmt-architecture-deep-dive.md](bmt-architecture-deep-dive.md) · [plans/bmt-weak-points-remediation.md](plans/bmt-weak-points-remediation.md)

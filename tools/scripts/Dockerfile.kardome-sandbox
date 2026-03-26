@@ -20,18 +20,18 @@ RUN apt-get update && \
 
 WORKDIR /workspace
 
-RUN mkdir -p /opt/kardome/gcp/image/runtime && \
-    touch /opt/kardome/gcp/__init__.py /opt/kardome/gcp/image/__init__.py /opt/kardome/gcp/image/runtime/__init__.py
+RUN mkdir -p /opt/kardome/backend/runtime && \
+    touch /opt/kardome/backend/__init__.py /opt/kardome/backend/runtime/__init__.py
 ENV PYTHONPATH=/opt/kardome
 
 # Runner + libraries
-COPY gcp/stage/projects/sk/kardome_runner /opt/kardome/kardome_runner
-COPY gcp/stage/projects/sk/lib /opt/kardome/lib
-COPY gcp/stage/projects/shared/dependencies /opt/kardome/dependencies
+COPY benchmarks/projects/sk/kardome_runner /opt/kardome/kardome_runner
+COPY benchmarks/projects/sk/lib /opt/kardome/lib
+COPY benchmarks/projects/shared/dependencies /opt/kardome/dependencies
 
 # Shared template + sandbox runner harness
-COPY gcp/image/runtime/assets/kardome_input_template.json /opt/kardome/input_template.json
-COPY gcp/image/runtime/stdout_counter_parse.py /opt/kardome/gcp/image/runtime/stdout_counter_parse.py
+COPY backend/runtime/assets/kardome_input_template.json /opt/kardome/input_template.json
+COPY backend/runtime/stdout_counter_parse.py /opt/kardome/backend/runtime/stdout_counter_parse.py
 COPY tools/scripts/kardome_sandbox_runner.py /opt/kardome/kardome_sandbox_runner.py
 
 # Test audio corpus

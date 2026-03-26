@@ -119,7 +119,7 @@ class TestResolveGithubAppToken:
 
         assert github_auth.resolve_github_app_token("Kardome-org/core-main") is None
 
-    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
+    @mock.patch("backend.github.github_auth.get_installation_token_from_app")
     def test_successful_primary_app_auth(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = "test-app-token"
         monkeypatch.setenv("GITHUB_APP_ID", "12345")
@@ -137,7 +137,7 @@ class TestResolveGithubAppToken:
             "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
         )
 
-    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
+    @mock.patch("backend.github.github_auth.get_installation_token_from_app")
     def test_successful_dev_app_auth(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = "dev-app-token"
         monkeypatch.setenv("GITHUB_APP_DEV_ID", "dev-id")
@@ -149,7 +149,7 @@ class TestResolveGithubAppToken:
         assert token == "dev-app-token"
         mock_get_token.assert_called_once_with("dev-id", "dev-installation", "dev-private-key")
 
-    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
+    @mock.patch("backend.github.github_auth.get_installation_token_from_app")
     def test_app_auth_failure_returns_none(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = None
         monkeypatch.setenv("GITHUB_APP_DEV_ID", "dev-id")
@@ -162,7 +162,7 @@ class TestResolveGithubAppToken:
 class TestGetInstallationTokenFromApp:
     """Tests for get_installation_token_from_app()."""
 
-    @mock.patch("gcp.image.github.github_auth.GithubIntegration")
+    @mock.patch("backend.github.github_auth.GithubIntegration")
     def test_integration_constructor_failure_returns_none(self, mock_integration_cls: mock.Mock) -> None:
         mock_integration_cls.side_effect = RuntimeError("invalid credentials")
         assert (
@@ -179,7 +179,7 @@ class TestGetInstallationTokenFromApp:
         assert github_auth.get_installation_token_from_app("12345", "", "key") is None
         assert github_auth.get_installation_token_from_app("12345", "67890", "") is None
 
-    @mock.patch("gcp.image.github.github_auth.GithubIntegration")
+    @mock.patch("backend.github.github_auth.GithubIntegration")
     def test_successful_token_exchange(self, mock_integration_cls: mock.Mock) -> None:
         mock_auth = mock.MagicMock()
         mock_auth.token = "test-installation-token"
@@ -196,7 +196,7 @@ class TestGetInstallationTokenFromApp:
         assert token == "test-installation-token"
         mock_integration.get_access_token.assert_called_once_with(67890)
 
-    @mock.patch("gcp.image.github.github_auth.GithubIntegration")
+    @mock.patch("backend.github.github_auth.GithubIntegration")
     def test_api_error_returns_none(self, mock_integration_cls: mock.Mock) -> None:
         mock_integration = mock.MagicMock()
         mock_integration.get_access_token.side_effect = Exception("unauthorized")

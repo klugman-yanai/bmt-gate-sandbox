@@ -7,7 +7,7 @@ name = "bmt-gcloud"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "bmt",
+    "bmt-gate",
     "PyGithub>=2.0",
     "google-cloud-storage>=2.16",
     "google-cloud-artifact-registry>=1.14.0",
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-bmt = { workspace = true }
+bmt-gate = { workspace = true }
 # So that member ci can depend on bmt-gcloud without listing it (keeps that pyproject portable).
 bmt-gcloud = { workspace = true }
 
@@ -42,7 +42,7 @@ package = true
 where = ["."]
 include = ["backend*", "tools*"]
 
-# Typecheck: `uv run ty check` (see `[tool.ty]`). IDE: Pylance/Cursor uses [pyrightconfig.json].
+# Typecheck: `uv run ty check` (see `[tool.ty]`). IDE analysis typically follows the same roots via pyproject / editor settings.
 [tool.ty.environment]
 python-version = "3.12"
 extra-paths = [

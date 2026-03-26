@@ -30,7 +30,7 @@ def verify_runtime_seed() -> None:
 
 @app.command()
 def deploy() -> None:
-    """Sync gcp/stage to bucket root and verify runtime seed."""
+    """Sync benchmarks to bucket root and verify runtime seed."""
     from tools.remote.bucket_sync_runtime_seed import BucketSyncRuntimeSeed
     from tools.remote.bucket_verify_runtime_seed_sync import BucketVerifyRuntimeSeedSync
 
@@ -68,10 +68,10 @@ def preflight(
     ] = None,
     local_only: Annotated[
         bool,
-        typer.Option("--local-only", help="Only list gcp/image, no GCS"),
+        typer.Option("--local-only", help="Only list backend, no GCS"),
     ] = False,
 ) -> None:
-    """Bucket diff vs gcp/image (JSON snapshot under .local/ on live runs)."""
+    """Bucket diff vs backend (JSON snapshot under .local/ on live runs)."""
     from tools.remote.preflight_bucket import run_preflight
 
     console = step_console()
@@ -187,14 +187,14 @@ def upload_wav(
     ] = False,
     local: Annotated[
         bool,
-        typer.Option("--local", help="Also mirror files into gcp/stage/ (off by default; datasets can be 30-40 GB)"),
+        typer.Option("--local", help="Also mirror files into benchmarks/ (off by default; datasets can be 30-40 GB)"),
     ] = False,
 ) -> None:
     """Upload a WAV dataset (zip or folder) to projects/<project>/inputs/<dataset>/.
 
     Uploads to GCS only by default — datasets can be 30-40 GB. Archives use
     ``gcloud storage cp`` followed by the Cloud Run dataset importer; folders
-    use ``gcloud storage rsync``. Pass --local to also mirror into gcp/stage/.
+    use ``gcloud storage rsync``. Pass --local to also mirror into benchmarks/.
     Dataset name is auto-detected from the source filename when not given:
     sk_false_rejects.zip → false_rejects.
     """
@@ -202,7 +202,7 @@ def upload_wav(
     from tools.repo.paths import repo_root
 
     bucket = bucket_from_env()
-    local_mirror = repo_root() / "gcp" / "stage" if local else None
+    local_mirror = repo_root() / "benchmarks" if local else None
     rc = BucketUploadDataset().run(
         bucket=bucket,
         project=project,

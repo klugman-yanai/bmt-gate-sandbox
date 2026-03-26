@@ -1,4 +1,4 @@
-"""Reference factory for a validated :class:`~gcp.image.runtime.models.BmtManifest` (``bmt.json`` wire shape)."""
+"""Reference factory for a validated :class:`~backend.runtime.models.BmtManifest` (``bmt.json`` wire shape)."""
 
 from __future__ import annotations
 

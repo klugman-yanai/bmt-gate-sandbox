@@ -74,7 +74,7 @@ def workflow_steps_ordered() -> list[WorkflowStep]:
 
 def repo_workflow_hints(*, repo_root: Path) -> RepoWorkflowHints:
     has_venv = (repo_root / ".venv").is_dir()
-    projects = repo_root / "gcp" / "stage" / "projects"
+    projects = repo_root / "benchmarks" / "projects"
     names: list[str] = []
     if projects.is_dir():
         for p in sorted(projects.iterdir()):

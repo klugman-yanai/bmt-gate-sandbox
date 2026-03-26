@@ -28,4 +28,4 @@ dev = []
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gcp.image*", "gcp.image.runtime*", "gcp.image.github*", "gcp.image.config*"]
+include = ["backend*", "backend.runtime*", "backend.github*", "backend.config*"]

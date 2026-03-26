@@ -1,4 +1,4 @@
-"""Tests for :func:`gcp.image.runtime.sdk.manifest_build.build_default_bmt_manifest`."""
+"""Tests for :func:`backend.runtime.sdk.manifest_build.build_default_bmt_manifest`."""
 
 from __future__ import annotations
 

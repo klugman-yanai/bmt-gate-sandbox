@@ -1,4 +1,4 @@
-"""Tests for gcp.image.config.env_parse."""
+"""Tests for backend.config.env_parse."""
 
 from __future__ import annotations
 

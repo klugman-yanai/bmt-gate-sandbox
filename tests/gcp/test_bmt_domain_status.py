@@ -1,4 +1,4 @@
-"""Tests for gcp.image.config.bmt_domain_status."""
+"""Tests for backend.config.bmt_domain_status."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""`gcp/stage/projects/` layout: v2 paths with v1 fallback (bmts vs benchmarks; flat vs releases/)."""
+"""`benchmarks/projects/` layout: v2 paths with v1 fallback (bmts vs benchmarks; flat vs releases/)."""
 
 from __future__ import annotations
 

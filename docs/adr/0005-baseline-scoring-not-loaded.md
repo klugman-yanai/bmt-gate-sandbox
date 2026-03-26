@@ -10,7 +10,7 @@ Accepted (current behavior)
 
 ## Decision
 
-The benchmark execution entrypoint (`execute_leg` in `gcp/image/runtime/execution.py`) **always passes `None`** for baseline today. Plugins must not assume baseline comparison works in production until this ADR is superseded and the loader is implemented.
+The benchmark execution entrypoint (`execute_leg` in `backend/runtime/execution.py`) **always passes `None`** for baseline today. Plugins must not assume baseline comparison works in production until this ADR is superseded and the loader is implemented.
 
 ## Consequences
 

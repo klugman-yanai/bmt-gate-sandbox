@@ -1,9 +1,9 @@
 # Architecture
 
-Canonical documentation for the BMT Cloud Run pipeline:
+Canonical entry points:
 
-- **[docs/architecture.md](docs/architecture.md)** — Short pipeline, runtime modes, storage model
-- **[docs/pipeline-dag.md](docs/pipeline-dag.md)** — Diagrams, glossary, handoff steps
-- **[docs/bmt-architecture-deep-dive.md](docs/bmt-architecture-deep-dive.md)** — Maintainer-oriented risks, tradeoffs, and links to the [remediation backlog](docs/plans/bmt-weak-points-remediation.md)
+- **[docs/architecture.md](docs/architecture.md)** — Production pipeline, `backend/` vs `benchmarks/`, GCS layout
+- **[docs/pipeline-dag.md](docs/pipeline-dag.md)** — Mermaid diagrams and glossary
+- **[docs/bmt-architecture-deep-dive.md](docs/bmt-architecture-deep-dive.md)** — Maintainer-focused risks and remediation index
 
-Start from **[docs/README.md](docs/README.md)** for a task- and role-based index.
+Hub: **[docs/README.md](docs/README.md)**

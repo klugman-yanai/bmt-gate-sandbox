@@ -215,7 +215,7 @@ def register_ship(root: typer.Typer) -> None:
             typer.Option(
                 "--force-image",
                 help="Always run `tools build orchestrator-image` (default: skip when git shows no edits under "
-                "gcp/image or gcp/__init__.py and Artifact Registry has an image tagged with "
+                "backend or backend/__init__.py and Artifact Registry has an image tagged with "
                 "the current git HEAD commit, verified via the Artifact Registry API). "
                 "If the registry probe is unavailable (network/ADC), ship runs the image build anyway "
                 "(fail-open). If the probe reports permission denied (IAM), ship shows an error and "

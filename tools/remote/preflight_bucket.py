@@ -1,4 +1,4 @@
-"""Bucket preflight: list GCS state via google-cloud-storage and diff vs gcp/image.
+"""Bucket preflight: list GCS state via google-cloud-storage and diff vs backend.
 
 Live runs persist a JSON snapshot under ``.local/``; replay uses the same JSON only.
 """
@@ -36,7 +36,7 @@ def _utc_iso() -> str:
 
 
 def gcp_image_files(root: Path) -> set[str]:
-    """Return relative paths under gcp/image that are not excluded by code sync."""
+    """Return relative paths under backend that are not excluded by code sync."""
     image_root = root / DEFAULT_CONFIG_ROOT
     if not image_root.is_dir():
         return set()
@@ -196,8 +196,8 @@ def print_diff(
     image_paths: set[str],
     bucket_paths: set[str],
 ) -> None:
-    """Print bucket vs gcp/image diff (Rich when available)."""
-    print(f"gcp/image files (excludes sync-excluded): {len(image_paths)}")
+    """Print bucket vs backend diff (Rich when available)."""
+    print(f"backend files (excludes sync-excluded): {len(image_paths)}")
     print(f"Bucket gs://{bucket_label}/code/ objects: {len(bucket_paths)}")
     in_bucket_not_image = sorted(bucket_paths - image_paths)
     in_image_not_bucket = sorted(image_paths - bucket_paths)
@@ -211,7 +211,7 @@ def print_diff(
             console = Console()
             if in_bucket_not_image:
                 t = Table(
-                    title="In bucket code/ but NOT in gcp/image (would be dropped)",
+                    title="In bucket code/ but NOT in backend (would be dropped)",
                     show_header=True,
                     header_style="yellow",
                 )
@@ -224,14 +224,14 @@ def print_diff(
             else:
                 console.print(
                     Panel(
-                        "All bucket code/ paths have a counterpart in gcp/image.",
+                        "All bucket code/ paths have a counterpart in backend.",
                         title="Bucket vs image",
                         border_style="green",
                     )
                 )
             if in_image_not_bucket:
                 t2 = Table(
-                    title="In gcp/image but NOT in bucket (ok if never synced)",
+                    title="In backend but NOT in bucket (ok if never synced)",
                     show_header=True,
                     header_style="blue",
                 )
@@ -249,15 +249,15 @@ def print_diff(
 
 def _print_diff_plain(in_bucket_not_image: list[str], in_image_not_bucket: list[str]) -> None:
     if in_bucket_not_image:
-        print("\nIn bucket code/ but NOT in gcp/image (would be dropped when code leaves bucket):")
+        print("\nIn bucket code/ but NOT in backend (would be dropped when code leaves bucket):")
         for p in in_bucket_not_image[:50]:
             print(f"  {p}")
         if len(in_bucket_not_image) > 50:
             print(f"  ... and {len(in_bucket_not_image) - 50} more")
     else:
-        print("\nAll bucket code/ paths have a counterpart in gcp/image.")
+        print("\nAll bucket code/ paths have a counterpart in backend.")
     if in_image_not_bucket:
-        print("\nIn gcp/image but NOT in bucket (ok if never synced or excluded):")
+        print("\nIn backend but NOT in bucket (ok if never synced or excluded):")
         for p in in_image_not_bucket[:50]:
             print(f"  {p}")
         if len(in_image_not_bucket) > 50:
@@ -274,7 +274,7 @@ def run_preflight(
     root = repo_root()
     image_paths = gcp_image_files(root)
     if local_only:
-        print(f"gcp/image files (excludes sync-excluded): {len(image_paths)}")
+        print(f"backend files (excludes sync-excluded): {len(image_paths)}")
         for p in sorted(image_paths):
             print(p)
         return 0
@@ -312,7 +312,7 @@ def run_preflight(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Pre-flight: diff bucket code/ vs gcp/image")
+    parser = argparse.ArgumentParser(description="Pre-flight: diff bucket code/ vs backend")
     parser.add_argument(
         "-s",
         "--snapshot",
@@ -322,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="Replay diff from a saved JSON snapshot (.local/preflight-bucket-*.json).",
     )
-    parser.add_argument("--local-only", action="store_true", help="Only list gcp/image, no GCS")
+    parser.add_argument("--local-only", action="store_true", help="Only list backend, no GCS")
     args = parser.parse_args(argv)
     return run_preflight(snapshot=args.snapshot, local_only=args.local_only)
 

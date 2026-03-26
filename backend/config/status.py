@@ -1,4 +1,4 @@
-"""GitHub commit-status and check-run enums (L0 leaf — no gcp.image imports)."""
+"""GitHub commit-status and check-run enums (L0 leaf — no backend imports)."""
 
 from __future__ import annotations
 

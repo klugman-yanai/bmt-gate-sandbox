@@ -5,7 +5,7 @@ read (``FAKE_SHA`` vs a raw 40-char hex string) and keeps values in one place
 so they can be updated without a shotgun edit.
 
 Production constants (e.g. ``STATUS_CONTEXT``) should be imported from their
-canonical location (``gcp.image.config.constants``) rather than duplicated here.
+canonical location (``backend.config.constants``) rather than duplicated here.
 """
 
 from __future__ import annotations

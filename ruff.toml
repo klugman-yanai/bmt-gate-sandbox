@@ -152,7 +152,7 @@ max-complexity = 10
     "ARG001",  # unused args OK (interface compliance)
     "SIM117",  # nested with OK (mock/patch patterns)
 ]
-"gcp/image/vm_watcher.py" = [
+"backend/vm_watcher.py" = [
     "C901",    # _process_run_trigger is intentionally monolithic (refactor planned)
     "PLR0911", # many return paths: guard clauses in _process_run_trigger
     "PLR0912", # many branches: guard clauses in _process_run_trigger

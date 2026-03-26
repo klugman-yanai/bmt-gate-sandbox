@@ -16,7 +16,7 @@ tests/
     repo_policy.py   # SAMPLE_PROJECT, repo_stage_bmt_manifest — centralises hardcoded paths
   _support/          # Legacy shims — re-export from tests.support (backward compat only)
   ci/                # CI-layer tests (.github/bmt/ci/)
-  bmt/               # BMT runtime tests (gcp/image/runtime/)
+  bmt/               # BMT runtime tests (backend/runtime/)
   gcp/               # GCP value-type / domain tests
   github/            # GitHub presentation / check rendering tests
   infra/             # Infrastructure alignment tests
@@ -36,7 +36,7 @@ tests/
 | `unit` | Pure logic — no subprocess, network, or live filesystem beyond `tmp_path` |
 | `contract` | Deterministic CLI contracts using fakes/mocks |
 | `integration` | Subprocess / filesystem orchestration with local fakes |
-| `bmt_plugin_load` | Load published BMT plugins from committed `gcp/stage` (import side effects) |
+| `bmt_plugin_load` | Load published BMT plugins from committed `benchmarks` (import side effects) |
 
 Re-add a `live_smoke` marker in [pyproject.toml](../pyproject.toml) when you introduce real cloud-backed tests that should be opt-in.
 

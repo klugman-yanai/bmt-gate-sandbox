@@ -125,9 +125,9 @@ def _print_status_plain(hints: RepoWorkflowHints) -> None:
     print()
     print(f".venv: {has_venv}")
     if names:
-        print("gcp/stage/projects: " + ", ".join(names))
+        print("benchmarks/projects: " + ", ".join(names))
     else:
-        print("gcp/stage/projects: (none)")
+        print("benchmarks/projects: (none)")
 
 
 def _print_status_rich(console: Console, hints: RepoWorkflowHints) -> None:
@@ -158,15 +158,15 @@ def _print_status_rich(console: Console, hints: RepoWorkflowHints) -> None:
                 proj_cell.append(n, style="contrib.path")
             if len(names) > len(shown):
                 proj_cell.append(f"\n(+{len(names) - len(shown)} more)", style="contrib.muted")
-            table.add_row("gcp/stage/projects", proj_cell)
+            table.add_row("benchmarks/projects", proj_cell)
         else:
             line = Text(", ".join(names[:12]), style="contrib.path")
             if len(names) > 12:
                 line.append(" ")
                 line.append(f"(+{len(names) - 12} more)", style="contrib.muted")
-            table.add_row("gcp/stage/projects", line)
+            table.add_row("benchmarks/projects", line)
     else:
-        table.add_row("gcp/stage/projects", Text("—", style="contrib.placeholder"))
+        table.add_row("benchmarks/projects", Text("—", style="contrib.placeholder"))
 
     console.print(
         Panel(
@@ -183,7 +183,7 @@ def _print_status_rich(console: Console, hints: RepoWorkflowHints) -> None:
 
 @app.command("status")
 def workflow_status() -> None:
-    """Show quick filesystem hints (.venv, gcp/stage/projects/*)."""
+    """Show quick filesystem hints (.venv, benchmarks/projects/*)."""
     hints = repo_workflow_hints(repo_root=repo_root())
     c = _console()
     if c is None:

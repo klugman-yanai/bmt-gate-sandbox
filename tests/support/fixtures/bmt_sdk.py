@@ -28,7 +28,7 @@ def minimal_execution_context(tmp_path: Path) -> ExecutionContext:
         inputs_prefix="projects/p/inputs/bench",
         results_path=as_results_path("projects/p/results/bench"),
         outputs_prefix="projects/p/outputs/bench",
-        runner=RunnerConfig(template_path="gcp/image/runtime/assets/kardome_input_template.json"),
+        runner=RunnerConfig(template_path="backend/runtime/assets/kardome_input_template.json"),
         plugin_config={"pass_threshold": 2.5, "extra_ignored": 1},
     )
     return ExecutionContext(
