@@ -1,26 +1,36 @@
 {
-  "version": 3,
-  "cmakeMinimumRequired": {
-    "major": 3,
-    "minor": 21,
-    "patch": 0
-  },
-  "configurePresets": [
-    {
-      "name": "sk_gcc_Release",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/sk/gcc_Release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
     },
-    {
-      "name": "sk_gcc_Debug",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/sk/gcc_Debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    }
-  ]
+    "configurePresets": [
+        {
+            "name": "sk_gcc_Release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/sk/gcc_Release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "sk_gcc_Debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/sk/gcc_Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "sk_gcc_Release-build",
+            "configurePreset": "sk_gcc_Release"
+        },
+        {
+            "name": "sk_gcc_Debug-build",
+            "configurePreset": "sk_gcc_Debug"
+        }
+    ]
 }
