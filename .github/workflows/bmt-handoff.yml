@@ -2,620 +2,616 @@ name: BMT
 run-name: "BMT • ${{ inputs.head_branch || github.event.inputs.head_branch }} • ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
 
 on:
-  workflow_dispatch:
-    inputs:
-      ci_run_id:
-        description: >
-          GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
-          Used to download runner artifacts from that run.
-        required: true
-        type: string
-      head_sha:
-        description: "Full commit SHA that BMT will run against (the ref under test)."
-        required: true
-        type: string
-      head_branch:
-        description: >
-          Branch name containing head_sha; used for run list, status checks, and display.
-        required: true
-        type: string
-      head_event:
-        description: "Event that triggered the caller: push or pull_request."
-        required: false
-        type: string
-        default: "push"
-      pr_number:
-        description: "PR number when head_event is pull_request; leave empty for push."
-        required: false
-        type: string
-        default: ""
-      available_artifacts:
-        description: >
-          Optional. JSON array of runner-* artifact names. When empty or "[]" (default), Plan lists
-          artifacts from the caller run via the GitHub API. Set only to override that list.
-        required: false
-        type: string
-        default: "[]"
-      cloud_run_region:
-        description: GCP region for Cloud Run (manual runs; CI callers should pass vars.CLOUD_RUN_REGION).
-        required: false
-        type: string
-        default: "europe-west4"
-      bmt_status_context:
-        description: GitHub check/status context name for the BMT gate.
-        required: false
-        type: string
-        default: "BMT Gate"
-      skip_missing_runner_artifacts:
-        description: >
-          Dev CI only. When true, missing runner-* artifacts use manifest-only publish legs
-          (record intended layout under _workflow/dev_publish_manifest/) instead of failing
-          download. Production callers must leave this false so missing artifacts fail at download.
-        required: false
-        type: boolean
-        default: false
-      dev_append_unsupported_runner_leg:
-        description: >
-          Dev CI only. When true, append a synthetic release row (ci_dev_unsupported) with no
-          benchmarks BMT layout so the publish matrix exercises an unsupported leg (skipped upload, success).
-        required: false
-        type: boolean
-        default: false
-  workflow_call:
-    inputs:
-      ci_run_id:
-        description: >
-          GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
-          Used to download runner artifacts from that run.
-        required: true
-        type: string
-      head_sha:
-        description: "Full commit SHA that BMT will run against (the ref under test)."
-        required: true
-        type: string
-      head_branch:
-        description: >
-          Branch name containing head_sha; used for run list, status checks, and display.
-        required: true
-        type: string
-      head_event:
-        description: "Event that triggered the caller: push or pull_request."
-        required: false
-        type: string
-        default: "push"
-      pr_number:
-        description: "PR number when head_event is pull_request; leave empty for push."
-        required: false
-        type: string
-        default: ""
-      available_artifacts:
-        description: >
-          Optional. JSON array of runner-* artifact names. When empty or "[]" (default), Plan lists
-          artifacts from the caller run via the GitHub API. Set only to override that list.
-        required: false
-        type: string
-        default: "[]"
-      use_mock_runner:
-        description: >
-          Opt-in only: mock kardome_runner BMT for project sk. Default off.
-        required: false
-        type: boolean
-        default: false
-      cloud_run_region:
-        description: GCP region for Cloud Run jobs (callers pass vars.CLOUD_RUN_REGION; empty uses default below).
-        required: false
-        type: string
-        default: "europe-west4"
-      bmt_status_context:
-        description: GitHub check/status context name for the BMT gate.
-        required: false
-        type: string
-        default: "BMT Gate"
-      skip_missing_runner_artifacts:
-        description: >
-          Dev CI only. When true, missing runner-* artifacts use manifest-only publish legs
-          (record intended layout under _workflow/dev_publish_manifest/) instead of failing
-          download. Production callers must leave this false.
-        required: false
-        type: boolean
-        default: false
-      dev_append_unsupported_runner_leg:
-        description: >
-          Dev CI only. When true, append synthetic ci_dev_unsupported row (no stage layout)
-          to exercise unsupported publish legs (no upload; matrix cell succeeds with notice).
-        required: false
-        type: boolean
-        default: false
-    outputs:
-      bmt_gate_passed:
-        description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
-        value: ${{ jobs.dispatch.outputs.bmt_gate_passed }}
-      bmt_dispatch_confirmed:
-        description: "True when trigger dispatch to cloud runtime is confirmed."
-        value: ${{ jobs.dispatch.outputs.bmt_dispatch_confirmed }}
-      bmt_final_state:
-        description: "Dispatch pipeline terminal state for this workflow (dispatched_async or dispatch_failed)."
-        value: ${{ jobs.dispatch.outputs.bmt_final_state }}
-      bmt_recovery_used:
-        description: "True if context/dispatch failed and the failure fallback path ran."
-        value: ${{ jobs.dispatch.outputs.bmt_recovery_used }}
-      bmt_dispatch_fallback_used:
-        description: "Deprecated alias of bmt_recovery_used."
-        value: ${{ jobs.dispatch.outputs.bmt_recovery_used }}
+    workflow_dispatch:
+        inputs:
+            ci_run_id:
+                description: >
+                    GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
+                    Used to download runner artifacts from that run.
+                required: true
+                type: string
+            head_sha:
+                description: "Full commit SHA that BMT will run against (the ref under test)."
+                required: true
+                type: string
+            head_branch:
+                description: >
+                    Branch name containing head_sha; used for run list, status checks, and display.
+                required: true
+                type: string
+            head_event:
+                description: "Event that triggered the caller: push or pull_request."
+                required: false
+                type: string
+                default: "push"
+            pr_number:
+                description: "PR number when head_event is pull_request; leave empty for push."
+                required: false
+                type: string
+                default: ""
+            available_artifacts:
+                description: >
+                    Optional. JSON array of runner-* artifact names. When empty or "[]" (default), Plan lists
+                    artifacts from the caller run via the GitHub API. Set only to override that list.
+                required: false
+                type: string
+                default: "[]"
+            cloud_run_region:
+                description: GCP region for Cloud Run (manual runs; CI callers should pass vars.CLOUD_RUN_REGION).
+                required: false
+                type: string
+                default: "europe-west4"
+            bmt_status_context:
+                description: GitHub check/status context name for the BMT gate.
+                required: false
+                type: string
+                default: "BMT Gate"
+            skip_missing_runner_artifacts:
+                description: >
+                    Dev CI only. When true, missing runner-* artifacts use manifest-only publish legs
+                    (record intended layout under _workflow/dev_publish_manifest/) instead of failing
+                    download. Production callers must leave this false so missing artifacts fail at download.
+                required: false
+                type: boolean
+                default: false
+            dev_append_unsupported_runner_leg:
+                description: >
+                    Dev CI only. When true, append a synthetic release row (ci_dev_unsupported) with no
+                    benchmarks BMT layout so the publish matrix exercises an unsupported leg (skipped upload, success).
+                required: false
+                type: boolean
+                default: false
+    workflow_call:
+        inputs:
+            ci_run_id:
+                description: >
+                    GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
+                    Used to download runner artifacts from that run.
+                required: true
+                type: string
+            head_sha:
+                description: "Full commit SHA that BMT will run against (the ref under test)."
+                required: true
+                type: string
+            head_branch:
+                description: >
+                    Branch name containing head_sha; used for run list, status checks, and display.
+                required: true
+                type: string
+            head_event:
+                description: "Event that triggered the caller: push or pull_request."
+                required: false
+                type: string
+                default: "push"
+            pr_number:
+                description: "PR number when head_event is pull_request; leave empty for push."
+                required: false
+                type: string
+                default: ""
+            available_artifacts:
+                description: >
+                    Optional. JSON array of runner-* artifact names. When empty or "[]" (default), Plan lists
+                    artifacts from the caller run via the GitHub API. Set only to override that list.
+                required: false
+                type: string
+                default: "[]"
+            use_mock_runner:
+                description: >
+                    Opt-in only: mock kardome_runner BMT for project sk. Default off.
+                required: false
+                type: boolean
+                default: false
+            cloud_run_region:
+                description: GCP region for Cloud Run jobs (callers pass vars.CLOUD_RUN_REGION; empty uses default below).
+                required: false
+                type: string
+                default: "europe-west4"
+            bmt_status_context:
+                description: GitHub check/status context name for the BMT gate.
+                required: false
+                type: string
+                default: "BMT Gate"
+            skip_missing_runner_artifacts:
+                description: >
+                    Dev CI only. When true, missing runner-* artifacts use manifest-only publish legs
+                    (record intended layout under _workflow/dev_publish_manifest/) instead of failing
+                    download. Production callers must leave this false.
+                required: false
+                type: boolean
+                default: false
+            dev_append_unsupported_runner_leg:
+                description: >
+                    Dev CI only. When true, append synthetic ci_dev_unsupported row (no stage layout)
+                    to exercise unsupported publish legs (no upload; matrix cell succeeds with notice).
+                required: false
+                type: boolean
+                default: false
+        outputs:
+            bmt_gate_passed:
+                description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
+                value: ${{ jobs.dispatch.outputs.bmt_gate_passed }}
+            bmt_dispatch_confirmed:
+                description: "True when trigger dispatch to cloud runtime is confirmed."
+                value: ${{ jobs.dispatch.outputs.bmt_dispatch_confirmed }}
+            bmt_final_state:
+                description: "Dispatch pipeline terminal state for this workflow (dispatched_async or dispatch_failed)."
+                value: ${{ jobs.dispatch.outputs.bmt_final_state }}
+            bmt_recovery_used:
+                description: "True if context/dispatch failed and the failure fallback path ran."
+                value: ${{ jobs.dispatch.outputs.bmt_recovery_used }}
+            bmt_dispatch_fallback_used:
+                description: "Deprecated alias of bmt_recovery_used."
+                value: ${{ jobs.dispatch.outputs.bmt_recovery_used }}
 
 concurrency:
-  group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
-  cancel-in-progress: true
+    group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
+    cancel-in-progress: true
 
 # Canonical input resolution (workflow_dispatch + workflow_call). Use these expressions when passing ref/run-id to steps:
 #   head_sha:    inputs.head_sha || github.event.inputs.head_sha || github.sha
 #   head_branch: inputs.head_branch || github.event.inputs.head_branch || github.ref_name
 #   ci_run_id:   inputs.ci_run_id || github.event.inputs.ci_run_id
 env:
-  GCS_BUCKET: ${{ vars.GCS_BUCKET }}
-  GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
-  GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
-  GCP_PROJECT: ${{ vars.GCP_PROJECT }}
-  # Defaults match docs/configuration.md and backend/src/backend/config/constants.py (DEFAULT_*).
-  CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
-  BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
+    GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+    GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+    GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+    GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+    # Defaults match docs/configuration.md and backend/src/backend/config/constants.py (DEFAULT_*).
+    CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
+    BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
 
 permissions:
-  contents: read
-  actions: read
+    contents: read
+    actions: read
 
 jobs:
-  # Cloud dispatch DAG: Plan -> Publish -> Dispatch.
-  plan:
-    name: Plan
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-      id-token: write
-    outputs:
-      run_id: ${{ steps.prepare.outputs.run_id }}
-      head_sha: ${{ steps.prepare.outputs.head_sha }}
-      head_branch: ${{ steps.prepare.outputs.head_branch }}
-      head_event: ${{ steps.prepare.outputs.head_event }}
-      pr_number: ${{ steps.prepare.outputs.pr_number }}
-      run_context: ${{ steps.prepare.outputs.run_context }}
-      runner_matrix: ${{ steps.runner_matrix_merge.outputs.runner_matrix }}
-      matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
-      matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
-      matrix_publish: ${{ steps.filter.outputs.matrix_publish }}
-      matrix_publish_keys: ${{ steps.filter.outputs.matrix_publish_keys }}
-      matrix_publish_omitted: ${{ steps.filter.outputs.matrix_publish_omitted }}
-      matrix_publish_omitted_keys: ${{ steps.filter.outputs.matrix_publish_omitted_keys }}
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
+    # Cloud dispatch DAG: Plan -> Publish -> Dispatch.
+    plan:
+        name: Plan
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: read
+            id-token: write
+        outputs:
+            run_id: ${{ steps.prepare.outputs.run_id }}
+            head_sha: ${{ steps.prepare.outputs.head_sha }}
+            head_branch: ${{ steps.prepare.outputs.head_branch }}
+            head_event: ${{ steps.prepare.outputs.head_event }}
+            pr_number: ${{ steps.prepare.outputs.pr_number }}
+            run_context: ${{ steps.prepare.outputs.run_context }}
+            runner_matrix: ${{ steps.runner_matrix_merge.outputs.runner_matrix }}
+            matrix_need_upload: ${{ steps.filter.outputs.matrix_need_upload }}
+            matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
+            matrix_publish: ${{ steps.filter.outputs.matrix_publish }}
+            matrix_publish_keys: ${{ steps.filter.outputs.matrix_publish_keys }}
+            matrix_publish_omitted: ${{ steps.filter.outputs.matrix_publish_omitted }}
+            matrix_publish_omitted_keys: ${{ steps.filter.outputs.matrix_publish_omitted_keys }}
+        steps:
+            - name: Checkout repo
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+                  fetch-depth: 1
 
-      - id: prepare
-        uses: ./.github/actions/bmt/prepare-context
-        with:
-          ci_run_id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
-          head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
-          head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
-          pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
+            - id: prepare
+              uses: ./.github/actions/bmt/prepare-context
+              with:
+                  ci_run_id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+                  head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+                  head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
+                  head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
+                  pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
 
-      - id: runner_matrix_merge
-        shell: bash
+            - id: runner_matrix_merge
+              shell: bash
+              env:
+                  BASE_MATRIX: ${{ steps.prepare.outputs.runner_matrix }}
+                  APPEND_DEV_UNSUPPORTED: ${{ inputs.dev_append_unsupported_runner_leg == true && 'true' || 'false' }}
+              run: |
+                  set -euo pipefail
+                  m="$BASE_MATRIX"
+                  if [[ "$APPEND_DEV_UNSUPPORTED" == "true" ]]; then
+                    echo '::notice::Appending dev-only unsupported runner matrix leg (ci_dev_unsupported)'
+                    m=$(jq -c \
+                      '.include += [{
+                        "configure": "CI_DEV_UNSUPPORTED_gcc_Release",
+                        "preset": "ci_dev_unsupported_gcc_release",
+                        "project": "ci_dev_unsupported",
+                        "bmt_id": "ci_dev_unsupported_gcc_release",
+                        "binary_dir": "build/CI_DEV_UNSUPPORTED/gcc_Release"
+                      }]' <<<"$m")
+                  fi
+                  {
+                    echo "runner_matrix<<RM_EOF"
+                    echo "$m"
+                    echo "RM_EOF"
+                  } >>"$GITHUB_OUTPUT"
+
+            - id: runner_artifacts_index
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  OVERRIDE: ${{ inputs.available_artifacts }}
+                  CI_RUN: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+              run: |
+                  set -euo pipefail
+                  if [[ -n "${OVERRIDE}" && "${OVERRIDE}" != "[]" ]]; then
+                    json="${OVERRIDE}"
+                  else
+                    json=$(gh api "repos/${{ github.repository }}/actions/runs/${CI_RUN}/artifacts" \
+                      --paginate --jq '[.artifacts[]|select(.name|startswith("runner-"))|.name]')
+                  fi
+                  {
+                    echo "json<<ARTIFACTS_EOF"
+                    echo "$json"
+                    echo "ARTIFACTS_EOF"
+                  } >>"$GITHUB_OUTPUT"
+
+            - name: Setup GCP and uv
+              uses: ./.github/actions/setup/gcp-uv
+              with:
+                  workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+                  service_account: ${{ env.GCP_SA_EMAIL }}
+                  gcp_project: ${{ env.GCP_PROJECT }}
+
+            - id: filter
+              env:
+                  GCS_BUCKET: ${{ env.GCS_BUCKET }}
+                  RUNNER_MATRIX: ${{ steps.runner_matrix_merge.outputs.runner_matrix }}
+                  HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+                  GITHUB_RUN_ID: ${{ github.run_id }}
+                  BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+                  AVAILABLE_ARTIFACTS: ${{ steps.runner_artifacts_index.outputs.json }}
+                  SKIP_MISSING_RUNNER_ARTIFACTS: ${{ inputs.skip_missing_runner_artifacts == true && 'true' || 'false' }}
+                  BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG: ${{ inputs.dev_append_unsupported_runner_leg == true && 'true' || 'false' }}
+              run: uv run bmt handoff write-context && uv run bmt runner filter-upload-matrix
+
+            - name: Append plan summary to job summary
+              shell: bash
+              env:
+                  SUMMARY_RUN_ID: ${{ github.run_id }}
+                  SUMMARY_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+                  SUMMARY_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+                  SUMMARY_MATRIX_NEED_UPLOAD: ${{ steps.filter.outputs.matrix_need_upload_keys }}
+                  SUMMARY_MATRIX_PUBLISH: ${{ steps.filter.outputs.matrix_publish_keys }}
+              run: |
+                  set -euo pipefail
+                  {
+                    echo "## Plan"
+                    echo ""
+                    echo "- **SHA:** ${SUMMARY_HEAD_SHA}"
+                    echo "- **Runs:** caller CI ${SUMMARY_CI_RUN_ID} · handoff ${SUMMARY_RUN_ID}"
+                    echo "- **Matrices:** upload ${SUMMARY_MATRIX_NEED_UPLOAD} · publish ${SUMMARY_MATRIX_PUBLISH}"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Workflow summary notice
+              run: echo "::notice::Handoff finishes after dispatch; BMT verdict lands on PR Checks asynchronously."
+    # Download runner-* artifacts when present; dev skip_missing uses manifest-only legs (no binaries).
+    publish:
+        name: Publish
+        needs: plan
+        if: needs.plan.outputs.matrix_publish_keys != '[]'
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: read
+            actions: read
+            id-token: write
+        strategy:
+            fail-fast: false
+            max-parallel: 3
+            matrix: ${{ fromJson(needs.plan.outputs.matrix_publish || '{"include":[]}') }}
         env:
-          BASE_MATRIX: ${{ steps.prepare.outputs.runner_matrix }}
-          APPEND_DEV_UNSUPPORTED: ${{ inputs.dev_append_unsupported_runner_leg == true && 'true' || 'false' }}
-        run: |
-          set -euo pipefail
-          m="$BASE_MATRIX"
-          if [[ "$APPEND_DEV_UNSUPPORTED" == "true" ]]; then
-            echo '::notice::Appending dev-only unsupported runner matrix leg (ci_dev_unsupported)'
-            m=$(jq -c \
-              '.include += [{
-                "configure": "CI_DEV_UNSUPPORTED_gcc_Release",
-                "preset": "ci_dev_unsupported_gcc_release",
-                "project": "ci_dev_unsupported",
-                "bmt_id": "ci_dev_unsupported_gcc_release",
-                "binary_dir": "build/CI_DEV_UNSUPPORTED/gcc_Release"
-              }]' <<<"$m")
-          fi
-          {
-            echo "runner_matrix<<RM_EOF"
-            echo "$m"
-            echo "RM_EOF"
-          } >>"$GITHUB_OUTPUT"
+            BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+        steps:
+            # fromJson(matrix) coerces JSON booleans; compare both bool and string or every step is skipped → job fails.
+            - name: Skip unsupported project (no BMT stage layout)
+              if: ${{ matrix.bmt_supported == false || matrix.bmt_supported == 'false' }}
+              run: |
+                  set -euo pipefail
+                  echo "::notice::Publish leg skipped — project '${{ matrix.project }}' has no BMT stage under benchmarks/projects/ (not a failure)."
 
-      - id: runner_artifacts_index
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OVERRIDE: ${{ inputs.available_artifacts }}
-          CI_RUN: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
-        run: |
-          set -euo pipefail
-          if [[ -n "${OVERRIDE}" && "${OVERRIDE}" != "[]" ]]; then
-            json="${OVERRIDE}"
-          else
-            json=$(gh api "repos/${{ github.repository }}/actions/runs/${CI_RUN}/artifacts" \
-              --paginate --jq '[.artifacts[]|select(.name|startswith("runner-"))|.name]')
-          fi
-          {
-            echo "json<<ARTIFACTS_EOF"
-            echo "$json"
-            echo "ARTIFACTS_EOF"
-          } >>"$GITHUB_OUTPUT"
+            - name: Checkout repo
+              if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+                  fetch-depth: 1
 
-      - name: Setup GCP and uv
-        uses: ./.github/actions/setup/gcp-uv
-        with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
+            - name: Setup GCP and uv
+              if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
+              uses: ./.github/actions/setup/gcp-uv
+              with:
+                  workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+                  service_account: ${{ env.GCP_SA_EMAIL }}
+                  gcp_project: ${{ env.GCP_PROJECT }}
 
-      - id: filter
-        env:
-          GCS_BUCKET: ${{ env.GCS_BUCKET }}
-          RUNNER_MATRIX: ${{ steps.runner_matrix_merge.outputs.runner_matrix }}
-          HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
-          AVAILABLE_ARTIFACTS: ${{ steps.runner_artifacts_index.outputs.json }}
-          SKIP_MISSING_RUNNER_ARTIFACTS: ${{ inputs.skip_missing_runner_artifacts == true && 'true' || 'false' }}
-          BMT_DEV_APPEND_UNSUPPORTED_RUNNER_LEG: ${{ inputs.dev_append_unsupported_runner_leg == true && 'true' || 'false' }}
-        run: uv run bmt handoff write-context && uv run bmt runner filter-upload-matrix
+            - name: Download runner artifact from CI run
+              if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
+              uses: ./.github/actions/artifacts/download-repo
+              with:
+                  name: runner-${{ matrix.preset }}
+                  path: artifact-download
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  repository: ${{ github.repository }}
+                  run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
 
-      - name: Append plan summary to job summary
-        shell: bash
-        env:
-          SUMMARY_RUN_ID: ${{ github.run_id }}
-          SUMMARY_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
-          SUMMARY_HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
-          SUMMARY_MATRIX_NEED_UPLOAD: ${{ steps.filter.outputs.matrix_need_upload_keys }}
-          SUMMARY_MATRIX_PUBLISH: ${{ steps.filter.outputs.matrix_publish_keys }}
-        run: |
-          set -euo pipefail
-          {
-            echo "## Plan"
-            echo ""
-            echo "- **SHA:** ${SUMMARY_HEAD_SHA}"
-            echo "- **Runs:** caller CI ${SUMMARY_CI_RUN_ID} · handoff ${SUMMARY_RUN_ID}"
-            echo "- **Matrices:** upload ${SUMMARY_MATRIX_NEED_UPLOAD} · publish ${SUMMARY_MATRIX_PUBLISH}"
-          } >> "$GITHUB_STEP_SUMMARY"
+            - name: Normalize layout for bmt runner upload
+              if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
+              run: |
+                  set -euo pipefail
+                  mkdir -p artifact/Runners artifact/Kardome
+                  k=$(find artifact-download -name kardome_runner -type f ! -path '*/.*' 2>/dev/null | head -1 || true)
+                  l=$(find artifact-download -name libKardome.so -type f ! -path '*/.*' 2>/dev/null | head -1 || true)
+                  if [[ -z "$k" ]]; then
+                    echo "::error::kardome_runner not found in downloaded artifact runner-${{ matrix.preset }}"
+                    exit 1
+                  fi
+                  cp "$k" artifact/Runners/kardome_runner
+                  chmod +x artifact/Runners/kardome_runner
+                  if [[ -n "$l" ]]; then
+                    cp "$l" artifact/Kardome/libKardome.so
+                  fi
 
-      - name: Workflow summary notice
-        run: echo "::notice::Handoff finishes after dispatch; BMT verdict lands on PR Checks asynchronously."
-  # Download runner-* artifacts when present; dev skip_missing uses manifest-only legs (no binaries).
-  publish:
-    name: Publish
-    needs: plan
-    if: needs.plan.outputs.matrix_publish_keys != '[]'
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix: ${{ fromJson(needs.plan.outputs.matrix_publish || '{"include":[]}') }}
-    env:
-      BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
-    steps:
-      # fromJson(matrix) coerces JSON booleans; compare both bool and string or every step is skipped → job fails.
-      - name: Skip unsupported project (no BMT stage layout)
-        if: ${{ matrix.bmt_supported == false || matrix.bmt_supported == 'false' }}
-        run: |
-          set -euo pipefail
-          echo "::notice::Publish leg skipped — project '${{ matrix.project }}' has no BMT stage under benchmarks/projects/ (not a failure)."
+            - name: Upload runner to GCS
+              if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
+              env:
+                  PROJECT: ${{ matrix.project }}
+                  PRESET: ${{ matrix.preset }}
+                  SOURCE_REF: ${{ needs.plan.outputs.head_sha }}
+              run: uv run bmt runner upload-to-gcs
 
-      - name: Checkout repo
-        if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
+            - name: Upload dev publish manifest (no binaries)
+              if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode == 'manifest_only' }}
+              env:
+                  PROJECT: ${{ matrix.project }}
+                  PRESET: ${{ matrix.preset }}
+                  SOURCE_REF: ${{ needs.plan.outputs.head_sha }}
+              run: uv run bmt runner upload-dev-publish-manifest
 
-      - name: Setup GCP and uv
-        if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
-        uses: ./.github/actions/setup/gcp-uv
-        with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
+            - name: Mark uploaded for handoff (dev manifest leg)
+              if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode == 'manifest_only' }}
+              env:
+                  PROJECT: ${{ matrix.project }}
+                  PRESET: ${{ matrix.preset }}
+                  BMT_DEV_MANIFEST_ONLY: "true"
+              run: uv run bmt runner validate-in-repo
 
-      - name: Download runner artifact from CI run
-        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
-        uses: ./.github/actions/artifacts/download-repo
-        with:
-          name: runner-${{ matrix.preset }}
-          path: artifact-download
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+            - name: Mark uploaded for handoff (binary leg)
+              if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
+              env:
+                  PROJECT: ${{ matrix.project }}
+                  PRESET: ${{ matrix.preset }}
+              run: uv run bmt runner validate-in-repo
 
-      - name: Normalize layout for bmt runner upload
-        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
-        run: |
-          set -euo pipefail
-          mkdir -p artifact/Runners artifact/Kardome
-          k=$(find artifact-download -name kardome_runner -type f ! -path '*/.*' 2>/dev/null | head -1 || true)
-          l=$(find artifact-download -name libKardome.so -type f ! -path '*/.*' 2>/dev/null | head -1 || true)
-          if [[ -z "$k" ]]; then
-            echo "::error::kardome_runner not found in downloaded artifact runner-${{ matrix.preset }}"
-            exit 1
-          fi
-          cp "$k" artifact/Runners/kardome_runner
-          chmod +x artifact/Runners/kardome_runner
-          if [[ -n "$l" ]]; then
-            cp "$l" artifact/Kardome/libKardome.so
-          fi
+    # Visual only: one matrix cell per bucket-omitted release leg (no projects/<p>/bmts/ in bucket).
+    # Reusable workflows reject `matrix.*` in job-level `if`, so legs run as instant success (not grey-skipped).
+    # Does not upload; details are in the Plan job summary.
+    publish_omitted:
+        # Same JSON shape as matrix_publish: full object {"include":[...]} — use matrix: fromJson(...), not include: fromJson(...)
+        name: Publish (omitted) (${{ matrix.preset }})
+        needs: plan
+        if: needs.plan.outputs.matrix_publish_omitted_keys != '[]'
+        runs-on: ubuntu-22.04
+        strategy:
+            fail-fast: false
+            matrix: ${{ fromJson(needs.plan.outputs.matrix_publish_omitted || '{"include":[]}') }}
+        steps:
+            - name: Omitted (bucket — see Plan summary)
+              if: ${{ matrix.shadow == true || matrix.shadow == 'true' }}
+              run: echo "::notice::${{ matrix.project }}/${{ matrix.preset }} — not in publish matrix (no bucket BMT layout)."
 
-      - name: Upload runner to GCS
-        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
-        env:
-          PROJECT: ${{ matrix.project }}
-          PRESET: ${{ matrix.preset }}
-          SOURCE_REF: ${{ needs.plan.outputs.head_sha }}
-        run: uv run bmt runner upload-to-gcs
-
-      - name: Upload dev publish manifest (no binaries)
-        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode == 'manifest_only' }}
-        env:
-          PROJECT: ${{ matrix.project }}
-          PRESET: ${{ matrix.preset }}
-          SOURCE_REF: ${{ needs.plan.outputs.head_sha }}
-        run: uv run bmt runner upload-dev-publish-manifest
-
-      - name: Mark uploaded for handoff (dev manifest leg)
-        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode == 'manifest_only' }}
-        env:
-          PROJECT: ${{ matrix.project }}
-          PRESET: ${{ matrix.preset }}
-          BMT_DEV_MANIFEST_ONLY: "true"
-        run: uv run bmt runner validate-in-repo
-
-      - name: Mark uploaded for handoff (binary leg)
-        if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
-        env:
-          PROJECT: ${{ matrix.project }}
-          PRESET: ${{ matrix.preset }}
-        run: uv run bmt runner validate-in-repo
-
-  # Visual only: one matrix cell per bucket-omitted release leg (no projects/<p>/bmts/ in bucket).
-  # Reusable workflows reject `matrix.*` in job-level `if`, so legs run as instant success (not grey-skipped).
-  # Does not upload; details are in the Plan job summary.
-  publish_omitted:
-    # Same JSON shape as matrix_publish: full object {"include":[...]} — use matrix: fromJson(...), not include: fromJson(...)
-    name: Publish (omitted) (${{ matrix.preset }})
-    needs: plan
-    if: needs.plan.outputs.matrix_publish_omitted_keys != '[]'
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.matrix_publish_omitted || '{"include":[]}') }}
-    steps:
-      - name: Omitted (bucket — see Plan summary)
-        if: ${{ matrix.shadow == true || matrix.shadow == 'true' }}
-        run: echo "::notice::${{ matrix.project }}/${{ matrix.preset }} — not in publish matrix (no bucket BMT layout)."
-
-  dispatch:
-    name: Dispatch
-    # publish_omitted is intentionally notice-only and must not gain failing side effects while
-    # dispatch excludes it from gating.
-    needs: [plan, publish]
-    if: >-
-      !cancelled()
-      && needs.plan.result == 'success'
-      && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      id-token: write
-      statuses: write
-    outputs:
-      # Step-level results for diagnostics
-      classify_result: ${{ steps.classify.outcome || 'skipped' }}
-      dispatch_result: ${{ steps.invoke-workflow.outcome || 'skipped' }}
-      verify_trigger_result: ${{ steps.invoke-workflow.outcome || 'skipped' }}
-      workflow_execution_name: ${{ steps.invoke-workflow.outputs.workflow_execution_name || '' }}
-      classify_path: ${{ steps.classify.outputs.path || 'unknown' }}
-      has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
-      accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects || '[]' }}
-      filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
-      dispatch_confirmed: ${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}
-      dispatch_reason: ${{ steps.invoke-workflow.outputs.dispatch_reason || '' }}
-      # Public workflow outputs
-      bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
-      bmt_dispatch_confirmed: ${{ steps.outcome.outputs.bmt_dispatch_confirmed }}
-      bmt_final_state: ${{ steps.outcome.outputs.bmt_final_state }}
-      bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
-    steps:
-      - name: Checkout repo (for local actions)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
-          sparse-checkout: |
-            .github
-
-      - name: Setup GCP and uv
-        uses: ./.github/actions/setup/gcp-uv
-        with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-
-      - id: classify
-        uses: ./.github/actions/bmt/filter-handoff-matrix
-        with:
-          head_sha: ${{ needs.plan.outputs.head_sha }}
-          runner_matrix: ${{ needs.plan.outputs.runner_matrix }}
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          setup_gcp: "false"
-
-      - name: Emit dispatch context
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo "## Dispatch"
-            echo ""
-            echo "- **SHA:** \`${{ needs.plan.outputs.head_sha }}\` · **legs:** \`${{ steps.classify.outputs.has_legs || 'false' }}\` · **projects:** \`${{ steps.classify.outputs.accepted_projects || '[]' }}\`"
-            echo "- **Filter:** \`${{ steps.classify.outputs.path || 'unknown' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Validate dataset inputs (fail fast if no .wav files in GCS)
-        if: ${{ inputs.use_mock_runner != true }}
-        env:
-          GCS_BUCKET: ${{ env.GCS_BUCKET }}
-          ACCEPTED_PROJECTS: ${{ steps.classify.outputs.accepted_projects }}
-        run: |
-          set -euo pipefail
-          uv run bmt handoff validate-dataset-inputs
-
-      - id: invoke-workflow
-        shell: bash
-        env:
-          # BMT bucket paths and pr-active index use this id (this job's run, not ci_run_id).
-          WORKFLOW_RUN_ID: ${{ github.run_id }}
-          FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
-          RUN_CONTEXT: ${{ needs.plan.outputs.run_context }}
-          HEAD_EVENT: ${{ needs.plan.outputs.head_event }}
-          HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
-          HEAD_BRANCH: ${{ needs.plan.outputs.head_branch }}
-          PR_NUMBER: ${{ needs.plan.outputs.pr_number }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          # Only explicit boolean true enables mock (matches build-and-test strict pass-through).
-          BMT_USE_MOCK_RUNNER: ${{ inputs.use_mock_runner == true && 'true' || 'false' }}
-        run: |
-          set -euo pipefail
-          uv run bmt handoff write-context
-          uv run bmt dispatch invoke-workflow
-
-      - name: Persist workflow execution snapshot
-        if: steps.invoke-workflow.outcome == 'success'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .local/diagnostics
-          cat > .local/diagnostics/workflow-execution.json <<'JSON'
-          {
-            "workflow_execution_name": "${{ steps.invoke-workflow.outputs.workflow_execution_name }}",
-            "workflow_execution_state": "${{ steps.invoke-workflow.outputs.workflow_execution_state || 'UNKNOWN' }}"
-          }
-          JSON
-          {
-            echo "workflow_execution_name=${{ steps.invoke-workflow.outputs.workflow_execution_name }}"
-            echo "workflow_execution_path=.local/diagnostics/workflow-execution.json"
-          } > .local/diagnostics/manifest.txt
-
-      - name: Upload diagnostics artifact
-        if: always()
-        uses: ./.github/actions/artifacts/upload-repo
-        with:
-          name: bmt-handoff-diagnostics-${{ github.run_id }}
-          path: .local/diagnostics/
-          if-no-files-found: ignore
-          retention-days: "7"
-
-      - name: Write dispatch summary (workflow execution confirmed)
-        if: steps.invoke-workflow.outcome == 'success'
-        uses: ./.github/actions/bmt/write-summary
-        with:
-          mode: run_success
-          repository: ${{ github.repository }}
-          head_sha: ${{ needs.plan.outputs.head_sha }}
-          head_branch: ${{ needs.plan.outputs.head_branch }}
-          pr_number: ${{ needs.plan.outputs.pr_number }}
-          filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
-          accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects }}
-          handshake_ok: "true"
-          gcp_project: ${{ env.GCP_PROJECT }}
-          gcs_bucket: ${{ env.GCS_BUCKET }}
-
-      - name: Append dispatch status summary
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo ""
-            echo "## Workflow"
-            echo "- steps: classify \`${{ steps.classify.outcome || 'n/a' }}\` · invoke \`${{ steps.invoke-workflow.outcome || 'n/a' }}\`"
-            echo "- dispatch: \`${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}\` — ${{ steps.invoke-workflow.outputs.dispatch_reason || '—' }}"
-            echo "- execution: \`${{ steps.invoke-workflow.outputs.workflow_execution_name || '—' }}\` · state \`${{ steps.invoke-workflow.outputs.workflow_execution_state || '—' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Checkout repo (for local actions)
-        if: steps.invoke-workflow.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
-          sparse-checkout: |
-            .github
-
-      - uses: ./.github/actions/setup/gcp-uv
-        if: steps.invoke-workflow.outcome != 'success'
-        with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-
-      - name: Set BMT constants for fallback
-        if: steps.invoke-workflow.outcome != 'success'
-        id: bmt-constants
-        run: |
-          STATUS_CONTEXT=$(uv run python -c "from backend.config.constants import STATUS_CONTEXT; print(STATUS_CONTEXT)")
-          echo "status_context=$STATUS_CONTEXT" >> "$GITHUB_OUTPUT"
-          echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
-
-      - name: Failure fallback
+    dispatch:
+        name: Dispatch
+        # publish_omitted is intentionally notice-only and must not gain failing side effects while
+        # dispatch excludes it from gating.
+        needs: [plan, publish]
         if: >-
-          !cancelled() &&
-          (steps.classify.outcome == 'failure' || steps.invoke-workflow.outcome == 'failure')
-        uses: ./.github/actions/bmt/failure-fallback
-        with:
-          handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
-          classify_step_outputs: ${{ toJson(steps.classify.outputs) }}
-          setup_outputs: ${{ toJson(needs.plan.outputs) }}
-          prepare_result: ${{ needs.plan.result }}
-          classify_result: ${{ steps.classify.outcome || 'failure' }}
-          handoff_result: ${{ steps.invoke-workflow.outcome || 'failure' }}
-          accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects || '[]' }}
-          dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
-          dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
-          fallback_ref: ${{ github.sha }}
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
+            !cancelled()
+            && needs.plan.result == 'success'
+            && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: read
+            id-token: write
+            statuses: write
+        outputs:
+            # Step-level results for diagnostics
+            classify_result: ${{ steps.classify.outcome || 'skipped' }}
+            dispatch_result: ${{ steps.invoke-workflow.outcome || 'skipped' }}
+            verify_trigger_result: ${{ steps.invoke-workflow.outcome || 'skipped' }}
+            workflow_execution_name: ${{ steps.invoke-workflow.outputs.workflow_execution_name || '' }}
+            classify_path: ${{ steps.classify.outputs.path || 'unknown' }}
+            has_legs: ${{ steps.classify.outputs.has_legs || 'false' }}
+            accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects || '[]' }}
+            filtered_matrix: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
+            dispatch_confirmed: ${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}
+            dispatch_reason: ${{ steps.invoke-workflow.outputs.dispatch_reason || '' }}
+            # Public workflow outputs
+            bmt_gate_passed: ${{ steps.outcome.outputs.bmt_gate_passed }}
+            bmt_dispatch_confirmed: ${{ steps.outcome.outputs.bmt_dispatch_confirmed }}
+            bmt_final_state: ${{ steps.outcome.outputs.bmt_final_state }}
+            bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
+        steps:
+            - name: Checkout repo (for local actions)
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+                  fetch-depth: 1
 
-      - id: outcome
-        run: |
-          if [[ "${{ steps.invoke-workflow.outcome }}" == "success" ]]; then
-            {
-              echo "bmt_gate_passed=true"
-              echo "bmt_dispatch_confirmed=true"
-              echo "bmt_final_state=dispatched_async"
-              echo "bmt_recovery_used=false"
-            } >> "$GITHUB_OUTPUT"
-          else
-            {
-              echo "bmt_gate_passed=false"
-              echo "bmt_dispatch_confirmed=false"
-              echo "bmt_final_state=dispatch_failed"
-              echo "bmt_recovery_used=true"
-            } >> "$GITHUB_OUTPUT"
-          fi
+            - name: Setup GCP and uv
+              uses: ./.github/actions/setup/gcp-uv
+              with:
+                  workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+                  service_account: ${{ env.GCP_SA_EMAIL }}
+                  gcp_project: ${{ env.GCP_PROJECT }}
 
-      - name: Fail job when BMT did not pass
-        if: steps.outcome.outputs.bmt_gate_passed != 'true'
-        run: |
-          echo "::error::BMT dispatch did not complete successfully (classify=${{ steps.classify.outcome || 'n/a' }}, workflow=${{ steps.invoke-workflow.outcome || 'n/a' }})."
-          exit 1
+            - id: classify
+              uses: ./.github/actions/bmt/filter-handoff-matrix
+              with:
+                  head_sha: ${{ needs.plan.outputs.head_sha }}
+                  runner_matrix: ${{ needs.plan.outputs.runner_matrix }}
+                  workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+                  service_account: ${{ env.GCP_SA_EMAIL }}
+                  gcp_project: ${{ env.GCP_PROJECT }}
+                  setup_gcp: "false"
+
+            - name: Emit dispatch context
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  {
+                    echo "## Dispatch"
+                    echo ""
+                    echo "- **SHA:** \`${{ needs.plan.outputs.head_sha }}\` · **legs:** \`${{ steps.classify.outputs.has_legs || 'false' }}\` · **projects:** \`${{ steps.classify.outputs.accepted_projects || '[]' }}\`"
+                    echo "- **Filter:** \`${{ steps.classify.outputs.path || 'unknown' }}\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Validate dataset inputs (fail fast if no .wav files in GCS)
+              if: ${{ inputs.use_mock_runner != true }}
+              env:
+                  GCS_BUCKET: ${{ env.GCS_BUCKET }}
+                  ACCEPTED_PROJECTS: ${{ steps.classify.outputs.accepted_projects }}
+              run: |
+                  set -euo pipefail
+                  uv run bmt handoff validate-dataset-inputs
+
+            - id: invoke-workflow
+              shell: bash
+              env:
+                  # BMT bucket paths and pr-active index use this id (this job's run, not ci_run_id).
+                  WORKFLOW_RUN_ID: ${{ github.run_id }}
+                  FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
+                  RUN_CONTEXT: ${{ needs.plan.outputs.run_context }}
+                  HEAD_EVENT: ${{ needs.plan.outputs.head_event }}
+                  HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+                  HEAD_BRANCH: ${{ needs.plan.outputs.head_branch }}
+                  PR_NUMBER: ${{ needs.plan.outputs.pr_number }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  # Only explicit boolean true enables mock (matches build-and-test strict pass-through).
+                  BMT_USE_MOCK_RUNNER: ${{ inputs.use_mock_runner == true && 'true' || 'false' }}
+              run: |
+                  set -euo pipefail
+                  uv run bmt handoff write-context
+                  uv run bmt dispatch invoke-workflow
+
+            - name: Persist workflow execution snapshot
+              if: steps.invoke-workflow.outcome == 'success'
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  mkdir -p .local/diagnostics
+                  cat > .local/diagnostics/workflow-execution.json <<'JSON'
+                  {
+                    "workflow_execution_name": "${{ steps.invoke-workflow.outputs.workflow_execution_name }}",
+                    "workflow_execution_state": "${{ steps.invoke-workflow.outputs.workflow_execution_state || 'UNKNOWN' }}"
+                  }
+                  JSON
+                  {
+                    echo "workflow_execution_name=${{ steps.invoke-workflow.outputs.workflow_execution_name }}"
+                    echo "workflow_execution_path=.local/diagnostics/workflow-execution.json"
+                  } > .local/diagnostics/manifest.txt
+
+            - name: Upload diagnostics artifact
+              if: always()
+              uses: ./.github/actions/artifacts/upload-repo
+              with:
+                  name: bmt-handoff-diagnostics-${{ github.run_id }}
+                  path: .local/diagnostics/
+                  if-no-files-found: ignore
+                  retention-days: "7"
+
+            - name: Write dispatch summary (workflow execution confirmed)
+              if: steps.invoke-workflow.outcome == 'success'
+              uses: ./.github/actions/bmt/write-summary
+              with:
+                  mode: run_success
+                  repository: ${{ github.repository }}
+                  head_sha: ${{ needs.plan.outputs.head_sha }}
+                  head_branch: ${{ needs.plan.outputs.head_branch }}
+                  pr_number: ${{ needs.plan.outputs.pr_number }}
+                  filtered_matrix: ${{ steps.classify.outputs.filtered_matrix }}
+                  accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects }}
+                  handshake_ok: "true"
+                  gcp_project: ${{ env.GCP_PROJECT }}
+                  gcs_bucket: ${{ env.GCS_BUCKET }}
+
+            - name: Append dispatch status summary
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  {
+                    echo ""
+                    echo "## Workflow"
+                    echo "- steps: classify \`${{ steps.classify.outcome || 'n/a' }}\` · invoke \`${{ steps.invoke-workflow.outcome || 'n/a' }}\`"
+                    echo "- dispatch: \`${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}\` — ${{ steps.invoke-workflow.outputs.dispatch_reason || '—' }}"
+                    echo "- execution: \`${{ steps.invoke-workflow.outputs.workflow_execution_name || '—' }}\` · state \`${{ steps.invoke-workflow.outputs.workflow_execution_state || '—' }}\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Checkout repo (for local actions)
+              if: steps.invoke-workflow.outcome != 'success'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
+                  fetch-depth: 1
+
+            - uses: ./.github/actions/setup/gcp-uv
+              if: steps.invoke-workflow.outcome != 'success'
+              with:
+                  workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+                  service_account: ${{ env.GCP_SA_EMAIL }}
+                  gcp_project: ${{ env.GCP_PROJECT }}
+
+            - name: Set BMT constants for fallback
+              if: steps.invoke-workflow.outcome != 'success'
+              id: bmt-constants
+              run: |
+                  STATUS_CONTEXT=$(uv run python -c "from backend.config.constants import STATUS_CONTEXT; print(STATUS_CONTEXT)")
+                  echo "status_context=$STATUS_CONTEXT" >> "$GITHUB_OUTPUT"
+                  echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
+
+            - name: Failure fallback
+              if: >-
+                  !cancelled() &&
+                  (steps.classify.outcome == 'failure' || steps.invoke-workflow.outcome == 'failure')
+              uses: ./.github/actions/bmt/failure-fallback
+              with:
+                  handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
+                  classify_step_outputs: ${{ toJson(steps.classify.outputs) }}
+                  setup_outputs: ${{ toJson(needs.plan.outputs) }}
+                  prepare_result: ${{ needs.plan.result }}
+                  classify_result: ${{ steps.classify.outcome || 'failure' }}
+                  handoff_result: ${{ steps.invoke-workflow.outcome || 'failure' }}
+                  accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects || '[]' }}
+                  dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
+                  dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
+                  fallback_ref: ${{ github.sha }}
+                  workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+                  service_account: ${{ env.GCP_SA_EMAIL }}
+                  gcp_project: ${{ env.GCP_PROJECT }}
+                  bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
+
+            - id: outcome
+              run: |
+                  if [[ "${{ steps.invoke-workflow.outcome }}" == "success" ]]; then
+                    {
+                      echo "bmt_gate_passed=true"
+                      echo "bmt_dispatch_confirmed=true"
+                      echo "bmt_final_state=dispatched_async"
+                      echo "bmt_recovery_used=false"
+                    } >> "$GITHUB_OUTPUT"
+                  else
+                    {
+                      echo "bmt_gate_passed=false"
+                      echo "bmt_dispatch_confirmed=false"
+                      echo "bmt_final_state=dispatch_failed"
+                      echo "bmt_recovery_used=true"
+                    } >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Fail job when BMT did not pass
+              if: steps.outcome.outputs.bmt_gate_passed != 'true'
+              run: |
+                  echo "::error::BMT dispatch did not complete successfully (classify=${{ steps.classify.outcome || 'n/a' }}, workflow=${{ steps.invoke-workflow.outcome || 'n/a' }})."
+                  exit 1
