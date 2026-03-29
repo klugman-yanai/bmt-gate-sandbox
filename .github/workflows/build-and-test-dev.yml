@@ -3,95 +3,94 @@ name: Build
 # Jobs/DAG: checkout → build_1_release + build_2_non_release (parallel when both enabled).
 # PR entry: trigger-ci-pr.yml inlines the same matrices (one snapshot); this file is push/workflow_dispatch.
 on:
-  workflow_dispatch:
-    inputs:
-      include_release:
-        description: Run release preset matrix (BMT gates on this phase when used alone)
-        type: boolean
-        default: true
-      include_non_release:
-        description: Run non-release preset matrix
-        type: boolean
-        default: true
-  workflow_call:
-    inputs:
-      include_release:
-        type: boolean
-        default: true
-        required: false
-      include_non_release:
-        type: boolean
-        default: true
-        required: false
+    workflow_dispatch:
+        inputs:
+            include_release:
+                description: Run release preset matrix (BMT gates on this phase when used alone)
+                type: boolean
+                default: true
+            include_non_release:
+                description: Run non-release preset matrix
+                type: boolean
+                default: true
+    workflow_call:
+        inputs:
+            include_release:
+                type: boolean
+                default: true
+                required: false
+            include_non_release:
+                type: boolean
+                default: true
+                required: false
 
 defaults:
-  run:
-    shell: bash
+    run:
+        shell: bash
 
 # Artifact upload (checkout) needs actions write.
 permissions:
-  contents: read
-  actions: read
+    contents: read
+    actions: read
 
 concurrency:
-  # Include phase flags so parallel caller jobs (release-only vs non-release-only) do not cancel each other.
-  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ inputs.include_release }}-${{ inputs.include_non_release }}
-  cancel-in-progress: true
+    # Include phase flags so parallel caller jobs (release-only vs non-release-only) do not cancel each other.
+    group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ inputs.include_release }}-${{ inputs.include_non_release }}
+    cancel-in-progress: true
 
 jobs:
-  checkout:
-    name: Snapshot
-    if: ${{ inputs.include_release || inputs.include_non_release }}
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      actions: write
-    outputs:
-      artifact_size: ${{ steps.snap.outputs.artifact_size }}
-      release_presets: ${{ steps.snap.outputs.release_presets }}
-      non_release_presets: ${{ steps.snap.outputs.non_release_presets }}
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-          submodules: false
-          lfs: false
-      - id: snap
-        uses: ./.github/actions/dev/checkout-presets
+    checkout:
+        name: Snapshot
+        if: ${{ inputs.include_release || inputs.include_non_release }}
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: read
+            actions: write
+        outputs:
+            artifact_size: ${{ steps.snap.outputs.artifact_size }}
+            release_presets: ${{ steps.snap.outputs.release_presets }}
+            non_release_presets: ${{ steps.snap.outputs.non_release_presets }}
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
+                  submodules: false
+                  lfs: false
+            - id: snap
+              uses: ./.github/actions/dev/checkout-presets
 
-  # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
-  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
-  build_1_release:
-    name: Release
-    if: ${{ inputs.include_release }}
-    needs: checkout
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
-    steps:
-      - name: Release build placeholder (bmt-gcloud)
-        run: |
-          echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT runs after this job."
+    # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
+    # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+    build_1_release:
+        name: Release
+        if: ${{ inputs.include_release && needs.checkout.outputs.release_presets != '[]' && needs.checkout.outputs.release_presets != '' }}
+        needs: checkout
+        runs-on: ubuntu-22.04
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
+        steps:
+            - name: Release build placeholder (bmt-gcloud)
+              run: |
+                  echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT runs after this job."
 
-  # Non-release builds: run in parallel; do not block BMT.
-  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
-  build_2_non_release:
-    name: Non-Release
-    if: ${{ inputs.include_non_release }}
-    needs: checkout
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
-    steps:
-      - name: Non-release build placeholder (bmt-gcloud)
-        run: |
-          echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
-
+    # Non-release builds: run in parallel; do not block BMT.
+    # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+    build_2_non_release:
+        name: Non-Release
+        if: ${{ inputs.include_non_release && needs.checkout.outputs.non_release_presets != '[]' && needs.checkout.outputs.non_release_presets != '' }}
+        needs: checkout
+        runs-on: ubuntu-22.04
+        strategy:
+            fail-fast: false
+            max-parallel: 6
+            matrix:
+                include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
+        steps:
+            - name: Non-release build placeholder (bmt-gcloud)
+              run: |
+                  echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."

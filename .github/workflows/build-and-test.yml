@@ -6,328 +6,330 @@ name: Build
 
 # Jobs/DAG: checkout → build_1_release + build_2_non_release (parallel).
 on:
-  workflow_dispatch:
-  workflow_call: {}
+    workflow_dispatch:
+    workflow_call: {}
 
 defaults:
-  run:
-    shell: bash
+    run:
+        shell: bash
 
 # Artifact upload (checkout_snapshot) needs actions write.
 permissions:
-  contents: read
-  actions: read
+    contents: read
+    actions: read
 
 concurrency:
-  group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+    group: build-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+    cancel-in-progress: true
 
 jobs:
-  # ─────────────────────── 1) Parse presets, split release / non-release ──
-  checkout:
-    name: Snapshot
-    runs-on: ubuntu-22.04
-    outputs:
-      release_presets: ${{ steps.parse.outputs.release_presets }}
-      non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
-    steps:
-      - name: Checkout source for preset parsing
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+    # ─────────────────────── 1) Parse presets, split release / non-release ──
+    checkout:
+        name: Snapshot
+        runs-on: ubuntu-22.04
+        outputs:
+            release_presets: ${{ steps.parse.outputs.release_presets }}
+            non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
+        steps:
+            - name: Checkout source for preset parsing
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
 
-      - name: Parse CMakePresets.json
-        id: parse
-        run: |
-          # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
-          # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
-          presets=$(jq -c '
-            [ (.buildPresets // [])[]
-              | (.configurePreset // "") as $cfg
-              | { build: .name
-                , configure: $cfg
-                , short: (.name | sub("-build$"; ""))
-                , is_release: (
-                    ($cfg | test("_gcc_Release")) and
-                    (($cfg | test("xtensa"; "i")) | not) and
-                    (($cfg | test("hexagon"; "i")) | not)
-                  )
-                , soft_fail: (
-                    ($cfg | test("xtensa"; "i")) or
-                    ($cfg | test("hexagon"; "i"))
-                  )
-                }
-            ]' CMakePresets.json)
-          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
-          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
+            - name: Parse CMakePresets.json
+              id: parse
+              run: |
+                  # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
+                  # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
+                  presets=$(jq -c '
+                    [ (.buildPresets // [])[]
+                      | (.configurePreset // "") as $cfg
+                      | { build: .name
+                        , configure: $cfg
+                        , short: (.name | sub("-build$"; ""))
+                        , is_release: (
+                            ($cfg | test("_gcc_Release")) and
+                            (($cfg | test("xtensa"; "i")) | not) and
+                            (($cfg | test("hexagon"; "i")) | not)
+                          )
+                        , soft_fail: (
+                            ($cfg | test("xtensa"; "i")) or
+                            ($cfg | test("hexagon"; "i"))
+                          )
+                        }
+                    ]' CMakePresets.json)
+                  echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
+                  echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
 
-  # ─────────────────────── 2a) Build release presets (gates BMT) ────────────
-  build_1_release:
-    name: Release
-    needs: checkout
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      actions: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
-    env:
-      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-    steps:
-      - name: Checkout source to build
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-          submodules: false
-          lfs: false
-          persist-credentials: false
-
-      - name: Cache Gradle user home
-        uses: ./.github/actions/setup/cache-repo
-        with:
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
-          path: ${{ env.GRADLE_USER_HOME }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Disk space (before)
-        run: |
-          df -h
-          echo "Largest dirs (top 30) under /usr/share /opt /usr/local (best effort)"
-          sudo du -xh /usr/share /opt /usr/local 2>/dev/null | sort -h | tail -n 30 || true
-
-      - name: Free disk space on runner
-        run: |
-          set -euo pipefail
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost 2>/dev/null || true
-          sudo apt-get clean 2>/dev/null || true
-          sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
-          df -h
-
-      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y patchelf libfl2
-          if compgen -G "third-party/starfish-bdk*" > /dev/null; then
-            find third-party/starfish-bdk* -type f -executable | while read -r exe; do
-              if file "$exe" | grep -q "ELF.*executable"; then
-                patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$exe" || true
-                patchelf --set-rpath "\$ORIGIN/../lib" "$exe" || true
-              fi
-            done
-          fi
-
-      - name: Install CMake 3.29.3
-        run: |
-          set -euo pipefail
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz
-          tar -xf cmake-3.29.3-linux-x86_64.tar.gz
-          sudo mv cmake-3.29.3-linux-x86_64 /opt/cmake-3.29
-          rm -f cmake-3.29.3-linux-x86_64.tar.gz
-          echo "/opt/cmake-3.29/bin" >>"$GITHUB_PATH"
-
-      - name: Install MinGW (64-bit)
-        if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-
-      - name: Configure ( ${{ matrix.configure }} )
-        run: |
-          set -euo pipefail
-          cfg="${{ matrix.configure }}"
-          bld="${{ matrix.build }}"
-          if [[ "$cfg" == *webos* || "$bld" == *webos* ]]; then
-            cmake --preset "${{ matrix.configure }}" \
-              -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
-          else
-            cmake --preset "${{ matrix.configure }}"
-          fi
-
-      - name: Build ( ${{ matrix.short }} )
-        run: |
-          set -euo pipefail
-          cmake --build --preset "${{ matrix.build }}" 2>&1 | tee build.log
-          gzip -9 build.log
-
-      - name: Strict check (release presets)
-        run: |
-          set -euo pipefail
-          warnings=$(zgrep -c "warning:" build.log.gz || true)
-          errors=$(zgrep -c "error:"   build.log.gz || true)
-          echo "Warnings: $warnings"
-          echo "Errors  : $errors"
-          if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
-            echo "::error::Build failed – warnings or errors detected."
-            exit 1
-          fi
-
-      - name: Set up uv (BMT runner packaging)
-        uses: ./.github/actions/setup/uv-repo
-
-      - name: Stage release runner for BMT upload
+    # ─────────────────────── 2a) Build release presets (gates BMT) ────────────
+    build_1_release:
+        name: Release
+        needs: checkout
+        if: ${{ needs.checkout.outputs.release_presets != '[]' && needs.checkout.outputs.release_presets != '' }}
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: read
+            actions: write
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
         env:
-          MATRIX_CONFIGURE: ${{ matrix.configure }}
-        run: uv run bmt preset stage-release-runner
+            GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+        steps:
+            - name: Checkout source to build
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
+                  submodules: false
+                  lfs: false
+                  persist-credentials: false
 
-      - name: Runner artifact paths
-        id: runner_artifact
+            - name: Cache Gradle user home
+              uses: ./.github/actions/setup/cache-repo
+              with:
+                  key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
+                  path: ${{ env.GRADLE_USER_HOME }}
+                  restore-keys: |
+                      ${{ runner.os }}-gradle-
+
+            - name: Disk space (before)
+              run: |
+                  df -h
+                  echo "Largest dirs (top 30) under /usr/share /opt /usr/local (best effort)"
+                  sudo du -xh /usr/share /opt /usr/local 2>/dev/null | sort -h | tail -n 30 || true
+
+            - name: Free disk space on runner
+              run: |
+                  set -euo pipefail
+                  sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost 2>/dev/null || true
+                  sudo apt-get clean 2>/dev/null || true
+                  sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+                  df -h
+
+            - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
+              run: |
+                  set -euo pipefail
+                  sudo apt-get update
+                  sudo apt-get install -y patchelf libfl2
+                  if compgen -G "third-party/starfish-bdk*" > /dev/null; then
+                    find third-party/starfish-bdk* -type f -executable | while read -r exe; do
+                      if file "$exe" | grep -q "ELF.*executable"; then
+                        patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$exe" || true
+                        patchelf --set-rpath "\$ORIGIN/../lib" "$exe" || true
+                      fi
+                    done
+                  fi
+
+            - name: Install CMake 3.29.3
+              run: |
+                  set -euo pipefail
+                  wget -q https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz
+                  tar -xf cmake-3.29.3-linux-x86_64.tar.gz
+                  sudo mv cmake-3.29.3-linux-x86_64 /opt/cmake-3.29
+                  rm -f cmake-3.29.3-linux-x86_64.tar.gz
+                  echo "/opt/cmake-3.29/bin" >>"$GITHUB_PATH"
+
+            - name: Install MinGW (64-bit)
+              if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
+              run: |
+                  set -euo pipefail
+                  sudo apt-get update
+                  sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+
+            - name: Configure ( ${{ matrix.configure }} )
+              run: |
+                  set -euo pipefail
+                  cfg="${{ matrix.configure }}"
+                  bld="${{ matrix.build }}"
+                  if [[ "$cfg" == *webos* || "$bld" == *webos* ]]; then
+                    cmake --preset "${{ matrix.configure }}" \
+                      -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+                      -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+                  else
+                    cmake --preset "${{ matrix.configure }}"
+                  fi
+
+            - name: Build ( ${{ matrix.short }} )
+              run: |
+                  set -euo pipefail
+                  cmake --build --preset "${{ matrix.build }}" 2>&1 | tee build.log
+                  gzip -9 build.log
+
+            - name: Strict check (release presets)
+              run: |
+                  set -euo pipefail
+                  warnings=$(zgrep -c "warning:" build.log.gz || true)
+                  errors=$(zgrep -c "error:"   build.log.gz || true)
+                  echo "Warnings: $warnings"
+                  echo "Errors  : $errors"
+                  if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
+                    echo "::error::Build failed – warnings or errors detected."
+                    exit 1
+                  fi
+
+            - name: Set up uv (BMT runner packaging)
+              uses: ./.github/actions/setup/uv-repo
+
+            - name: Stage release runner for BMT upload
+              env:
+                  MATRIX_CONFIGURE: ${{ matrix.configure }}
+              run: uv run bmt preset stage-release-runner
+
+            - name: Runner artifact paths
+              id: runner_artifact
+              env:
+                  MATRIX_CONFIGURE: ${{ matrix.configure }}
+              run: uv run bmt preset compute-info
+
+            - name: Upload runner artifact for handoff
+              uses: ./.github/actions/artifacts/upload-repo
+              with:
+                  name: runner-${{ steps.runner_artifact.outputs.preset }}
+                  path: |
+                      ${{ steps.runner_artifact.outputs.runners_dir }}/kardome_runner
+                      ${{ steps.runner_artifact.outputs.lib_dir }}/libKardome.so
+                  if-no-files-found: warn
+                  retention-days: "7"
+
+            - name: Append release build row to job summary
+              shell: bash
+              run: |
+                  {
+                    echo "- **${{ matrix.short }}** → \`runner-${{ steps.runner_artifact.outputs.preset }}\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Disk space (after)
+              if: always()
+              run: df -h && du -sh . 2>/dev/null || true
+
+            - name: Cleanup heavy dirs
+              if: always()
+              run: |
+                  rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx ./**/CMakeFiles ./**/CMakeCache.txt 2>/dev/null || true
+                  df -h
+
+    # ─────────────────────── 2b) Build non-release presets ───────────────────
+    build_2_non_release:
+        name: Non-Release
+        needs: checkout
+        if: ${{ needs.checkout.outputs.non_release_presets != '[]' && needs.checkout.outputs.non_release_presets != '' }}
+        runs-on: ubuntu-22.04
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
         env:
-          MATRIX_CONFIGURE: ${{ matrix.configure }}
-        run: uv run bmt preset compute-info
+            GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+        steps:
+            - name: Checkout source to build
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
+                  submodules: false
+                  lfs: false
+                  persist-credentials: false
 
-      - name: Upload runner artifact for handoff
-        uses: ./.github/actions/artifacts/upload-repo
-        with:
-          name: runner-${{ steps.runner_artifact.outputs.preset }}
-          path: |
-            ${{ steps.runner_artifact.outputs.runners_dir }}/kardome_runner
-            ${{ steps.runner_artifact.outputs.lib_dir }}/libKardome.so
-          if-no-files-found: warn
-          retention-days: "7"
+            - name: Cache Gradle user home
+              uses: ./.github/actions/setup/cache-repo
+              with:
+                  key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
+                  path: ${{ env.GRADLE_USER_HOME }}
+                  restore-keys: |
+                      ${{ runner.os }}-gradle-
 
-      - name: Append release build row to job summary
-        shell: bash
-        run: |
-          {
-            echo "- **${{ matrix.short }}** → \`runner-${{ steps.runner_artifact.outputs.preset }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+            - name: Disk space (before)
+              run: df -h
 
-      - name: Disk space (after)
-        if: always()
-        run: df -h && du -sh . 2>/dev/null || true
+            - name: Free disk space on runner
+              run: |
+                  set -euo pipefail
+                  sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost 2>/dev/null || true
+                  sudo apt-get clean 2>/dev/null || true
+                  df -h
 
-      - name: Cleanup heavy dirs
-        if: always()
-        run: |
-          rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx ./**/CMakeFiles ./**/CMakeCache.txt 2>/dev/null || true
-          df -h
+            - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
+              run: |
+                  set -euo pipefail
+                  sudo apt-get update
+                  sudo apt-get install -y patchelf libfl2
+                  if compgen -G "third-party/starfish-bdk*" > /dev/null; then
+                    find third-party/starfish-bdk* -type f -executable | while read -r exe; do
+                      if file "$exe" | grep -q "ELF.*executable"; then
+                        patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$exe" || true
+                        patchelf --set-rpath "\$ORIGIN/../lib" "$exe" || true
+                      fi
+                    done
+                  fi
 
-  # ─────────────────────── 2b) Build non-release presets ───────────────────
-  build_2_non_release:
-    name: Non-Release
-    needs: checkout
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
-    env:
-      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-    steps:
-      - name: Checkout source to build
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-          submodules: false
-          lfs: false
-          persist-credentials: false
+            - name: Install CMake 3.29.3
+              run: |
+                  set -euo pipefail
+                  wget -q https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz
+                  tar -xf cmake-3.29.3-linux-x86_64.tar.gz
+                  sudo mv cmake-3.29.3-linux-x86_64 /opt/cmake-3.29
+                  rm -f cmake-3.29.3-linux-x86_64.tar.gz
+                  echo "/opt/cmake-3.29/bin" >>"$GITHUB_PATH"
 
-      - name: Cache Gradle user home
-        uses: ./.github/actions/setup/cache-repo
-        with:
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
-          path: ${{ env.GRADLE_USER_HOME }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+            - name: Install MinGW (64-bit)
+              if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
+              run: |
+                  set -euo pipefail
+                  sudo apt-get update
+                  sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
 
-      - name: Disk space (before)
-        run: df -h
+            - name: Configure ( ${{ matrix.configure }} )
+              continue-on-error: ${{ matrix.soft_fail }}
+              run: |
+                  set -euo pipefail
+                  cfg="${{ matrix.configure }}"
+                  bld="${{ matrix.build }}"
+                  if [[ "$cfg" == *webos* || "$bld" == *webos* ]]; then
+                    cmake --preset "${{ matrix.configure }}" \
+                      -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+                      -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+                  else
+                    cmake --preset "${{ matrix.configure }}"
+                  fi
 
-      - name: Free disk space on runner
-        run: |
-          set -euo pipefail
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost 2>/dev/null || true
-          sudo apt-get clean 2>/dev/null || true
-          df -h
+            - name: Build ( ${{ matrix.short }} )
+              continue-on-error: ${{ matrix.soft_fail }}
+              run: |
+                  set -euo pipefail
+                  cmake --build --preset "${{ matrix.build }}" 2>&1 | tee build.log
+                  gzip -9 build.log
 
-      - name: Fix Hardcoded Paths and Install Deps for webOS Toolchains
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y patchelf libfl2
-          if compgen -G "third-party/starfish-bdk*" > /dev/null; then
-            find third-party/starfish-bdk* -type f -executable | while read -r exe; do
-              if file "$exe" | grep -q "ELF.*executable"; then
-                patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 "$exe" || true
-                patchelf --set-rpath "\$ORIGIN/../lib" "$exe" || true
-              fi
-            done
-          fi
+            - name: Soft check (Xtensa/Hexagon)
+              if: matrix.soft_fail
+              run: |
+                  set -euo pipefail
+                  warnings=$(zgrep -c "warning:" build.log.gz || true)
+                  errors=$(zgrep -c "error:"   build.log.gz || true)
+                  echo "Warnings: $warnings"
+                  echo "Errors  : $errors"
+                  if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
+                    echo "::warning::Xtensa/Hexagon build had $warnings warnings and $errors errors — NOT failing CI by request."
+                  fi
 
-      - name: Install CMake 3.29.3
-        run: |
-          set -euo pipefail
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.3/cmake-3.29.3-linux-x86_64.tar.gz
-          tar -xf cmake-3.29.3-linux-x86_64.tar.gz
-          sudo mv cmake-3.29.3-linux-x86_64 /opt/cmake-3.29
-          rm -f cmake-3.29.3-linux-x86_64.tar.gz
-          echo "/opt/cmake-3.29/bin" >>"$GITHUB_PATH"
+            - name: Strict check (non-embedded)
+              if: ${{ ! matrix.soft_fail }}
+              run: |
+                  set -euo pipefail
+                  warnings=$(zgrep -c "warning:" build.log.gz || true)
+                  errors=$(zgrep -c "error:"   build.log.gz || true)
+                  echo "Warnings: $warnings"
+                  echo "Errors  : $errors"
+                  if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
+                    echo "::error::Build failed – warnings or errors detected."
+                    exit 1
+                  fi
 
-      - name: Install MinGW (64-bit)
-        if: contains(matrix.configure, 'mingw') || contains(matrix.build, 'mingw')
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-
-      - name: Configure ( ${{ matrix.configure }} )
-        continue-on-error: ${{ matrix.soft_fail }}
-        run: |
-          set -euo pipefail
-          cfg="${{ matrix.configure }}"
-          bld="${{ matrix.build }}"
-          if [[ "$cfg" == *webos* || "$bld" == *webos* ]]; then
-            cmake --preset "${{ matrix.configure }}" \
-              -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
-          else
-            cmake --preset "${{ matrix.configure }}"
-          fi
-
-      - name: Build ( ${{ matrix.short }} )
-        continue-on-error: ${{ matrix.soft_fail }}
-        run: |
-          set -euo pipefail
-          cmake --build --preset "${{ matrix.build }}" 2>&1 | tee build.log
-          gzip -9 build.log
-
-      - name: Soft check (Xtensa/Hexagon)
-        if: matrix.soft_fail
-        run: |
-          set -euo pipefail
-          warnings=$(zgrep -c "warning:" build.log.gz || true)
-          errors=$(zgrep -c "error:"   build.log.gz || true)
-          echo "Warnings: $warnings"
-          echo "Errors  : $errors"
-          if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
-            echo "::warning::Xtensa/Hexagon build had $warnings warnings and $errors errors — NOT failing CI by request."
-          fi
-
-      - name: Strict check (non-embedded)
-        if: ${{ ! matrix.soft_fail }}
-        run: |
-          set -euo pipefail
-          warnings=$(zgrep -c "warning:" build.log.gz || true)
-          errors=$(zgrep -c "error:"   build.log.gz || true)
-          echo "Warnings: $warnings"
-          echo "Errors  : $errors"
-          if [ "$warnings" -gt 0 ] || [ "$errors" -gt 0 ]; then
-            echo "::error::Build failed – warnings or errors detected."
-            exit 1
-          fi
-
-      - name: Cleanup
-        if: always()
-        run: rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx 2>/dev/null || true; df -h
+            - name: Cleanup
+              if: always()
+              run: rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx 2>/dev/null || true; df -h
