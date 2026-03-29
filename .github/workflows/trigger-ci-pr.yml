@@ -83,6 +83,7 @@ jobs:
         name: BMT
         needs: [build_release]
         if: >-
+            always() &&
             (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
             && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
