@@ -59,9 +59,46 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
         steps:
-            - name: Release build placeholder (bmt-gcloud)
+            - name: Checkout source to build
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
+                  submodules: false
+                  lfs: false
+                  persist-credentials: false
+
+            - name: Set up uv (BMT runner packaging)
+              uses: ./.github/actions/setup/uv-repo
+
+            - name: Stage release runner for BMT upload
+              env:
+                  MATRIX_CONFIGURE: ${{ matrix.configure }}
+              run: uv run bmt preset stage-release-runner
+
+            - name: Runner artifact paths
+              id: runner_artifact
+              env:
+                  MATRIX_CONFIGURE: ${{ matrix.configure }}
+              run: uv run bmt preset compute-info
+
+            - name: Upload runner artifact for handoff
+              uses: ./.github/actions/artifacts/upload-repo
+              with:
+                  name: runner-${{ steps.runner_artifact.outputs.preset }}
+                  path: |
+                      ${{ steps.runner_artifact.outputs.runners_dir }}/kardome_runner
+                      ${{ steps.runner_artifact.outputs.lib_dir }}/libKardome.so
+                  if-no-files-found: warn
+                  retention-days: "7"
+
+            - name: Append release build row to job summary
+              shell: bash
               run: |
-                  echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT runs after this job."
+                  {
+                    echo "- **${{ matrix.short }}** → \`runner-${{ steps.runner_artifact.outputs.preset }}\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
 
     build_non_release:
         name: Build (non-release)
@@ -99,7 +136,7 @@ jobs:
             head_branch: ${{ github.event.pull_request.head.ref }}
             head_event: ${{ github.event_name }}
             pr_number: ${{ format('{0}', github.event.pull_request.number) }}
-            use_mock_runner: ${{ github.base_ref == 'ci/check-bmt-gate' }}
-            skip_missing_runner_artifacts: true
+            use_mock_runner: false
+            skip_missing_runner_artifacts: false
             cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
             bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}

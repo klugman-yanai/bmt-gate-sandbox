@@ -58,8 +58,8 @@ class PresetManager:
         if runner_bin.is_file():
             print(f"Using existing runner from {runners_dir} (build/ layout)")
             return
-        sk_runner = Path(core.DEFAULT_STAGE_ROOT) / "sk/runners/sk_gcc_release/kardome_runner"
-        sk_lib = Path(core.DEFAULT_STAGE_ROOT) / "sk/runners/lib/libKardome.so"
+        sk_runner = Path(core.DEFAULT_STAGE_ROOT) / "sk/lib/kardome_runner"
+        sk_lib = Path(core.DEFAULT_STAGE_ROOT) / "sk/lib/libKardome.so"
         if sk_runner.is_file() and project == "sk":
             shutil.copy2(sk_runner, runner_bin)
             if sk_lib.is_file():
@@ -84,6 +84,4 @@ class PresetManager:
         runners_dir = f"{binary_dir}/Runners"
         lib_dir = f"{binary_dir}/Kardome"
         with Path(out).open("a", encoding="utf-8") as f:
-            f.write(
-                f"preset={preset}\nproject={project}\nrunners_dir={runners_dir}\nlib_dir={lib_dir}\n"
-            )
+            f.write(f"preset={preset}\nproject={project}\nrunners_dir={runners_dir}\nlib_dir={lib_dir}\n")
