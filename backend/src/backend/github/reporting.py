@@ -84,7 +84,7 @@ class GitHubReporter:
             self.repository,
             self.sha,
             name=self.status_context,
-            status=CheckStatus.IN_PROGRESS.value,
+            status=CheckStatus.QUEUED.value,
             output=output,
             details_url=details_url,
             external_id=external_id,
