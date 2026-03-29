@@ -38,7 +38,7 @@ jobs:
           ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - uses: ./.github/actions/setup-uv-repo
+      - uses: ./.github/actions/setup/uv-repo
 
       - name: Assemble release bundle
         run: uv run python scripts/assemble_release.py --skip-secrets

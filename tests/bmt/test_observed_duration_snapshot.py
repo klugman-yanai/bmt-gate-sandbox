@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from backend.config.value_types import ResultsPath
 from backend.runtime.artifacts import (
     earliest_progress_started_at_iso,

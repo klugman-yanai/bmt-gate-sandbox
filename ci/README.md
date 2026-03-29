@@ -1,8 +1,7 @@
-# BMT config
+# kardome-bmt-gate (`ci/`)
 
-YAML and Python config consumed by **`uv run bmt`** (see [.github/README.md](../../README.md)).
+YAML and Python config consumed by **`uv run bmt`**. Workflow wiring: [.github/README.md](../.github/README.md).
 
-- **Infra and repo variables:** Pulumi and **`just workspace pulumi`** — [infra/README.md](../../../infra/README.md), [docs/configuration.md](../../../docs/configuration.md).
-- **`secrets/`:** optional local `*.pem` for GitHub App testing (gitignored). **CI** should use a **GitHub Actions secret** (multiline PEM) and, if code requires a path, write to **`RUNNER_TEMP`** at runtime — do **not** commit keys to the repo.
-- **core-main / production:** Prefer **no** tracked `*.pem` under `.github/`. The release assembler can copy a PEM into `.github-release/` for **local** promotion only; treat promotion to `core-main` as **secrets-only** unless your org explicitly approves an exception.
-- **`meta load-env`:** `uv run bmt meta load-env` materializes config into `GITHUB_ENV` when bootstrapping; most handoff flows pass vars via `setup-gcp-uv` and nested commands such as `uv run bmt handoff write-context`.
+- **Infra, repo variables, secrets:** [docs/infrastructure.md](../docs/infrastructure.md) · env map: [docs/configuration.md](../docs/configuration.md)
+- **`secrets/`:** optional local `*.pem` for GitHub App testing (gitignored). **CI** uses **GitHub Actions secrets** (multiline PEM); do **not** commit keys.
+- **`meta load-env`:** `uv run bmt meta load-env` materializes config into `GITHUB_ENV` when bootstrapping; handoff flows usually pass vars via `setup/gcp-uv` and nested `uv run bmt …` commands.

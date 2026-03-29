@@ -1,38 +1,41 @@
-# Operations runbook
+# Runbook
 
-**Audience:** Operators debugging **production** or **staging** BMT runs (GCP, GCS, GitHub). For local development, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+**Purpose:** **How-to** for **operators** debugging **production or staging** BMT runs (GCP, GCS, GitHub). For local development, use [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+A **runbook** is not architecture theory: it answers **“something is wrong — what do I check, in what order?”**
 
 ## Correlation ID
 
-Every CI run is keyed by **`workflow_run_id`** (GitHub Actions run id) or the equivalent id passed into Google Workflows. Use it to find:
+Use **`workflow_run_id`** (GitHub Actions run id) to correlate:
 
-- **GCS:** `triggers/plans/<workflow_run_id>.json`, `triggers/summaries/<workflow_run_id>/...`, ephemeral `triggers/reporting/<workflow_run_id>.json` (see [architecture.md](architecture.md))
-- **GCP:** Workflow execution in the Google Cloud console (URL may be recorded under `triggers/reporting/` for Check Run details)
-- **Logs:** Cloud Run job logs for `bmt-control` (plan/coordinator) and `bmt-task-standard` / `bmt-task-heavy` (task legs)
+- **GCS:** `triggers/plans/<id>.json`, `triggers/summaries/<id>/…`, `triggers/reporting/<id>.json` (see [architecture.md](architecture.md))
+- **GCP:** Workflow execution in Cloud console
+- **Logs:** Cloud Run jobs — control (plan/coordinator) vs task (standard/heavy)
 
 ## Where to look first
 
-1. **GitHub** — Workflow run for `build-and-test` / handoff; commit status and Check Run for the BMT context.
-2. **Workflows execution** — Failed plan, task, or coordinator stage; task index and profile (standard vs heavy).
-3. **GCS** — Plan file present; per-leg summaries present; snapshots under `projects/<project>/results/<bmt_slug>/snapshots/<run_id>/`.
-4. **Ephemeral `triggers/`** — Should be cleaned up after a successful coordinator; orphaned objects may indicate a failed or partial run.
+1. **GitHub** — workflow run, commit status, Check Run for the BMT context.
+2. **Workflows** — failed plan, task, or coordinator; leg index and profile.
+3. **GCS** — plan present; per-leg summaries; snapshots under `projects/<project>/results/<bmt_slug>/snapshots/`.
+4. **`triggers/`** — after success, coordinator should have cleaned up; leftovers may mean partial failure.
 
 ## Common symptoms
 
 | Symptom | Likely checks |
-| ------- | ------------- |
-| Stuck **pending** status | Coordinator never ran; GitHub API finalize failed; see **§11.3** in [architecture.md](architecture.md) (Maintainer deep dive) |
-| Gate shows fail but bucket looks pass (or reverse) | Split-brain between GitHub and GCS; compare `ci_verdict.json` vs Check Run |
-| Missing leg summary | Task crash before write; eventual consistency delay; see [architecture.md](architecture.md) weak-points sections |
+| --- | --- |
+| Stuck **pending** | Coordinator never ran; GitHub finalize failed — [architecture.md — Maintainer risks](architecture.md#maintainer-risks-weak-points) |
+| Gate vs bucket disagree | Split-brain: `ci_verdict.json` vs Check Run |
+| Missing leg summary | Task crash; GCS eventual consistency delay |
 
 ## Secrets and access
 
-- **CI → GCP:** Workload Identity Federation; no long-lived keys in Actions.
-- **Runtime → GitHub:** GitHub App installation tokens from **Secret Manager** (see [configuration.md](configuration.md)).
+- **CI → GCP:** WIF (no long-lived keys in Actions).
+- **Runtime → GitHub:** App tokens from Secret Manager — [infrastructure.md](infrastructure.md).
 
-Do **not** paste tokens, private keys, or bucket URLs with embedded credentials into public issues. Follow your company’s internal channel for reporting sensitive issues.
+Do not paste tokens or keys into public issues.
 
-## Related docs
+## Related
 
-- [configuration.md](configuration.md) — Env vars, Pulumi, branch protection
-- [architecture.md](architecture.md) — Pipeline, diagrams, maintainer risks and remediation index
+- [infrastructure.md](infrastructure.md) — vars, Pulumi, secrets
+- [architecture.md](architecture.md) — pipeline and storage
+- [.github/README.md](../.github/README.md) — workflow behavior

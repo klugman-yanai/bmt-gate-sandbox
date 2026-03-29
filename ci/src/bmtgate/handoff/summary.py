@@ -6,8 +6,8 @@ import json
 import os
 from pathlib import Path
 
-from bmtgate.settings import BmtConfig
 from bmtgate.handoff.env import HandoffEnv, canonical_repo_slug_for_github_links
+from bmtgate.settings import BmtConfig
 
 
 def _append_step_summary(text: str) -> None:

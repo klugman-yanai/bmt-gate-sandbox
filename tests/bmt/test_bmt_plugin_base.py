@@ -6,17 +6,21 @@ import sys
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel, ConfigDict
-
 from backend.runtime.models import PluginManifest
 from backend.runtime.plugin_errors import PluginLoadError
-from backend.runtime.sdk.plugin import PLUGIN_EXECUTE_EXCEPTION_RAW_KEY, BmtPlugin
+from backend.runtime.sdk.plugin import (
+    PLUGIN_EXECUTE_EXCEPTION_RAW_KEY,
+    BmtPlugin,
+    parse_max_grace_case_failures,
+)
 from backend.runtime.sdk.results import PreparedAssets
+from pydantic import BaseModel, ConfigDict
+
 from tests.support.fixtures.bmt_sdk import minimal_execution_context
 
 pytestmark = pytest.mark.unit
 
-_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/plugin_workspaces/default/src")
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/src")
 
 
 def _sk_plugin():
@@ -57,7 +61,7 @@ class _V2Plugin(_TrivialPlugin):
 
 def test_validate_against_loaded_manifest_ok() -> None:
     manifest = PluginManifest(
-        plugin_name="default",
+        plugin_name="sk",
         entrypoint="sk_plugin:SkPlugin",
     )
     _sk_plugin().validate_against_loaded_manifest(manifest)
@@ -96,9 +100,9 @@ def test_resolve_workspace_file(tmp_path: Path) -> None:
 
 
 def test_max_grace_case_failures() -> None:
-    assert BmtPlugin.max_grace_case_failures({}) == 1
-    assert BmtPlugin.max_grace_case_failures({"max_grace_case_failures": 0}) == 0
-    assert BmtPlugin.max_grace_case_failures({"max_grace_case_failures": "bogus"}) == 1
+    assert parse_max_grace_case_failures({}) == 1
+    assert parse_max_grace_case_failures({"max_grace_case_failures": 0}) == 0
+    assert parse_max_grace_case_failures({"max_grace_case_failures": "bogus"}) == 1
 
 
 def test_execution_failure_result(tmp_path: Path) -> None:

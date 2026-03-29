@@ -89,7 +89,7 @@ jobs:
           persist-credentials: false
 
       - name: Cache Gradle user home
-        uses: ./.github/actions/cache-repo
+        uses: ./.github/actions/setup/cache-repo
         with:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
           path: ${{ env.GRADLE_USER_HOME }}
@@ -172,7 +172,7 @@ jobs:
           fi
 
       - name: Set up uv (BMT runner packaging)
-        uses: ./.github/actions/setup-uv-repo
+        uses: ./.github/actions/setup/uv-repo
 
       - name: Stage release runner for BMT upload
         env:
@@ -186,7 +186,7 @@ jobs:
         run: uv run bmt preset compute-info
 
       - name: Upload runner artifact for handoff
-        uses: ./.github/actions/upload-artifact-repo
+        uses: ./.github/actions/artifacts/upload-repo
         with:
           name: runner-${{ steps.runner_artifact.outputs.preset }}
           path: |
@@ -235,7 +235,7 @@ jobs:
           persist-credentials: false
 
       - name: Cache Gradle user home
-        uses: ./.github/actions/cache-repo
+        uses: ./.github/actions/setup/cache-repo
         with:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle-wrapper.properties', '**/libs.versions.toml') }}-${{ matrix.build }}
           path: ${{ env.GRADLE_USER_HOME }}

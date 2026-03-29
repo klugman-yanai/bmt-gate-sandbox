@@ -34,10 +34,10 @@ Root **`.github/workflows/*.yml`** includes reusable CI (`build-and-test*.yml`, 
 
 **No.** Adding only modified `build-and-test.yml` and `bmt-handoff.yml` to core-main will cause the real workflow to fail. `bmt-handoff.yml` and the actions it uses depend on the rest of this repo:
 
-- **Missing local actions** — `bmt-handoff.yml` uses `bmt-prepare-context`, `setup-gcp-uv`, **`setup-uv-repo`** (via `setup-gcp-uv`), `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary` under `.github/actions/`. (`check-image-up-to-date` exists for optional image gates; it is not referenced by the current handoff workflow in this repo.)
+- **Missing local actions** — `bmt-handoff.yml` uses **`bmt/prepare-context`**, **`setup/gcp-uv`**, **`setup/uv-repo`** (via `setup/gcp-uv`), **`bmt/filter-handoff-matrix`**, **`bmt/failure-fallback`**, and **`bmt/write-summary`** under `.github/actions/`. (**`ci/check-image-up-to-date`** exists for optional image gates; it is not referenced by the current handoff workflow in this repo.)
 - **Missing BMT CLI** — Steps run `uv run bmt …` (write-context, filter-upload-matrix, invoke-workflow, etc.). The package lives under `.github/bmt/` (pyproject.toml, ci/, config/); core-main needs it.
-- **Missing `backend`** — The failure-fallback path runs `from backend.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `backend`, so at least `backend/config/` (with `constants.py`) must exist in the repo.
-- **Check image up to date** — Composite action `check-image-up-to-date` takes **`image_build_workflow`** (default **`internal/bmt-image-build.yml`** in this repo). On core-main, pass **`bmt-image-build.yml`** if the image workflow lives at the workflows root. It fails when `infra/packer` or `backend` change but no successful image build run exists for the ref.
+- **Missing `backend`** — The failure-fallback path runs `from backend.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `backend`, so at least `backend/src/backend/config/` (with `constants.py`) must exist in the repo.
+- **Check image up to date** — Composite action **`ci/check-image-up-to-date`** takes **`image_build_workflow`** (default **`internal/bmt-image-build.yml`** in this repo). On core-main, pass **`bmt-image-build.yml`** if the image workflow lives at the workflows root. It fails when `infra/packer` or `backend` change but no successful image build run exists for the ref.
 - **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.CLOUD_RUN_REGION`, and the Workflow / job names exported by Pulumi. These must be set in core-main (or the org).
 - **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `repo_snapshot` → `build_release` ∥ `build_non_release` → `bmt_handoff` (when `if` passes). In **this repo**, `bmt_handoff.if` uses **head ref** allowlisting (`dev`, `ci/check-bmt-gate`, `test/check-bmt-gate*`, other `test/*`) in PR-driven CI. Runner `runner-*` artifact names are listed inside handoff **Plan**, not in a separate CI job. In core-main the same graph applies with real builds.
 
@@ -51,7 +51,7 @@ Mechanical bundle: **`just tools release`** (requires `backend/github/secrets/Ka
 | ---------------------- | ------------- | --------- |
 | `.github/workflows/*.yml` at root (excl. `*-dev.yml`) | `.github/workflows/` | [assemble_release.py](../scripts/assemble_release.py) |
 | `scripts/release_templates/workflows/*.yml` (excl. duplicate `clang-format-auto-fix.yml`) | `.github/workflows/internal/` | assembler |
-| `.github/actions/*` (excl. `check-image-up-to-date`) | `.github/actions/` | assembler |
+| `.github/actions/**` (excl. subtree **`ci/check-image-up-to-date`**) | `.github/actions/` | assembler |
 | `.github/bmt/` (`ci/`, `pyproject.toml`, `uv.lock`, `config/README.md`) | `.github/bmt/` | assembler |
 | `scripts/release_templates/actionlint.yaml` | `.github/actionlint.yaml` | assembler |
 | `backend/**` needed for `backend.*` imports | repo root `backend/` | **Not** in assembler — keep in sync with bmt-gcloud or copy minimal tree separately (see above) |
@@ -62,7 +62,7 @@ Mechanical bundle: **`just tools release`** (requires `backend/github/secrets/Ka
 ## This repo’s workflow layout
 
 - **workflows/** — **Root (release-shaped):** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**. **`internal/`** — dev-only: handoff mock, validate-release-bundle, **`trigger-ci`** (thin), **`trigger-ci-dispatch`**, bmt-image-build, trigger-image-build.
-- **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`, **`setup-uv-repo`** (single pin for `astral-sh/setup-uv` + uv CLI `version:`; `setup-gcp-uv` calls it), **`upload-artifact-repo`** / **`download-artifact-repo`** (SHA pins for `actions/upload-artifact` v7 and `actions/download-artifact` v5), **`cache-repo`** (SHA pin for `actions/cache` v4). **`actions/checkout@…`** is pinned **in each workflow** (not a composite): the runner must materialize the repo with the official checkout action **before** any `uses: ./.github/actions/...` step can load.
+- **actions/** — Local composites are grouped by concern: **`bmt/`** (`prepare-context`, `filter-handoff-matrix`, `write-summary`, `failure-fallback`), **`setup/`** (`gcp-uv`, **`uv-repo`** — single pin for `astral-sh/setup-uv` + uv CLI `version:`; `gcp-uv` calls it — and **`cache-repo`** for `actions/cache` v4), **`artifacts/`** (`upload-repo` / `download-repo` — SHA pins for `actions/upload-artifact` v7 and `actions/download-artifact` v5), **`dev/`** (`checkout-presets`), **`ci/`** (`check-image-up-to-date`). **`actions/checkout@…`** is pinned **in each workflow** (not a composite): the runner must materialize the repo with the official checkout action **before** any `uses: ./.github/actions/...` step can load.
 - **`.github/bmt/`** — BMT CLI (`uv run bmt …`) and config used by workflows ([`README.md`](bmt/README.md))
 
 ## Which workflow runs CI?
@@ -80,7 +80,7 @@ The **`bmt` job** in the same template also requires the same-repo condition bef
 
 ### Caching and PRs
 
-**Gradle** (and similar) caches use **`actions/cache`** via **`cache-repo`**. Cache keys are scoped by lockfiles and `runner.os`; do not store secrets in cached paths. For **fork PRs** on any workflow, treat caches as **untrusted input** where GitHub allows PRs to populate or influence keys ([dependency caching](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows)) — the release **`build` gate** above avoids running the heavy build path for forks on `pull_request_target`.
+**Gradle** (and similar) caches use **`actions/cache`** via **`setup/cache-repo`**. Cache keys are scoped by lockfiles and `runner.os`; do not store secrets in cached paths. For **fork PRs** on any workflow, treat caches as **untrusted input** where GitHub allows PRs to populate or influence keys ([dependency caching](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows)) — the release **`build` gate** above avoids running the heavy build path for forks on `pull_request_target`.
 
 ### Hosted runner image
 
@@ -88,7 +88,7 @@ Linux jobs use **`ubuntu-22.04`** (pinned LTS) for reproducible toolchains (CMak
 
 ### Standard GCP handoff job permissions
 
-Jobs in **`bmt-handoff.yml`** that call **`setup-gcp-uv`** need **`id-token: write`** for WIF plus the least extra scopes those steps use (typically **`contents: read`**, **`actions: read`**, **`pull-requests: read`** where the BMT CLI lists PRs). Keep **`permissions:`** at **job** level; composites cannot replace job-level `permissions`. Copy the block from an existing handoff job when adding a new job that authenticates to GCP the same way.
+Jobs in **`bmt-handoff.yml`** that call **`setup/gcp-uv`** need **`id-token: write`** for WIF plus the least extra scopes those steps use (typically **`contents: read`**, **`actions: read`**, **`pull-requests: read`** where the BMT CLI lists PRs). Keep **`permissions:`** at **job** level; composites cannot replace job-level `permissions`. Copy the block from an existing handoff job when adding a new job that authenticates to GCP the same way.
 
 ## Workflow and job triggers (inventory)
 
@@ -193,25 +193,25 @@ GitHub Actions does not execute files from `.github/jobs/`. Use native `workflow
 
 ## Repo variables vs composite inputs
 
-Repository variables (`vars.*`, synced from Pulumi) are the **source of truth**. Workflows usually map them once on a workflow or job `env:` block (for example `GCP_PROJECT: ${{ vars.GCP_PROJECT }}`). Composite actions cannot rely on `vars` the same way, so actions such as `setup-gcp-uv` take an explicit **`gcp_project`** input — pass **`${{ env.GCP_PROJECT }}`** when the job already defines `env` from `vars`. That is one value threaded through two mechanisms, not two different project IDs.
+Repository variables (`vars.*`, synced from Pulumi) are the **source of truth**. Workflows usually map them once on a workflow or job `env:` block (for example `GCP_PROJECT: ${{ vars.GCP_PROJECT }}`). Composite actions cannot rely on `vars` the same way, so actions such as **`setup/gcp-uv`** take an explicit **`gcp_project`** input — pass **`${{ env.GCP_PROJECT }}`** when the job already defines `env` from `vars`. That is one value threaded through two mechanisms, not two different project IDs.
 
-## Why `actions/setup-gcp-uv` and `actions/setup-uv-repo` exist
+## Why `actions/setup/gcp-uv` and `actions/setup/uv-repo` exist
 
-**`setup-uv-repo`** is the **only** place that pins **`astral-sh/setup-uv@…`** and the **uv CLI** `version:` string. Workflows and composites that need `uv` without GCP (e.g. **`validate-release-bundle.yml`**, **`bmt-prepare-context`**) call **`setup-uv-repo`** directly. Bump the action SHA / CLI version there only.
+**`setup/uv-repo`** is the **only** place that pins **`astral-sh/setup-uv@…`** and the **uv CLI** `version:` string. Workflows and composites that need `uv` without GCP (e.g. **`validate-release-bundle.yml`**, **`bmt/prepare-context`**) call **`setup/uv-repo`** directly. Bump the action SHA / CLI version there only.
 
-**`build-and-test.yml`** runs **`actions/checkout@…`** (pinned SHA) then later **`setup-uv-repo`** for the BMT packaging phase.
+**`build-and-test.yml`** runs **`actions/checkout@…`** (pinned SHA) then later **`setup/uv-repo`** for the BMT packaging phase.
 
-**`setup-gcp-uv`** chains WIF + gcloud, then **`setup-uv-repo`** when **`install_uv`** is true:
+**`setup/gcp-uv`** chains WIF + gcloud, then **`setup/uv-repo`** when **`install_uv`** is true:
 
 1. `google-github-actions/auth` (Workload Identity Federation) with **`project_id`**
 2. `google-github-actions/setup-gcloud` with the same **`project_id`** and a default **`gcloud_version`** constraint for WIF
-3. **`setup-uv-repo`** (cached **`uv sync`**)
+3. **`setup/uv-repo`** (cached **`uv sync`**)
 
 Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `permissions` stay in each workflow job.
 
 **`actions/checkout@…`** cannot be wrapped as the **first** step by a **local** composite: GitHub needs the official action to populate `$GITHUB_WORKSPACE` before **`uses: ./.github/actions/...`** resolves. Keep the same **full commit SHA** in every workflow that checks out (search the tree when bumping).
 
-**Still duplicated by design (GitHub limitations):** `ubuntu-22.04`, the checkout SHA lines above, and repeated **`workload_identity_provider` / `service_account` / `gcp_project`** `with:` blocks on each **`setup-gcp-uv`** step — workflows cannot import shared YAML fragments.
+**Still duplicated by design (GitHub limitations):** `ubuntu-22.04`, the checkout SHA lines above, and repeated **`workload_identity_provider` / `service_account` / `gcp_project`** `with:` blocks on each **`setup/gcp-uv`** step — workflows cannot import shared YAML fragments.
 
 ## GitHub Actions and Pulumi
 

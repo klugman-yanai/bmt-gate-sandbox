@@ -59,7 +59,7 @@ def test_local() -> None:
         raise typer.Exit(rc2)
     typer.echo(
         "OK — before `just publish`, run `just tools bmt verify <project> <bmt_folder>` "
-        "and read docs/local-bmt-testing.md."
+        "and follow CONTRIBUTING.md before publishing; docs/contributors.md for SDK/manifest."
     )
     raise typer.Exit(0)
 

@@ -20,26 +20,25 @@ RUN apt-get update && \
 
 WORKDIR /workspace
 
-RUN mkdir -p /opt/kardome/backend/runtime && \
-    touch /opt/kardome/backend/__init__.py /opt/kardome/backend/runtime/__init__.py
-ENV PYTHONPATH=/opt/kardome
+RUN mkdir -p /opt/kardome/backend/src/backend/runtime && \
+    touch /opt/kardome/backend/src/backend/__init__.py /opt/kardome/backend/src/backend/runtime/__init__.py
+ENV PYTHONPATH=/opt/kardome/backend/src
 
-# Runner + libraries
-COPY benchmarks/projects/sk/kardome_runner /opt/kardome/kardome_runner
+# Project runner + Kardome .so, then shared native deps (one copy for all projects).
 COPY benchmarks/projects/sk/lib /opt/kardome/lib
-COPY benchmarks/projects/shared/dependencies /opt/kardome/dependencies
+COPY benchmarks/projects/shared/dependencies /opt/kardome/deps
 
 # Shared template + sandbox runner harness
-COPY backend/runtime/assets/kardome_input_template.json /opt/kardome/input_template.json
-COPY backend/runtime/stdout_counter_parse.py /opt/kardome/backend/runtime/stdout_counter_parse.py
+COPY backend/src/backend/runtime/assets/runner_input.template.json /opt/kardome/runner_input.template.json
+COPY backend/src/backend/runtime/stdout_counter_parse.py /opt/kardome/backend/src/backend/runtime/stdout_counter_parse.py
 COPY tools/scripts/kardome_sandbox_runner.py /opt/kardome/kardome_sandbox_runner.py
 
 # Test audio corpus
 COPY audio/sk /workspace/audio/sk
 
-RUN chmod +x /opt/kardome/kardome_runner
+RUN chmod +x /opt/kardome/lib/kardome_runner
 
-ENV LD_LIBRARY_PATH="/opt/kardome/lib:/opt/kardome/dependencies"
+ENV LD_LIBRARY_PATH="/opt/kardome/lib:/opt/kardome/deps"
 
 ENTRYPOINT ["python3.12", "/opt/kardome/kardome_sandbox_runner.py"]
-CMD ["--runner", "/opt/kardome/kardome_runner", "--template", "/opt/kardome/input_template.json", "--wav-root", "/workspace/audio/sk", "--out-root", "/workspace/out", "--summary-json", "/workspace/out/summary.json", "--summary-csv", "/workspace/out/summary.csv"]
+CMD ["--runner", "/opt/kardome/lib/kardome_runner", "--deps-dir", "/opt/kardome/deps", "--template", "/opt/kardome/runner_input.template.json", "--wav-root", "/workspace/audio/sk", "--out-root", "/workspace/out", "--summary-json", "/workspace/out/summary.json", "--summary-csv", "/workspace/out/summary.csv"]

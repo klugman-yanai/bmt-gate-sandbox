@@ -60,7 +60,7 @@ jobs:
           submodules: false
           lfs: false
       - id: snap
-        uses: ./.github/actions/dev-checkout-presets
+        uses: ./.github/actions/dev/checkout-presets
 
   # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
   # bmt-gcloud: no real build; placeholder so job graph matches core-main.

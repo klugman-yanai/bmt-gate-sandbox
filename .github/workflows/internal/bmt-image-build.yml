@@ -77,7 +77,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./.github/actions/setup/gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
@@ -153,7 +153,7 @@ jobs:
           echo "::notice::Image provenance signed (Sigstore/Rekor) and uploaded"
 
       - name: Upload provenance artifact
-        uses: ./.github/actions/upload-artifact-repo
+        uses: ./.github/actions/artifacts/upload-repo
         with:
           name: slsa-provenance-${{ steps.packer.outputs.image_name }}
           path: |

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.config.value_types import as_results_path
 from backend.runtime.entrypoint import _leg_summary_from_execute_failure
 from backend.runtime.models import PlanLeg
+
 from tests.support.sentinels import SYNTH_PROJECT
 
 pytestmark = pytest.mark.unit

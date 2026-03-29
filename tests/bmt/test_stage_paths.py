@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from backend.runtime.stage_paths import (
     iter_bmt_manifest_paths,
     iter_bmt_manifest_paths_for_project,
@@ -42,6 +41,15 @@ def test_resolve_workspace_v1_fallback(tmp_path: Path) -> None:
     pr = stage / "projects" / "p"
     (pr / "plugin_workspaces" / "def").mkdir(parents=True)
     assert resolve_plugin_workspace_dir(stage, "p", "def") == pr / "plugin_workspaces" / "def"
+
+
+def test_resolve_workspace_flat_project_root(tmp_path: Path) -> None:
+    """``projects/<id>/plugin.json`` at project root → workspace dir is the project directory."""
+    stage = tmp_path
+    pr = stage / "projects" / "sk"
+    pr.mkdir(parents=True)
+    (pr / "plugin.json").write_text("{}", encoding="utf-8")
+    assert resolve_plugin_workspace_dir(stage, "sk", "main") == pr
 
 
 def test_resolve_published_v2_over_v1(tmp_path: Path) -> None:

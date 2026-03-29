@@ -16,9 +16,9 @@ pytestmark = pytest.mark.integration
 def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_path: Path, monkeypatch) -> None:
     sp = StagePaths(tmp_path / "benchmarks")
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
-    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
+    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="main")
 
-    plugin_file = sp.plugin_workspace(SYNTH_PROJECT, "default") / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
+    plugin_file = sp.project(SYNTH_PROJECT) / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
     plugin_file.write_text(
         plugin_file.read_text(encoding="utf-8") + "\nPLUGIN_SENTINEL = 'published'\n",
         encoding="utf-8",
@@ -37,7 +37,7 @@ def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_pat
 
     result = publish_bmt(stage_root=sp.root, project=SYNTH_PROJECT, bmt_slug=SYNTH_BMT_SLUG)
 
-    assert result.plugin_ref.startswith("published:default:sha256-")
+    assert result.plugin_ref.startswith("published:main:sha256-")
     assert result.published_dir.is_dir()
     published_manifest = json.loads((result.published_dir / "plugin.json").read_text(encoding="utf-8"))
     assert published_manifest["entrypoint"] == f"{SYNTH_PROJECT}_plugin:{SYNTH_PROJECT.title()}Plugin"
@@ -50,7 +50,7 @@ def test_publish_bmt_creates_immutable_bundle_updates_manifest_and_syncs(tmp_pat
 def test_publish_bmt_can_skip_sync(tmp_path: Path, monkeypatch) -> None:
     sp = StagePaths(tmp_path / "benchmarks")
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
-    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
+    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="main")
 
     called = False
 
@@ -69,9 +69,9 @@ def test_publish_bmt_can_skip_sync(tmp_path: Path, monkeypatch) -> None:
 def test_publish_bmt_fails_before_sync_when_workspace_plugin_is_invalid(tmp_path: Path, monkeypatch) -> None:
     sp = StagePaths(tmp_path / "benchmarks")
     add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
-    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
+    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="main")
 
-    plugin_file = sp.plugin_workspace(SYNTH_PROJECT, "default") / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
+    plugin_file = sp.project(SYNTH_PROJECT) / "src" / f"{SYNTH_PROJECT}_plugin" / "plugin.py"
     plugin_file.write_text("not valid python(", encoding="utf-8")
 
     called = False
@@ -87,5 +87,5 @@ def test_publish_bmt_fails_before_sync_when_workspace_plugin_is_invalid(tmp_path
         publish_bmt(stage_root=sp.root, project=SYNTH_PROJECT, bmt_slug=SYNTH_BMT_SLUG)
 
     manifest = json.loads(sp.bmt_manifest(SYNTH_PROJECT, SYNTH_BMT_SLUG).read_text(encoding="utf-8"))
-    assert manifest["plugin_ref"] == "workspace:default"
+    assert manifest["plugin_ref"] == "workspace:main"
     assert called is False

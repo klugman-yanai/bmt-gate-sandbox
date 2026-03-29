@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.runtime.models import BmtManifest
 from backend.runtime.sdk.manifest_build import build_default_bmt_manifest
 
@@ -11,7 +10,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_build_default_round_trips_json() -> None:
-    m = build_default_bmt_manifest("myproject", "mybench", plugin_ref="workspace:default")
+    m = build_default_bmt_manifest("myproject", "mybench", plugin_ref="workspace:main")
     raw = m.model_dump_json(by_alias=True)
     again = BmtManifest.model_validate_json(raw)
     assert again.project == "myproject"

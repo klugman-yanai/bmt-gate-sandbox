@@ -48,9 +48,9 @@ class GcpLayoutPolicy:
                 if not line:
                     continue
                 if line.startswith("backend/"):
-                    tracked_under_backend.add(line[len("backend/"):])
+                    tracked_under_backend.add(line[len("backend/") :])
                 elif line.startswith("benchmarks/"):
-                    tracked_under_benchmarks.add(line[len("benchmarks/"):])
+                    tracked_under_benchmarks.add(line[len("benchmarks/") :])
 
         for rel in SHARED_REQUIRED:
             p = code_root / rel

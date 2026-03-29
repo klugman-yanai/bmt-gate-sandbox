@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from backend.github.github_auth import DEV_PROFILE, PRIMARY_PROFILE
+
 from tools.shared.github_app_settings import (
     DEV_APP_ID_KEYS,
     PRIMARY_APP_ID_KEYS,

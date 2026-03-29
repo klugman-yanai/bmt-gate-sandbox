@@ -7,10 +7,9 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from backend.runtime.sdk.plugin import BmtPlugin
 
-_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/plugin_workspaces/default/src")
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/src")
 
 pytestmark = pytest.mark.unit
 

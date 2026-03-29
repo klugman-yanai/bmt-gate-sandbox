@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from backend.runtime.models import BmtManifest
+
 from tools.bmt.manifest_serde import read_bmt_manifest, write_bmt_manifest_json
 
 pytestmark = pytest.mark.unit
@@ -22,7 +22,7 @@ def test_write_read_round_trip_preserves_results_prefix_alias(tmp_path: Path) ->
           "bmt_slug": "s",
           "bmt_id": "00000000-0000-5000-8000-000000000001",
           "enabled": false,
-          "plugin_ref": "workspace:default",
+          "plugin_ref": "workspace:main",
           "inputs_prefix": "projects/p/inputs/s",
           "results_prefix": "projects/p/results/s",
           "outputs_prefix": "projects/p/outputs/s"
@@ -34,4 +34,4 @@ def test_write_read_round_trip_preserves_results_prefix_alias(tmp_path: Path) ->
     assert "results_prefix" in text
     m2 = read_bmt_manifest(path)
     assert m2.results_path == "projects/p/results/s"
-    assert m2.plugin_ref == "workspace:default"
+    assert m2.plugin_ref == "workspace:main"

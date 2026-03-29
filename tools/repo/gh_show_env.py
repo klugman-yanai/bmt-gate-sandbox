@@ -7,12 +7,6 @@ import json
 import subprocess
 from dataclasses import dataclass
 
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich.tree import Tree
-
 from backend.config.constants import (
     ENV_BMT_CONTROL_JOB,
     ENV_BMT_STATUS_CONTEXT,
@@ -24,6 +18,12 @@ from backend.config.constants import (
     ENV_GCP_WIF_PROVIDER,
     ENV_GCS_BUCKET,
 )
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.tree import Tree
+
 from tools.shared.cli_availability import command_available
 from tools.shared.env_contract import (
     default_contract_path,

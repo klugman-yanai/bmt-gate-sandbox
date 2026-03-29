@@ -9,14 +9,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from github import Auth, Github, GithubException
-
 from backend.github.github_auth import (
     DEV_PROFILE,
     HAS_JWT,
     PRIMARY_PROFILE,
     github_app_profile_for_repository,
 )
+from github import Auth, Github, GithubException
+
 from tools.shared.cli_availability import command_available
 from tools.shared.contributor_docs import missing_dev_dependency_message
 from tools.shared.github_app_settings import app_id_for_profile, private_key_path_for_profile

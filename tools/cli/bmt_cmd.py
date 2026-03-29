@@ -65,8 +65,8 @@ def stage_manifest_template(
     ],
     plugin_ref: Annotated[
         str,
-        typer.Option("--plugin-ref", help="Value for the plugin_ref field (default workspace:default)."),
-    ] = "workspace:default",
+        typer.Option("--plugin-ref", help="Value for the plugin_ref field (default workspace:main)."),
+    ] = "workspace:main",
     stdout: Annotated[
         bool,
         typer.Option("--stdout", help="Print JSON to stdout instead of writing a file."),
@@ -80,8 +80,9 @@ def stage_manifest_template(
         typer.Option("--dry-run", help="Print target path only; do not write."),
     ] = False,
 ) -> None:
-    """Emit a default bmt.json from the shared Pydantic factory (opt-in; see docs/bmt-python-contributor-protocol.md §3)."""
+    """Emit a default bmt.json from the shared Pydantic factory (opt-in; see docs/contributors.md § Python plugin protocol)."""
     from backend.runtime.sdk.manifest_build import build_default_bmt_manifest
+
     from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
 
     manifest = build_default_bmt_manifest(project, benchmark, plugin_ref=plugin_ref)

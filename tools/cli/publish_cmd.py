@@ -87,7 +87,7 @@ def register_publish_command(target: typer.Typer) -> None:
     ) -> None:
         """Build the plugin bundle, set enabled (unless --no-enable), and sync to GCS (unless --no-sync).
 
-        Run ``just test-local`` and read docs/local-bmt-testing.md before publishing.
+        Run ``just test-local`` and follow CONTRIBUTING.md (verify / publish) before publishing; see docs/contributors.md for manifest/SDK detail.
         """
         from tools.bmt.publisher import publish_bmt as publish_bmt_impl
 

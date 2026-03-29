@@ -47,7 +47,7 @@ jobs:
           submodules: false
           lfs: false
       - id: snap
-        uses: ./.github/actions/dev-checkout-presets
+        uses: ./.github/actions/dev/checkout-presets
 
   build_release:
     name: Build (release)

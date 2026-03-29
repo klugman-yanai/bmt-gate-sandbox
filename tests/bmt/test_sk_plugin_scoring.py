@@ -7,13 +7,19 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-
 from backend.config.bmt_domain_status import BmtLegStatus
-from backend.runtime.sdk.results import CaseResult, ExecutionResult, ScoreResult
+from backend.runtime.sdk.results import (
+    CaseMetrics,
+    CaseResult,
+    CaseStatus,
+    ExecutionMode,
+    ExecutionResult,
+    ScoreResult,
+)
 
 pytestmark = pytest.mark.unit
 
-_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/plugin_workspaces/default/src")
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/src")
 
 
 def _make_plugin():
@@ -36,14 +42,17 @@ def _case(
         case_id=case_id,
         input_path=Path(f"/data/{case_id}"),
         exit_code=0 if status == "ok" else 127,
-        status=status,
-        metrics={"namuh_count": namuh},
-        error=error,
+        status=CaseStatus(status),
+        metrics=CaseMetrics(root={"namuh_count": namuh}),
+        runner_case_diagnostic=error,
     )
 
 
 def _exec_result(*cases: CaseResult) -> ExecutionResult:
-    return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=list(cases))
+    return ExecutionResult(
+        execution_mode_used=ExecutionMode.KARDOME_LEGACY_STDOUT,
+        case_results=list(cases),
+    )
 
 
 def _make_context(*, comparison: str = "lte", tolerance: float = 0.25, **plugin_config: object):
@@ -122,15 +131,15 @@ class TestEvaluateFailsOnCaseErrors:
     def test_execute_exception_maps_to_plugin_execute_failed(self) -> None:
         plugin = _make_plugin()
         er = ExecutionResult(
-            execution_mode_used="unknown",
+            execution_mode_used=ExecutionMode.UNKNOWN,
             case_results=[
                 CaseResult(
                     case_id="_execute_",
                     input_path=Path("/data"),
                     exit_code=-1,
-                    status="failed",
-                    metrics={},
-                    error="RuntimeError:boom",
+                    status=CaseStatus.FAILED,
+                    metrics=CaseMetrics(root={}),
+                    runner_case_diagnostic="RuntimeError:boom",
                 )
             ],
             raw_summary={"sk_plugin_execute_exception": True},

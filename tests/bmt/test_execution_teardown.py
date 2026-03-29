@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.runtime.sdk.plugin import BmtPlugin
 from backend.runtime.sdk.results import PreparedAssets
+
 from tests.support.fixtures.bmt_sdk import minimal_execution_context
 
 pytestmark = pytest.mark.unit

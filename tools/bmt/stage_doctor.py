@@ -7,6 +7,7 @@ from pathlib import Path
 from backend.runtime.models import BmtManifest, PluginManifest, ProjectManifest
 from backend.runtime.plugin_loader import PluginLoadError, load_plugin
 from backend.runtime.plugin_publisher import plugin_digest
+from backend.runtime.sdk.stage_layout import resolve_posix_under_stage
 from backend.runtime.stage_paths import (
     BENCHMARKS_V1,
     BENCHMARKS_V2,
@@ -18,7 +19,7 @@ from backend.runtime.stage_paths import (
 
 def _prefix_path(stage_root: Path, posix_prefix: str) -> Path:
     """Turn a stage-root-relative posix prefix (e.g. ``projects/sk/inputs/x``) into a path."""
-    return stage_root.joinpath(*posix_prefix.split("/"))
+    return resolve_posix_under_stage(stage_root, posix_prefix)
 
 
 def doctor_stage_project(*, stage_root: Path, project: str) -> tuple[int, list[str]]:
@@ -67,6 +68,13 @@ def doctor_stage_project(*, stage_root: Path, project: str) -> tuple[int, list[s
         if not runner_path.exists():
             lines.append(f"ERROR: {manifest_path}: runner.uri missing: {runner_path}")
             errors += 1
+
+        deps_prefix = manifest.runner.deps_prefix.strip()
+        if deps_prefix:
+            deps_dir = _prefix_path(stage_root, deps_prefix)
+            if not deps_dir.is_dir():
+                lines.append(f"ERROR: {manifest_path}: deps_prefix not a directory: {deps_dir}")
+                errors += 1
 
         if manifest.plugin_ref.startswith("published:"):
             parts = manifest.plugin_ref.split(":", 2)

@@ -19,15 +19,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
-from whenever import Instant
-
 from backend.runtime.stdout_counter_parse import (
     DEFAULT_KARDOME_COUNTER_KEYWORD,
     StdoutCounterParseConfig,
     compile_counter_pattern,
     read_counter_from_log,
 )
+from pydantic import ValidationError
+from whenever import Instant
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +187,7 @@ def run_all(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sandbox kardome runner over audio/sk WAV files.")
     parser.add_argument("--runner", type=Path, required=True, help="Path to kardome_runner binary.")
-    parser.add_argument("--template", type=Path, required=True, help="Path to input_template.json.")
+    parser.add_argument("--template", type=Path, required=True, help="Path to runner_input.template.json.")
     parser.add_argument("--wav-root", type=Path, required=True, help="Root folder to scan for *.wav.")
     parser.add_argument(
         "--out-root",

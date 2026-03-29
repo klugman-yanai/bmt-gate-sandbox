@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from backend.runtime.stdout_counter_parse import (
     StdoutCounterParseConfig,
     compile_counter_pattern,

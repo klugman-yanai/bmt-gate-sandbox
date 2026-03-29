@@ -38,6 +38,7 @@ def test_manifest_under_inputs_is_not_data():
 def test_non_inputs_path_is_not_data():
     assert is_inputs_data_path("projects/sk/kardome_runner") is False
     assert is_inputs_data_path("projects/sk/lib/libKardome.so") is False
+    assert is_inputs_data_path("projects/shared/dependencies/libonnxruntime.so") is False
     assert is_inputs_data_path("config/bmt_projects.json") is False
 
 

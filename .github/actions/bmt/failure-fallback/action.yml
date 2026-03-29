@@ -1,0 +1,202 @@
+name: BMT Failure Fallback
+description: "On BMT failure: resolve context, write summary, cleanup, post status."
+
+inputs:
+  handshake_outputs:
+    description: "JSON from toJson(steps.invoke-workflow.outputs); classify-shaped keys default if invoke was skipped or failed early."
+    required: true
+  setup_outputs:
+    description: "JSON from toJson(needs.plan.outputs) (prepare / matrix / filter)."
+    required: true
+  prepare_result:
+    description: "needs.plan.result"
+    required: true
+  classify_result:
+    description: "needs.handshake.outputs.classify_result"
+    required: true
+  handoff_result:
+    description: "handoff result (success if classify skipped)"
+    required: true
+  dispatch_head_sha:
+    description: "inputs.head_sha or github.event.inputs.head_sha"
+    required: false
+    default: ""
+  dispatch_pr_number:
+    description: "inputs.pr_number or github.event.inputs.pr_number"
+    required: false
+    default: ""
+  fallback_ref:
+    description: "github.sha for fallback"
+    required: false
+    default: ""
+  workload_identity_provider:
+    description: GCP Workload Identity Federation provider
+    required: true
+  service_account:
+    description: GCP service account email for WIF
+    required: true
+  gcp_project:
+    description: Same as setup-gcp-uv gcp_project input (typically env.GCP_PROJECT).
+    required: true
+  bmt_status_context:
+    description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
+    required: false
+    default: "BMT Gate"
+  accepted_projects:
+    description: JSON array of cloud job subtask project names from classify (e.g. ["sk"])
+    required: false
+    default: "[]"
+  classify_step_outputs:
+    description: JSON from toJson(steps.classify.outputs); merged over invoke-shaped defaults for accurate failure_ctx.
+    required: false
+    default: "{}"
+
+runs:
+  using: composite
+  steps:
+    - name: Build failure context
+      id: ctx
+      shell: bash
+      env:
+        HANDSHAKE_OUTPUTS: ${{ inputs.handshake_outputs }}
+        SETUP_OUTPUTS: ${{ inputs.setup_outputs }}
+        PREPARE_RESULT: ${{ inputs.prepare_result }}
+        CLASSIFY_RESULT: ${{ inputs.classify_result }}
+        HANDOFF_RESULT: ${{ inputs.handoff_result }}
+        DISPATCH_HEAD_SHA: ${{ inputs.dispatch_head_sha }}
+        DISPATCH_PR_NUMBER: ${{ inputs.dispatch_pr_number }}
+        FALLBACK_REF: ${{ inputs.fallback_ref }}
+        CLASSIFY_STEP_OUTPUTS: ${{ inputs.classify_step_outputs }}
+      run: |
+        set -euo pipefail
+        classify_from_invoke=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{path: (.classify_path // "unknown"), has_legs: (.has_legs // "false"), accepted_projects: (.accepted_projects // "[]"), filtered_matrix: (.filtered_matrix // "{\"include\":[]}")}')
+        if ! classify_steps=$(echo "${CLASSIFY_STEP_OUTPUTS:-{}}" | jq -c . 2>/dev/null); then
+          classify_steps="{}"
+        fi
+        classify_outputs=$(jq -n \
+          --argjson invoke "$classify_from_invoke" \
+          --argjson steps "$classify_steps" \
+          '{
+            path: ($steps.path // $invoke.path // "unknown"),
+            has_legs: ($steps.has_legs // $invoke.has_legs // "false"),
+            accepted_projects: ($steps.accepted_projects // $invoke.accepted_projects // "[]"),
+            filtered_matrix: ($steps.filtered_matrix // $invoke.filtered_matrix // "{\"include\":[]}")
+          }')
+        handoff_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{handshake_ok: (.handshake_ok // "false"), handoff_reason: (.handoff_reason // "")}')
+        jq -nc \
+          --arg prepare_result "$PREPARE_RESULT" \
+          --argjson prepare_outputs "$SETUP_OUTPUTS" \
+          --arg classify_result "$CLASSIFY_RESULT" \
+          --argjson classify_outputs "$classify_outputs" \
+          --arg handoff_result "$HANDOFF_RESULT" \
+          --argjson handoff_outputs "$handoff_outputs" \
+          --arg dispatch_head_sha "$DISPATCH_HEAD_SHA" \
+          --arg dispatch_pr_number "$DISPATCH_PR_NUMBER" \
+          --arg fallback_ref "$FALLBACK_REF" \
+          '{prepare_result:$prepare_result, prepare_outputs:$prepare_outputs, classify_result:$classify_result, classify_outputs:$classify_outputs, handoff_result:$handoff_result, handoff_outputs:$handoff_outputs, dispatch_head_sha:$dispatch_head_sha, dispatch_pr_number:$dispatch_pr_number, fallback_ref:$fallback_ref}' \
+          > failure_ctx.json
+        echo "failure_context<<EOF" >> "$GITHUB_OUTPUT"
+        cat failure_ctx.json >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+
+    - name: Extract job outputs from failure context
+      id: x
+      shell: bash
+      run: |
+        ctx=$(cat failure_ctx.json)
+        prepare=$(echo "$ctx" | jq -c '.prepare_outputs // {}')
+        classify=$(echo "$ctx" | jq -c '.classify_outputs // {}')
+        handoff=$(echo "$ctx" | jq -c '.handoff_outputs // {}')
+        {
+          echo "prepare_result=$(echo "$ctx" | jq -r '.prepare_result // "success"')"
+          echo "classify_result=$(echo "$ctx" | jq -r '.classify_result // "success"')"
+          echo "handoff_result=$(echo "$ctx" | jq -r '.handoff_result // "success"')"
+          echo "dispatch_head_sha=$(echo "$ctx" | jq -r '.dispatch_head_sha // ""')"
+          echo "dispatch_pr_number=$(echo "$ctx" | jq -r '.dispatch_pr_number // ""')"
+          echo "fallback_ref=$(echo "$ctx" | jq -r '.fallback_ref // ""')"
+          echo "head_sha=$(echo "$prepare"    | jq -r '.head_sha       // ""')"
+          echo "head_branch=$(echo "$prepare" | jq -r '.head_branch    // ""')"
+          echo "head_event=$(echo "$prepare"  | jq -r '.head_event     // ""')"
+          echo "pr_number=$(echo "$prepare"   | jq -r '.pr_number      // ""')"
+          echo "selected_vm=$(echo "$prepare" | jq -r '.selected_vm    // ""')"
+          echo "runner_matrix=$(echo "$prepare" | jq -c '.runner_matrix // {"include":[]}')"
+          echo "classify_path=$(echo "$classify"             | jq -r '.path              // "unknown"')"
+          echo "classify_has_legs=$(echo "$classify"         | jq -r '.has_legs          // "false"')"
+          echo "classify_accepted_projects=$(echo "$classify"| jq -c '.accepted_projects // []')"
+          echo "classify_filtered_matrix=$(echo "$classify"  | jq -c '.filtered_matrix   // {"include":[]}')"
+          echo "handshake_ok=$(echo "$handoff"     | jq -r '.handshake_ok    // "false"')"
+          echo "handoff_reason=$(echo "$handoff"   | jq -r '.handoff_reason  // ""')"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Resolve fallback context
+      id: failctx
+      shell: bash
+      env:
+        PREPARE_RESULT: ${{ steps.x.outputs.prepare_result }}
+        PREPARE_HEAD_SHA: ${{ steps.x.outputs.head_sha }}
+        PREPARE_PR_NUMBER: ${{ steps.x.outputs.pr_number }}
+        ORCH_HAS_LEGS: ${{ steps.x.outputs.classify_has_legs }}
+        ORCH_HANDSHAKE_OK: ${{ steps.x.outputs.handshake_ok }}
+        DISPATCH_HEAD_SHA: ${{ steps.x.outputs.dispatch_head_sha }}
+        DISPATCH_PR_NUMBER: ${{ steps.x.outputs.dispatch_pr_number }}
+      run: uv run bmt handoff write-context && uv run bmt handoff resolve-failure-context
+
+    - name: Classify failure reason
+      id: reason
+      shell: bash
+      run: |
+        reason="Handoff failed for an unknown reason."
+        if [[ "${{ steps.x.outputs.prepare_result }}" != "success" ]]; then
+          reason="Preparation failed before handoff context was established."
+        elif [[ "${{ steps.x.outputs.classify_result }}" == "failure" ]]; then
+          reason="No supported test runs to hand off."
+        elif [[ "${{ steps.x.outputs.handoff_result }}" == "failure" ]]; then
+          if [[ "${{ steps.x.outputs.handoff_reason }}" == "no_runtime_supported_legs" ]]; then
+            reason="Trigger was written but runtime accepted zero supported test runs."
+          else
+            reason="Trigger handoff failed before runtime pickup was confirmed."
+          fi
+        fi
+        echo "reason=${reason}" >>"$GITHUB_OUTPUT"
+
+    - name: Set BMT failure status
+      if: always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CONTEXT: ${{ inputs.bmt_status_context }}
+        SHA: ${{ steps.failctx.outputs.head_sha }}
+        REASON: ${{ steps.reason.outputs.reason }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        if [[ -z "${SHA}" ]]; then
+          echo "::warning::No head SHA resolved for failure status; skipping."
+          exit 0
+        fi
+        echo "::notice::Setting BMT failure status for ${SHA:0:7} context '${CONTEXT}'"
+        gh api \
+          --method POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "/repos/${{ github.repository }}/statuses/${SHA}" \
+          -f "state=failure" \
+          -f "target_url=${RUN_URL}" \
+          -f "description=${REASON}" \
+          -f "context=${CONTEXT}"
+
+    - name: Write handoff summary (failure)
+      if: always()
+      uses: ./.github/actions/bmt/write-summary
+      with:
+        mode: failure
+        repository: ${{ github.repository }}
+        head_sha: ${{ steps.failctx.outputs.head_sha }}
+        head_branch: ${{ steps.x.outputs.head_branch }}
+        pr_number: ${{ steps.failctx.outputs.pr_number }}
+        filtered_matrix: ${{ steps.x.outputs.classify_filtered_matrix }}
+        accepted_projects: ${{ inputs.accepted_projects }}
+        handshake_ok: ${{ steps.x.outputs.handshake_ok }}
+        failure_reason: ${{ steps.reason.outputs.reason }}
+        gcp_project: ${{ inputs.gcp_project }}
+        gcs_bucket: ${{ env.GCS_BUCKET }}
+

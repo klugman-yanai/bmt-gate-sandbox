@@ -7,13 +7,12 @@ not a literal-backslash pattern (\\\\d+) as was present before the fix.
 import re
 
 import pytest
-from pydantic import ValidationError
-
 from backend.runtime.stdout_counter_parse import (
     StdoutCounterParseConfig,
     compile_counter_pattern,
     counter_pattern_from_parsing_dict,
 )
+from pydantic import ValidationError
 
 pytestmark = pytest.mark.unit
 

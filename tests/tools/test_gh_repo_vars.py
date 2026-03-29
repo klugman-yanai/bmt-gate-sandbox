@@ -6,8 +6,8 @@ import json
 import subprocess
 
 import pytest
-
 from backend.config.constants import STATUS_CONTEXT
+
 from tools.repo import gh_repo_vars as repo_vars
 from tools.shared.env_contract import default_contract_path
 

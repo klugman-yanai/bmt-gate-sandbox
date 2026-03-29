@@ -1,5 +1,7 @@
 # Packer (BMT runtime image)
 
+Infra context: [docs/infrastructure.md](../../docs/infrastructure.md).
+
 CI: [bmt-image-build.yml](../../.github/workflows/internal/bmt-image-build.yml). Local: copy [example.pkrvars.hcl](example.pkrvars.hcl) → `local.pkrvars.hcl`, set `gcp_project`, `gcp_zone`, `gcs_bucket`, then:
 
 ```bash

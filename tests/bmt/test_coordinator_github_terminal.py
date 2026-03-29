@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-
 from backend.config.constants import (
     ENV_BMT_FINALIZE_HEAD_SHA,
     ENV_BMT_FINALIZE_REPOSITORY,

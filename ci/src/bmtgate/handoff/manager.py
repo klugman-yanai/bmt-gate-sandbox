@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import os
 
+from bmtgate import settings as config
 from bmtgate.clients import github
 from bmtgate.clients.actions import gh_notice, gh_warning, write_github_output
-from bmtgate import settings as config
-from bmtgate.settings import BmtConfig, BmtContext
 from bmtgate.handoff import dataset as handoff_dataset
 from bmtgate.handoff.env import HandoffEnv, resolve_repository_and_sha
 from bmtgate.handoff.summary import write_handoff_step_summary
+from bmtgate.settings import BmtConfig, BmtContext
 
 
 class HandoffManager:

@@ -38,6 +38,17 @@ bmt_root_results.json
 # Local BMT runtime artifacts
 local_batch/
 
+# Bucket mirror only: immutable published plugin bundles (never commit; sync from GCS after publish).
+benchmarks/**/plugins/**/sha256-*/
+benchmarks/**/plugins/**/releases/sha256-*/
+
+# Publish / template cache under staged projects (bucket or local sync).
+benchmarks/**/cache/
+
+# Runner upload dedup metadata mirrored from the bucket.
+benchmarks/**/runner_latest_meta.json
+benchmarks/**/runner_meta.json
+
 # WAV datasets — large runtime assets, not tracked in git.
 # Upload to GCS with: just upload-wav <project> <zip-or-folder>
 # Pass --local to also mirror locally: just upload-wav <project> <source> --local
@@ -60,6 +71,9 @@ compile_commands.json
 .vscode/
 .idea/
 .cursor/plans/
+
+# Local planning notes (not versioned; Cursor: see .cursorignore)
+docs/plans/
 *.swp
 *~
 

@@ -53,7 +53,7 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
 
     # PR trigger: full pipeline with handoff permissions (inline build matrices + shared checkout action)
     trigger_ci_pr = (repo_root() / ".github" / "workflows" / "trigger-ci-pr.yml").read_text(encoding="utf-8")
-    assert "uses: ./.github/actions/dev-checkout-presets" in trigger_ci_pr
+    assert "uses: ./.github/actions/dev/checkout-presets" in trigger_ci_pr
     assert "uses: ./.github/workflows/bmt-handoff.yml" in trigger_ci_pr
     assert "  id-token: write" in trigger_ci_pr
     assert "  statuses: write" in trigger_ci_pr
@@ -96,14 +96,18 @@ def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
     image_build = (repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml").read_text(
         encoding="utf-8"
     )
-    setup_uv_repo = (repo_root() / ".github" / "actions" / "setup-uv-repo" / "action.yml").read_text(encoding="utf-8")
-    upload_artifact_repo = (repo_root() / ".github" / "actions" / "upload-artifact-repo" / "action.yml").read_text(
+    setup_uv_repo = (repo_root() / ".github" / "actions" / "setup" / "uv-repo" / "action.yml").read_text(
         encoding="utf-8"
     )
-    download_artifact_repo = (repo_root() / ".github" / "actions" / "download-artifact-repo" / "action.yml").read_text(
+    upload_artifact_repo = (repo_root() / ".github" / "actions" / "artifacts" / "upload-repo" / "action.yml").read_text(
         encoding="utf-8"
     )
-    cache_repo = (repo_root() / ".github" / "actions" / "cache-repo" / "action.yml").read_text(encoding="utf-8")
+    download_artifact_repo = (
+        repo_root() / ".github" / "actions" / "artifacts" / "download-repo" / "action.yml"
+    ).read_text(encoding="utf-8")
+    cache_repo = (repo_root() / ".github" / "actions" / "setup" / "cache-repo" / "action.yml").read_text(
+        encoding="utf-8"
+    )
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
 
     assert "actions/checkout@v4" not in build_test

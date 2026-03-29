@@ -25,7 +25,7 @@ class RepoWorkflowHints:
 
 
 def workflow_steps_ordered() -> list[WorkflowStep]:
-    """Match docs/adding-a-project.md: scaffold → edit → quick checks → publish → bucket → full verify."""
+    """Match CONTRIBUTING.md / just workflow: scaffold → edit → quick checks → publish → bucket → full verify."""
     return [
         WorkflowStep(
             key="onboard",
@@ -42,13 +42,13 @@ def workflow_steps_ordered() -> list[WorkflowStep]:
         WorkflowStep(
             key="edit_scaffold",
             title="Edit plugin and manifests",
-            summary="Under plugin_workspaces/default/ and bmts/<folder>/bmt.json.",
+            summary="Under projects/<id>/plugin.json + src/ (or legacy plugin_workspaces/) and bmts/<folder>/bmt.json.",
             primary_command="",
         ),
         WorkflowStep(
             key="test_local",
             title="Quick checks before publish",
-            summary="`just test-local` then `just tools bmt verify`. See docs/local-bmt-testing.md.",
+            summary="`just test-local` then `just tools bmt verify`. See CONTRIBUTING.md.",
             primary_command="just test-local",
         ),
         WorkflowStep(

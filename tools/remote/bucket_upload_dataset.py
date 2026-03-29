@@ -24,14 +24,14 @@ import time
 import zipfile
 from pathlib import Path
 
-from google.cloud import storage
-
 from backend.config.constants import (
     ENV_BMT_CONTROL_JOB,
     ENV_CLOUD_RUN_REGION,
     ENV_GCP_PROJECT,
     ENV_GCS_BUCKET,
 )
+from google.cloud import storage
+
 from tools.remote.gen_input_manifest import GenInputManifest
 from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
 from tools.shared.gcloud_storage import GCloudStorageError, sync_directory_to_gcs, upload_file_to_gcs

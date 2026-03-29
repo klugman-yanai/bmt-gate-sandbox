@@ -2,16 +2,17 @@
 
 Agent rules for **bmt-gcloud**: VM-based BMT execution via Google Cloud, scoring audio quality metrics against a baseline to gate CI.
 
-**Read next:** [docs/README.md](docs/README.md) (index).
+**Read next:** [README.md](README.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [docs/architecture.md](docs/architecture.md).
 
 ## Code layout
 
 | Area | Path |
 | ---- | ---- |
-| VM runtime (deployed to VM via bucket sync) | `backend/` — config, orchestrator, watcher, per-project managers |
+| VM runtime (deployed to VM via bucket sync) | `backend/src/backend/` — config, orchestrator, watcher, per-project managers |
+| BMT plugin SDK (concise import) | `backend/src/bmtplugin/` — re-exports `backend.runtime.sdk.contributor`; e.g. ``import bmtplugin as bmt`` then ``bmt.BmtPlugin`` |
 | Bucket mirror (1:1 GCS mirror) | `benchmarks/` — projects, runners, inputs, outputs |
-| CI package (portable, distributable) | `ci/src/bmt_gate/` — matrix, trigger, handshake, VM lifecycle |
-| Infra (Terraform) | `infra/terraform/` |
+| CI package (portable, distributable) | `ci/src/bmtgate/` — matrix, trigger, handshake, VM lifecycle |
+| Infra | `infra/` — Pulumi, Packer, bootstrap, scripts |
 | Developer tools CLI | `tools/` — bucket sync, layout policy, shared libs |
 | Tests | `tests/` |
 
@@ -21,11 +22,11 @@ Agent rules for **bmt-gcloud**: VM-based BMT execution via Google Cloud, scoring
 
 ## CI package (`ci/`)
 
-Standalone Python package: `bmt-gate`. Src layout at `ci/src/bmt_gate/`.
+Distribution **`kardome-bmt-gate`** (import package **`bmtgate`**). Src: `ci/src/bmtgate/`.
 
 - **Zero imports from `backend.*`** — has its own contract modules (`bmt_config.py`, `_constants.py`)
 - Workspace member in root `pyproject.toml`
-- Consumer repos install via: `bmt-gate = { git = "...", subdirectory = "ci" }`
+- Consumer repos install via: `kardome-bmt-gate = { git = "...", subdirectory = "ci" }`
 - CLI: `uv run bmt <command>` (matrix, write-run-trigger, wait-handshake, start-vm, etc.)
 
 ## Time

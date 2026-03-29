@@ -1,65 +1,132 @@
-# .cursorignore — exclude from Cursor index/context
-# Same pattern syntax as .gitignore (relative to repo root).
+# =============================================================================
+# SECTION 1: GLOBAL & LANGUAGE IGNORES (The "Hide" Layer)
+# =============================================================================
 
-# -----------------------------------------------------------------------------
-# Sane defaults (common across projects)
-# -----------------------------------------------------------------------------
-
-# Dotfiles
+# VCS, OS, and IDE Metadata
 .git/
-
-# Python
-.venv/
-venv/
-**/__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-*.egg
-
-# Node (if any tooling uses it)
-node_modules/
-
-# Build and caches
-build/
-dist/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# IDE/editor (keep rules; ignore local state)
-.idea/
-.vscode/
-*.swp
-*~
-
-# OS
+.hg/
+.svn/
 .DS_Store
 Thumbs.db
+*.swp
+*~
+*.bak
+*.tmp
+.claude/
+.vscode/
+.idea/
 
-# -----------------------------------------------------------------------------
-# Project-specific (bmt-gcloud)
-# -----------------------------------------------------------------------------
+# General Build & Archive
+build/
+dist/
+out/
+bin/
+obj/
+**/*.zip
+**/*.7z
+**/*.tar.gz
+**/*.tar
 
-# Not committed: WAV datasets and local run workspaces (see CLAUDE.md)
+# Python / uv / Ruff / Pytest
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.ipynb_checkpoints/
+**/.coverage
+**/htmlcov/
+**/*.egg-info/
+**/*.egg
+.python-version
+
+# C / C++ (Compiled & Tooling)
+**/*.o
+**/*.obj
+**/*.a
+**/*.lib
+**/*.so
+**/*.so.*
+**/*.dylib
+**/*.dll
+**/*.exe
+**/*.pdb
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+.cmake/
+_deps/
+
+# Infrastructure & Secrets
+.pulumi/
+.terraform/
+*-key.json
+secrets/
+.env
+.env.*
+
+# =============================================================================
+# SECTION 2: AGGRESSIVE IGNORES (The "Noise" Layer)
+# =============================================================================
+
+# Audio Data (Massive 20GB+ files identified in audit)
+**/*.wav
+**/*.mp3
+**/*.flac
+**/*.m4a
+
+# High-verbosity files
+compile_commands.json
+**/Pulumi.stack.json
+**/branch-status-context.json
+**/site/
+**/_build/
+.cursor/history/
+
+# =============================================================================
+# SECTION 3: PROJECT SPECIFIC IGNORES (bmt-gcloud)
+# =============================================================================
+
 data/
+audio/
 sk_runtime/
 .bmt_runtime/
-**.zip
-**.7z
-**.tar.gz
-**.tar
-
-# Secrets and credentials
-secrets/
-gcp-key.json
-*.pem
-
-# Runner binaries and heavy deps (present locally, not for context)
 remote/sk/runners/lib/
-audio/
-
-# Generated results and logs (frequently changing; canonical paths in CLAUDE.md)
 *.log
-# Optional: reduce noise from Cursor's own plans/state (uncomment if desired)
-# .cursor/plans/
+*.sqlite
+*.db
+
+# =============================================================================
+# SECTION 4: GENERAL WHITELIST (Always at the bottom)
+# =============================================================================
+
+!.env.example
+!CLAUDE.md
+!README.md
+!Justfile
+!Makefile
+!pyproject.toml
+!**/pyproject.toml
+!uv.lock
+!CMakeLists.txt
+!CMakePresets.json
+
+# =============================================================================
+# SECTION 5: PROJECT SPECIFIC WHITELIST (bmt-gcloud)
+# =============================================================================
+
+# Strategy & Planning
+!ROADMAP.md
+!AGENTS.md
+!docs/
+!docs/plans/
+!docs/plans/**
+
+# Shared Libraries & Dependencies
+!**/shared/dependencies/*.so*
+# Specifically whitelist Kardome library (case-insensitive approach)
+!**/lib[kK]ardome.so*
+!data/sk/lib/

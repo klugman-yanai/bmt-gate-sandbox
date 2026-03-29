@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.github import github_checks
 
 pytestmark = pytest.mark.unit

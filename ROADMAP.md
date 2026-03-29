@@ -26,7 +26,7 @@ Internal planning scratchpad. Edit as priorities change.
 
 | Phase | Deliverable |
 | --- | --- |
-| **A — Map** | Add execution-order subsection + Mermaid `flowchart`/`sequenceDiagram` under [docs/architecture.md](docs/architecture.md) or [docs/pipeline-dag.md](docs/pipeline-dag.md) |
+| **A — Map** | Extend Mermaid / sequence coverage in [docs/architecture.md](docs/architecture.md) where gaps remain |
 | **B — Dedupe** | Subworkflow or shared block for standard/heavy task runner + failure capture |
 | **C — Switches** | Readable branching / named defaults where syntax allows |
 | **D — Ops** | [docs/runbook.md](docs/runbook.md) — expected skips, “busy graph is normal” |
@@ -41,4 +41,5 @@ Scheduled Actions job: find PRs whose BMT status stayed pending too long → pos
 
 ## References
 
-- [docs/architecture.md](docs/architecture.md) · [docs/runbook.md](docs/runbook.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/architecture.md](docs/architecture.md) · [docs/runbook.md](docs/runbook.md) · [docs/weak-points-remediation.md](docs/weak-points-remediation.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
+- Ephemeral planning notes: create **`docs/plans/`** locally (gitignored); see [README.md](README.md#documentation).

@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from github import GithubException
-
 from backend.config.constants import STATUS_CONTEXT
 from backend.config.value_types import as_results_path
 from backend.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
@@ -31,6 +29,8 @@ from backend.runtime.models import (
     ScorePayload,
     StageRuntimePaths,
 )
+from github import GithubException
+
 from tests.support.captures import CallRecorder
 from tests.support.sentinels import FAKE_BUCKET, FAKE_REPO, FAKE_SHA_ALT, FAKE_WORKFLOW_ID
 

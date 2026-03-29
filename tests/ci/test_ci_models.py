@@ -1,10 +1,9 @@
 """Tests for .github/bmt/ci/core.py — pure functions only, no I/O."""
 
 import pytest
-from bmtgate import core as models
-
 from backend.config import value_types as vt
 from backend.config.decisions import GateDecision
+from bmtgate import core as models
 
 pytestmark = pytest.mark.unit
 

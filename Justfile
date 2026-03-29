@@ -22,7 +22,7 @@ tools *args:
 test:
     @bash tools/scripts/verify_repo.sh
 
-[doc('Quick pytest + ruff before publish. See docs/local-bmt-testing.md.')]
+[doc('Quick pytest + ruff before publish. See CONTRIBUTING.md.')]
 [group('pre-push')]
 test-local:
     @uv run python -m tools repo test-local
@@ -37,19 +37,19 @@ ship *args:
 show-env:
     @uv run python -m tools repo show-env
 
-[doc('tools workspace <cmd>: deploy syncs benchmarks→GCS; also pulumi, validate, preflight, e2e. See docs/contributor-commands.md.')]
+[doc('tools workspace <cmd>: deploy syncs benchmarks→GCS; also pulumi, validate, preflight, e2e. See CONTRIBUTING.md.')]
 [group('workspace')]
 workspace *args:
     @uv run python -m tools workspace {{ args }}
 
-[doc('Upload local benchmarks/ config to your GCS bucket so CI matches the repo (same as `just workspace deploy`). Needs GCS_BUCKET. See docs/contributor-commands.md.')]
+[doc('Upload local benchmarks/ config to your GCS bucket so CI matches the repo (same as `just workspace deploy`). Needs GCS_BUCKET. See CONTRIBUTING.md.')]
 [group('workspace')]
 sync-to-bucket *args:
     @uv run python -m tools workspace deploy {{ args }}
 
 alias sync-stage := sync-to-bucket
 
-[doc('project=benchmarks/projects/<name>; source=local .zip or WAV folder. See docs/contributor-commands.md.')]
+[doc('project=benchmarks/projects/<name>; source=local .zip or WAV folder. See CONTRIBUTING.md.')]
 [group('bucket')]
 upload-wav project source *args:
     @uv run python -m tools bucket upload-wav "{{ project }}" "{{ source }}" {{ args }}
@@ -111,7 +111,7 @@ status:
 
 alias workflow-status := status
 
-[doc('Bootstrap script; *args forwarded (e.g. --dry-run). vs tools onboard: see docs/contributor-commands.md.')]
+[doc('Bootstrap script; *args forwarded (e.g. --dry-run). vs tools onboard: see CONTRIBUTING.md.')]
 [group('dev')]
 onboard *args:
     @bash tools/scripts/bootstrap_dev_env.sh {{ args }}
@@ -171,3 +171,13 @@ build *args:
 [private]
 packer-validate:
     @uv run python -m tools build packer-validate
+
+# List the top 20 largest files in the repo to identify candidates for .cursorignore
+audit-space:
+    @echo "Top 20 largest files (excluding .git):"
+    @find . -type f -not -path '*/.git/*' -exec du -h {} + | sort -rh | head -n 20
+
+# Identify files over 1MB that are NOT currently ignored (useful for 'Aggressive Ignores')
+audit-tokens:
+    @echo "Files > 1MB that might be eating your AI context window:"
+    @find . -type f -size +1M -not -path '*/.git/*' -not -path '*/.venv/*'

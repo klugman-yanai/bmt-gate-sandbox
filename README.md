@@ -7,12 +7,12 @@
 ```text
 bmt-gcloud/
 ├── benchmarks/   # 1:1 GCS mirror — projects, plugins, inputs, results
-├── backend/      # Cloud Run runtime (image-baked)
-├── ci/           # bmt-gate — matrix, handoff, workflow dispatch (`uv run bmt`)
+├── backend/      # runtime package project; source under src/backend + src/bmtplugin
+├── ci/           # kardome-bmt-gate — matrix, handoff, workflow dispatch (`uv run bmt`)
 ├── tools/        # Developer CLI (`uv run python -m tools`)
 ├── tests/
 ├── infra/        # Pulumi, Packer, scripts
-└── docs/
+└── docs/         # Central reference (architecture, infra, config, ops)
 ```
 
 ## Quick start
@@ -27,18 +27,23 @@ just list
 
 - **Async handoff** — Actions starts Workflows and stops; runtime finishes on GCP.
 - **Pointer results** — `current.json` tracks `latest` / `last_passing`; tasks evaluate against baseline.
-- **Portable CI package** — `ci/` is the `bmt-gate` workspace member; consumers can depend on it via git/subdir (see `ci/pyproject.toml`).
-
-## Configuration
-
-**Infra and repo vars:** Pulumi in `infra/pulumi/` — see [infra/README.md](infra/README.md) and [docs/configuration.md](docs/configuration.md).
+- **Portable CI package** — `ci/` is **`kardome-bmt-gate`** (import **`bmtgate`**); consumers: `kardome-bmt-gate = { git = "…", subdirectory = "ci" }` (see `ci/pyproject.toml`).
+- **Plugin authoring alias** — `import bmtplugin as bmt` is shipped by the runtime package; source lives under `backend/src/bmtplugin/`.
 
 ## Documentation
 
+**First-time contributors:** [CONTRIBUTING.md](CONTRIBUTING.md) · **priorities:** [ROADMAP.md](ROADMAP.md).
+
 | Doc | Purpose |
 | --- | --- |
-| [docs/README.md](docs/README.md) | Doc index |
-| [docs/architecture.md](docs/architecture.md) | Pipeline, paths, storage |
-| [docs/pipeline-dag.md](docs/pipeline-dag.md) | Diagrams + glossary |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, hooks, PR checks |
+| [docs/architecture.md](docs/architecture.md) | Pipeline design, storage, glossary, ADR summaries, diagram policy |
+| [docs/infrastructure.md](docs/infrastructure.md) | Pulumi, apply order, repo vars, secrets, bootstrap |
+| [docs/configuration.md](docs/configuration.md) | Env vars map; points at infra for source of truth |
+| [docs/runbook.md](docs/runbook.md) | **Operations:** where to look when a production/staging run fails (not local dev) |
+| [docs/contributors.md](docs/contributors.md) | Plugin SDK & `bmt.json` reference |
+| [docs/weak-points-remediation.md](docs/weak-points-remediation.md) | Known risks / remediation backlog |
 | [CLAUDE.md](CLAUDE.md) | Agent / maintainer conventions |
+
+**Subsystem pointers:** [.github/README.md](.github/README.md) (workflows) · [ci/README.md](ci/README.md) (handoff package) · [benchmarks/projects/README.md](benchmarks/projects/README.md) (stage layout).
+
+**Local planning:** create **`docs/plans/`** yourself if you want epics/todos on disk; that tree is **gitignored** but kept visible to Cursor (see `.cursorignore`).

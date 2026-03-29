@@ -255,9 +255,9 @@ def _intro_goal_plain(*, profile: RichLayoutProfile) -> list[str]:
         lines.extend(
             [
                 "Docs:",
-                "  docs/adding-a-project.md",
-                "  docs/local-bmt-testing.md",
+                "  CONTRIBUTING.md",
                 "  docs/configuration.md",
+                "  docs/contributors.md (plugin SDK)",
                 "",
                 "Run:",
                 "  just workflow   (checklist)",
@@ -267,7 +267,7 @@ def _intro_goal_plain(*, profile: RichLayoutProfile) -> list[str]:
     else:
         lines.extend(
             [
-                "Docs: docs/adding-a-project.md · docs/local-bmt-testing.md · docs/configuration.md",
+                "Docs: CONTRIBUTING.md · docs/configuration.md · docs/contributors.md (SDK)",
                 "Run:  just workflow · just status   (checklist · repo hints)",
             ]
         )
@@ -401,11 +401,11 @@ def _rich_doc_footer_links():
     from rich.text import Text
 
     t = Text()
-    t.append("docs/adding-a-project.md", style="contrib.link")
-    t.append("  ·  ", style="contrib.muted")
-    t.append("docs/local-bmt-testing.md", style="contrib.link")
+    t.append("CONTRIBUTING.md", style="contrib.link")
     t.append("  ·  ", style="contrib.muted")
     t.append("docs/configuration.md", style="contrib.link")
+    t.append("  ·  ", style="contrib.muted")
+    t.append("docs/contributors.md", style="contrib.link")
     return t
 
 
@@ -425,9 +425,9 @@ def _rich_doc_footer_links_vertical():
     from rich.text import Text
 
     return Group(
-        Text("docs/adding-a-project.md", style="contrib.link"),
-        Text("docs/local-bmt-testing.md", style="contrib.link"),
+        Text("CONTRIBUTING.md", style="contrib.link"),
         Text("docs/configuration.md", style="contrib.link"),
+        Text("docs/contributors.md", style="contrib.link"),
     )
 
 

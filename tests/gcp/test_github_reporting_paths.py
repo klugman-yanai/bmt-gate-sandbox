@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from backend.config.bmt_domain_status import BmtLegStatus
 from backend.config.constants import STATUS_CONTEXT
 from backend.config.value_types import as_results_path
@@ -14,6 +13,7 @@ from backend.runtime.github_reporting import (
     _write_log_dump_and_sign,
 )
 from backend.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ScorePayload, StageRuntimePaths
+
 from tests.support.sentinels import FAKE_REPO
 
 pytestmark = pytest.mark.unit

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.config.env_parse import is_truthy_env_value
 
 pytestmark = pytest.mark.unit

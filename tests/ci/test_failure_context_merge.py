@@ -1,4 +1,4 @@
-"""Contract: bmt-failure-fallback classify merge (jq) prefers steps.classify outputs."""
+"""Contract: bmt/failure-fallback classify merge (jq) prefers steps.classify outputs."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ pytestmark = pytest.mark.unit
 
 
 def _merge_classify(*, handshake_outputs: dict, classify_step_outputs: dict) -> dict:
-    """Mirror `.github/actions/bmt-failure-fallback` Build failure context merge."""
+    """Mirror `.github/actions/bmt/failure-fallback` Build failure context merge."""
     jq = shutil.which("jq")
     if not jq:
         pytest.skip("jq not installed")

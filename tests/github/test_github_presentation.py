@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.github.presentation import (
     CheckFinalView,
     CheckProgressView,
@@ -341,6 +340,12 @@ def test_human_reason_runner_case_failures() -> None:
     from backend.github.presentation import human_reason
 
     assert human_reason("runner_case_failures") == "too many test files failed the runner (beyond configured grace)"
+
+
+def test_human_reason_incomplete_plan() -> None:
+    from backend.github.presentation import human_reason
+
+    assert "expected task summaries" in human_reason("incomplete_plan")
 
 
 def test_human_reason_case_failures_within_grace() -> None:

@@ -7,8 +7,8 @@ import sys
 
 import typer
 
-from bmtgate.clients.actions import gh_error
 from bmtgate import settings as config
+from bmtgate.clients.actions import gh_error
 from bmtgate.handoff.dispatch import WorkflowDispatchManager
 from bmtgate.handoff.manager import HandoffManager
 from bmtgate.matrix.builder import MatrixManager

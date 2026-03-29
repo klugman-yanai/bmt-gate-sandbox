@@ -9,7 +9,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-_SK_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/plugin_workspaces/default/src")
+_SK_SRC = str(Path(__file__).resolve().parents[2] / "benchmarks/projects/sk/src")
 
 
 def _sp():
@@ -41,7 +41,7 @@ def test_scoring_policy_record_merges_reporting_hints() -> None:
 
 
 def test_build_case_outcomes_truncates_long_error(tmp_path: Path) -> None:
-    from backend.runtime.sdk.results import CaseResult
+    from backend.runtime.sdk.results import CaseArtifacts, CaseMetrics, CaseResult, CaseStatus
 
     sp = _sp()
     long_err = "x" * 3000
@@ -51,10 +51,10 @@ def test_build_case_outcomes_truncates_long_error(tmp_path: Path) -> None:
             case_id="f.wav",
             input_path=Path("/d/f.wav"),
             exit_code=1,
-            status="failed",
-            metrics={"namuh_count": 0.0},
-            artifacts={"log_path": str(log_path)},
-            error=long_err,
+            status=CaseStatus.FAILED,
+            metrics=CaseMetrics(root={"namuh_count": 0.0}),
+            artifacts=CaseArtifacts(root={"log_path": str(log_path)}),
+            runner_case_diagnostic=long_err,
         )
     ]
     out = sp.build_case_outcomes(cases, max_error_chars=100)

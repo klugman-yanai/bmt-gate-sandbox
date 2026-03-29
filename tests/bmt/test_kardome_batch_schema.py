@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.runtime.kardome_batch_results import KardomeBatchFile
 
 pytestmark = pytest.mark.unit

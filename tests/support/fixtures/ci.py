@@ -9,10 +9,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from backend.config.constants import STATUS_CONTEXT
 from bmtgate import settings as config
 from bmtgate.clients import github as github_api_module
-
-from backend.config.constants import STATUS_CONTEXT
 
 BMT_FAILURE_DESCRIPTION = "BMT failed to complete handshake."
 

@@ -1,7 +1,0 @@
-config-variables:
-  - GCS_BUCKET
-  - GCP_WIF_PROVIDER
-  - GCP_SA_EMAIL
-  - GCP_PROJECT
-  - CLOUD_RUN_REGION
-  - BMT_STATUS_CONTEXT

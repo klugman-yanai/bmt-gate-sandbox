@@ -5,9 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-
 from backend.config.constants import STATUS_CONTEXT
 from backend.github import github_checks
+
 from tests.support.sentinels import FAKE_REPO
 
 pytestmark = pytest.mark.unit

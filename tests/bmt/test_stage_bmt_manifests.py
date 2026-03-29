@@ -4,10 +4,10 @@ Discovery matches ``build_plan`` (``projects/*/{benchmarks,bmts}/*/bmt.json`` un
 This suite performs a **full-tree scan**; a future optional **git-diff-only** mode could
 accelerate PRs but must not replace full validation on the default branch.
 
-Fast tests (default): parse, path consistency, ``project.json``, published bundle /
-workspace layout rules.
+Fast tests (default): parse, path consistency, ``project.json``, and plugin layout rules
+(``published:`` bundles if present in the stage tree, or ``workspace:`` dirs).
 
-Optional tiers: ``@pytest.mark.bmt_plugin_load`` (import published plugins) and
+Optional tiers: ``@pytest.mark.bmt_plugin_load`` (import plugins) and
 ``@pytest.mark.integration`` (single ``build_plan`` smoke over the tree).
 """
 
@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
 from backend.runtime.models import BmtManifest, PluginManifest, ProjectManifest, StageRuntimePaths, WorkflowRequest
 from backend.runtime.planning import PlanOptions, build_plan
 from backend.runtime.plugin_loader import load_plugin
@@ -130,29 +129,32 @@ def test_committed_bmt_manifest_static(
     ProjectManifest.model_validate(json.loads(project_json.read_text(encoding="utf-8")))
 
     if manifest.enabled:
-        assert manifest.plugin_ref.startswith("published:"), (
-            "enabled BMTs must use a published plugin ref (not workspace:) for CI/prod parity"
-        )
-        _validate_published_bundle(repo_stage_root, manifest)
+        if manifest.plugin_ref.startswith("published:"):
+            _validate_published_bundle(repo_stage_root, manifest)
+        elif manifest.plugin_ref.startswith("workspace:"):
+            _validate_workspace_ref(repo_stage_root, manifest)
+        else:
+            pytest.fail(f"plugin_ref must be published: or workspace:, got {manifest.plugin_ref!r}")
     else:
         _validate_workspace_ref(repo_stage_root, manifest)
 
 
 @pytest.mark.bmt_plugin_load
 @pytest.mark.parametrize("record", _ENABLED_RECORDS, ids=lambda r: r.id_posix)
-def test_enabled_bmt_loads_published_plugin(
+def test_enabled_bmt_loads_plugin(
     repo_stage_root: Path,
     record: StageBmtRecord,
 ) -> None:
-    """``load_plugin`` with ``allow_workspace=False`` (same as planner)."""
+    """Load plugin the same way the planner does for each ref kind (published vs workspace)."""
     raw_text = record.manifest_path.read_text(encoding="utf-8")
     manifest = BmtManifest.model_validate(json.loads(raw_text))
     assert manifest.enabled
+    allow_workspace = manifest.plugin_ref.startswith("workspace:")
     plugin, _root = load_plugin(
         repo_stage_root,
         manifest.project,
         manifest.plugin_ref,
-        allow_workspace=False,
+        allow_workspace=allow_workspace,
     )
     assert plugin is not None
 
@@ -169,7 +171,7 @@ def test_build_plan_smoke_includes_enabled_legs(
         runtime=StageRuntimePaths(stage_root=repo_stage_root, workspace_root=workspace_root),
         options=PlanOptions(
             request=WorkflowRequest(workflow_run_id="pytest-stage-verify"),
-            allow_workspace_plugins=False,
+            allow_workspace_plugins=True,
         ),
     )
     assert len(plan.legs) == len(_ENABLED_RECORDS)

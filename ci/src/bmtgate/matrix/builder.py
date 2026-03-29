@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from bmtgate.clients.actions import gh_notice, gh_warning, write_github_output
 from bmtgate import core
+from bmtgate.clients.actions import gh_notice, gh_warning, write_github_output
 
 
 def _load_configure_presets(presets_file: Path) -> list[dict[str, Any]]:

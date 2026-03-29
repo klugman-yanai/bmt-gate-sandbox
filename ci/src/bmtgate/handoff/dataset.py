@@ -6,9 +6,9 @@ import json
 import os
 from pathlib import Path
 
+from bmtgate import core
 from bmtgate.clients import gcs
 from bmtgate.clients.actions import gh_notice, gh_warning
-from bmtgate import core
 from bmtgate.settings import BmtConfig
 
 

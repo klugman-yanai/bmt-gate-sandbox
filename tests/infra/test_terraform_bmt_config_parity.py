@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from backend.config.constants import DEFAULT_IMAGE_FAMILY
 
 # Load InfraConfig from the Pulumi project (not a regular package)

@@ -1,0 +1,48 @@
+name: Setup GCP and uv
+description: Authenticate to GCP via WIF, install Cloud SDK, and optionally install uv via setup-uv-repo.
+
+inputs:
+  workload_identity_provider:
+    description: Workload Identity Provider resource name.
+    required: true
+  service_account:
+    description: Service account email used for WIF auth.
+    required: true
+  gcp_project:
+    description: Must match repository variable GCP_PROJECT; pass env.GCP_PROJECT when workflow env is set from vars (see .github/README.md).
+    required: true
+  gcloud_version:
+    description: >
+      Cloud SDK version constraint for setup-gcloud (e.g. ">= 363.0.0" for WIF). See google-github-actions/setup-gcloud README.
+    required: false
+    default: ">= 363.0.0"
+  python_version:
+    description: Python version used by setup-uv.
+    required: false
+    default: "3.12"
+  install_uv:
+    description: Whether to install uv.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: GCP Auth (WIF)
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+        project_id: ${{ inputs.gcp_project }}
+
+    - name: Setup Cloud SDK
+      uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db  # v3.0.1
+      with:
+        project_id: ${{ inputs.gcp_project }}
+        version: ${{ inputs.gcloud_version }}
+
+    - name: Install uv and sync workspace
+      if: ${{ inputs.install_uv == 'true' }}
+      uses: ./.github/actions/setup/uv-repo
+      with:
+        python-version: ${{ inputs.python_version }}

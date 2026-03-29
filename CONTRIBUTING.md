@@ -71,9 +71,9 @@ uv run python -m tools onboard
 
 `uv sync` includes the **`dev`** dependency group by default (**ruff**, **pytest**, **prek**, **PyJWT** for GitHub App helpers, etc.) and installs this workspace in editable mode. Use `uv sync --no-dev` only when you explicitly want to drop dev tooling. A separate `uv pip install -e .` is not required for normal work.
 
-**Workspace:** one **uv** workspace, one lockfile. Members: **`bmt-gate`** (`ci/`) and **`bmt-runtime`** (`backend`). Examples: `uv run --package bmt-gate …`, `uv run --package bmt-runtime …`; list with `uv workspace list`.
+**Workspace:** one **uv** workspace, one lockfile. Members: **`kardome-bmt-gate`** (`ci/`) and **`kardome-bmt-runtime`** (`backend`). Runtime source lives under **`backend/src/backend/`** and the concise plugin-author import surface under **`backend/src/bmtplugin/`**. Examples: `uv run --package kardome-bmt-gate …`, `uv run --package kardome-bmt-runtime …`; list with `uv workspace list`.
 
-**CLIs:** **`uv run bmt`** — console script from **`bmt-gate`** (implementation under `ci/src/bmtgate/`). **`uv run python -m tools`** — Typer CLI for repo tooling.
+**CLIs:** **`uv run bmt`** — console script from **`kardome-bmt-gate`** (Python package **`bmtgate`** under `ci/src/bmtgate/`). **`uv run python -m tools`** — Typer CLI for repo tooling.
 
 **Rare escape hatch:** ad-hoc `uv pip install …` in an existing venv is sometimes used in CI or one-off debugging; for reproducible work, prefer **`uv sync`** (and lockfile changes) so everyone matches `uv.lock`.
 
@@ -138,7 +138,7 @@ Types: `uv run ty check` — config under `[tool.ty]` in [pyproject.toml](pyproj
 
 ## Adding or changing a project
 
-Use the scaffold and CLI flow—see **[docs/adding-a-project.md](docs/adding-a-project.md)** and **[docs/local-bmt-testing.md](docs/local-bmt-testing.md)**. **What `just add`, `just publish`, `sync-to-bucket`, `upload-wav`, `stage`, and `workspace` mean**: **[docs/contributor-commands.md](docs/contributor-commands.md)**. For a terminal checklist, run **`just workflow`**; **`just status`** shows `.venv` and folders under `benchmarks/projects/` (alias: `just workflow-status`).
+Use the scaffold and CLI flow in **Adding or changing a project** (below). **Plugin SDK / `bmt.json` detail:** [docs/contributors.md](docs/contributors.md). For a terminal checklist, run **`just workflow`**; **`just status`** shows `.venv` and folders under `benchmarks/projects/` (alias: `just workflow-status`).
 
 Short version: **`just add <name> [--bmt=<folder>] [--data=<path>]`** → edit under `benchmarks/projects/<name>/` → **`just test-local`** → **`just tools bmt verify <name> <benchmark>`** → **`just publish`** (or `just publish <name> <benchmark>` if several BMTs exist; **`publish` sets `enabled`: true** by default) → **`just sync-to-bucket`** (same as `just workspace deploy`). `<benchmark>` is the folder under `bmts/`; the manifest field is still `bmt_slug`.
 
@@ -147,7 +147,7 @@ Short version: **`just add <name> [--bmt=<folder>] [--data=<path>]`** → edit u
 ## Bucket and `benchmarks/`
 
 - If you change files under `benchmarks/`, pre-commit may expect the bucket to match **`just sync-to-bucket`** (same as **`just workspace deploy`**, with `GCS_BUCKET` set). If you must commit without syncing, use `SKIP_SYNC_VERIFY=1` on purpose only.
-- Infra and GitHub vars: Pulumi is the source of truth; **`just workspace pulumi`** applies. Details: [docs/configuration.md](docs/configuration.md), [infra/README.md](infra/README.md).
+- Infra and GitHub vars: Pulumi is the source of truth; **`just workspace pulumi`** applies. Details: [docs/infrastructure.md](docs/infrastructure.md), [docs/configuration.md](docs/configuration.md).
 
 ---
 
@@ -155,7 +155,7 @@ Short version: **`just add <name> [--bmt=<folder>] [--data=<path>]`** → edit u
 
 | Path | Role |
 | --- | --- |
-| `backend/` | Cloud Run runtime (image) |
+| `backend/` | Runtime package project; source under `backend/src/backend/` and `backend/src/bmtplugin/` |
 | `benchmarks/` | Staged bucket mirror (projects, plugins, inputs) |
 | `gcp/mnt/` | Optional FUSE mount points (gitignored) |
 
@@ -192,7 +192,7 @@ uv run python -m pytest tests/bmt tests/ci tests/infra tests/tools -q
 
 **Integration boundary (mental model):** publish staged plugin → upload dataset → invoke Workflow (CI or manual) → `triggers/plans/<workflow_run_id>.json` → task summaries → coordinator writes `current.json`.
 
-**Troubleshooting:** Layout / policy: `just test`. Bucket out of sync: **`just sync-to-bucket`** before committing `gcp/` (or `SKIP_SYNC_VERIFY=1` intentionally). Vars vs Pulumi: [docs/configuration.md](docs/configuration.md), `just workspace validate`.
+**Troubleshooting:** Layout / policy: `just test`. Bucket out of sync: **`just sync-to-bucket`** before committing `gcp/` (or `SKIP_SYNC_VERIFY=1` intentionally). Vars vs Pulumi: [docs/infrastructure.md](docs/infrastructure.md), `just workspace validate`.
 
 ## Before you open a PR
 
@@ -217,7 +217,7 @@ Optional: `uv run python -m tools repo validate`, `uv run bmt handoff write-cont
 
 ## Docs
 
-- Index: [docs/README.md](docs/README.md)
+- **Central reference:** [README.md](README.md#documentation) (architecture, infrastructure, configuration, runbook, plugin SDK).
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - If you change behavior, env vars, or bucket layout, update README / CLAUDE.md / the relevant doc in the same PR when practical.
 
@@ -233,4 +233,4 @@ Local readiness: **`just workspace e2e`** (or `uv run python -m tools e2e-prefli
 
 ## Maintainer-heavy areas
 
-Orchestration / GitHub reporting often touches **`backend/runtime/`**, **`ci/src/bmtgate/`**, **`infra/pulumi/`**, or **`tools/repo/`** — mention these in the PR when relevant.
+Orchestration / GitHub reporting often touches **`backend/src/backend/runtime/`**, **`ci/src/bmtgate/`**, **`infra/pulumi/`**, or **`tools/repo/`** — mention these in the PR when relevant.

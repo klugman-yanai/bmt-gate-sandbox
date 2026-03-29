@@ -156,7 +156,7 @@ env:
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
-  # Defaults match docs/configuration.md and backend/config/constants.py (DEFAULT_*).
+  # Defaults match docs/configuration.md and backend/src/backend/config/constants.py (DEFAULT_*).
   CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
   BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
 
@@ -196,7 +196,7 @@ jobs:
           fetch-depth: 1
 
       - id: prepare
-        uses: ./.github/actions/bmt-prepare-context
+        uses: ./.github/actions/bmt/prepare-context
         with:
           ci_run_id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
           head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
@@ -249,7 +249,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
       - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./.github/actions/setup/gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
@@ -320,7 +320,7 @@ jobs:
 
       - name: Setup GCP and uv
         if: ${{ matrix.bmt_supported == true || matrix.bmt_supported == 'true' }}
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./.github/actions/setup/gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
@@ -328,7 +328,7 @@ jobs:
 
       - name: Download runner artifact from CI run
         if: ${{ (matrix.bmt_supported == true || matrix.bmt_supported == 'true') && matrix.publish_mode != 'manifest_only' }}
-        uses: ./.github/actions/download-artifact-repo
+        uses: ./.github/actions/artifacts/download-repo
         with:
           name: runner-${{ matrix.preset }}
           path: artifact-download
@@ -441,14 +441,14 @@ jobs:
             gcp
 
       - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./.github/actions/setup/gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
 
       - id: classify
-        uses: ./.github/actions/bmt-filter-handoff-matrix
+        uses: ./.github/actions/bmt/filter-handoff-matrix
         with:
           head_sha: ${{ needs.plan.outputs.head_sha }}
           runner_matrix: ${{ needs.plan.outputs.runner_matrix }}
@@ -515,7 +515,7 @@ jobs:
 
       - name: Upload diagnostics artifact
         if: always()
-        uses: ./.github/actions/upload-artifact-repo
+        uses: ./.github/actions/artifacts/upload-repo
         with:
           name: bmt-handoff-diagnostics-${{ github.run_id }}
           path: .local/diagnostics/
@@ -524,7 +524,7 @@ jobs:
 
       - name: Write dispatch summary (workflow execution confirmed)
         if: steps.invoke-workflow.outcome == 'success'
-        uses: ./.github/actions/bmt-write-summary
+        uses: ./.github/actions/bmt/write-summary
         with:
           mode: run_success
           repository: ${{ github.repository }}
@@ -560,7 +560,7 @@ jobs:
             .github
             gcp
 
-      - uses: ./.github/actions/setup-gcp-uv
+      - uses: ./.github/actions/setup/gcp-uv
         if: steps.invoke-workflow.outcome != 'success'
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
@@ -579,7 +579,7 @@ jobs:
         if: >-
           !cancelled() &&
           (steps.classify.outcome == 'failure' || steps.invoke-workflow.outcome == 'failure')
-        uses: ./.github/actions/bmt-failure-fallback
+        uses: ./.github/actions/bmt/failure-fallback
         with:
           handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
           classify_step_outputs: ${{ toJson(steps.classify.outputs) }}

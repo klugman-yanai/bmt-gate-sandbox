@@ -3,9 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from backend.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from backend.runtime.sdk.results import CaseResult, ExecutionResult
+from backend.runtime.sdk.results import CaseMetrics, CaseResult, CaseStatus, ExecutionMode, ExecutionResult
 
 pytestmark = pytest.mark.integration
 
@@ -23,14 +22,14 @@ def test_adaptive_kardome_falls_back_to_legacy_when_batch_result_missing(tmp_pat
     def run_legacy() -> ExecutionResult:
         calls.append("legacy")
         return ExecutionResult(
-            execution_mode_used="kardome_legacy_stdout",
+            execution_mode_used=ExecutionMode.KARDOME_LEGACY_STDOUT,
             case_results=[
                 CaseResult(
                     case_id="sample.wav",
                     input_path=tmp_path / "sample.wav",
                     exit_code=0,
-                    status="ok",
-                    metrics={"score": 1.0},
+                    status=CaseStatus.OK,
+                    metrics=CaseMetrics(root={"score": 1.0}),
                 )
             ],
         )

@@ -7,11 +7,11 @@ from typing import Any, TypedDict, cast
 
 import pytest
 from bmtgate.clients.cloud_run import CloudRunJobsApiError
+from bmtgate.clients.workflows import WorkflowsApiError
 from bmtgate.handoff.dispatch import (
     WorkflowDispatchInvokePayload,
     WorkflowDispatchManager,
 )
-from bmtgate.clients.workflows import WorkflowsApiError
 
 from tests.support.sentinels import (
     FAKE_BUCKET,

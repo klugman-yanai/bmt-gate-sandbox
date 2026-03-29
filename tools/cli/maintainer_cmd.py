@@ -24,14 +24,14 @@ def register_maintainer_commands(target: typer.Typer) -> None:
 
     @target.command("doctor", rich_help_panel=_PANEL)
     def doctor_cmd() -> None:
-        """Vulture + pylint duplicate-code on env-related paths (includes backend/config)."""
+        """Vulture + pylint duplicate-code on env-related paths (includes backend/src/backend/config)."""
         repo = repo_root()
         for args in (
             [
                 "uv",
                 "run",
                 "vulture",
-                "backend/config",
+                "backend/src/backend/config",
                 "tools/shared/env.py",
                 "tools/shared/bucket_env.py",
                 "--min-confidence",
@@ -44,7 +44,7 @@ def register_maintainer_commands(target: typer.Typer) -> None:
                 "--disable=all",
                 "--enable=duplicate-code",
                 "--min-similarity-lines=6",
-                "backend/config/env_parse.py",
+                "backend/src/backend/config/env_parse.py",
                 "tools/shared/env.py",
                 "tools/shared/bucket_env.py",
                 "ci/src/bmtgate/handoff/dispatch.py",

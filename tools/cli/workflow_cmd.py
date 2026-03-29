@@ -23,7 +23,7 @@ from tools.workflow.guide import RepoWorkflowHints, repo_workflow_hints, workflo
 
 app = typer.Typer(
     name="workflow",
-    help="Ordered checklist for onboarding and adding projects/BMTs (see docs/adding-a-project.md).",
+    help="Ordered checklist for onboarding and adding projects/BMTs (see CONTRIBUTING.md).",
     no_args_is_help=True,
 )
 
@@ -35,7 +35,7 @@ def _console() -> Console | None:
 
 
 def _overview_header(refs: ContributorDocRefs) -> Group:
-    path = refs.adding_a_project_rel()
+    path = refs.contributing_rel()
     title = Text("Contributor workflow", style="contrib.title")
     sub = Text()
     sub.append("Full guide ", style="contrib.tagline")
@@ -46,7 +46,7 @@ def _overview_header(refs: ContributorDocRefs) -> Group:
 def _print_overview_plain() -> None:
     refs = ContributorDocRefs.discover()
     print("Contributor workflow")
-    print(f"Full guide: {refs.adding_a_project_rel()}")
+    print(f"Full guide: {refs.contributing_rel()}")
     print()
     print("—" * min(56, 72))
     for i, step in enumerate(workflow_steps_ordered(), start=1):
@@ -109,7 +109,7 @@ def _print_overview_rich(console: Console) -> None:
 
 @app.command("overview")
 def workflow_overview() -> None:
-    """Print the ordered checklist (same story as docs/adding-a-project.md)."""
+    """Print the ordered checklist (CONTRIBUTING.md flow)."""
     c = _console()
     if c is None:
         _print_overview_plain()

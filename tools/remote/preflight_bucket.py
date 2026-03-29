@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 import orjson
+from backend.config.constants import ENV_GCS_BUCKET
 from google.cloud import storage
 
-from backend.config.constants import ENV_GCS_BUCKET
 from tools.repo.core_main_workflows import run_drift_check
 from tools.repo.paths import DEFAULT_CONFIG_ROOT, repo_root
 from tools.shared.bucket_env import get_bucket_from_env

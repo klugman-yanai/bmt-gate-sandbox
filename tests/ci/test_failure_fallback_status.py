@@ -5,9 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from backend.config.constants import STATUS_CONTEXT
 from bmtgate.handoff.manager import HandoffManager
 
-from backend.config.constants import STATUS_CONTEXT
 from tests.support.fixtures.ci import BMT_FAILURE_DESCRIPTION, mock_config, mock_github_api
 from tests.support.sentinels import FAKE_REPO
 

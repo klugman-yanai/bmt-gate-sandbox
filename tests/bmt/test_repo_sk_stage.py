@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.runtime.models import StageRuntimePaths, WorkflowRequest
 from backend.runtime.planning import PlanOptions, build_plan
 
@@ -15,11 +14,11 @@ def test_repo_stage_sk_project_is_discoverable(repo_root) -> None:
         runtime=StageRuntimePaths(stage_root=stage_root, workspace_root=workspace_root),
         options=PlanOptions(
             request=WorkflowRequest(workflow_run_id="repo-stage", accepted_projects=["sk"]),
-            allow_workspace_plugins=False,
+            allow_workspace_plugins=True,
         ),
     )
 
     sk_slugs = {(leg.project, leg.bmt_slug) for leg in plan.legs if leg.project == "sk"}
     assert ("sk", "false_alarms") in sk_slugs
     assert ("sk", "false_rejects") in sk_slugs
-    assert all(not leg.plugin_ref.startswith("workspace:") for leg in plan.legs if leg.project == "sk")
+    assert all(leg.plugin_ref.startswith("workspace:") for leg in plan.legs if leg.project == "sk")

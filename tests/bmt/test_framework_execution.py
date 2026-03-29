@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
-
 from backend.runtime.execution import execute_leg
 from backend.runtime.models import StageRuntimePaths, WorkflowRequest
 from backend.runtime.planning import PlanOptions, build_plan
 from backend.runtime.plugin_loader import WorkspacePluginRefError
+
 from tools.bmt.publisher import publish_bmt
 from tools.bmt.scaffold import add_bmt, add_project
 
@@ -73,5 +73,39 @@ def test_planner_rejects_workspace_plugins_in_production_mode(tmp_path: Path) ->
             options=PlanOptions(
                 request=WorkflowRequest(workflow_run_id="wf-123", accepted_projects=["acme"]),
                 allow_workspace_plugins=False,
+            ),
+        )
+
+
+def test_planner_rejects_duplicate_results_paths(tmp_path: Path) -> None:
+    stage_root = tmp_path / "benchmarks"
+    workspace_root = tmp_path / "workspace"
+    add_project("acme", stage_root=stage_root, dry_run=False)
+    add_bmt("acme", "wake_word_quality", stage_root=stage_root, plugin="default")
+    add_bmt("acme", "keyword_drift", stage_root=stage_root, plugin="default")
+
+    first_manifest_path = stage_root / "projects" / "acme" / "bmts" / "wake_word_quality" / "bmt.json"
+    second_manifest_path = stage_root / "projects" / "acme" / "bmts" / "keyword_drift" / "bmt.json"
+    first_manifest = json.loads(first_manifest_path.read_text(encoding="utf-8"))
+    second_manifest = json.loads(second_manifest_path.read_text(encoding="utf-8"))
+    first_manifest["enabled"] = True
+    second_manifest["enabled"] = True
+    second_manifest["results_prefix"] = first_manifest["results_prefix"]
+    first_manifest_path.write_text(json.dumps(first_manifest, indent=2) + "\n", encoding="utf-8")
+    second_manifest_path.write_text(json.dumps(second_manifest, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"Duplicate results_path values in execution plan: "
+            r"projects/acme/results/wake_word_quality: "
+            r"acme/keyword_drift \([^)]+\), acme/wake_word_quality \([^)]+\)"
+        ),
+    ):
+        build_plan(
+            runtime=StageRuntimePaths(stage_root=stage_root, workspace_root=workspace_root),
+            options=PlanOptions(
+                request=WorkflowRequest(workflow_run_id="wf-123", accepted_projects=["acme"]),
+                allow_workspace_plugins=True,
             ),
         )

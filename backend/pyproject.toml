@@ -1,10 +1,11 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
 
 [project]
-name = "bmt-runtime"
+name = "kardome-bmt-runtime"
 version = "0.1.0"
+description = "Kardome BMT cloud job/orchestrator runtime (Python code baked into the VM image)."
 # Match workspace root so runtime and tooling stay on Python 3.12.
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -21,11 +22,20 @@ dependencies = [
 [tool.uv]
 package = true
 
-# Workspace member: run with uv run --package bmt-runtime from repo root.
+# Workspace member: uv run --package kardome-bmt-runtime … (import package remains backend.*).
 # Dev tooling (tests, lint) runs from workspace root; no dev group needed here unless this package is developed in isolation.
 [dependency-groups]
 dev = []
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["backend*", "backend.runtime*", "backend.github*", "backend.config*"]
+[tool.hatch.build.targets.wheel]
+packages = [
+  "src/backend",
+  "src/bmtplugin",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/backend",
+  "src/bmtplugin",
+  "pyproject.toml",
+]

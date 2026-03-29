@@ -1,53 +1,67 @@
+# ------------------------------------------------------------------------------
+# bmt-gcloud — workspace root pyproject (PEP 621 + tool tables)
+# ------------------------------------------------------------------------------
+#
+# Stack
+#   GCP + GitHub: storage, Artifact Registry, PyGithub; Pydantic for config.
+#   Dist: kardome-bmt-runtime (backend/), kardome-bmt-gate (ci/).
+#   tools/: Typer + Rich CLIs.
+#
+# Toolchain
+#   uv — lockfile, .venv, workspace members + editable [tool.uv.sources].
+#   Hatchling — wheel with repo tooling only; runtime/CI ship from their workspace packages.
+#   Ruff (ruff.toml); ty + pytest (below); prek via uv run prek (hooks).
+#
+# Deps
+#   [project.dependencies] = runtime. dependency-groups dev + infra default on
+#   uv sync; use uv sync --no-group infra to drop Pulumi Python SDK only.
+#
+# Ref: https://docs.astral.sh/uv/concepts/projects/workspaces/
+# ------------------------------------------------------------------------------
+
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
 
 [project]
 name = "bmt-gcloud"
 version = "0.1.0"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = [
-    "bmt-gate",
-    "PyGithub>=2.0",
-    "google-cloud-storage>=2.16",
+    "kardome-bmt-gate",
+    "kardome-bmt-runtime",
     "google-cloud-artifact-registry>=1.14.0",
+    "google-cloud-storage>=2.16",
     "orjson>=3.10",
     "prek>=0.3.5",
-    "pulumi-gcp>=9.15.0",
     "pydantic>=2.12.5",
-    "pydantic-settings>=2.0.0",
-    "requests>=2.31.0",
+    "PyGithub>=2.0",
     "rich>=13.0",
     "typer>=0.15.0",
     "whenever>=0.9.5",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["tools"]
+
 [tool.uv.sources]
-bmt-gate = { workspace = true }
-# So that member ci can depend on bmt-gcloud without listing it (keeps that pyproject portable).
+kardome-bmt-gate = { workspace = true }
+kardome-bmt-runtime = { workspace = true }
 bmt-gcloud = { workspace = true }
 
-# Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
 [tool.uv.workspace]
 members = ["ci", "backend"]
-# exclude = []   # Optional: globs to exclude from members (e.g. a dir with pyproject you don't want as member)
 
 [tool.uv]
 package = true
+default-groups = ["dev", "infra"]
 
-# Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# Root package exposes backend + tools. Workspace members: ci (bmt CLI), backend (bmt-runtime).
-# Run a member with: uv run --package bmt … or uv run --package bmt-runtime …
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["backend*", "tools*"]
-
-# Typecheck: `uv run ty check` (see `[tool.ty]`). IDE analysis typically follows the same roots via pyproject / editor settings.
 [tool.ty.environment]
 python-version = "3.12"
 extra-paths = [
-	"ci",
-	"benchmarks/projects/sk/plugin_workspaces/default/src",
+    "backend/src",
+    "ci",
+    "benchmarks/projects/sk/src",
 ]
 
 [tool.ty.src]
@@ -56,21 +70,13 @@ exclude = [
     "sk_runtime",
     "local_batch",
     "secrets",
-    # Bucket mirror; layout mirrors image but imports are not a full package tree.
     "benchmarks",
 ]
 
-# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Included by default on `uv sync`; omit with `uv sync --no-dev`.
 [dependency-groups]
 dev = [
-    "cryptography>=46.0.5",
     "google-auth-stubs>=0.3.0",
-    "httpx>=0.28.1",
-    "jsonschema>=4.21",
-    "prek>=0.3.5",
-    "pulumi>=3.226.0",
-    "pulumi-gcp>=9.15.0",
-    "pyjwt>=2.12.1",
+    "pylint>=3.3.0",
     "pytest>=9.0.2",
     "pytest-github-actions-annotate-failures>=0.4.0",
     "pytest-instafail>=0.5.0",
@@ -83,23 +89,19 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.6",
     "ty>=0.0.1",
-    "typer>=0.24.1",
     "vulture>=2.11",
-    "pylint>=3.3.0",
-    "whenever>=0.9.5",
+]
+infra = [
+    "pulumi>=3.226.0",
+    "pulumi-gcp>=9.15.0",
 ]
 
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-# importlib: isolates test module imports (avoids conftest/package shadowing surprises).
-# disable-socket + allow-unix-socket: no accidental TCP; unix sockets still work (e.g. xdist IPC).
-# --strict: strict_config + strict_markers + strict_xfail (default for @pytest.mark.xfail) + strict_parametrization_ids
 addopts = [
     "--strict",
     "-ra",
-    "--durations=25",
-    "--timeout=420",
     "--timeout-method=thread",
     "--import-mode=importlib",
     "--disable-socket",

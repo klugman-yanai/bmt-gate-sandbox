@@ -14,7 +14,7 @@ pytestmark = pytest.mark.unit
 _SAMPLE_RELS = (
     "foo/__pycache__/x.pyc",
     "projects/sk/inputs/wavs/a.wav",
-    "backend/runtime/main.py",
+    "backend/src/backend/main.py",
     "triggers/foo.json",
     "plain.txt",
     "projects/sk/outputs/summary.json",

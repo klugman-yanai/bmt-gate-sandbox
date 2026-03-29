@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from backend.config.bmt_domain_status import BmtLegStatus
 from backend.runtime.artifacts import (
     aggregate_status,
@@ -62,7 +61,7 @@ def test_cleanup_ephemeral_triggers_removes_expected_paths(tmp_path: Path) -> No
             status="pass",
             reason_code="ok",
             plugin_ref="ref",
-            execution_mode_used="m",
+            execution_mode_used="mock",
             score=ScorePayload(aggregate_score=1.0),
             verdict_summary={},
         ),

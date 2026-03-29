@@ -25,6 +25,7 @@ class ReasonCode(StrEnum):
     BMT_NOT_DEFINED = "bmt_not_defined"
     BMT_DISABLED = "bmt_disabled"
     SUPERSEDED = "superseded"
+    INCOMPLETE_PLAN = "incomplete_plan"
     RUNNER_FAILURES = "runner_failures"
     RUNNER_TIMEOUT = "runner_timeout"
     DEMO_FORCE_PASS = "demo_force_pass"
@@ -87,6 +88,7 @@ REASON_JOBS_SCHEMA_INVALID: str = ReasonCode.JOBS_SCHEMA_INVALID.value
 REASON_BMT_NOT_DEFINED: str = ReasonCode.BMT_NOT_DEFINED.value
 REASON_BMT_DISABLED: str = ReasonCode.BMT_DISABLED.value
 REASON_SUPERSEDED: str = ReasonCode.SUPERSEDED.value
+REASON_INCOMPLETE_PLAN: str = ReasonCode.INCOMPLETE_PLAN.value
 REASON_RUNNER_FAILURES: str = ReasonCode.RUNNER_FAILURES.value
 REASON_RUNNER_TIMEOUT: str = ReasonCode.RUNNER_TIMEOUT.value
 REASON_DEMO_FORCE_PASS: str = ReasonCode.DEMO_FORCE_PASS.value

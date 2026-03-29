@@ -7,8 +7,8 @@ import os
 import shutil
 from pathlib import Path
 
-from bmtgate.clients.actions import gh_notice
 from bmtgate import core
+from bmtgate.clients.actions import gh_notice
 
 
 def _get_configure() -> str:

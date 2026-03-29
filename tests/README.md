@@ -16,7 +16,7 @@ tests/
     repo_policy.py   # SAMPLE_PROJECT, repo_stage_bmt_manifest — centralises hardcoded paths
   _support/          # Legacy shims — re-export from tests.support (backward compat only)
   ci/                # CI-layer tests (.github/bmt/ci/)
-  bmt/               # BMT runtime tests (backend/runtime/)
+  bmt/               # BMT runtime tests (backend/src/backend/runtime/)
   gcp/               # GCP value-type / domain tests
   github/            # GitHub presentation / check rendering tests
   infra/             # Infrastructure alignment tests

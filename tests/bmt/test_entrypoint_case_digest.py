@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from backend.runtime.entrypoint import _case_digest_payload
 from backend.runtime.models import LegSummary, ScorePayload
 

@@ -36,7 +36,7 @@ def _project_manifest(project: str) -> str:
             {
                 "schema_version": 1,
                 "project": project,
-                "default_plugin": "default",
+                "default_plugin": "main",
                 "description": f"{project} BMT project",
             },
             indent=2,
@@ -50,7 +50,7 @@ def _plugin_manifest(project: str) -> str:
         json.dumps(
             {
                 "api_version": "v1",
-                "plugin_name": "default",
+                "plugin_name": project,
                 "entrypoint": f"{_plugin_package_name(project)}:{_plugin_class_name(project)}",
                 "package_root": "src",
             },
@@ -69,14 +69,24 @@ def _plugin_code(project: str) -> str:
     class_name = _plugin_class_name(project)
     return f"""from __future__ import annotations
 
-from backend.config.bmt_domain_status import BmtLegStatus
-from backend.runtime.sdk.context import ExecutionContext
-from backend.runtime.sdk.plugin import BmtPlugin
-from backend.runtime.sdk.results import CaseResult, ExecutionResult, PreparedAssets, ScoreResult, VerdictResult
+from bmtplugin import (
+    BmtPlugin,
+    CaseMetrics,
+    CaseResult,
+    CaseStatus,
+    CaseRunSummary,
+    ExecutionContext,
+    ExecutionMode,
+    ExecutionResult,
+    PassThresholdEvaluator,
+    PreparedAssets,
+    ScoreResult,
+    VerdictResult,
+)
 
 
 class {class_name}(BmtPlugin):
-    plugin_name = "default"
+    plugin_name = "{project}"
     api_version = "v1"
 
     def prepare(self, context: ExecutionContext) -> PreparedAssets:
@@ -91,12 +101,12 @@ class {class_name}(BmtPlugin):
                     case_id=rel,
                     input_path=wav_path,
                     exit_code=0,
-                    status="ok",
-                    metrics={{"score": 1.0}},
+                    status=CaseStatus.OK,
+                    metrics=CaseMetrics(root={{"score": 1.0}}),
                 )
             )
         return ExecutionResult(
-            execution_mode_used="plugin_direct",
+            execution_mode_used=ExecutionMode.PLUGIN_DIRECT,
             case_results=case_results,
         )
 
@@ -107,9 +117,10 @@ class {class_name}(BmtPlugin):
         context: ExecutionContext,
     ) -> ScoreResult:
         aggregate = 1.0 if execution_result.case_results else 0.0
+        summary = CaseRunSummary.from_case_results(execution_result.case_results)
         return ScoreResult(
             aggregate_score=aggregate,
-            metrics={{"case_count": len(execution_result.case_results)}},
+            metrics=summary.as_score_metrics(),
             extra={{"baseline_present": baseline is not None}},
         )
 
@@ -119,17 +130,7 @@ class {class_name}(BmtPlugin):
         baseline: ScoreResult | None,
         context: ExecutionContext,
     ) -> VerdictResult:
-        threshold = float(context.bmt_manifest.plugin_config.get("pass_threshold", 1.0))
-        passed = score_result.aggregate_score >= threshold
-        return VerdictResult(
-            passed=passed,
-            status=BmtLegStatus.PASS.value if passed else BmtLegStatus.FAIL.value,
-            reason_code="score_above_threshold" if passed else "score_below_threshold",
-            summary={{
-                "aggregate_score": score_result.aggregate_score,
-                "threshold": threshold,
-            }},
-        )
+        return PassThresholdEvaluator().evaluate(score_result, context)
 """
 
 
@@ -149,14 +150,10 @@ def add_project(project: str, *, stage_root: Path | None = None, dry_run: bool =
     files = {
         root / "project.json": _project_manifest(project),
         root / "README.md": f"# {project}\n",
-        root / "plugin_workspaces" / "default" / "plugin.json": _plugin_manifest(project),
-        root / "plugin_workspaces" / "default" / "src" / _plugin_package_name(project) / "__init__.py": _plugin_init(
-            project
-        ),
-        root / "plugin_workspaces" / "default" / "src" / _plugin_package_name(project) / "plugin.py": _plugin_code(
-            project
-        ),
-        root / "bmts" / "example" / "bmt.json": _bmt_manifest(project, "example", plugin_ref="workspace:default"),
+        root / "plugin.json": _plugin_manifest(project),
+        root / "src" / _plugin_package_name(project) / "__init__.py": _plugin_init(project),
+        root / "src" / _plugin_package_name(project) / "plugin.py": _plugin_code(project),
+        root / "bmts" / "example" / "bmt.json": _bmt_manifest(project, "example", plugin_ref="workspace:main"),
         root / "inputs" / ".keep": "",
     }
     if dry_run:
@@ -172,7 +169,7 @@ def add_bmt(
     bmt_slug: str,
     *,
     stage_root: Path | None = None,
-    plugin: str = "default",
+    plugin: str = "main",
     dry_run: bool = False,
 ) -> int:
     _validate_name(project)

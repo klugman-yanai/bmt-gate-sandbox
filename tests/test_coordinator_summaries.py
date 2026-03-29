@@ -1,8 +1,8 @@
 """Tests for runtime summary artifact paths."""
 
 import pytest
-
 from backend.runtime.artifacts import summary_path
+
 from tests.support.sentinels import FAKE_WORKFLOW_ID
 
 pytestmark = pytest.mark.unit

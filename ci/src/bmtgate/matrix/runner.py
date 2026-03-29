@@ -11,14 +11,14 @@ from typing import Any, cast
 
 from whenever import Instant
 
-from bmtgate.clients import gcs
-from bmtgate.clients.actions import gh_notice, gh_warning, write_github_output
 from bmtgate import core
 from bmtgate import settings as config
-from bmtgate.settings import BmtConfig, BmtContext, WorkflowContext
+from bmtgate.clients import gcs
+from bmtgate.clients.actions import gh_notice, gh_warning, write_github_output
 from bmtgate.contract.env_parse import is_truthy_env_value
 from bmtgate.handoff.env import read_workflow_str
 from bmtgate.matrix.provenance import write_runner_provenance
+from bmtgate.settings import BmtConfig, BmtContext, WorkflowContext
 
 
 def _project_has_bmt_stage_layout(project: str) -> bool:
@@ -184,8 +184,7 @@ class RunnerManager:
         try:
             exists = gcs.object_exists(canonical_runner_uri)
         except gcs.GcsError as exc:
-            print(f"::warning::Could not verify runner in GCS ({exc}); checking local fallbacks.")
-            exists = False
+            raise RuntimeError(f"Failed to verify runner in GCS at {canonical_runner_uri}: {exc}") from exc
         if exists:
             print(
                 f"::notice::Requested runner exists in bucket: {canonical_runner_uri} (validated for handoff)."

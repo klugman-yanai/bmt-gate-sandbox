@@ -10,37 +10,30 @@ from pathlib import Path
 from tools.repo.paths import DEFAULT_CONFIG_ROOT
 
 ALLOWED_TRACKED_TOP_LEVEL = {
-    ".actrc",
     ".cursorignore",
-    ".env.example",
     ".gitattributes",
     ".github",
     ".gitignore",
     ".pre-commit-config.yaml",
     ".python-version",
     "AGENTS.md",
-    "ARCHITECTURE.md",
     "CHANGELOG.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
     "CMakePresets.json",
-    "CMakeLists.txt",
     "Justfile",
     "README.md",
     "ROADMAP.md",
-    "cache",
+    "backend",
+    "benchmarks",
+    "ci",
     "docs",
-    "gcp",
     "infra",
     "pyproject.toml",
-    "pyrightconfig.json",
     "ruff.toml",
-    "schemas",
-    "scripts",
     "tests",
     "tools",
     "uv.lock",
-    ".canary-bmt-pr-test-20260305",
 }
 
 FORBIDDEN_TRACKED_PREFIXES = (
@@ -53,13 +46,25 @@ FORBIDDEN_EXISTING_TOP_LEVEL = {
     "resources",
 }
 
+FORBIDDEN_EXISTING_PATHS = (
+    Path("backend/backend"),
+    Path("backend/bmtplugin"),
+)
+
 REQUIRED_PATHS = (
     ".github/workflows/bmt-handoff.yml",
     ".github/workflows/build-and-test.yml",
     DEFAULT_CONFIG_ROOT,
+    "backend/src/backend",
+    "backend/src/bmtplugin",
+    "docs/architecture.md",
     "tools/scripts/hooks/pre-commit-sync-gcp.sh",
 )
 # benchmarks (DEFAULT_STAGE_ROOT) is optional: populated by sync; not required to exist for policy pass.
+
+
+def _existing_forbidden_paths(root: Path) -> list[str]:
+    return sorted(str(rel) for rel in FORBIDDEN_EXISTING_PATHS if (root / rel).exists())
 
 
 def _tracked_paths() -> list[str]:
@@ -113,6 +118,11 @@ class RepoLayoutPolicy:
         if forbidden_existing:
             failures.append("Forbidden top-level local directories exist:")
             failures.extend([f"  - {name}" for name in forbidden_existing])
+
+        forbidden_existing_paths = _existing_forbidden_paths(root)
+        if forbidden_existing_paths:
+            failures.append("Forbidden nested local directories exist:")
+            failures.extend([f"  - {path}" for path in forbidden_existing_paths])
 
         if failures:
             for line in failures:
