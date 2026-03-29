@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from backend.config.bmt_domain_status import BmtLegStatus
 from backend.config.value_types import as_results_path
-from backend.runtime.artifacts import load_summary_or_failure
+from backend.runtime.artifacts import load_summary_or_incomplete_plan_failure, load_summary_or_runner_failure
 from backend.runtime.models import PlanLeg
 
 pytestmark = pytest.mark.unit
@@ -29,11 +29,11 @@ def _leg() -> PlanLeg:
     )
 
 
-def test_load_summary_or_failure_returns_synthetic_failure_when_summary_missing(tmp_path: Path) -> None:
+def test_load_summary_or_runner_failure_returns_synthetic_failure_when_summary_missing(tmp_path: Path) -> None:
     stage = tmp_path / "stage"
     stage.mkdir(parents=True, exist_ok=True)
     leg = _leg()
-    summary = load_summary_or_failure(
+    summary = load_summary_or_runner_failure(
         stage_root=stage,
         workflow_run_id="wf-x",
         leg=leg,
@@ -45,15 +45,14 @@ def test_load_summary_or_failure_returns_synthetic_failure_when_summary_missing(
     assert summary.bmt_slug == leg.bmt_slug
 
 
-def test_load_summary_or_failure_uses_custom_reason_code_when_requested(tmp_path: Path) -> None:
+def test_load_summary_or_incomplete_plan_failure_marks_missing_summary_explicitly(tmp_path: Path) -> None:
     stage = tmp_path / "stage"
     stage.mkdir(parents=True, exist_ok=True)
     leg = _leg()
-    summary = load_summary_or_failure(
+    summary = load_summary_or_incomplete_plan_failure(
         stage_root=stage,
         workflow_run_id="wf-x",
         leg=leg,
-        missing_reason_code="incomplete_plan",
     )
     assert summary.status == BmtLegStatus.FAIL.value
     assert summary.reason_code == "incomplete_plan"

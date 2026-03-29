@@ -59,8 +59,8 @@ def workflow_steps_ordered() -> list[WorkflowStep]:
         ),
         WorkflowStep(
             key="workspace_deploy",
-            title="Upload full gcp/ mirror to bucket",
-            summary="Whole gcp/ tree → bucket for CI. Same as `just workspace deploy`.",
+            title="Upload full stage mirror to bucket",
+            summary="Whole benchmarks/ stage mirror → bucket for CI. Same as `just workspace deploy`.",
             primary_command="just sync-to-bucket",
         ),
         WorkflowStep(

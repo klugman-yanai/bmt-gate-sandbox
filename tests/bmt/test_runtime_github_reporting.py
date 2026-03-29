@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+import whenever
 from backend.config.constants import STATUS_CONTEXT
 from backend.config.value_types import as_results_path
 from backend.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
@@ -13,12 +15,14 @@ from backend.runtime.artifacts import (
     write_summary,
 )
 from backend.runtime.github_reporting import (
+    ReportingPreflight,
     _elapsed_seconds,
     _estimate_eta_sec_parallel,
     ensure_reporting_metadata_for_plan,
     publish_final_results,
     publish_github_failure,
     publish_progress,
+    reporting_preflight,
 )
 from backend.runtime.models import (
     ExecutionPlan,
@@ -29,7 +33,7 @@ from backend.runtime.models import (
     ScorePayload,
     StageRuntimePaths,
 )
-from github import GithubException
+from githubkit.exception import GitHubException
 
 from tests.support.captures import CallRecorder
 from tests.support.sentinels import FAKE_BUCKET, FAKE_REPO, FAKE_SHA_ALT, FAKE_WORKFLOW_ID
@@ -178,9 +182,52 @@ def test_publish_progress_updates_the_existing_check_run(tmp_path: Path, monkeyp
     assert rows[("sk", "false_alarms")].status == "running"
 
 
+def test_reporting_preflight_requires_real_github_identity_and_ready_reporter(tmp_path: Path, monkeypatch) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=91,
+            started_at="2026-03-19T10:00:00Z",
+        ),
+    )
+    monkeypatch.setattr("backend.runtime.github_reporting.resolve_github_app_token", lambda _repo: "app-token")
+
+    preflight = reporting_preflight(plan=plan, runtime=runtime)
+
+    assert preflight == ReportingPreflight(
+        publish_required=True,
+        reporter_ready=True,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=91,
+            started_at="2026-03-19T10:00:00Z",
+            github_publish_complete=False,
+        ),
+    )
+
+
+def test_reporting_preflight_marks_publish_required_without_existing_metadata(tmp_path: Path, monkeypatch) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    runtime.stage_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    monkeypatch.setattr("backend.runtime.github_reporting.resolve_github_app_token", lambda _repo: "app-token")
+
+    preflight = reporting_preflight(plan=plan, runtime=runtime)
+
+    assert preflight.publish_required is True
+    assert preflight.reporter_ready is True
+    assert preflight.metadata == ReportingMetadata()
+
+
 def test_publish_final_results_posts_status_and_failure_comment_with_log_dump(
     tmp_path: Path,
     monkeypatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
     runtime.stage_root.mkdir(parents=True, exist_ok=True)
@@ -265,7 +312,8 @@ def test_publish_final_results_posts_status_and_failure_comment_with_log_dump(
     monkeypatch.setattr("backend.runtime.github_reporting._generate_signed_url", _fake_signed_url)
     monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
 
-    publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
+    with caplog.at_level("INFO"):
+        publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
 
     log_dump_path = runtime.stage_root / "log-dumps" / f"{FAKE_WORKFLOW_ID}.txt"
     assert log_dump_path.is_file()
@@ -289,6 +337,80 @@ def test_publish_final_results_posts_status_and_failure_comment_with_log_dump(
     meta_after = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
     assert meta_after is not None
     assert meta_after.github_publish_complete is True
+    assert "terminal publish outcome" in caplog.text
+    assert "finalize_ok=True" in caplog.text
+    assert "commit_ok=True" in caplog.text
+
+
+def test_publish_final_results_prunes_old_and_excess_log_dumps(tmp_path: Path, monkeypatch) -> None:
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
+    dumps_root = runtime.stage_root / "log-dumps"
+    dumps_root.mkdir(parents=True, exist_ok=True)
+    plan = _plan()
+    write_reporting_metadata(
+        stage_root=runtime.stage_root,
+        workflow_run_id=plan.workflow_run_id,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=91,
+            started_at="2026-03-19T10:00:00Z",
+        ),
+    )
+    logs_root = runtime.stage_root / "projects" / _PROJECT / "results" / _BMT_FR / "snapshots" / "run-old" / "logs"
+    logs_root.mkdir(parents=True, exist_ok=True)
+    (logs_root / "stderr.txt").write_text("runner failed hard", encoding="utf-8")
+    summaries = [
+        _summary(
+            bmt_slug=_BMT_FR,
+            run_id=f"{FAKE_WORKFLOW_ID}-{_BMT_FR}",
+            status="fail",
+            reason_code="score_lt_last",
+            aggregate_score=0.1,
+            logs_uri=str(logs_root.relative_to(runtime.stage_root)),
+        )
+    ]
+
+    for idx in range(205):
+        path = dumps_root / f"old-{idx}.txt"
+        path.write_text(f"old {idx}", encoding="utf-8")
+        recent_ts = whenever.Instant.parse_iso("2026-03-28T00:00:00Z").timestamp() + idx
+        os.utime(path, (recent_ts, recent_ts))
+    ancient = dumps_root / "ancient.txt"
+    ancient.write_text("ancient", encoding="utf-8")
+    os.utime(ancient, (1_500_000_000, 1_500_000_000))
+
+    class FakeReporter:
+        def __init__(self, *, repository: str, sha: str, token: str, status_context: str) -> None:
+            _ = (repository, sha, token, status_context)
+
+        def finalize_check_run(
+            self, *, check_run_id: int | None, view: CheckFinalView, details_url: str
+        ) -> tuple[int | None, bool]:
+            _ = (check_run_id, view, details_url)
+            return check_run_id, True
+
+        def post_final_status(self, *, state: str, description: str, details_url: str | None = None) -> bool:
+            _ = (state, description, details_url)
+            return True
+
+        def upsert_final_pr_comment(self, *, pr_number: int, view: FinalCommentView) -> None:
+            _ = (pr_number, view)
+
+    monkeypatch.setattr("backend.runtime.github_reporting.resolve_github_app_token", lambda _repo: "app-token")
+    monkeypatch.setattr("backend.runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("backend.runtime.github_reporting._generate_signed_url", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "backend.runtime.github_reporting._instant_now",
+        lambda: whenever.Instant.parse_iso("2026-03-29T12:00:00Z"),
+    )
+    monkeypatch.setenv("GCS_BUCKET", FAKE_BUCKET)
+
+    publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
+
+    remaining = sorted(p.name for p in dumps_root.glob("*.txt"))
+    assert f"{FAKE_WORKFLOW_ID}.txt" in remaining
+    assert "ancient.txt" not in remaining
+    assert len(remaining) == 200
 
 
 def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
@@ -324,7 +446,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
             cap.init = (repository, sha, token, status_context)
 
         def finalize_check_run(self, *, check_run_id: int | None, view, details_url: str):
-            raise GithubException(500, None, None, "check update failed")
+            raise GitHubException("check update failed")
 
         def post_final_status(self, *, state: str, description: str, details_url: str | None = None) -> bool:
             cap.status_state = state
@@ -333,7 +455,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
             return True
 
         def upsert_final_pr_comment(self, *, pr_number: int, view) -> None:
-            raise GithubException(500, None, None, "comment update failed")
+            raise GitHubException("comment update failed")
 
     def _resolve_token(repository: str) -> str:
         cap.resolved_repository = repository

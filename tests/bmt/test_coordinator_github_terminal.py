@@ -15,7 +15,9 @@ from backend.config.constants import (
 from backend.runtime.artifacts import write_plan, write_reporting_metadata
 from backend.runtime.entrypoint import run_coordinator_mode, run_finalize_failure_mode
 from backend.runtime.facade import RuntimeFacade, RuntimeMode
-from backend.runtime.models import ExecutionPlan, ReportingMetadata, StageRuntimePaths
+from backend.runtime.finalization import load_optional_finalization_record
+from backend.runtime.github_reporting import ReportingPreflight
+from backend.runtime.models import ExecutionPlan, FinalizationState, ReportingMetadata, StageRuntimePaths
 
 pytestmark = pytest.mark.unit
 
@@ -43,7 +45,7 @@ def _empty_plan(*, workflow_run_id: str = "wf-coord-terminal") -> ExecutionPlan:
     )
 
 
-def test_coordinator_finally_invokes_github_failure_when_publish_does_not_complete(
+def test_coordinator_marks_finalization_failed_when_publish_does_not_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stage_root = tmp_path / "stage"
@@ -68,19 +70,34 @@ def test_coordinator_finally_invokes_github_failure_when_publish_does_not_comple
     def _track_failure(**_kwargs: object) -> None:
         hook.append("failure")
 
+    monkeypatch.setattr(
+        "backend.runtime.entrypoint.reporting_preflight",
+        lambda **_kwargs: ReportingPreflight(
+            publish_required=True,
+            reporter_ready=True,
+            metadata=ReportingMetadata(
+                workflow_execution_url="https://example.test/workflows/1",
+                check_run_id=9,
+                started_at="2026-03-19T10:00:00Z",
+            ),
+        ),
+    )
     monkeypatch.setattr("backend.runtime.entrypoint.publish_final_results", _track_publish)
     monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _track_failure)
-    monkeypatch.setattr("backend.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
     exit_code = run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root)
-    assert exit_code == 0
-    assert hook == ["publish", "publish", "failure"]
+    assert exit_code == 1
+    assert hook == ["publish", "failure"]
+    assert (stage_root / "triggers" / "reporting" / f"{plan.workflow_run_id}.json").exists()
+    record = load_optional_finalization_record(stage_root=stage_root, workflow_run_id=plan.workflow_run_id)
+    assert record is not None
+    assert record.state == FinalizationState.FAILED_GITHUB_PUBLISH
 
 
-def test_coordinator_publish_crash_still_invokes_failure_publisher(
+def test_coordinator_publish_crash_records_failed_github_publish(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If publish crashes, finally path must still close pending GitHub state via failure publisher."""
+    """A publish-stage crash now stops promotion and records failed finalization for explicit retry."""
     stage_root = tmp_path / "stage"
     stage_root.mkdir(parents=True, exist_ok=True)
     plan = _empty_plan(workflow_run_id="wf-publish-crash")
@@ -101,16 +118,27 @@ def test_coordinator_publish_crash_still_invokes_failure_publisher(
         calls.append("publish")
         raise RuntimeError("injected publish crash")
 
-    def _track_failure(**_kwargs: object) -> None:
-        calls.append("failure")
-
+    monkeypatch.setattr(
+        "backend.runtime.entrypoint.reporting_preflight",
+        lambda **_kwargs: ReportingPreflight(
+            publish_required=True,
+            reporter_ready=True,
+            metadata=ReportingMetadata(
+                workflow_execution_url="https://example.test/workflows/1",
+                check_run_id=42,
+                started_at="2026-03-19T10:00:00Z",
+            ),
+        ),
+    )
     monkeypatch.setattr("backend.runtime.entrypoint.publish_final_results", _raise_publish)
-    monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _track_failure)
     monkeypatch.setattr("backend.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
-    with pytest.raises(RuntimeError, match="injected publish crash"):
-        run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root)
-    assert calls == ["publish", "publish", "failure"]
+    assert run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 1
+    assert calls == ["publish"]
+    record = load_optional_finalization_record(stage_root=stage_root, workflow_run_id=plan.workflow_run_id)
+    assert record is not None
+    assert record.state == FinalizationState.FAILED_GITHUB_PUBLISH
+    assert "publish crash" in record.error_message
 
 
 def test_runtime_mode_finalize_failure_string() -> None:
@@ -156,12 +184,24 @@ def test_coordinator_skips_recovery_when_first_publish_marks_github_complete(
     def _track_failure(**_kwargs: object) -> None:
         failure_calls.append(True)
 
+    monkeypatch.setattr(
+        "backend.runtime.entrypoint.reporting_preflight",
+        lambda **_kwargs: ReportingPreflight(
+            publish_required=True,
+            reporter_ready=True,
+            metadata=ReportingMetadata(
+                workflow_execution_url="https://example.test/workflows/1",
+                check_run_id=9,
+                started_at="2026-03-19T10:00:00Z",
+            ),
+        ),
+    )
     monkeypatch.setattr("backend.runtime.entrypoint.publish_github_failure", _track_failure)
-    monkeypatch.setattr("backend.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
     assert run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 0
     assert publish_calls == ["publish"]
     assert failure_calls == []
+    assert not (stage_root / "triggers" / "reporting" / f"{plan.workflow_run_id}.json").exists()
 
 
 def test_finalize_failure_mode_returns_zero_without_plan_and_without_finalize_env(

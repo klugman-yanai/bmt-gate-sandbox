@@ -10,7 +10,9 @@ import pytest
 from _pytest.monkeypatch import MonkeyPatch
 from backend.runtime.artifacts import load_summary, write_reporting_metadata
 from backend.runtime.entrypoint import run_coordinator_mode, run_plan_mode, run_task_mode
-from backend.runtime.models import ReportingMetadata
+from backend.runtime.finalization import load_optional_finalization_record
+from backend.runtime.github_reporting import ReportingPreflight
+from backend.runtime.models import FinalizationState, ReportingMetadata
 
 from tests.support.fixtures.paths import StagePaths
 from tests.support.sentinels import FAKE_REPO, FAKE_SHA_ALT, FAKE_WORKFLOW_ID, SYNTH_BMT_SLUG, SYNTH_PROJECT
@@ -37,9 +39,9 @@ def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatc
     # Avoid live GCS sync (GCS_BUCKET in env); this test exercises local runtime modes only.
     publish_bmt(stage_root=sp.root, project=SYNTH_PROJECT, bmt_slug=SYNTH_BMT_SLUG, sync=False)
 
-    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
-    monkeypatch.setenv("BMT_HEAD_SHA", FAKE_SHA_ALT)
-    monkeypatch.setenv("BMT_HEAD_BRANCH", "main")
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("BMT_HEAD_SHA", raising=False)
+    monkeypatch.delenv("BMT_HEAD_BRANCH", raising=False)
     monkeypatch.setenv("BMT_ACCEPTED_PROJECTS_JSON", json.dumps([SYNTH_PROJECT]))
 
     assert run_plan_mode(workflow_run_id=FAKE_WORKFLOW_ID, stage_root=sp.root) == 0
@@ -62,8 +64,13 @@ def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatc
 
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
     expected_run = f"{FAKE_WORKFLOW_ID}-{SYNTH_BMT_SLUG}"
-    assert pointer["latest"] == expected_run
-    assert pointer["last_passing"] == expected_run
+    assert pointer["latest_run_id"] == expected_run
+    assert pointer["last_passing_run_id"] == expected_run
+    assert pointer["promoted_by_workflow_run_id"] == FAKE_WORKFLOW_ID
+    record = load_optional_finalization_record(stage_root=sp.root, workflow_run_id=FAKE_WORKFLOW_ID)
+    assert record is not None
+    assert record.state == FinalizationState.PROMOTION_COMMITTED
+    assert record.needs_reconciliation is False
 
 
 def test_run_task_mode_writes_failure_summary_when_execute_leg_raises(tmp_path: Path, monkeypatch) -> None:
@@ -154,11 +161,24 @@ def test_run_coordinator_mode_marks_missing_summary_as_incomplete_plan(
     monkeypatch.setattr(runtime_entrypoint, "publish_final_results", _capture_publish)
     monkeypatch.setattr(runtime_entrypoint, "publish_github_failure", lambda **_kwargs: None)
     monkeypatch.setattr(runtime_entrypoint, "cleanup_ephemeral_triggers", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runtime_entrypoint,
+        "reporting_preflight",
+        lambda **_kwargs: ReportingPreflight(
+            publish_required=True,
+            reporter_ready=True,
+            metadata=ReportingMetadata(
+                workflow_execution_url="https://example.test/workflows/123",
+                check_run_id=91,
+                started_at="2026-03-19T10:00:00Z",
+            ),
+        ),
+    )
 
     with caplog.at_level(logging.WARNING):
         assert run_coordinator_mode(workflow_run_id=FAKE_WORKFLOW_ID, stage_root=sp.root) == 0
 
-    assert "coordinator completeness mismatch" in caplog.text
+    assert "event=coordinator_completeness_incomplete" in caplog.text
     assert SYNTH_BMT_SLUG in caplog.text
     summaries = captured["summaries"]
     assert isinstance(summaries, list)
@@ -168,8 +188,147 @@ def test_run_coordinator_mode_marks_missing_summary_as_incomplete_plan(
     assert summary.score.extra.get("unavailable") is True
 
     pointer = json.loads(sp.current_json(SYNTH_PROJECT, SYNTH_BMT_SLUG).read_text(encoding="utf-8"))
-    assert pointer["latest"] == f"{FAKE_WORKFLOW_ID}-{SYNTH_BMT_SLUG}"
-    assert pointer["last_passing"] is None
+    assert pointer["latest_run_id"] == f"{FAKE_WORKFLOW_ID}-{SYNTH_BMT_SLUG}"
+    assert pointer["last_passing_run_id"] is None
+    record = load_optional_finalization_record(stage_root=sp.root, workflow_run_id=FAKE_WORKFLOW_ID)
+    assert record is not None
+    assert record.state == FinalizationState.PROMOTION_COMMITTED
+    assert record.expected_leg_count == 1
+    assert record.present_summary_count == 0
+    assert record.missing_leg_keys == [f"{SYNTH_PROJECT}/{SYNTH_BMT_SLUG}"]
+    assert record.needs_reconciliation is True
+
+
+def test_run_coordinator_mode_exits_nonzero_before_pointer_write_when_publish_is_required_but_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sp = StagePaths(tmp_path / "benchmarks")
+    add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
+    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
+
+    manifest_path = sp.bmt_manifest(SYNTH_PROJECT, SYNTH_BMT_SLUG)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["enabled"] = True
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
+    monkeypatch.setenv("BMT_HEAD_SHA", FAKE_SHA_ALT)
+    monkeypatch.setenv("BMT_HEAD_BRANCH", "main")
+    monkeypatch.setenv("BMT_ACCEPTED_PROJECTS_JSON", json.dumps([SYNTH_PROJECT]))
+
+    assert run_plan_mode(workflow_run_id=FAKE_WORKFLOW_ID, stage_root=sp.root, allow_workspace_plugins=True) == 0
+    write_reporting_metadata(
+        stage_root=sp.root,
+        workflow_run_id=FAKE_WORKFLOW_ID,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=91,
+            started_at="2026-03-19T10:00:00Z",
+        ),
+    )
+
+    monkeypatch.setattr(
+        runtime_entrypoint,
+        "reporting_preflight",
+        lambda **_kwargs: ReportingPreflight(
+            publish_required=True,
+            reporter_ready=False,
+            metadata=ReportingMetadata(
+                workflow_execution_url="https://example.test/workflows/123",
+                check_run_id=91,
+                started_at="2026-03-19T10:00:00Z",
+            ),
+        ),
+    )
+    monkeypatch.setattr(runtime_entrypoint, "publish_final_results", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime_entrypoint, "publish_github_failure", lambda **_kwargs: None)
+
+    assert run_coordinator_mode(workflow_run_id=FAKE_WORKFLOW_ID, stage_root=sp.root) == 1
+    assert not sp.current_json(SYNTH_PROJECT, SYNTH_BMT_SLUG).exists()
+    assert sp.trigger_reporting(FAKE_WORKFLOW_ID).exists()
+    record = load_optional_finalization_record(stage_root=sp.root, workflow_run_id=FAKE_WORKFLOW_ID)
+    assert record is not None
+    assert record.state == FinalizationState.FAILED_GITHUB_PUBLISH
+    assert record.expected_leg_count == 1
+    assert record.present_summary_count == 0
+    assert record.needs_reconciliation is True
+
+
+def test_run_coordinator_mode_promotes_pointer_before_failed_github_publish(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sp = StagePaths(tmp_path / "benchmarks")
+    workspace_root = tmp_path / "workspace"
+    add_project(SYNTH_PROJECT, stage_root=sp.root, dry_run=False)
+    add_bmt(SYNTH_PROJECT, SYNTH_BMT_SLUG, stage_root=sp.root, plugin="default")
+
+    manifest_path = sp.bmt_manifest(SYNTH_PROJECT, SYNTH_BMT_SLUG)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["enabled"] = True
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    dataset_root = sp.inputs(SYNTH_PROJECT, SYNTH_BMT_SLUG)
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    (dataset_root / "sample.wav").write_bytes(b"fake")
+    publish_bmt(stage_root=sp.root, project=SYNTH_PROJECT, bmt_slug=SYNTH_BMT_SLUG, sync=False)
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", FAKE_REPO)
+    monkeypatch.setenv("BMT_HEAD_SHA", FAKE_SHA_ALT)
+    monkeypatch.setenv("BMT_HEAD_BRANCH", "main")
+    monkeypatch.setenv("BMT_ACCEPTED_PROJECTS_JSON", json.dumps([SYNTH_PROJECT]))
+
+    assert run_plan_mode(workflow_run_id=FAKE_WORKFLOW_ID, stage_root=sp.root) == 0
+    assert (
+        run_task_mode(
+            workflow_run_id=FAKE_WORKFLOW_ID,
+            task_profile="standard",
+            task_index=0,
+            stage_root=sp.root,
+            workspace_root=workspace_root,
+        )
+        == 0
+    )
+
+    write_reporting_metadata(
+        stage_root=sp.root,
+        workflow_run_id=FAKE_WORKFLOW_ID,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.test/workflows/123",
+            check_run_id=91,
+            started_at="2026-03-19T10:00:00Z",
+        ),
+    )
+
+    monkeypatch.setattr(
+        runtime_entrypoint,
+        "reporting_preflight",
+        lambda **_kwargs: ReportingPreflight(
+            publish_required=True,
+            reporter_ready=True,
+            metadata=ReportingMetadata(
+                workflow_execution_url="https://example.test/workflows/123",
+                check_run_id=91,
+                started_at="2026-03-19T10:00:00Z",
+            ),
+        ),
+    )
+    monkeypatch.setattr(runtime_entrypoint, "publish_final_results", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime_entrypoint, "publish_github_failure", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime_entrypoint, "cleanup_ephemeral_triggers", lambda **_kwargs: None)
+
+    assert run_coordinator_mode(workflow_run_id=FAKE_WORKFLOW_ID, stage_root=sp.root) == 1
+
+    pointer = json.loads(sp.current_json(SYNTH_PROJECT, SYNTH_BMT_SLUG).read_text(encoding="utf-8"))
+    expected_run = f"{FAKE_WORKFLOW_ID}-{SYNTH_BMT_SLUG}"
+    assert pointer["latest_run_id"] == expected_run
+    assert pointer["promoted_by_workflow_run_id"] == FAKE_WORKFLOW_ID
+    assert sp.trigger_reporting(FAKE_WORKFLOW_ID).exists()
+    record = load_optional_finalization_record(stage_root=sp.root, workflow_run_id=FAKE_WORKFLOW_ID)
+    assert record is not None
+    assert record.state == FinalizationState.FAILED_GITHUB_PUBLISH
+    assert record.promoted_results_paths == [f"projects/{SYNTH_PROJECT}/results/{SYNTH_BMT_SLUG}"]
 
 
 def test_image_main_dispatches_task_mode(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:

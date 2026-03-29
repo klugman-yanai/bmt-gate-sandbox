@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -43,6 +44,23 @@ def test_resolve_bmt_orchestrator_image_base_from_tfvars(tmp_path: Path) -> None
         encoding="utf-8",
     )
     assert resolve_bmt_orchestrator_image_base(tmp_path) == "us-central1-docker.pkg.dev/proj-x/my-repo/bmt-orchestrator"
+
+
+def test_resolve_bmt_orchestrator_image_base_falls_back_when_pulumi_cli_times_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pulumi_dir = tmp_path / "infra" / "pulumi"
+    pulumi_dir.mkdir(parents=True)
+    (pulumi_dir / "Pulumi.yaml").write_text("name: test\nruntime: python\n", encoding="utf-8")
+
+    def _hang(*_: object, **__: object) -> None:
+        raise subprocess.TimeoutExpired(cmd=["pulumi", "stack", "output", "gcp_project"], timeout=5)
+
+    monkeypatch.setattr("tools.shared.artifact_registry_uri.subprocess.run", _hang)
+    assert (
+        resolve_bmt_orchestrator_image_base(tmp_path)
+        == "europe-west4-docker.pkg.dev/train-kws-202311/bmt-images/bmt-orchestrator"
+    )
 
 
 def test_artifact_registry_tag_status_invalid_tag() -> None:

@@ -137,9 +137,9 @@ on:
         description: "Dispatch pipeline terminal state for this workflow (dispatched_async or dispatch_failed)."
         value: ${{ jobs.dispatch.outputs.bmt_final_state }}
       bmt_recovery_used:
-        description: "True if context/dispatch failed and recovery fallback path ran."
+        description: "True if context/dispatch failed and the failure fallback path ran."
         value: ${{ jobs.dispatch.outputs.bmt_recovery_used }}
-      bmt_fallback_run:
+      bmt_dispatch_fallback_used:
         description: "Deprecated alias of bmt_recovery_used."
         value: ${{ jobs.dispatch.outputs.bmt_recovery_used }}
 
@@ -403,11 +403,13 @@ jobs:
 
   dispatch:
     name: Dispatch
+    # publish_omitted is intentionally notice-only and must not gain failing side effects while
+    # dispatch excludes it from gating.
     needs: [plan, publish]
     if: >-
       !cancelled()
       && needs.plan.result == 'success'
-      && (needs['publish'].result == 'success' || needs['publish'].result == 'skipped')
+      && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -438,7 +440,6 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             .github
-            gcp
 
       - name: Setup GCP and uv
         uses: ./.github/actions/setup/gcp-uv
@@ -558,7 +559,6 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             .github
-            gcp
 
       - uses: ./.github/actions/setup/gcp-uv
         if: steps.invoke-workflow.outcome != 'success'

@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from google.api_core import exceptions as api_exceptions
+from google.auth import exceptions as google_auth_exceptions
 from google.cloud import storage
 
 # gs://bucket-name/path/to/object
@@ -16,6 +17,14 @@ _GS_URI = re.compile(r"^gs://([^/]+)/(.*)$")
 
 class GcsError(RuntimeError):
     """Raised when a GCS operation fails in a non-recoverable way."""
+
+
+_GCS_OPERATION_ERRORS: tuple[type[BaseException], ...] = (
+    api_exceptions.GoogleAPIError,
+    google_auth_exceptions.GoogleAuthError,
+    OSError,
+    TypeError,
+)
 
 
 @functools.lru_cache(maxsize=1)
@@ -50,7 +59,7 @@ def read_object(uri: str) -> bytes:
         return blob.download_as_bytes()
     except ValueError as exc:
         raise GcsError(str(exc)) from exc
-    except Exception as exc:
+    except _GCS_OPERATION_ERRORS as exc:
         raise GcsError(f"Failed to read {uri}: {exc}") from exc
 
 
@@ -66,7 +75,7 @@ def write_object(uri: str, data: bytes | str) -> None:
         blob.upload_from_string(data)
     except ValueError as exc:
         raise GcsError(str(exc)) from exc
-    except Exception as exc:
+    except _GCS_OPERATION_ERRORS as exc:
         raise GcsError(f"Failed to write {uri}: {exc}") from exc
 
 
@@ -84,7 +93,7 @@ def list_prefix(prefix_uri: str) -> list[str]:
         return out
     except ValueError as exc:
         raise GcsError(str(exc)) from exc
-    except Exception as exc:
+    except _GCS_OPERATION_ERRORS as exc:
         raise GcsError(f"Failed to list {prefix_uri}: {exc}") from exc
 
 
@@ -100,7 +109,7 @@ def delete_object(uri: str) -> None:
         raise GcsError(str(exc)) from exc
     except api_exceptions.NotFound:
         return  # already deleted; treat as success
-    except Exception as exc:
+    except _GCS_OPERATION_ERRORS as exc:
         raise GcsError(f"Failed to delete {uri}: {exc}") from exc
 
 
@@ -118,7 +127,7 @@ def object_exists(uri: str) -> bool:
         return blob.exists()
     except ValueError:
         raise
-    except Exception as exc:
+    except _GCS_OPERATION_ERRORS as exc:
         raise GcsError(f"Failed to check existence of {uri}: {exc}") from exc
 
 
@@ -126,6 +135,21 @@ def upload_json(uri: str, payload: dict[str, Any]) -> None:
     """Upload a JSON object to GCS. Raises GcsError on failure."""
     data = json.dumps(payload, indent=2) + "\n"
     write_object(uri, data)
+
+
+def create_json_if_absent(uri: str, payload: dict[str, Any]) -> bool:
+    """Create a JSON object only when it does not already exist."""
+    try:
+        bucket_name, path = parse_gs_uri(uri)
+        blob = _get_client().bucket(bucket_name).blob(path)
+        blob.upload_from_string(json.dumps(payload, indent=2) + "\n", if_generation_match=0)
+        return True
+    except ValueError as exc:
+        raise GcsError(str(exc)) from exc
+    except api_exceptions.PreconditionFailed:
+        return False
+    except _GCS_OPERATION_ERRORS as exc:
+        raise GcsError(f"Failed to create {uri}: {exc}") from exc
 
 
 def download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -140,5 +164,3 @@ def download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
         return None, str(exc)
     except json.JSONDecodeError as exc:
         return None, f"invalid_json: {exc}"
-    except Exception as exc:
-        return None, str(exc)

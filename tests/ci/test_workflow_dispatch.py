@@ -46,6 +46,11 @@ def _read_outputs(path: Path) -> dict[str, str]:
     return dict(line.split("=", 1) for line in lines)
 
 
+def _stub_new_dispatch_receipt(monkeypatch) -> None:
+    monkeypatch.setattr("bmtgate.handoff.dispatch.create_json_if_absent", lambda *_a, **_k: True)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.upload_json", lambda *_a, **_k: None)
+
+
 def test_invoke_workflow_starts_execution_and_writes_outputs(
     tmp_path: Path,
     monkeypatch,
@@ -62,6 +67,7 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
     monkeypatch.setenv("HEAD_EVENT", "push")
     monkeypatch.setenv("RUN_CONTEXT", "ci")
     monkeypatch.setenv("FILTERED_MATRIX_JSON", json.dumps({"include": [{"project": "sk"}, {"project": "sk"}]}))
+    _stub_new_dispatch_receipt(monkeypatch)
 
     spy = _WorkflowDispatchSpy()
 
@@ -113,6 +119,7 @@ def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch
     monkeypatch.setenv("PR_NUMBER", "79")
     monkeypatch.setenv("RUN_CONTEXT", "pr")
     monkeypatch.setenv("FILTERED_MATRIX_JSON", json.dumps({"include": [{"project": "sk"}]}))
+    monkeypatch.setattr("bmtgate.handoff.dispatch.create_json_if_absent", lambda *_a, **_k: True)
 
     monkeypatch.setattr(
         "bmtgate.handoff.dispatch.start_execution",
@@ -121,12 +128,14 @@ def test_invoke_workflow_records_pr_active_execution(tmp_path: Path, monkeypatch
             "state": "ACTIVE",
         },
     )
+    monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", lambda _: (None, None))
 
     seen: dict[str, object] = {}
 
     def _fake_upload_json(uri: str, payload: dict[str, object]) -> None:
-        seen["uri"] = uri
-        seen["payload"] = payload
+        if uri.endswith("/triggers/reporting/pr-active/79.json"):
+            seen["uri"] = uri
+            seen["payload"] = payload
 
     monkeypatch.setattr("bmtgate.handoff.dispatch.upload_json", _fake_upload_json)
 
@@ -467,7 +476,7 @@ def _invoke_env_base(tmp_path: Path, monkeypatch, *, github_run_id: str) -> Path
     monkeypatch.setenv("RUN_CONTEXT", "pr")
     monkeypatch.setenv("PR_NUMBER", "79")
     monkeypatch.setenv("FILTERED_MATRIX_JSON", json.dumps({"include": [{"project": "sk"}, {"project": "sk"}]}))
-    monkeypatch.setattr("bmtgate.handoff.dispatch.upload_json", lambda *_a, **_k: None)
+    _stub_new_dispatch_receipt(monkeypatch)
     return github_output
 
 
@@ -545,9 +554,76 @@ def test_invoke_skips_cancel_when_pr_active_same_workflow_run_id(tmp_path: Path,
     assert cancel_calls == []
 
 
-def test_invoke_starts_after_cancel_failure_on_supersede(tmp_path: Path, monkeypatch) -> None:
-    _invoke_env_base(tmp_path, monkeypatch, github_run_id="222")
+def test_invoke_reuses_started_dispatch_receipt_without_second_start(tmp_path: Path, monkeypatch) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="444")
+    monkeypatch.setattr("bmtgate.handoff.dispatch.create_json_if_absent", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        "bmtgate.handoff.dispatch.download_json",
+        lambda _uri: (
+            {
+                "schema_version": 1,
+                "workflow_run_id": "444",
+                "repository": FAKE_REPO,
+                "head_sha": FAKE_SHA_ALT,
+                "state": "started",
+                "created_at": "2026-03-29T10:00:00Z",
+                "updated_at": "2026-03-29T10:00:01Z",
+                "workflow_execution_name": f"projects/demo/locations/{FAKE_REGION}/workflows/bmt-workflow/executions/reused",
+                "workflow_execution_url": (
+                    "https://console.cloud.google.com/workflows/workflow/"
+                    f"{FAKE_REGION}/bmt-workflow/execution/reused?project={FAKE_GCP_PROJECT}"
+                ),
+                "workflow_execution_state": "ACTIVE",
+            },
+            None,
+        ),
+    )
     start_calls = 0
+
+    def _fake_start_execution(**kwargs: object) -> WorkflowExecutionStubResponse:
+        nonlocal start_calls
+        start_calls += 1
+        return {"name": "unexpected", "state": "ACTIVE"}
+
+    monkeypatch.setattr("bmtgate.handoff.dispatch.start_execution", _fake_start_execution)
+
+    WorkflowDispatchManager.from_env().invoke()
+
+    assert start_calls == 0
+
+
+def test_invoke_aborts_when_existing_dispatch_receipt_conflicts_with_repo_or_sha(tmp_path: Path, monkeypatch) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="555")
+    monkeypatch.setattr("bmtgate.handoff.dispatch.create_json_if_absent", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        "bmtgate.handoff.dispatch.download_json",
+        lambda _uri: (
+            {
+                "schema_version": 1,
+                "workflow_run_id": "555",
+                "repository": FAKE_REPO,
+                "head_sha": FAKE_SHA_MISMATCH,
+                "state": "pending_start",
+                "created_at": "2026-03-29T10:00:00Z",
+                "updated_at": "2026-03-29T10:00:00Z",
+            },
+            None,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="different repository or head_sha"):
+        WorkflowDispatchManager.from_env().invoke()
+
+
+def test_invoke_retries_cancel_failure_on_supersede_and_still_starts_when_non_strict(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="222")
+    monkeypatch.delenv("BMT_DISPATCH_REQUIRE_CANCEL_OK", raising=False)
+    monkeypatch.delenv("BMT_ALLOW_UNSAFE_SUPERSEDE", raising=False)
+    start_calls = 0
+    cancel_attempts = {"count": 0}
+    sleeps: list[float] = []
 
     def _dl(_uri: str):
         return (
@@ -562,9 +638,11 @@ def test_invoke_starts_after_cancel_failure_on_supersede(tmp_path: Path, monkeyp
     monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", _dl)
 
     def _boom(*, execution_name: str):
+        cancel_attempts["count"] += 1
         raise WorkflowsApiError(f"cancel failed {execution_name}")
 
     monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", _boom)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.time.sleep", sleeps.append)
 
     def _fake_start_execution(
         **kwargs: object,
@@ -578,4 +656,86 @@ def test_invoke_starts_after_cancel_failure_on_supersede(tmp_path: Path, monkeyp
 
     monkeypatch.setattr("bmtgate.handoff.dispatch.start_execution", _fake_start_execution)
     WorkflowDispatchManager.from_env().invoke()
+    assert cancel_attempts["count"] == 3
+    assert sleeps == [1.0, 3.0]
     assert start_calls == 1
+
+
+def test_invoke_aborts_after_cancel_failure_when_strict_supersede_is_enabled(tmp_path: Path, monkeypatch) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="333")
+    monkeypatch.setenv("BMT_DISPATCH_REQUIRE_CANCEL_OK", "true")
+    start_calls = 0
+    cancel_attempts = {"count": 0}
+    sleeps: list[float] = []
+
+    def _dl(_uri: str):
+        return (
+            {
+                "repository": FAKE_REPO,
+                "workflow_run_id": "111",
+                "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/old-ex",
+            },
+            None,
+        )
+
+    monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", _dl)
+
+    def _boom(*, execution_name: str):
+        cancel_attempts["count"] += 1
+        raise WorkflowsApiError(f"cancel failed {execution_name}")
+
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", _boom)
+    monkeypatch.setattr("bmtgate.handoff.dispatch.time.sleep", sleeps.append)
+
+    def _fake_start_execution(
+        **kwargs: object,
+    ) -> WorkflowExecutionStubResponse:
+        nonlocal start_calls
+        start_calls += 1
+        return {
+            "name": f"projects/demo/locations/{FAKE_REGION}/workflows/bmt-workflow/executions/new",
+            "state": "ACTIVE",
+        }
+
+    monkeypatch.setattr("bmtgate.handoff.dispatch.start_execution", _fake_start_execution)
+
+    with pytest.raises(RuntimeError, match="BMT_DISPATCH_REQUIRE_CANCEL_OK=true requires aborting dispatch"):
+        WorkflowDispatchManager.from_env().invoke()
+
+    assert cancel_attempts["count"] == 3
+    assert sleeps == [1.0, 3.0]
+    assert start_calls == 0
+
+
+def test_invoke_honors_legacy_allow_unsafe_supersede_inverse_compatibility(tmp_path: Path, monkeypatch) -> None:
+    _invoke_env_base(tmp_path, monkeypatch, github_run_id="334")
+    monkeypatch.delenv("BMT_DISPATCH_REQUIRE_CANCEL_OK", raising=False)
+    monkeypatch.setenv("BMT_ALLOW_UNSAFE_SUPERSEDE", "false")
+    cancel_attempts = {"count": 0}
+
+    def _dl(_uri: str):
+        return (
+            {
+                "repository": FAKE_REPO,
+                "workflow_run_id": "111",
+                "workflow_execution_name": "projects/p/locations/r/workflows/w/executions/old-ex",
+            },
+            None,
+        )
+
+    monkeypatch.setattr("bmtgate.handoff.dispatch.download_json", _dl)
+
+    def _boom(*, execution_name: str):
+        cancel_attempts["count"] += 1
+        raise WorkflowsApiError(f"cancel failed {execution_name}")
+
+    monkeypatch.setattr("bmtgate.handoff.dispatch.cancel_execution", _boom)
+    monkeypatch.setattr(
+        "bmtgate.handoff.dispatch.start_execution",
+        lambda **_kwargs: pytest.fail("start_execution should not be called in strict legacy mode"),
+    )
+
+    with pytest.raises(RuntimeError, match="BMT_DISPATCH_REQUIRE_CANCEL_OK=true requires aborting dispatch"):
+        WorkflowDispatchManager.from_env().invoke()
+
+    assert cancel_attempts["count"] == 3

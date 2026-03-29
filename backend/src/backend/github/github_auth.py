@@ -8,9 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from github import GithubIntegration
-
-from backend.config.constants import HTTP_TIMEOUT
+from backend.github.client import GitHubException, github_app_client, github_rest
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +44,13 @@ if HAS_JWT:
 PRIMARY_PROFILE = "primary"
 DEV_PROFILE = "dev"
 ORG_OWNER = "Kardome-org"
+_GITHUB_AUTH_ERRORS: tuple[type[BaseException], ...] = (
+    GitHubException,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,16 +122,13 @@ def get_installation_token_from_app(
         return None
 
     try:
-        integration = GithubIntegration(
-            integration_id=app_id,
-            private_key=private_key,
-            timeout=int(HTTP_TIMEOUT),
-        )
-        auth = integration.get_access_token(inst_id)
-        return str(auth.token) if auth.token else None
-    except Exception as e:
+        client = github_app_client(app_id, private_key)
+        payload = github_rest(client).apps.create_installation_access_token(inst_id).json()
+        token = payload.get("token") if isinstance(payload, dict) else None
+        return str(token) if token else None
+    except _GITHUB_AUTH_ERRORS as e:
         logger.warning(
-            "GitHub App installation token via PyGithub failed: %s",
+            "GitHub App installation token via githubkit failed: %s",
             type(e).__name__,
             exc_info=True,
         )

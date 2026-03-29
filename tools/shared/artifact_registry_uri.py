@@ -23,13 +23,19 @@ _GIT_SHA_TAG_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 def _pulumi_stack_output(pulumi_dir: Path, key: str) -> str | None:
     if not pulumi_dir.is_dir():
         return None
-    p = subprocess.run(
-        ["pulumi", "stack", "output", key],
-        cwd=pulumi_dir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    if not (pulumi_dir / "Pulumi.yaml").is_file():
+        return None
+    try:
+        p = subprocess.run(
+            ["pulumi", "stack", "output", key],
+            cwd=pulumi_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
     if p.returncode == 0 and (v := p.stdout.strip()):
         return v
     return None

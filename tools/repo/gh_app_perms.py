@@ -15,7 +15,9 @@ from backend.github.github_auth import (
     PRIMARY_PROFILE,
     github_app_profile_for_repository,
 )
-from github import Auth, Github, GithubException
+from bmtcontract.constants import GITHUB_API_VERSION
+from githubkit import AppAuthStrategy, GitHub
+from githubkit.exception import GitHubException
 
 from tools.shared.cli_availability import command_available
 from tools.shared.contributor_docs import missing_dev_dependency_message
@@ -54,10 +56,9 @@ def get_private_key_path_from_env() -> str:
 
 
 def fetch_app_metadata(app_id: str, private_key: str) -> dict:
-    auth = Auth.AppAuth(int(app_id), private_key)
-    gh = Github(auth=auth, timeout=15)
-    app = gh.get_app()
-    return dict(app.raw_data)
+    gh = GitHub(auth=AppAuthStrategy(int(app_id), private_key), timeout=15)
+    payload = gh.rest(GITHUB_API_VERSION).apps.get_authenticated().json()
+    return payload if isinstance(payload, dict) else {}
 
 
 def extract_path(data: dict, path: str) -> dict | None:
@@ -107,8 +108,18 @@ class GhAppPerms:
 
         try:
             data = fetch_app_metadata(app_id, private_key)
-        except GithubException as e:
-            print(e.data if isinstance(e.data, dict) else str(e), file=sys.stderr)
+        except GitHubException as e:
+            details = getattr(e, "response", None)
+            if details is not None:
+                details_json: object | None = None
+                try:
+                    details_json = details.json()
+                except Exception:
+                    details_json = None
+                if details_json is not None:
+                    print(details_json, file=sys.stderr)
+                    return 1
+            print(str(e), file=sys.stderr)
             return 1
 
         if jq_path:

@@ -8,17 +8,35 @@ import logging
 import shutil
 from pathlib import Path
 
+from bmtcontract.constants import CURRENT_JSON
+from bmtcontract.paths import (
+    case_digest_result_path as _case_digest_result_path,
+    latest_result_path as _latest_result_path,
+    plan_path,
+    progress_path,
+    reporting_metadata_path,
+    snapshot_root as _snapshot_root,
+    summary_path,
+    verdict_result_path as _verdict_result_path,
+)
 from pydantic import ValidationError
 from whenever import Instant
 
 from backend.config.bmt_domain_status import BmtLegStatus, leg_status_is_pass
 from backend.config.decisions import ReasonCode
-from backend.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ProgressRecord, ReportingMetadata, ScorePayload
+from backend.runtime.models import (
+    ExecutionPlan,
+    LegSummary,
+    PlanLeg,
+    ProgressRecord,
+    ReportingMetadata,
+    ResultsPointer,
+    ScorePayload,
+)
 
 logger = logging.getLogger(__name__)
 
 # Pointer / snapshot JSON keys (bucket layout under ``benchmarks``).
-_CURRENT_JSON_LATEST_KEY = "latest"
 _SNAPSHOT_DURATION_SEC_KEY = "duration_sec"
 
 
@@ -38,36 +56,20 @@ def aggregate_status(summaries: list[LegSummary]) -> str:
     return BmtLegStatus.FAIL.value
 
 
-def plan_path(workflow_run_id: str) -> str:
-    return f"triggers/plans/{workflow_run_id}.json"
-
-
-def summary_path(workflow_run_id: str, project: str, bmt_slug: str) -> str:
-    return f"triggers/summaries/{workflow_run_id}/{project}-{bmt_slug}.json"
-
-
-def progress_path(workflow_run_id: str, project: str, bmt_slug: str) -> str:
-    return f"triggers/progress/{workflow_run_id}/{project}-{bmt_slug}.json"
-
-
-def reporting_metadata_path(workflow_run_id: str) -> str:
-    return f"triggers/reporting/{workflow_run_id}.json"
-
-
 def snapshot_root(leg: PlanLeg) -> str:
-    return f"{leg.results_path}/snapshots/{leg.run_id}"
+    return _snapshot_root(str(leg.results_path), leg.run_id)
 
 
 def latest_result_path(leg: PlanLeg) -> str:
-    return f"{snapshot_root(leg)}/latest.json"
+    return _latest_result_path(str(leg.results_path), leg.run_id)
 
 
 def verdict_result_path(leg: PlanLeg) -> str:
-    return f"{snapshot_root(leg)}/ci_verdict.json"
+    return _verdict_result_path(str(leg.results_path), leg.run_id)
 
 
 def case_digest_result_path(leg: PlanLeg) -> str:
-    return f"{snapshot_root(leg)}/case_digest.json"
+    return _case_digest_result_path(str(leg.results_path), leg.run_id)
 
 
 def load_plan(*, stage_root: Path, workflow_run_id: str) -> ExecutionPlan:
@@ -99,7 +101,7 @@ def load_summary_or_failure(
     stage_root: Path,
     workflow_run_id: str,
     leg: PlanLeg,
-    missing_reason_code: str = ReasonCode.RUNNER_FAILURES.value,
+    missing_reason_code: str,
 ) -> LegSummary:
     """Load leg summary from disk, or a synthetic failure leg if the summary file is missing."""
     try:
@@ -124,6 +126,34 @@ def load_summary_or_failure(
                 extra={"unavailable": True},
             ),
         )
+
+
+def load_summary_or_runner_failure(
+    *,
+    stage_root: Path,
+    workflow_run_id: str,
+    leg: PlanLeg,
+) -> LegSummary:
+    return load_summary_or_failure(
+        stage_root=stage_root,
+        workflow_run_id=workflow_run_id,
+        leg=leg,
+        missing_reason_code=ReasonCode.RUNNER_FAILURES.value,
+    )
+
+
+def load_summary_or_incomplete_plan_failure(
+    *,
+    stage_root: Path,
+    workflow_run_id: str,
+    leg: PlanLeg,
+) -> LegSummary:
+    return load_summary_or_failure(
+        stage_root=stage_root,
+        workflow_run_id=workflow_run_id,
+        leg=leg,
+        missing_reason_code=ReasonCode.INCOMPLETE_PLAN.value,
+    )
 
 
 def write_progress(*, stage_root: Path, workflow_run_id: str, progress: ProgressRecord) -> Path:
@@ -179,7 +209,15 @@ def write_reporting_metadata(*, stage_root: Path, workflow_run_id: str, metadata
     return path
 
 
-def load_observed_duration_sec_from_latest_snapshot(  # noqa: PLR0911
+def load_current_pointer(*, results_root: Path) -> ResultsPointer | None:
+    pointer_path = results_root / CURRENT_JSON
+    if not pointer_path.is_file():
+        return None
+    payload = json.loads(pointer_path.read_text(encoding="utf-8"))
+    return ResultsPointer.from_payload(payload)
+
+
+def load_observed_duration_sec_from_latest_snapshot(
     *, stage_root: Path, leg: PlanLeg
 ) -> int | None:
     """Return ``duration_sec`` from the latest snapshot's ``latest.json`` under this leg's results tree.
@@ -188,18 +226,10 @@ def load_observed_duration_sec_from_latest_snapshot(  # noqa: PLR0911
     ``duration_sec`` to have been written to ``latest.json`` (see task mode snapshot write).
     """
     results_root = stage_root / str(leg.results_path)
-    current_path = results_root / "current.json"
-    if not current_path.is_file():
+    pointer = load_current_pointer(results_root=results_root)
+    if pointer is None:
         return None
-    try:
-        payload = json.loads(current_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        logger.warning("%s: invalid JSON; skipping duration hint", current_path)
-        return None
-    latest = payload.get(_CURRENT_JSON_LATEST_KEY)
-    if not isinstance(latest, str) or not latest.strip():
-        return None
-    latest_json = results_root / "snapshots" / latest / "latest.json"
+    latest_json = results_root / "snapshots" / pointer.latest_run_id / "latest.json"
     if not latest_json.is_file():
         return None
     try:
@@ -220,30 +250,36 @@ def load_optional_reporting_metadata(*, stage_root: Path, workflow_run_id: str) 
     if not path.is_file():
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
-    return ReportingMetadata.model_validate(payload)
+    return ReportingMetadata.from_payload(payload)
 
 
 def read_existing_last_passing(results_root: Path) -> str | None:
-    pointer_path = results_root / "current.json"
-    if not pointer_path.is_file():
-        return None
     try:
-        payload = json.loads(pointer_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        logger.warning("%s contains invalid JSON; treating as no baseline", pointer_path)
+        pointer = load_current_pointer(results_root=results_root)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("%s contains invalid JSON; treating as no baseline", results_root / CURRENT_JSON)
         return None
-    last_passing = payload.get("last_passing")
-    return str(last_passing).strip() if isinstance(last_passing, str) and str(last_passing).strip() else None
+    if pointer is None:
+        return None
+    return pointer.last_passing_run_id
 
 
-def write_current_pointer(*, results_root: Path, run_id: str, last_passing_run_id: str | None) -> None:
-    pointer = {
-        "latest": run_id,
-        "last_passing": last_passing_run_id,
-        "updated_at": Instant.now().format_iso(unit="second"),
-    }
+def write_current_pointer(
+    *,
+    results_root: Path,
+    run_id: str,
+    last_passing_run_id: str | None,
+    workflow_run_id: str = "",
+) -> ResultsPointer:
+    pointer = ResultsPointer(
+        latest_run_id=run_id,
+        last_passing_run_id=last_passing_run_id,
+        updated_at=Instant.now().format_iso(unit="second"),
+        promoted_by_workflow_run_id=workflow_run_id,
+    )
     results_root.mkdir(parents=True, exist_ok=True)
-    (results_root / "current.json").write_text(json.dumps(pointer, indent=2) + "\n", encoding="utf-8")
+    (results_root / CURRENT_JSON).write_text(pointer.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return pointer
 
 
 def prune_snapshots(*, results_root: Path, keep_run_ids: set[str]) -> None:
@@ -261,19 +297,24 @@ def now_iso() -> str:
     return Instant.now().format_iso(unit="second")
 
 
-def cleanup_ephemeral_triggers(*, stage_root: Path, plan: ExecutionPlan) -> None:
+def cleanup_ephemeral_triggers(
+    *, stage_root: Path, plan: ExecutionPlan, keep_reporting_metadata: bool = False
+) -> None:
     """Delete coordinator-era ephemeral paths under ``triggers/`` for this workflow run.
 
     Call after ``publish_final_results`` when the run is complete. Safe on missing paths.
-    Persistent project results under ``projects/`` are not touched.
+    Persistent project results under ``projects/`` are not touched. When
+    ``keep_reporting_metadata`` is true, preserve ``triggers/reporting/{wid}.json``
+    for reconciliation/debugging.
     """
     wid = plan.workflow_run_id
     candidates: list[Path] = [
         stage_root / plan_path(wid),
-        stage_root / reporting_metadata_path(wid),
         stage_root / "triggers" / "progress" / wid,
         stage_root / "triggers" / "summaries" / wid,
     ]
+    if not keep_reporting_metadata:
+        candidates.append(stage_root / reporting_metadata_path(wid))
     for path in candidates:
         try:
             if path.is_file():

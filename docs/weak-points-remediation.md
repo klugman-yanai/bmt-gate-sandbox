@@ -4,7 +4,7 @@ Expands the short index at [architecture.md § Maintainer: risks & weak points](
 
 Implementation work should land in focused PRs. The [priority table](#priority-snapshot) at the bottom is the triage view.
 
-> **Compounding risk note:** B.1 + B.3 + A.4 can chain silently — a shared `results_path` causes the coordinator to write a corrupted `current.json`, GitHub is updated with that corrupted state, and there is no automated way to detect or recover it. Fix B.1 first; it short-circuits the chain.
+> **Compounding risk note:** The normal plan path now rejects duplicate `results_path` values before execution, which short-circuits the old B.1 + B.3 + A.4 corruption chain. The remaining risk is coordinator/GitHub split-brain plus overlapping executions when plan-time guards are bypassed or a stale plan is injected.
 
 ---
 
@@ -26,7 +26,7 @@ Implementation work should land in focused PRs. The [priority table](#priority-s
 
 **Recommendations:**
 
-- Centralize **artifact path builders** in one module used by CI, runtime, and tools where feasible; add **contract tests** for critical JSON shapes.
+- Shared **artifact path builders** and versioned models now live in `contracts/src/bmtcontract`; keep CI/runtime/tools on those re-exports and extend **contract tests** when new control-plane files are added.
 - Version or migrate bucket layout changes with a short note in [architecture.md — ADR summaries](architecture.md#adr-summaries).
 
 ### A.3 Operational surface (GCP + GitHub)
@@ -39,48 +39,54 @@ Implementation work should land in focused PRs. The [priority table](#priority-s
 
 ### A.4 Workflow concurrency and supersession guard
 
-**Why it matters:** `cancel-in-progress` can interrupt uploads or leave partial remote state. The supersession guard (`triggers/reporting/pr-active/{pr}.json`) is managed solely by the bmtgate dispatch layer — if two Workflows executions both reach coordinator stage (e.g., a Workflows retry or a late cancel), both will write `current.json` with no conflict detection. Last writer silently corrupts `last_passing`.
+**Why it matters:** `cancel-in-progress` can interrupt uploads or leave partial remote state. The supersession guard (`triggers/reporting/pr-active/{pr}.json`) is still managed by the bmtgate dispatch layer, which now also records `triggers/dispatch/{wid}.json` before remote start. The coordinator acquires per-`results_path` leases under `triggers/leases/` and records `triggers/finalization/{wid}.json` before promotion. The residual risk is no longer silent double-promotion; it is overlapping remote executions when cancel exhausts and strict mode is left off, stale dispatch intent, orphaned lease artifacts after abnormal exits, or operators ignoring a failed reconciliation record.
 
 **Recommendations:**
 
-- Make handoff steps **idempotent** where possible, or document which steps are unsafe under cancel.
-- Consider a coordinator-side check: read and verify the `pr-active` key before writing `current.json`, or add a generation-condition write.
+- Keep `BMT_DISPATCH_REQUIRE_CANCEL_OK=false` as the default and document the tradeoff: non-strict mode favors forward progress, while `true` is the safety-first switch that aborts a new dispatch when supersede cancel still fails after retries. Keep `BMT_ALLOW_UNSAFE_SUPERSEDE` only as a legacy inverse compatibility flag.
+- Use `uv run bmt ops doctor --workflow-run-id <wid>` or `--scan-stale --older-than-hours <N>` as the repo-owned reconciliation surface for stale `triggers/dispatch/`, `triggers/finalization/`, `triggers/leases/`, and preserved reporting metadata.
+- Optional follow-up: promote those signals into external alerting if operators need push-based notification instead of pull-based inspection.
 
-### A.5 No application-level coordinator completeness check
+### A.5 Coordinator completeness signaling exists, but alerting is still thin
 
-**Why it matters:** The coordinator merges leg results from `triggers/summaries/{wid}/`. Its only guarantee that all legs have written their summaries comes from Google Workflows step ordering. The coordinator itself has no application-level guard — it runs on whatever summaries are present and treats absent legs as failure (`reason_code="runner_failures"`). A task crash, a Workflows partial retry, or a leg that was never scheduled produces a silent missing-vs-failure conflation at the result level, not just the reason-code level (see also B.2).
+**Why it matters:** The coordinator now compares the expected leg list from `triggers/plans/{wid}.json` against the summaries present under `triggers/summaries/{wid}/`, logs the diff, and persists completeness fields on `triggers/finalization/{wid}.json`. That closes the old ambiguity, but operators still need better alerting around `needs_reconciliation=true` and repeated incomplete-plan cases (see also B.2).
 
 **Recommendations:**
 
-- **P1:** On coordinator startup, compare the leg list in the plan (`triggers/plans/{wid}.json`) against the set of present summaries. If the sets differ, emit a structured warning with the missing leg IDs before finalizing. Treat this as `incomplete_plan`, not `runner_failures`.
+- Treat `FinalizationRecordV2.needs_reconciliation` plus the completeness counts as the canonical operator signal for missing-summary cases.
+- Optional: add external metrics/alerts for repeated `incomplete_plan` finalizations if the structured logs + `bmt ops doctor` surface is not enough operationally.
 
 ---
 
 ## Part B — Implementation-level
 
-### B.1 Duplicate `results_path` / pointer collision
+### B.1 Duplicate `results_path` / pointer collision (guarded in normal plan flow)
 
-**Why it matters:** The coordinator updates `current.json` and prunes snapshots **per `results_path`**. Two legs sharing the same path can **overwrite** pointers and **prune** another leg's data — **silent corruption**. This is the highest-priority item because it can corrupt the baseline used by all future runs.
-
-**Recommendations:**
-
-- **P0:** Validate **unique `results_path`** per plan in `build_plan()` (fail fast), **or** namespace pointers by `bmt_id` under a shared prefix.
-
-### B.2 Missing summary conflated with runner failure
-
-**Why it matters:** `_load_summary_or_failure` in `backend/src/backend/runtime/entrypoint.py` maps `FileNotFoundError` to `reason_code="runner_failures"`, mixing **missing artifact** with **real runner failure** — wrong ops signals. See also A.5 for the structural gap this exposes.
+**Why it matters:** The coordinator updates `current.json` and prunes snapshots **per `results_path`**. Two legs sharing the same path can **overwrite** pointers and **prune** another leg's data — **silent corruption**. The normal `build_plan()` path now rejects duplicate paths before execution; the residual risk is limited to injected/stale plans or future regressions around that guard.
 
 **Recommendations:**
 
-- **P1:** Distinct `reason_code` (e.g. `summary_missing`, `incomplete_plan`) and metrics/alerts.
+- Keep the plan-time **unique `results_path`** guard covered by tests.
+- Optional: add coordinator-side assertion/validation as defense in depth if externally supplied plan files remain a concern.
+
+### B.2 Missing summary is explicit, but operator alerts are still thin
+
+**Why it matters:** Coordinator and failure-publish paths now require explicit missing-summary handling and persist expected/present leg counts plus missing/extra leg keys on the finalization record. The core gate/finalization flow no longer reports those cases as generic runner failures. The remaining gap is observability and consistency outside those call sites.
+
+**Recommendations:**
+
+- **P1:** Add metrics/alerts so missing-summary cases are visible operationally without requiring a human to poll logs or `bmt ops doctor`.
+- Optional: continue auditing any future summary loaders so ambiguous defaults do not creep back in.
 
 ### B.3 GitHub outcome vs GCS divergence
 
-**Why it matters:** The coordinator writes `current.json` to GCS first, then calls the GitHub API to finalize the check run. These are two separate side effects with no rollback. `github_reporting.py` may swallow exceptions; GitHub checks can stay **stale** while GCS already has the true verdict — **split-brain** for reviewers. A PR can be blocked by a phantom failure with no automated recovery path.
+**Why it matters:** The coordinator now records explicit finalization state and runs a preflight before pointer writes, but the durable side-effect order is still **preflight → pointer promotion → GitHub finalize**. GitHub API failures therefore leave a `failed_github_publish` finalization record that is explicit and recoverable, but `current.json` may already have advanced before GitHub catches up.
 
 **Recommendations:**
 
-- **P1/P2:** Retries with backoff for finalize; structured logging; metrics on finalize failures; optional non-zero exit or reconciliation job.
+- Keep retries/backoff plus structured logging, including the per-attempt `finalize_ok` / `commit_ok` terminal publish events.
+- Use `uv run bmt ops doctor --workflow-run-id <wid>` as the first reconciliation step for `failed_github_publish` records and preserved `triggers/reporting/{wid}.json`.
+- Optional: add external alerting around `failed_github_publish` records so operators can see that GitHub is lagging durable result promotion without manual inspection.
 
 ### B.4 `object_exists` and infra errors (CI)
 
@@ -88,29 +94,31 @@ Implementation work should land in focused PRs. The [priority table](#priority-s
 
 **Residual:** Audit other GCS helpers for the same anti-pattern if any remain.
 
-### B.5 Workflows `start_execution` single HTTP attempt
+### B.5 Workflows dispatch is retried and receipt-based, but not fully transactional
 
-**Why it matters:** One `POST` can fail on transient 5xx/429 — handoff fails without retry and the entire pipeline is aborted.
+**Why it matters:** The Workflows client now retries `start_execution` only for explicit HTTP `429`, `503`, and other `5xx` responses, while supersede cancel retries happen in the dispatch layer with the same `1s` / `3s` cadence. Handoff records `triggers/dispatch/{wid}.json` so matching reruns can reuse an existing started execution instead of blindly issuing a second remote start. The residual risk is a crash after the remote execution begins but before the receipt is updated; that would still need reconciliation.
 
 **Recommendations:**
 
-- **P2:** Retry with backoff; design **idempotency** if the API can be invoked twice for the same logical run.
+- Keep the dispatch receipt contract and use `bmt ops doctor --scan-stale` to detect old `pending_start` / `start_failed` receipts.
+- Optional: add deeper remote reconciliation if the residual post-start / pre-receipt-update crash window becomes operationally significant.
 
 ### B.6 CI ↔ runtime contract drift
 
-**Why it matters:** `kardome-bmt-gate` and `kardome-bmt-runtime` (`backend/`) are separate packages; duplicated constants or path logic can drift silently.
+**Why it matters:** `kardome-bmt-gate`, `backend`, and tooling now share `bmtcontract`, but drift can still reappear if new control-plane constants or path rules are added outside that package.
 
 **Recommendations:**
 
-- **P3:** Shared **contract tests** and, where justified, a thin shared constants module or generated parity checks.
+- **P3:** Keep expanding **contract tests** and keep wrappers thin; new control-plane primitives should be added in `bmtcontract` first, not redefined locally.
 
 ### B.7 Broad `except Exception`
 
-**Why it matters:** Collapses error types; hides validation failures in `ci/src/bmtgate/clients/github.py`, `ci/src/bmtgate/config/settings.py`, etc.
+**Why it matters:** Broad catches collapse error types and hide validation failures. The highest-risk pipeline adapters now catch narrower SDK/transport/validation failures, but the wider repo still has older broad handlers outside that first pass.
 
 **Recommendations:**
 
-- **P3:** Narrow exceptions; structured error types where helpful.
+- Keep the repo policy tests that block new broad catches in the selected pipeline adapters/tooling.
+- Continue the wider repo audit opportunistically instead of letting broad catches spread back into the control plane.
 
 ### B.8 Large orchestration modules / test gaps
 
@@ -122,11 +130,12 @@ Implementation work should land in focused PRs. The [priority table](#priority-s
 
 ### B.9 `log-dumps/` unbounded growth
 
-**Why it matters:** The coordinator writes `log-dumps/{wid}.txt` on every failed run and no cleanup mechanism exists. Unlike ephemeral `triggers/{wid}/` (deleted by coordinator), `log-dumps/` accumulates indefinitely. High-churn repos or repos with recurring flaky legs will grow this prefix without bound.
+**Why it matters:** The coordinator writes `log-dumps/{wid}.txt` on failed runs. Repo-owned retention now deletes dumps older than 30 days and caps the prefix at the newest 200 files, which removes the unbounded-growth failure mode. Residual risk is limited to cleanup warnings or environments that want bucket-native lifecycle rules on top.
 
 **Recommendations:**
 
-- **P3:** GCS lifecycle rule on `log-dumps/` prefix (e.g., delete after 30 days), or coordinator-side cleanup of old dumps beyond a rolling count. The signed URL already has a 3-day expiry so the object outlives its usefulness quickly.
+- Keep the coordinator-side retention in place and warn only on cleanup failures so reporting is never blocked by housekeeping.
+- Optional: add a bucket lifecycle rule if operators want defense in depth outside the runtime process.
 
 ---
 
@@ -134,7 +143,6 @@ Implementation work should land in focused PRs. The [priority table](#priority-s
 
 | Priority | Items |
 | -------- | ----- |
-| **P0** | Unique `results_path` validation — B.1 |
-| **P1** | Coordinator completeness check — A.5 · Summary reason codes — B.2 · `object_exists` error handling — B.4 · GitHub finalize split-brain — B.3 |
-| **P2** | Workflows retry / idempotency — B.5 · Path centralization + contract tests — A.2 |
-| **P3** | Supersession guard hardening — A.4 · CI/runtime contract drift — B.6 · Broad except — B.7 · Test coverage — B.8 · `log-dumps/` lifecycle — B.9 · Ops docs — A.3 |
+| **P1** | External alerting for `needs_reconciliation` / `incomplete_plan` — A.5 · Missing-summary observability — B.2 · Failed GitHub publish reconciliation / alerting — B.3 |
+| **P2** | Dispatch receipt / lease / finalization operational cleanup — A.4 · Residual dispatch crash-window hardening — B.5 |
+| **P3** | CI/runtime contract drift guardrails — B.6 · Wider broad-exception audit — B.7 · Test coverage / structural extraction follow-up — B.8 · Ops docs / IAM hygiene — A.3 |

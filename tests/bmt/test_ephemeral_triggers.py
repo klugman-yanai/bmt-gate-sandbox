@@ -73,3 +73,40 @@ def test_cleanup_ephemeral_triggers_removes_expected_paths(tmp_path: Path) -> No
     assert not (stage / reporting_metadata_path(wid)).exists()
     assert not (stage / "triggers" / "progress" / wid).exists()
     assert not (stage / "triggers" / "summaries" / wid).exists()
+
+
+def test_cleanup_ephemeral_triggers_can_preserve_reporting_metadata(tmp_path: Path) -> None:
+    stage = tmp_path / "stage"
+    wid = "run-keep-reporting"
+    plan = ExecutionPlan(
+        workflow_run_id=wid,
+        repository="o/r",
+        head_sha="a" * 40,
+        standard_task_count=0,
+        heavy_task_count=0,
+        legs=[],
+    )
+    (stage / "triggers" / "plans").mkdir(parents=True)
+    (stage / "triggers" / "plans" / f"{wid}.json").write_text("{}", encoding="utf-8")
+    write_reporting_metadata(
+        stage_root=stage,
+        workflow_run_id=wid,
+        metadata=ReportingMetadata(
+            workflow_execution_url="https://example.com/wf",
+            check_run_id=7,
+            started_at="2026-01-01T00:00:00Z",
+        ),
+    )
+    prog = stage / "triggers" / "progress" / wid
+    prog.mkdir(parents=True)
+    (prog / "x.json").write_text("{}", encoding="utf-8")
+    summ = stage / "triggers" / "summaries" / wid
+    summ.mkdir(parents=True)
+    (summ / "x.json").write_text("{}", encoding="utf-8")
+
+    cleanup_ephemeral_triggers(stage_root=stage, plan=plan, keep_reporting_metadata=True)
+
+    assert not (stage / "triggers" / "plans" / f"{wid}.json").exists()
+    assert (stage / reporting_metadata_path(wid)).exists()
+    assert not (stage / "triggers" / "progress" / wid).exists()
+    assert not (stage / "triggers" / "summaries" / wid).exists()

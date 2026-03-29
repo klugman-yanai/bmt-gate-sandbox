@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from backend.config.constants import ENV_CLOUD_RUN_REGION, ENV_GCP_PROJECT, ENV_GCS_BUCKET
+from bmtcontract.constants import ENV_CLOUD_RUN_REGION, ENV_GCP_PROJECT, ENV_GCS_BUCKET
 
 from tools.repo.paths import repo_root
 

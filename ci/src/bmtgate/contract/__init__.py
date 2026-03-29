@@ -1,8 +1,10 @@
-"""Portable contract types and constants (no I/O). Mirrored from runtime."""
+"""Portable contract types and constants (no I/O). Re-exported from bmtcontract."""
 
 from __future__ import annotations
 
 from bmtgate.contract.constants import (  # noqa: F401
+    ENV_BMT_ALLOW_UNSAFE_SUPERSEDE,
+    ENV_BMT_DISPATCH_REQUIRE_CANCEL_OK,
     ENV_BMT_CONTROL_JOB,
     ENV_BMT_FAILURE_REASON,
     ENV_BMT_FINALIZE_HEAD_SHA,
@@ -19,6 +21,8 @@ from bmtgate.contract.constants import (  # noqa: F401
     ENV_GCP_WIF_PROVIDER,
     ENV_GCS_BUCKET,
     STATUS_CONTEXT,
+    WORKFLOW_OUTPUT_BMT_RECOVERY_USED,
+    WORKFLOW_OUTPUT_BMT_DISPATCH_FALLBACK_USED,
     GateDecision,
     ReasonCode,
 )

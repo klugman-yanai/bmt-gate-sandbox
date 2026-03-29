@@ -8,10 +8,7 @@ from __future__ import annotations
 
 from typing import Any, NotRequired, TypedDict
 
-from github import Auth, Github
-from github.GithubObject import NotSet
-
-from backend.config.constants import HTTP_TIMEOUT
+from backend.github.client import github_client, github_rest, split_repository
 
 # GitHub REST API documents large max for check run output fields; stay under a safe UTF-8 byte cap.
 GITHUB_CHECK_OUTPUT_FIELD_MAX_BYTES = 65535
@@ -57,8 +54,9 @@ def _normalize_check_output(output: CheckRunOutput | dict[str, Any]) -> dict[str
 
 
 def _github_repo(token: str, repo: str) -> Any:
-    gh = Github(auth=Auth.Token(token), timeout=int(HTTP_TIMEOUT))
-    return gh.get_repo(repo)
+    client = github_client(token)
+    owner, repo_name = split_repository(repo)
+    return client, owner, repo_name
 
 
 def create_check_run(
@@ -86,20 +84,23 @@ def create_check_run(
         Check run ID for future updates
 
     Raises:
-        github.GithubException: If the GitHub API request fails
+        githubkit.exception.GitHubException: If the GitHub API request fails
         TypeError: If the check run id is missing
     """
-    repository = _github_repo(token, repo)
+    client, owner, repo_name = _github_repo(token, repo)
     normalized = _normalize_check_output(output)
-    cr = repository.create_check_run(
-        name=name,
-        head_sha=sha,
-        status=status,
-        output=normalized,
-        details_url=details_url if details_url is not None else NotSet,
-        external_id=external_id if external_id is not None else NotSet,
-    )
-    rid = cr.id
+    data: dict[str, Any] = {
+        "name": name,
+        "head_sha": sha,
+        "status": status,
+        "output": normalized,
+    }
+    if details_url is not None:
+        data["details_url"] = details_url
+    if external_id is not None:
+        data["external_id"] = external_id
+    payload = github_rest(client).checks.create(owner, repo_name, data=data).json()
+    rid = payload.get("id") if isinstance(payload, dict) else None
     if not isinstance(rid, int):
         raise TypeError("GitHub check run create response missing integer id")
     return rid
@@ -125,21 +126,24 @@ def update_check_run(
         output: New output dict with ``title``, ``summary``, optional ``text``, or None to keep current
 
     Raises:
-        github.GithubException: If the GitHub API request fails
+        githubkit.exception.GitHubException: If the GitHub API request fails
     """
-    repository = _github_repo(token, repo)
-    cr = repository.get_check_run(check_run_id)
-    cr.edit(
-        status=status if status is not None else NotSet,
-        conclusion=conclusion if conclusion is not None else NotSet,
-        output=_normalize_check_output(output) if output is not None else NotSet,
-        details_url=details_url if details_url is not None else NotSet,
-    )
+    client, owner, repo_name = _github_repo(token, repo)
+    data: dict[str, Any] = {}
+    if status is not None:
+        data["status"] = status
+    if conclusion is not None:
+        data["conclusion"] = conclusion
+    if output is not None:
+        data["output"] = _normalize_check_output(output)
+    if details_url is not None:
+        data["details_url"] = details_url
+    github_rest(client).checks.update(owner, repo_name, check_run_id, data=data)
 
 
 def get_check_run_status(token: str, repo: str, check_run_id: int) -> str:
     """Return GitHub check run ``status`` (e.g. ``queued``, ``in_progress``, ``completed``)."""
-    repository = _github_repo(token, repo)
-    cr = repository.get_check_run(check_run_id)
-    raw = cr.status
+    client, owner, repo_name = _github_repo(token, repo)
+    payload = github_rest(client).checks.get(owner, repo_name, check_run_id).json()
+    raw = payload.get("status") if isinstance(payload, dict) else None
     return raw if isinstance(raw, str) else str(raw)

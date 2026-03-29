@@ -1,12 +1,24 @@
-"""GitHub API helpers using PyGithub. Token from env (GITHUB_TOKEN); never log token."""
+"""GitHub API helpers using githubkit. Token from env (GITHUB_TOKEN); never log token."""
 
 from __future__ import annotations
 
 import os
 
+from bmtcontract.constants import GITHUB_API_VERSION
+from githubkit import GitHub, TokenAuthStrategy
+from githubkit.exception import GitHubException
+
 
 class GitHubApiError(RuntimeError):
     """Raised when a GitHub API call fails in a non-recoverable way."""
+
+
+_GITHUB_CLIENT_ERRORS: tuple[type[BaseException], ...] = (
+    GitHubException,
+    OSError,
+    TypeError,
+    ValueError,
+)
 
 
 def _get_token() -> str:
@@ -17,11 +29,15 @@ def _get_token() -> str:
     return token
 
 
-def _get_github():
-    """Lazy import to avoid requiring PyGithub when not using GitHub API."""
-    import github
+def _split_repository(repository: str) -> tuple[str, str]:
+    owner, sep, repo = repository.partition("/")
+    if not owner or not sep or not repo:
+        raise GitHubApiError(f"Repository must be owner/name, got {repository!r}")
+    return owner, repo
 
-    return github.Github(_get_token())
+
+def _get_github() -> GitHub:
+    return GitHub(auth=TokenAuthStrategy(_get_token()))
 
 
 def post_commit_status(
@@ -37,16 +53,16 @@ def post_commit_status(
     gh = _get_github()
     desc = (description or "")[:140]
     try:
-        repo = gh.get_repo(repository)
-        kwargs: dict[str, str] = {
+        owner, repo_name = _split_repository(repository)
+        data: dict[str, str] = {
             "state": state,
             "context": context,
             "description": desc,
         }
         if target_url is not None:
-            kwargs["target_url"] = target_url
-        repo.get_commit(sha).create_status(**kwargs)
-    except Exception as exc:
+            data["target_url"] = target_url
+        gh.rest(GITHUB_API_VERSION).repos.create_commit_status(owner, repo_name, sha, data=data)
+    except _GITHUB_CLIENT_ERRORS as exc:
         raise GitHubApiError(f"Failed to post status for {repository}@{sha}: {exc}") from exc
 
 
@@ -54,20 +70,25 @@ def get_commit_statuses(repository: str, sha: str) -> list[dict[str, str]]:
     """Return list of status dicts (context, state, description, target_url, ...) for the commit."""
     gh = _get_github()
     try:
-        repo = gh.get_repo(repository)
-        status = repo.get_commit(sha).get_combined_status()
+        owner, repo_name = _split_repository(repository)
+        payload = gh.rest(GITHUB_API_VERSION).repos.get_combined_status_for_ref(owner, repo_name, sha).json()
+        statuses = payload.get("statuses") if isinstance(payload, dict) else None
         out: list[dict[str, str]] = []
-        for s in status.statuses:
+        if not isinstance(statuses, list):
+            return out
+        for s in statuses:
+            if not isinstance(s, dict):
+                continue
             out.append(
                 {
-                    "context": s.context or "",
-                    "state": s.state or "",
-                    "description": s.description or "",
-                    "target_url": s.target_url or "",
+                    "context": str(s.get("context") or ""),
+                    "state": str(s.get("state") or ""),
+                    "description": str(s.get("description") or ""),
+                    "target_url": str(s.get("target_url") or ""),
                 }
             )
         return out
-    except Exception as exc:
+    except _GITHUB_CLIENT_ERRORS as exc:
         raise GitHubApiError(f"Failed to get statuses for {repository}@{sha}: {exc}") from exc
 
 
@@ -95,10 +116,9 @@ def post_pr_comment(repository: str, pr_number: int, body: str) -> None:
     """Post a comment on a pull request."""
     gh = _get_github()
     try:
-        repo = gh.get_repo(repository)
-        issue = repo.get_issue(pr_number)
-        issue.create_comment(body)
-    except Exception as exc:
+        owner, repo_name = _split_repository(repository)
+        gh.rest(GITHUB_API_VERSION).issues.create_comment(owner, repo_name, pr_number, data={"body": body})
+    except _GITHUB_CLIENT_ERRORS as exc:
         raise GitHubApiError(
             f"Failed to post PR comment on {repository}#{pr_number}: {exc}"
         ) from exc
@@ -110,14 +130,20 @@ def trigger_workflow_dispatch(
     ref: str,
     *,
     inputs: dict[str, str] | None = None,
-) -> None:
-    """Trigger a workflow_dispatch run. workflow_id can be workflow filename (e.g. bmt-handoff.yml) or numeric id."""
+) -> dict[str, object] | None:
+    """Trigger a workflow_dispatch run and return run details when GitHub includes them."""
     gh = _get_github()
     try:
-        repo = gh.get_repo(repository)
-        workflow = repo.get_workflow(workflow_id)
-        workflow.create_dispatch(ref, inputs or {})
-    except Exception as exc:
+        owner, repo_name = _split_repository(repository)
+        response = gh.rest(GITHUB_API_VERSION).actions.create_workflow_dispatch(
+            owner,
+            repo_name,
+            workflow_id,
+            data={"ref": ref, "inputs": inputs or {}},
+        )
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
+    except _GITHUB_CLIENT_ERRORS as exc:
         raise GitHubApiError(
             f"Failed to trigger workflow {workflow_id} on {repository}@{ref}: {exc}"
         ) from exc

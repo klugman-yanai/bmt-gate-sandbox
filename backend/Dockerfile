@@ -46,6 +46,5 @@ ENV PYTHONUNBUFFERED=1
 # Config via BMT_CONFIG env var pointing to a JSON payload file,
 # or mount at /etc/bmt/config.json (well-known path)
 #
-# Use -m so sys.path[0] is not backend/src/backend/ — otherwise `import github`
-# could resolve to our runtime tree and shadow PyGithub.
+# Use -m so sys.path[0] is not backend/src/backend/ and module resolution stays stable.
 CMD ["python", "-m", "backend.main"]

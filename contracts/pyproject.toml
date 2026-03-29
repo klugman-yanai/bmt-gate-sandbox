@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kardome-bmt-contract"
+version = "0.1.0"
+description = "Shared BMT contracts: constants, path builders, and typed coordination records."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pydantic>=2.12.5",
+]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = []
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "src/bmtcontract",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/bmtcontract",
+  "pyproject.toml",
+]

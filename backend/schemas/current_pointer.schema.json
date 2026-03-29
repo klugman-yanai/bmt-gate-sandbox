@@ -2,13 +2,35 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://bmt-gcloud/schemas/current_pointer.schema.json",
   "title": "Results pointer (current.json)",
-  "description": "Pointer at results_prefix/current.json. Tracks latest and last_passing run_id; written by the Cloud Run coordinator. Runtime artifact.",
-  "type": "object",
-  "additionalProperties": true,
-  "required": ["latest", "updated_at"],
-  "properties": {
-    "latest": { "type": "string", "description": "Run id of the most recent run" },
-    "last_passing": { "type": ["string", "null"], "description": "Run id of the most recent passing run" },
-    "updated_at": { "type": "string", "description": "ISO8601 UTC timestamp of last update" }
-  }
+  "description": "Pointer at results_prefix/current.json. Phase-2 writers emit v2 keys, while readers still accept legacy latest/last_passing payloads during migration.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema_version", "latest_run_id", "updated_at"],
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [2] },
+        "latest_run_id": { "type": "string", "description": "Run id of the most recently promoted run" },
+        "last_passing_run_id": {
+          "type": ["string", "null"],
+          "description": "Run id of the most recently promoted passing run"
+        },
+        "updated_at": { "type": "string", "description": "ISO8601 UTC timestamp of last update" },
+        "promoted_by_workflow_run_id": {
+          "type": "string",
+          "description": "GitHub handoff workflow run id that committed the promotion"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["latest", "updated_at"],
+      "properties": {
+        "latest": { "type": "string", "description": "Legacy run id of the most recent run" },
+        "last_passing": { "type": ["string", "null"], "description": "Legacy run id of the most recent passing run" },
+        "updated_at": { "type": "string", "description": "ISO8601 UTC timestamp of last update" }
+      }
+    }
+  ]
 }

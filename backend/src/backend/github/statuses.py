@@ -6,11 +6,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from github import Auth, Github, GithubException
-
-from backend.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
+from backend.config.constants import STATUS_CONTEXT
 from backend.config.status import CheckConclusion, CheckStatus
 from backend.github import github_checks
+from backend.github.client import GitHubException, github_client, github_rest, split_repository
 from backend.github.presentation import github_check_final_title, render_results_table
 
 DEFAULT_STATUS_CONTEXT: str = STATUS_CONTEXT
@@ -42,18 +41,18 @@ def post_commit_status_request(
     ctx = (context or DEFAULT_STATUS_CONTEXT).strip() or DEFAULT_STATUS_CONTEXT
     desc = description[:140]
     try:
-        gh = Github(auth=Auth.Token(token), timeout=int(HTTP_TIMEOUT))
-        r = gh.get_repo(repository)
-        kwargs: dict[str, str] = {
+        client = github_client(token)
+        owner, repo_name = split_repository(repository)
+        data: dict[str, str] = {
             "state": state,
             "context": ctx,
             "description": desc,
         }
         if target_url:
-            kwargs["target_url"] = target_url
-        r.get_commit(sha).create_status(**kwargs)
+            data["target_url"] = target_url
+        github_rest(client).repos.create_commit_status(owner, repo_name, sha, data=data)
         return True
-    except Exception:
+    except (OSError, TypeError, ValueError, RuntimeError, GitHubException):
         return False
 
 
@@ -125,7 +124,7 @@ def _create_check_run_resilient(
                 details_url=details_url,
             )
             return check_run_id, token_in_use
-        except (OSError, ValueError, RuntimeError, GithubException):
+        except (OSError, ValueError, RuntimeError, GitHubException):
             if attempt < max_attempts:
                 token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
                 _sleep_before_retry(attempt=attempt, max_attempts=max_attempts)
@@ -159,7 +158,7 @@ def _update_check_run_resilient(
                 details_url=details_url,
             )
             return True, token_in_use
-        except (OSError, ValueError, RuntimeError, GithubException):
+        except (OSError, ValueError, RuntimeError, GitHubException):
             if attempt < max_attempts:
                 token_in_use = _with_refreshed_token(repository, token_resolver, token_in_use)
                 _sleep_before_retry(attempt=attempt, max_attempts=max_attempts)

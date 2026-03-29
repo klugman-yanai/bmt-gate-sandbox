@@ -3,7 +3,7 @@
 # ------------------------------------------------------------------------------
 #
 # Stack
-#   GCP + GitHub: storage, Artifact Registry, PyGithub; Pydantic for config.
+#   GCP + GitHub: storage, Artifact Registry, githubkit; Pydantic for config.
 #   Dist: kardome-bmt-runtime (backend/), kardome-bmt-gate (ci/).
 #   tools/: Typer + Rich CLIs.
 #
@@ -28,6 +28,7 @@ name = "bmt-gcloud"
 version = "0.1.0"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+    "kardome-bmt-contract",
     "kardome-bmt-gate",
     "kardome-bmt-runtime",
     "google-cloud-artifact-registry>=1.14.0",
@@ -35,22 +36,23 @@ dependencies = [
     "orjson>=3.10",
     "prek>=0.3.5",
     "pydantic>=2.12.5",
-    "PyGithub>=2.0",
     "rich>=13.0",
     "typer>=0.15.0",
     "whenever>=0.9.5",
+    "githubkit>=0.15.1",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["tools"]
 
 [tool.uv.sources]
+kardome-bmt-contract = { workspace = true }
 kardome-bmt-gate = { workspace = true }
 kardome-bmt-runtime = { workspace = true }
 bmt-gcloud = { workspace = true }
 
 [tool.uv.workspace]
-members = ["ci", "backend"]
+members = ["contracts", "ci", "backend"]
 
 [tool.uv]
 package = true
@@ -59,6 +61,7 @@ default-groups = ["dev", "infra"]
 [tool.ty.environment]
 python-version = "3.12"
 extra-paths = [
+    "contracts/src",
     "backend/src",
     "ci",
     "benchmarks/projects/sk/src",

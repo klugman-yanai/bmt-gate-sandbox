@@ -29,7 +29,7 @@ _INTRO_QUICK_STEPS: tuple[tuple[str, str, str], ...] = (
     ("2", "just add <project>", "optional --bmt and --data"),
     ("3", "just test-local", "before publish"),
     ("4", "just publish", "enables BMT; add project + folder if several staged"),
-    ("5", "just sync-to-bucket", "whole gcp/ tree → bucket"),
+    ("5", "just sync-to-bucket", "whole benchmarks/ stage mirror → bucket"),
     ("6", "just test", "full verify (lint, pytest, …)"),
 )
 
@@ -86,7 +86,7 @@ _RECIPE_TASK: dict[str, str] = {
     "publish": "Publish plugin (+ enable)",
     "publish-bmt": "Publish (two-arg)",
     "test-local": "Quick checks pre-publish",
-    "sync-to-bucket": "Upload gcp/ → bucket",
+    "sync-to-bucket": "Upload benchmarks/ stage mirror → bucket",
     "workspace": "Other workspace cmds",
     "test": "Checks before push",
     "tools": "Rest of the CLI",

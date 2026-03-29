@@ -6,6 +6,7 @@ from unittest import mock
 
 import pytest
 from backend.github import github_auth
+from githubkit.exception import GitHubException
 
 pytestmark = pytest.mark.unit
 
@@ -161,9 +162,9 @@ class TestResolveGithubAppToken:
 class TestGetInstallationTokenFromApp:
     """Tests for get_installation_token_from_app()."""
 
-    @mock.patch("backend.github.github_auth.GithubIntegration")
-    def test_integration_constructor_failure_returns_none(self, mock_integration_cls: mock.Mock) -> None:
-        mock_integration_cls.side_effect = RuntimeError("invalid credentials")
+    @mock.patch("backend.github.github_auth.github_app_client")
+    def test_integration_constructor_failure_returns_none(self, mock_client_factory: mock.Mock) -> None:
+        mock_client_factory.side_effect = RuntimeError("invalid credentials")
         assert (
             github_auth.get_installation_token_from_app(
                 "12345",
@@ -178,13 +179,16 @@ class TestGetInstallationTokenFromApp:
         assert github_auth.get_installation_token_from_app("12345", "", "key") is None
         assert github_auth.get_installation_token_from_app("12345", "67890", "") is None
 
-    @mock.patch("backend.github.github_auth.GithubIntegration")
-    def test_successful_token_exchange(self, mock_integration_cls: mock.Mock) -> None:
-        mock_auth = mock.MagicMock()
-        mock_auth.token = "test-installation-token"
-        mock_integration = mock.MagicMock()
-        mock_integration.get_access_token.return_value = mock_auth
-        mock_integration_cls.return_value = mock_integration
+    @mock.patch("backend.github.github_auth.github_rest")
+    @mock.patch("backend.github.github_auth.github_app_client")
+    def test_successful_token_exchange(self, mock_client_factory: mock.Mock, mock_rest: mock.Mock) -> None:
+        mock_rest.return_value = mock.Mock(
+            apps=mock.Mock(
+                create_installation_access_token=mock.Mock(
+                    return_value=mock.Mock(json=mock.Mock(return_value={"token": "test-installation-token"}))
+                )
+            )
+        )
 
         token = github_auth.get_installation_token_from_app(
             "12345",
@@ -193,13 +197,18 @@ class TestGetInstallationTokenFromApp:
         )
 
         assert token == "test-installation-token"
-        mock_integration.get_access_token.assert_called_once_with(67890)
+        mock_client_factory.assert_called_once_with("12345", "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----")
+        mock_rest.return_value.apps.create_installation_access_token.assert_called_once_with(67890)
 
-    @mock.patch("backend.github.github_auth.GithubIntegration")
-    def test_api_error_returns_none(self, mock_integration_cls: mock.Mock) -> None:
-        mock_integration = mock.MagicMock()
-        mock_integration.get_access_token.side_effect = Exception("unauthorized")
-        mock_integration_cls.return_value = mock_integration
+    @mock.patch("backend.github.github_auth.github_rest")
+    @mock.patch("backend.github.github_auth.github_app_client")
+    def test_api_error_returns_none(self, mock_client_factory: mock.Mock, mock_rest: mock.Mock) -> None:
+        _ = mock_client_factory
+        mock_rest.return_value = mock.Mock(
+            apps=mock.Mock(
+                create_installation_access_token=mock.Mock(side_effect=GitHubException("unauthorized"))
+            )
+        )
 
         token = github_auth.get_installation_token_from_app(
             "12345",

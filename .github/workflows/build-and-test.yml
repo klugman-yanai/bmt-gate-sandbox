@@ -1,4 +1,4 @@
-# Merged CI: real builds (from .github-packaged) + BMT handoff (gated by release build).
+# Merged CI: real builds only; caller workflows decide whether to invoke BMT handoff afterward.
 # Copy to core-main/.github/workflows/build-and-test.yml
 # Event-driven entry: release template internal/trigger-ci.yml (pull_request_target + workflow_dispatch).
 
@@ -331,4 +331,3 @@ jobs:
       - name: Cleanup
         if: always()
         run: rm -rf "${GRADLE_USER_HOME}" ./**/build ./**/.cxx 2>/dev/null || true; df -h
-

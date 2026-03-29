@@ -2,6 +2,8 @@
 
 **Purpose:** **Explanation** — design of the BMT Cloud Run pipeline, storage contracts, and major trade-offs. **Not** day-to-day setup ([CONTRIBUTING.md](../CONTRIBUTING.md)) or infra apply steps ([infrastructure.md](infrastructure.md)).
 
+**Narrative E2E (triggers, jobs, handoff, GitHub surfaces, smells):** [pipeline-e2e-summary.md](pipeline-e2e-summary.md).
+
 ## Diagrams: where they live
 
 - **Prefer** one or two **Mermaid blocks in this file** for the diagrams readers need most often (GitHub renders them inline).
@@ -14,7 +16,9 @@
 
 - **Orchestration:** GitHub Actions starts **Google Workflows**; **Cloud Run Jobs** run `plan` → per-leg **task** jobs → **coordinator**. No legacy VM loop.
 - **Coordination plane:** **GCS** mirrors **`benchmarks/`**. Ephemeral **`triggers/`** (plans, summaries, reporting) vs persistent **`projects/…`** (configs, results, snapshots).
-- **CI package:** **`kardome-bmt-gate`** (`ci/`, import **`bmtgate`**) dispatches and handshakes; **zero imports from `backend.*`**.
+- **Shared contracts:** versioned path builders, reason codes, env names, and pointer/finalization models now live in **`contracts/`** (`bmtcontract`) and are re-exported by `backend` / `ci`.
+- **Coordinator semantics:** the coordinator acquires per-results-path leases, records `triggers/finalization/{wid}.json`, publishes GitHub terminal state, then promotes `current.json`.
+- **Operator surface:** `uv run bmt ops doctor` reads dispatch/finalization/reporting/lease residue through the shared `bmtcontract` models instead of ad-hoc path parsing.
 - **Runtime:** **`backend/`** is image-baked; project plugins and datasets live under **`benchmarks/`** and sync separately.
 
 ---
@@ -36,8 +40,8 @@ sequenceDiagram
     WF->>TASK: task jobs (per plan)
     TASK->>GCS: summaries, snapshots, progress
     WF->>CTRL: coordinator
-    CTRL->>GCS: current.json, prune triggers
     CTRL->>API: status / check run / PR signals
+    CTRL->>GCS: finalization record, current.json, prune triggers
 ```
 
 ---
@@ -48,10 +52,14 @@ sequenceDiagram
 flowchart TD
     ENTRY([Execution]) --> PLAN[Plan: write plan JSON]
     PLAN --> TASKS[Tasks: one leg each]
-    TASKS --> COORD[Coordinator: merge, current.json, GitHub finalize]
+    TASKS --> COORD[Coordinator: acquire lease + write finalization state]
+    COORD --> GITHUB[GitHub finalize]
+    GITHUB --> PROMOTE[Promote current.json + prune snapshots]
 ```
 
-**Gating:** per-task **evaluate** uses **`last_passing`** from `current.json`. The coordinator updates pointers; it does not re-score legs.
+**Gating:** per-task **evaluate** uses the last passing baseline from `current.json`
+(`last_passing_run_id` in v2; legacy `last_passing` still read during migration). The coordinator
+updates pointers; it does not re-score legs.
 
 ---
 
@@ -73,9 +81,13 @@ Top-level tree: [README.md](../README.md).
 
 Root mirrors **`benchmarks/`**.
 
-**Persistent:** `projects/<project>/bmts/<benchmark>/bmt.json`, `plugins/…`, `inputs/…`, `results/<benchmark>/current.json` and `snapshots/<run_id>/…`
+**Persistent / reconciliation records:** `projects/<project>/bmts/<benchmark>/bmt.json`, `plugins/…`, `inputs/…`,
+`results/<benchmark>/current.json`, `snapshots/<run_id>/…`, `triggers/dispatch/<workflow_run_id>.json`, and
+`triggers/finalization/<workflow_run_id>.json`
 
-**Ephemeral** (cleaned by coordinator after every run): `triggers/plans/`, `triggers/summaries/`, `triggers/progress/`, `triggers/reporting/`.
+**Ephemeral** (cleaned or released by the coordinator on successful completion):
+`triggers/plans/`, `triggers/summaries/`, `triggers/progress/`, `triggers/reporting/`, and
+`triggers/leases/`.
 
 **Detailed diagram — who writes what, ephemeral vs durable, what to look at with a `workflow_run_id`:** [diagrams/gcs-storage.md](diagrams/gcs-storage.md)
 
@@ -105,6 +117,16 @@ GCS is not transactional — rely on workflow ordering, deterministic keys, idem
 
 **Long form:** [weak-points-remediation.md](weak-points-remediation.md) (versioned backlog; ephemeral todos live under `docs/plans/` locally, gitignored).
 
+## Future structure note
+
+If we do a broader module cleanup later, the most natural seams are:
+
+- coordinator lifecycle / promotion state out of `backend/src/backend/runtime/entrypoint.py`
+- GitHub terminal publish stages out of `backend/src/backend/runtime/github_reporting.py`
+- supersede indexing versus remote dispatch execution out of `ci/src/bmtgate/handoff/dispatch.py`
+
+That is a structural follow-up only. The current repo keeps those files in place and relies on shared contracts plus policy tests to keep the control plane understandable in the meantime.
+
 ---
 
 <a id="adr-summaries"></a>
@@ -121,5 +143,7 @@ Former **`docs/adr/*.md`** prose lives in git history if needed.
 | **0004** | **SDK boundary:** `backend.runtime.sdk` in image; stage data = `benchmarks/` → sync. |
 | **0005** | **`baseline`:** still **`None`** in plugin `execute` until explicitly changed. |
 | **0006** | **`plugin.json` `api_version`** must match **`SUPPORTED_PLUGIN_API_VERSIONS`** in the running image. |
+| **0007** | Shared coordination contracts live in `contracts/src/bmtcontract` and are re-exported at runtime/CI boundaries instead of duplicated. |
+| **0008** | Coordinator finalization is explicit: acquire per-results-path leases, record finalization state, publish GitHub terminal state, then promote durable `current.json`. |
 
 Plugin reference: [contributors.md](contributors.md).

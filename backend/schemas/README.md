@@ -14,11 +14,14 @@ Schemas in this directory describe runtime-generated JSON artifacts written by t
 | `latest_result.schema.json` | `snapshots/<run_id>/latest.json` (full outcome) | Cloud Run task runtime |
 ## Schema Versioning & Compatibility Policy
 
-Every canonical JSON artifact includes an optional `schema_version` integer field. The current version is **1** (defined in `backend.config.constants.ARTIFACT_SCHEMA_VERSION`).
+Canonical coordination artifacts now carry per-artifact `schema_version` fields defined in
+`contracts/src/bmtcontract/constants.py`. The current pointer/finalization/reporting models are
+version **2**.
 
 **Rules:**
 
 - **Additive changes only** within a major version: new optional fields may be added; existing fields must not be removed or change type.
 - **Consumers must ignore unknown keys** (`additionalProperties: true`).
 - **Producers should emit `schema_version`** when writing artifacts so consumers can detect the version.
+- **Boundary readers stay compatibility-aware** for prior persisted payloads until the migration window closes.
 - If a breaking change is needed, bump the major version and add migration logic at the boundary.

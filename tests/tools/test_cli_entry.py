@@ -75,6 +75,7 @@ def test_bmt_help() -> None:
     result = runner.invoke(_tools_app(), ["bmt", "--help"])
     assert result.exit_code == 0
     assert "stage" in result.stdout
+    assert "ops" in result.stdout
 
 
 def test_python_m_tools_help_entrypoint_smoke() -> None:

@@ -3,13 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from github import Auth, Github, GithubException
-from github.GithubObject import NotSet
-
 from backend.config.bmt_domain_status import BmtProgressStatus
-from backend.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
+from backend.config.constants import STATUS_CONTEXT
 from backend.config.status import CheckConclusion, CheckStatus, CommitStatus
 from backend.github import github_checks
+from backend.github.client import GitHubException, github_client, github_rest, split_repository
 from backend.github.github_auth import resolve_github_app_token
 from backend.github.presentation import (
     CheckFinalView,
@@ -35,7 +33,9 @@ def workflow_execution_console_url(*, project: str, region: str, workflow_name: 
 
 
 def _github_repo(token: str, repository: str) -> Any:
-    return Github(auth=Auth.Token(token), timeout=int(HTTP_TIMEOUT)).get_repo(repository)
+    client = github_client(token)
+    owner, repo_name = split_repository(repository)
+    return client, owner, repo_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,13 +136,12 @@ class GitHubReporter:
         owner, _, repo = self.repository.partition("/")
         if not owner or not repo or not self.sha or not self.token:
             return False
-        target_url = None if details_url is None or details_url is NotSet else details_url
         return _post_commit_status_with_retry(
             self.repository,
             self.sha,
             state,
             description,
-            target_url,
+            details_url,
             self.token,
             context=self.status_context,
             token_resolver=resolve_github_app_token,
@@ -156,24 +155,28 @@ class GitHubReporter:
         self._update_issue_comment(pr_number=pr_number, comment_id=comment_id, body=body)
 
     def _find_existing_comment(self, *, pr_number: int) -> int | None:
-        owner, _, repo = self.repository.partition("/")
-        if not owner or not repo:
-            return None
         try:
-            issue = self._repo().get_issue(pr_number)
-            for n, comment in enumerate(issue.get_comments()):
+            client, owner, repo_name = self._repo()
+            comments = github_rest(client).issues.list_comments(owner, repo_name, pr_number).json()
+            if not isinstance(comments, list):
+                return None
+            for n, comment in enumerate(comments):
                 if n >= 100:
                     break
-                if comment_marker() in (comment.body or ""):
-                    cid = comment.id
+                if not isinstance(comment, dict):
+                    continue
+                if comment_marker() in str(comment.get("body") or ""):
+                    cid = comment.get("id")
                     if isinstance(cid, int):
                         return cid
             return None
-        except GithubException:
+        except GitHubException:
             return None
 
     def _create_issue_comment(self, *, pr_number: int, body: str) -> None:
-        self._repo().get_issue(pr_number).create_comment(body)
+        client, owner, repo_name = self._repo()
+        github_rest(client).issues.create_comment(owner, repo_name, pr_number, data={"body": body})
 
     def _update_issue_comment(self, *, pr_number: int, comment_id: int, body: str) -> None:
-        self._repo().get_issue(pr_number).get_comment(comment_id).edit(body)
+        client, owner, repo_name = self._repo()
+        github_rest(client).issues.update_comment(owner, repo_name, comment_id, data={"body": body})

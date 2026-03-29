@@ -15,6 +15,7 @@ from backend.runtime.stage_paths import (
     resolve_plugin_workspace_dir,
     resolve_published_plugin_dir,
 )
+from pydantic import ValidationError
 
 
 def _prefix_path(stage_root: Path, posix_prefix: str) -> Path:
@@ -33,7 +34,7 @@ def doctor_stage_project(*, stage_root: Path, project: str) -> tuple[int, list[s
         return 1, lines
     try:
         ProjectManifest.model_validate_json(pj.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, ValidationError, ValueError, TypeError) as exc:
         lines.append(f"ERROR: invalid project.json: {exc}")
         errors += 1
 
@@ -47,7 +48,7 @@ def doctor_stage_project(*, stage_root: Path, project: str) -> tuple[int, list[s
         slug = manifest_path.parent.name
         try:
             manifest = BmtManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-        except Exception as exc:
+        except (OSError, ValidationError, ValueError, TypeError) as exc:
             lines.append(f"ERROR: {manifest_path}: invalid manifest: {exc}")
             errors += 1
             continue
@@ -91,7 +92,7 @@ def doctor_stage_project(*, stage_root: Path, project: str) -> tuple[int, list[s
                 continue
             try:
                 PluginManifest.model_validate_json(pjson.read_text(encoding="utf-8"))
-            except Exception as exc:
+            except (OSError, ValidationError, ValueError, TypeError) as exc:
                 lines.append(f"ERROR: {manifest_path}: invalid plugin.json: {exc}")
                 errors += 1
                 continue

@@ -75,6 +75,19 @@ def test_handoff_uses_direct_workflow_dispatch_not_gcs_eventarc() -> None:
     assert "gcloud storage cat" not in handoff
 
 
+def test_handoff_dispatch_keeps_publish_omitted_notice_only_and_sparse_checkout_avoids_stale_gcp_root() -> None:
+    handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
+
+    assert "needs: [plan, publish]" in handoff
+    assert "publish_omitted is intentionally notice-only" in handoff
+    assert "dispatch excludes it from gating" in handoff
+    assert "needs['publish_omitted'].result == 'success'" not in handoff
+    assert "needs['publish_omitted'].result == 'skipped'" not in handoff
+    assert "bmt_recovery_used" in handoff
+    assert "bmt_dispatch_fallback_used" in handoff
+    assert "\n            gcp\n" not in handoff
+
+
 def test_handoff_does_not_use_ci_side_github_reporting() -> None:
     """CI does not post pending status or Check Runs — Cloud Run runtime handles all reporting.
 

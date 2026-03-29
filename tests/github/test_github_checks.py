@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from types import SimpleNamespace
 
 import pytest
 from backend.config.constants import STATUS_CONTEXT
@@ -16,13 +16,13 @@ _FAKE_CHECK_SHA = "a" * 40
 
 
 def test_create_check_run_requires_integer_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    mock_cr = MagicMock()
-    mock_cr.id = None
-    mock_repo = MagicMock()
-    mock_repo.create_check_run.return_value = mock_cr
-    mock_gh = MagicMock()
-    mock_gh.get_repo.return_value = mock_repo
-    monkeypatch.setattr(github_checks, "Github", MagicMock(return_value=mock_gh))
+    class _FakeChecks:
+        def create(self, owner: str, repo: str, *, data: dict[str, object]):
+            _ = (owner, repo, data)
+            return SimpleNamespace(json=lambda: {"id": None})
+
+    monkeypatch.setattr(github_checks, "_github_repo", lambda *_: (object(), "owner", "repo"))
+    monkeypatch.setattr(github_checks, "github_rest", lambda _client: SimpleNamespace(checks=_FakeChecks()))
 
     with pytest.raises(TypeError, match="integer id"):
         github_checks.create_check_run(
@@ -36,13 +36,17 @@ def test_create_check_run_requires_integer_id(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_create_check_run_returns_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    mock_cr = MagicMock()
-    mock_cr.id = 4242
-    mock_repo = MagicMock()
-    mock_repo.create_check_run.return_value = mock_cr
-    mock_gh = MagicMock()
-    mock_gh.get_repo.return_value = mock_repo
-    monkeypatch.setattr(github_checks, "Github", MagicMock(return_value=mock_gh))
+    cap: dict[str, object] = {}
+
+    class _FakeChecks:
+        def create(self, owner: str, repo: str, *, data: dict[str, object]):
+            cap["owner"] = owner
+            cap["repo"] = repo
+            cap["data"] = data
+            return SimpleNamespace(json=lambda: {"id": 4242})
+
+    monkeypatch.setattr(github_checks, "_github_repo", lambda *_: (object(), "owner", "repo"))
+    monkeypatch.setattr(github_checks, "github_rest", lambda _client: SimpleNamespace(checks=_FakeChecks()))
 
     assert (
         github_checks.create_check_run(
@@ -55,3 +59,9 @@ def test_create_check_run_returns_id(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         == 4242
     )
+    assert cap["owner"] == "owner"
+    assert cap["repo"] == "repo"
+    data = cap["data"]
+    assert isinstance(data, dict)
+    assert data["head_sha"] == _FAKE_CHECK_SHA
+    assert data["name"] == STATUS_CONTEXT

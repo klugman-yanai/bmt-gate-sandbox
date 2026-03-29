@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -12,6 +13,11 @@ app = typer.Typer(no_args_is_help=True)
 stage = typer.Typer(
     name="stage",
     help="One entry point for staged projects: create a project, add a BMT, publish plugin bundles.",
+    no_args_is_help=True,
+)
+ops = typer.Typer(
+    name="ops",
+    help="Operator-facing control-plane inspection and reconciliation helpers.",
     no_args_is_help=True,
 )
 
@@ -169,6 +175,50 @@ def stage_doctor(
 
 
 app.add_typer(stage, name="stage")
+app.add_typer(ops, name="ops")
+
+
+@ops.command("doctor")
+def ops_doctor(
+    workflow_run_id: Annotated[
+        str | None,
+        typer.Option("--workflow-run-id", help="Inspect one workflow_run_id for reconciliation residue."),
+    ] = None,
+    scan_stale: Annotated[
+        bool,
+        typer.Option("--scan-stale", help="Scan for stale control-plane artifacts older than the threshold."),
+    ] = False,
+    older_than_hours: Annotated[
+        int,
+        typer.Option("--older-than-hours", help="Age threshold used with --scan-stale."),
+    ] = 24,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON instead of human-readable lines."),
+    ] = False,
+) -> None:
+    """Inspect one workflow run or scan for stale finalization, lease, reporting, and log-dump residue."""
+    from tools.bmt.ops_doctor import default_stage_root, format_report, inspect_workflow_run, scan_stale_control_plane
+
+    if bool(workflow_run_id) == bool(scan_stale):
+        typer.echo("error: pass exactly one of --workflow-run-id or --scan-stale", err=True)
+        raise typer.Exit(2)
+
+    try:
+        if workflow_run_id:
+            report = inspect_workflow_run(stage_root=default_stage_root(), workflow_run_id=workflow_run_id)
+        else:
+            report = scan_stale_control_plane(stage_root=default_stage_root(), older_than_hours=older_than_hours)
+    except (RuntimeError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if json_output:
+        typer.echo(json.dumps(report.to_payload(), indent=2))
+    else:
+        for line in format_report(report):
+            typer.echo(line)
+    raise typer.Exit(report.exit_code)
 
 
 @app.command("verify")

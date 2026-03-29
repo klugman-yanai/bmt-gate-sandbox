@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
+from bmtcontract import models as contract_models
+from bmtcontract.models import (
+    FinalizationRecordV2,
+    LeaseRecordV2,
+    ReportingMetadataV2,
+    ResultsPointerV2,
+)
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from backend.config.value_types import ResultsPath, as_results_path
@@ -120,27 +127,6 @@ class ExecutionPlan(BaseModel):
     legs: list[PlanLeg]
 
 
-class ReportingMetadata(BaseModel):
-    workflow_execution_name: str = ""
-    workflow_execution_url: str = ""
-    check_run_id: int | None = None
-    started_at: str = ""
-    github_publish_complete: bool = False
-
-    def has_check_run_and_details_url(self) -> bool:
-        """True when GitHub check run exists and workflow console URL is persisted."""
-        return self.check_run_id is not None and bool(self.workflow_execution_url.strip())
-
-    def started_at_iso_or_none(self) -> str | None:
-        """Non-empty ``started_at`` after strip, or ``None``."""
-        t = (self.started_at or "").strip()
-        return t or None
-
-    def needs_started_at_backfill(self) -> bool:
-        """Ready for progress updates but missing wall-clock start (legacy / partial writes)."""
-        return self.has_check_run_and_details_url() and self.started_at_iso_or_none() is None
-
-
 class ProgressRecord(BaseModel):
     project: str
     bmt_slug: str
@@ -179,3 +165,10 @@ class LegSummary(BaseModel):
 class StageRuntimePaths:
     stage_root: Path
     workspace_root: Path
+
+
+ReportingMetadata = ReportingMetadataV2
+ResultsPointer = ResultsPointerV2
+FinalizationRecord = FinalizationRecordV2
+FinalizationLeaseRecord = LeaseRecordV2
+FinalizationState = contract_models.FinalizationState

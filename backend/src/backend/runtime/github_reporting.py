@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import google.auth
 import whenever
-from github import GithubException
+from bmtcontract.constants import LOG_DUMPS_PREFIX
+from bmtcontract.paths import log_dump_path
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import Request
@@ -16,9 +18,9 @@ from google.cloud import storage as gcs_storage
 
 from backend.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from backend.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET
-from backend.config.decisions import ReasonCode
 from backend.config.status import CheckConclusion, CheckStatus, CommitStatus
 from backend.github import github_checks
+from backend.github.client import GitHubException
 from backend.github.github_auth import resolve_github_app_token
 from backend.github.presentation import (
     CheckFinalView,
@@ -37,7 +39,7 @@ from backend.runtime.artifacts import (
     load_observed_duration_sec_from_latest_snapshot,
     load_optional_progress,
     load_optional_reporting_metadata,
-    load_summary_or_failure,
+    load_summary_or_incomplete_plan_failure,
     now_iso,
     parse_optional_instant_iso,
     summary_path,
@@ -46,6 +48,39 @@ from backend.runtime.artifacts import (
 from backend.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ReportingMetadata, StageRuntimePaths
 
 logger = logging.getLogger(__name__)
+
+_LOG_DUMP_RETENTION_DAYS = 30
+_LOG_DUMP_MAX_FILES = 200
+
+
+@dataclass(frozen=True, slots=True)
+class ReportingPreflight:
+    publish_required: bool
+    reporter_ready: bool
+    metadata: ReportingMetadata
+
+
+def _log_terminal_publish_outcome(
+    *,
+    workflow_run_id: str,
+    finalize_ok: bool,
+    commit_ok: bool,
+    publish_done: bool,
+    check_run_id_present: bool,
+    aggregate_state: str,
+    publish_path: str,
+) -> None:
+    logger.info(
+        "terminal publish outcome workflow_run_id=%s publish_path=%s finalize_ok=%s "
+        "commit_ok=%s publish_done=%s check_run_id_present=%s aggregate_state=%s",
+        workflow_run_id,
+        publish_path,
+        finalize_ok,
+        commit_ok,
+        publish_done,
+        check_run_id_present,
+        aggregate_state,
+    )
 
 
 def _live_links_for_plan(
@@ -106,6 +141,17 @@ def _persist_github_publish_complete(
         stage_root=runtime.stage_root,
         workflow_run_id=workflow_run_id,
         metadata=metadata.model_copy(update={"github_publish_complete": True}),
+    )
+
+
+def reporting_preflight(*, plan: ExecutionPlan, runtime: StageRuntimePaths) -> ReportingPreflight:
+    reporter, metadata = _load_reporter(plan=plan, runtime=runtime)
+    publish_required = bool((plan.repository or "").strip() and (plan.head_sha or "").strip())
+    reporter_ready = reporter is not None
+    return ReportingPreflight(
+        publish_required=publish_required,
+        reporter_ready=reporter_ready,
+        metadata=metadata,
     )
 
 
@@ -172,13 +218,13 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
             external_id=plan.workflow_run_id,
             pending_legs=[(leg.project, leg.bmt_slug) for leg in plan.legs],
         )
-    except GithubException:
+    except GitHubException:
         logger.exception("create_started_check_run failed workflow_run_id=%s", plan.workflow_run_id)
         return
     if plan.pr_number.isdigit():
         try:
             reporter.upsert_started_pr_comment(pr_number=int(plan.pr_number), view=view)
-        except GithubException:
+        except GitHubException:
             logger.warning("upsert_started_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
     _persist_reporting_started(runtime=runtime, plan=plan, workflow_url=workflow_url, check_run_id=check_run_id)
 
@@ -218,7 +264,7 @@ def publish_progress(*, plan: ExecutionPlan, runtime: StageRuntimePaths) -> None
             view=_progress_view(plan=plan, runtime=runtime, workflow_execution_url=metadata.workflow_execution_url),
             details_url=metadata.workflow_execution_url,
         )
-    except GithubException:
+    except GitHubException:
         logger.warning("publish_progress failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
 
@@ -263,7 +309,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             view=final_view,
             details_url=workflow_url,
         )
-    except GithubException:
+    except GitHubException:
         logger.warning("finalize_check_run failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
     else:
         if not finalized_ok:
@@ -272,7 +318,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 plan.workflow_run_id,
             )
 
-    # Commit status uses PyGithub; failures return False without raising.
+    # Commit status helper returns False on failure; finalization continues toward fallback publishing.
     commit_ok = reporter.post_final_status(
         state=commit_state,
         description=description,
@@ -284,7 +330,18 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             plan.workflow_run_id,
         )
 
-    if finalized_ok and commit_ok:
+    publish_done = finalized_ok and commit_ok
+    _log_terminal_publish_outcome(
+        workflow_run_id=plan.workflow_run_id,
+        finalize_ok=finalized_ok,
+        commit_ok=commit_ok,
+        publish_done=publish_done,
+        check_run_id_present=metadata.check_run_id is not None,
+        aggregate_state=check_state,
+        publish_path="publish_final_results",
+    )
+
+    if publish_done:
         _persist_github_publish_complete(
             runtime=runtime,
             workflow_run_id=plan.workflow_run_id,
@@ -308,7 +365,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 case_failure_warnings=_pr_case_failure_warnings(summaries),
             ),
         )
-    except GithubException:
+    except GitHubException:
         logger.warning("upsert_final_pr_comment failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
 
 
@@ -328,7 +385,7 @@ def _sync_local_metadata_if_check_already_completed_on_github(
         return False
     try:
         remote_status = github_checks.get_check_run_status(token, plan.repository, check_run_id)
-    except (GithubException, OSError, TypeError, ValueError):
+    except (GitHubException, OSError, TypeError, ValueError):
         logger.warning(
             "publish_github_failure could not read remote check status workflow_run_id=%s",
             plan.workflow_run_id,
@@ -382,7 +439,7 @@ def _publish_github_failure_retry_pass(
             view=final_view,
             details_url=workflow_url,
         )
-    except GithubException:
+    except GitHubException:
         logger.warning(
             "publish_github_failure finalize_check_run (pass retry) failed workflow_run_id=%s",
             plan.workflow_run_id,
@@ -393,7 +450,17 @@ def _publish_github_failure_retry_pass(
         description=description,
         details_url=workflow_url or None,
     )
-    if finalized_ok and commit_ok:
+    publish_done = finalized_ok and commit_ok
+    _log_terminal_publish_outcome(
+        workflow_run_id=plan.workflow_run_id,
+        finalize_ok=finalized_ok,
+        commit_ok=commit_ok,
+        publish_done=publish_done,
+        check_run_id_present=metadata.check_run_id is not None,
+        aggregate_state=CheckConclusion.SUCCESS.value,
+        publish_path="publish_github_failure_retry_pass",
+    )
+    if publish_done:
         _persist_github_publish_complete(
             runtime=runtime,
             workflow_run_id=plan.workflow_run_id,
@@ -439,7 +506,7 @@ def _publish_github_failure_retry_commit_description(
             view=final_view,
             details_url=workflow_url,
         )
-    except GithubException:
+    except GitHubException:
         logger.warning(
             "publish_github_failure finalize_check_run failed workflow_run_id=%s",
             plan.workflow_run_id,
@@ -450,7 +517,17 @@ def _publish_github_failure_retry_commit_description(
         description=desc,
         details_url=workflow_url or None,
     )
-    if finalized_ok and commit_ok:
+    publish_done = finalized_ok and commit_ok
+    _log_terminal_publish_outcome(
+        workflow_run_id=plan.workflow_run_id,
+        finalize_ok=finalized_ok,
+        commit_ok=commit_ok,
+        publish_done=publish_done,
+        check_run_id_present=metadata.check_run_id is not None,
+        aggregate_state=CheckConclusion.FAILURE.value,
+        publish_path="publish_github_failure_retry_commit_description",
+    )
+    if publish_done:
         _persist_github_publish_complete(
             runtime=runtime,
             workflow_run_id=plan.workflow_run_id,
@@ -501,11 +578,10 @@ def publish_github_failure(
         return
 
     summaries = [
-        load_summary_or_failure(
+        load_summary_or_incomplete_plan_failure(
             stage_root=runtime.stage_root,
             workflow_run_id=plan.workflow_run_id,
             leg=leg,
-            missing_reason_code=ReasonCode.INCOMPLETE_PLAN.value,
         )
         for leg in plan.legs
     ]
@@ -817,10 +893,11 @@ def _write_log_dump_and_sign(
         _append_leg_log_files_to_dump(dump_lines, summary, logs_root)
     if not dump_lines:
         return None
-    relative_path = f"log-dumps/{plan.workflow_run_id}.txt"
+    relative_path = log_dump_path(plan.workflow_run_id)
     dump_path = runtime.stage_root / relative_path
     dump_path.parent.mkdir(parents=True, exist_ok=True)
     dump_path.write_text("\n".join(dump_lines), encoding="utf-8")
+    _prune_log_dumps(stage_root=runtime.stage_root, keep_path=dump_path)
     bucket_name = (os.environ.get(ENV_GCS_BUCKET) or "").strip()
     if not bucket_name:
         return None
@@ -829,6 +906,47 @@ def _write_log_dump_and_sign(
         return signed
     # Fallback: at least give a stable URL that works for authenticated users.
     return f"https://storage.cloud.google.com/{bucket_name}/{relative_path}"
+
+
+def _prune_log_dumps(*, stage_root: Path, keep_path: Path) -> None:
+    dumps_root = stage_root / LOG_DUMPS_PREFIX
+    if not dumps_root.is_dir():
+        return
+    now = _instant_now()
+    entries: list[tuple[whenever.Instant, Path]] = []
+    for path in sorted(dumps_root.glob("*.txt")):
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            logger.warning("log-dump retention stat failed path=%s", path, exc_info=True)
+            continue
+        entries.append((whenever.Instant.from_timestamp(stat.st_mtime), path))
+
+    expired_cutoff_sec = _LOG_DUMP_RETENTION_DAYS * 24 * 60 * 60
+    kept_entries: list[tuple[whenever.Instant, Path]] = []
+    for updated_at, path in entries:
+        is_expired = int((now - updated_at).in_seconds()) > expired_cutoff_sec
+        if path != keep_path and is_expired:
+            _unlink_log_dump(path)
+            continue
+        kept_entries.append((updated_at, path))
+
+    if len(kept_entries) <= _LOG_DUMP_MAX_FILES:
+        return
+    kept_entries.sort(key=lambda item: item[0].timestamp(), reverse=True)
+    for _updated_at, path in kept_entries[_LOG_DUMP_MAX_FILES:]:
+        if path == keep_path:
+            continue
+        _unlink_log_dump(path)
+
+
+def _unlink_log_dump(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        logger.warning("log-dump retention unlink failed path=%s", path, exc_info=True)
 
 
 def _generate_signed_url(*, bucket_name: str, blob_name: str) -> str | None:

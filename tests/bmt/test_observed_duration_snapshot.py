@@ -45,6 +45,29 @@ def test_load_observed_duration_reads_duration_sec_from_latest_json(tmp_path: Pa
     assert load_observed_duration_sec_from_latest_snapshot(stage_root=tmp_path, leg=leg) == 412
 
 
+def test_load_observed_duration_reads_duration_sec_from_v2_current_pointer(tmp_path: Path) -> None:
+    leg = _leg()
+    results = tmp_path / str(leg.results_path)
+    snap = "run-v2"
+    (results / "snapshots" / snap).mkdir(parents=True)
+    (results / "current.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "latest_run_id": snap,
+                "last_passing_run_id": snap,
+                "updated_at": "2026-03-20T00:00:00Z",
+                "promoted_by_workflow_run_id": "wf-1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (results / "snapshots" / snap / "latest.json").write_text(
+        json.dumps({"duration_sec": 211, "project": "sk"}), encoding="utf-8"
+    )
+    assert load_observed_duration_sec_from_latest_snapshot(stage_root=tmp_path, leg=leg) == 211
+
+
 def test_load_observed_duration_returns_none_when_missing_or_invalid(tmp_path: Path) -> None:
     leg = _leg()
     assert load_observed_duration_sec_from_latest_snapshot(stage_root=tmp_path, leg=leg) is None

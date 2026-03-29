@@ -4,7 +4,7 @@ import pytest
 from backend.github import statuses
 from backend.github.presentation import CheckFinalView, LiveLinks
 from backend.github.reporting import GitHubReporter
-from github import GithubException
+from githubkit.exception import GitHubException
 
 pytestmark = pytest.mark.unit
 
@@ -78,7 +78,7 @@ def test_finalize_check_run_with_retry_uses_backoff_on_transient_failures(monkey
         _ = (repository, check_run_id, status, conclusion, output)
         attempts.append((token, details_url))
         if len(attempts) < 3:
-            raise GithubException(500, None, None, "update failed")
+            raise GitHubException("update failed")
 
     refreshed: list[str] = []
 

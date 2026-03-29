@@ -46,7 +46,7 @@ _STEP_DEPLOY = _Step(
     "deploy",
     ("sync-to-bucket",),
     "Upload to GCS bucket",
-    "Same as workspace deploy: local gcp/ → bucket + verify",
+    "Same as workspace deploy: local benchmarks/ stage mirror → bucket + verify",
     "yellow",
 )
 

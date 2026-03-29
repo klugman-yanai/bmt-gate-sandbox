@@ -10,6 +10,7 @@ import json
 import subprocess
 from typing import Any
 
+from bmtcontract.paths import results_pointer_path, verdict_result_path
 from backend.config.value_types import (
     ResultsPath,
     RunId,
@@ -34,13 +35,13 @@ def snapshot_verdict_uri(bucket_root: str, results_path: ResultsPath | str, run_
     """GCS URI for ci_verdict.json of a given run."""
     rp = results_path_str(as_results_path(str(results_path)))
     safe = sanitize_run_id(str(run_id))
-    return f"{bucket_root}/{rp}/snapshots/{safe}/ci_verdict.json"
+    return f"{bucket_root}/{verdict_result_path(rp, safe)}"
 
 
 def current_pointer_uri(bucket_root: str, results_path: ResultsPath | str) -> str:
     """GCS URI for current.json pointer under the results path."""
     rp = results_path_str(as_results_path(str(results_path)))
-    return f"{bucket_root}/{rp}/current.json"
+    return f"{bucket_root}/{results_pointer_path(rp).removeprefix('/')}"
 
 
 def download_json(uri: str) -> tuple[dict[str, Any] | None, str | None]:
