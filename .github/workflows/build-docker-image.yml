@@ -3,7 +3,8 @@ name: Build and Push Docker Image
 on:
   push:
     branches:
-      - main
+      - ci/check-bmt-gate
+      - dev
     paths:
       - 'gcp/image/**'
       - 'gcp/__init__.py'
