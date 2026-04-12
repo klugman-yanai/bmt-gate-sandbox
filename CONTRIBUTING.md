@@ -2,33 +2,11 @@
 
 ## One-time setup
 
-Install tooling in this order: **`uv`** first (required), then **`just`** (optional but recommended), then run **`just onboard`** from the repo root.
+Install **`just`** (optional but recommended), then run **`just setup`** from the repo root.
 
-### 1. Install uv
+### 1. Install just (optional)
 
-**[uv](https://docs.astral.sh/uv/)** manages Python versions and installs dependencies from `pyproject.toml` / `uv.lock`. Nothing in the repo assumes a system Python layout until `uv` exists.
-
-**Linux (standalone installer):**
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Open a new shell or ensure `~/.local/bin` is on your **`PATH`**. Verify:
-
-```bash
-uv --version
-```
-
-**Python 3.12** — if you need an interpreter, use uv ([guide](https://docs.astral.sh/uv/guides/install-python/)):
-
-```bash
-uv python install 3.12
-```
-
-### 2. Install just (optional)
-
-**[just](https://github.com/casey/just)** runs named recipes from the `Justfile` (similar idea to a Makefile).
+**[just](https://github.com/casey/just)** runs named recipes from the `Justfile`.
 
 **Ubuntu:**
 
@@ -36,44 +14,43 @@ uv python install 3.12
 sudo apt update && sudo apt install -y just
 ```
 
-### 3. Onboard this repository
+### 2. Run setup
 
 From the **repository root**:
 
 ```bash
-just onboard
+just setup
 ```
 
-That runs [`tools/scripts/bootstrap_dev_env.sh`](tools/scripts/bootstrap_dev_env.sh): **`uv sync`** (creates/updates `.venv`), installs **prek** shims for **pre-commit** and **pre-push**, then **`uv run python -m tools onboard`** for a **Rich** summary of hooks and next steps. It does **not** run `ty`, `pytest`, or `prek run`.
+`just setup` runs [`tools/scripts/setup.sh`](tools/scripts/setup.sh): installs **uv** (if missing), installs **gcloud CLI** (if missing), authenticates Application Default Credentials, syncs the Python workspace (**`uv sync`**), and installs **prek** shims for **pre-commit** and **pre-push**.
 
-Without `just`:
+For a full developer environment (adds **shellcheck**, **actionlint**, **Pulumi**):
 
 ```bash
-bash tools/scripts/bootstrap_dev_env.sh
+just setup --dev
 ```
 
-**Dry run** (no `uv sync` / no `prek install`; still requires **`uv`** on `PATH`):
+**Dry run** (no installs or `uv sync`; reports what would happen):
 
 ```bash
-just onboard --dry-run
+just setup --dry-run
 ```
 
-If **prek** hooks are **already** installed from an earlier run, dry-run reports that and does not claim it would install them again. If **`core.hooksPath`** is set (hooks live outside `.git/hooks`), dry-run skips prek install quietly — that is expected when hooks are managed elsewhere.
-
-**Manual equivalent** (same end state as `just onboard`):
+**Manual equivalent** (without `just`):
 
 ```bash
-uv sync
-uv run prek install -t pre-commit -f
-uv run prek install -t pre-push -f
-uv run python -m tools onboard
+bash tools/scripts/setup.sh
 ```
 
-`uv sync` includes the **`dev`** dependency group by default (**ruff**, **pytest**, **prek**, **PyJWT** for GitHub App helpers, etc.) and installs this workspace in editable mode. Use `uv sync --no-dev` only when you explicitly want to drop dev tooling. A separate `uv pip install -e .` is not required for normal work.
+Re-running `just setup` on an already-configured machine is safe and fast — each step is idempotent.
+
+---
 
 **Workspace:** the repo root is a **uv workspace** with one lockfile. Member packages include **`bmt`** (under `.github/bmt`) and **`bmt-runtime`** (`gcp/image`). Run commands in a member’s context with `uv run --package bmt …` or `uv run --package bmt-runtime …`; list members with `uv workspace list`.
 
 **CLIs:** CI/driver commands use **`uv run bmt`** (console scripts from the `bmt` member). Contributor tooling uses **`uv run python -m tools`** (Typer). The root package does not define a separate `[project.scripts]` alias for `tools`—one entrypoint keeps docs and PATH predictable.
+
+**`uv sync`:** includes the **`dev`** dependency group by default (**ruff**, **pytest**, **prek**, **PyJWT** for GitHub App helpers, etc.) and installs this workspace in editable mode. Use `uv sync --no-dev` only when you explicitly want to drop dev tooling. A separate `uv pip install -e .` is not required for normal work.
 
 **Rare escape hatch:** ad-hoc `uv pip install …` in an existing venv is sometimes used in CI or one-off debugging; for reproducible work, prefer **`uv sync`** (and lockfile changes) so everyone matches `uv.lock`.
 
@@ -88,7 +65,7 @@ uv run prek install -t pre-commit -f
 uv run prek install -t pre-push -f
 ```
 
-(`just onboard` runs the same commands.)
+(`just setup` runs the same commands.)
 
 If **`prek install` fails** with `core.hooksPath`, Git is redirecting hooks elsewhere. Unset it (local or global), then reinstall:
 
