@@ -112,7 +112,7 @@ ensure_gcloud() {
     apt)
       if [[ ! -f /etc/apt/sources.list.d/google-cloud-sdk.list ]]; then
         sudo apt-get install -y apt-transport-https ca-certificates gnupg curl
-        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+        curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
           sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
         echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
           sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
@@ -143,6 +143,10 @@ ensure_gcloud() {
 # ── step 4: ADC ───────────────────────────────────────────────────────────────
 ensure_adc() {
   step "Application Default Credentials"
+  if ! command -v gcloud >/dev/null 2>&1; then
+    warn "gcloud not found; skipping ADC setup."
+    FAILED_STEPS+=("adc"); return 1
+  fi
   if gcloud auth application-default print-access-token >/dev/null 2>&1; then
     ok; return 0
   fi
