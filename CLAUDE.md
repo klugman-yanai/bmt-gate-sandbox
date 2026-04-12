@@ -2,6 +2,22 @@
 
 Guidance for **Claude Code** (and similar agents) working in **bmt-gcloud**.
 
+## Current Goal
+
+Fully stable end-to-end pipeline: test and build the pipeline, build the **PEX binary**, publish it to **klugman-yanai/bmt-gcloud** GitHub Releases (tag-based), then run a **live test** from **Kardome-org/core-main** (local: `~/dev/kardome/core-main`) where core-main's CI downloads the PEX via a GitHub Action.
+
+## Branch Strategy
+
+Three long-lived branches: `main`, `dev`, `ci/check-bmt-gate`.
+
+| PR direction | Pipeline triggers? |
+|---|---|
+| `feat/*` / `chore/*` / `bugfix/*` → `ci/check-bmt-gate` | Yes |
+| `ci/check-bmt-gate` → `dev` | Yes (stable milestone) |
+| `dev` → `main` | No |
+
+New work always branches from and PRs to `ci/check-bmt-gate`.
+
 ## Project overview
 
 **bmt-gcloud** provides a **realistic path to test production BMT CI** against **real GCS** (and GCP), not mocks. The supported execution model is:
@@ -35,10 +51,14 @@ Avoid `time.time()` / `datetime.now()` for new code. CI and `gcp/` may use local
 | `tools/bmt/` | Local batch runner, monitor, wait verdicts |
 | `tools/repo/` | Layout policies, GitHub/repo vars, paths |
 | `tools/pulumi/` | Pulumi → GitHub vars |
+| `tools/terraform/` | Terraform → GitHub vars |
+| `tools/local/` | Local dev helpers (`mount_remote_data.sh`, etc.) |
+| `tools/scripts/` | Pre-commit hooks and preflight scripts |
+| `tools/cli/` | Typer command modules (`bmt_cmd.py`, `bucket_cmd.py`, `build_cmd.py`, `repo_cmd.py`, `terraform_cmd.py`) |
 
 **CLI:** `uv run python -m tools --help` (Typer). **Just** recipes are preferred wrappers (`just deploy`, etc.).
 
-**Layout tests:** `just test` or `uv run python -m tools.repo.gcp_layout_policy` / `repo_layout_policy`.
+**Layout tests:** `just test` runs the full pre-push suite: pytest, ruff, `ty check`, actionlint, shellcheck, and both layout policies. Run layout policies standalone: `uv run python -m tools.repo.gcp_layout_policy` / `repo_layout_policy`.
 
 **Pulumi / vars:** `just pulumi`, `just validate` — see [infra/README.md](infra/README.md), [docs/configuration.md](docs/configuration.md).
 
