@@ -188,7 +188,11 @@ run_uv_sync() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     info "[would run] uv sync"; return 0
   fi
-  uv sync
+  if ! uv sync; then
+    fail "uv sync failed."
+    FAILED_STEPS+=("uv sync")
+    return 1
+  fi
   ok
 }
 
@@ -196,7 +200,7 @@ run_uv_sync() {
 _prek_hooks_installed() {
   local pc="$REPO_ROOT/.git/hooks/pre-commit"
   local pp="$REPO_ROOT/.git/hooks/pre-push"
-  [[ -f "$pc" ]] && [[ -f "$pp" ]] && grep -qi prek "$pc" "$pp" 2>/dev/null
+  [[ -f "$pc" ]] && [[ -f "$pp" ]] && grep -qi prek "$pc" 2>/dev/null && grep -qi prek "$pp" 2>/dev/null
 }
 
 ensure_prek_hooks() {
