@@ -156,3 +156,78 @@ ensure_adc() {
   gcloud auth application-default login
   ok
 }
+
+# ── step 5: GCS bucket ────────────────────────────────────────────────────────
+ensure_gcs_bucket() {
+  step "GCS_BUCKET"
+  if [[ -n "${GCS_BUCKET:-}" ]]; then
+    info "GCS_BUCKET=${GCS_BUCKET}"; ok; return 0
+  fi
+  local resolved=""
+  if command -v gh >/dev/null 2>&1; then
+    resolved="$(gh variable get GCS_BUCKET 2>/dev/null || true)"
+  fi
+  if [[ -n "$resolved" ]]; then
+    export GCS_BUCKET="$resolved"
+    info "GCS_BUCKET=${GCS_BUCKET} (from gh variable)"; ok; return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[would resolve] GCS_BUCKET — not set and gh unavailable or unset"; return 0
+  fi
+  fail "GCS_BUCKET is not set and could not be resolved."
+  printf '  Fix:\n' >&2
+  printf '    export GCS_BUCKET=<bucket-name>\n' >&2
+  printf '    gh variable set GCS_BUCKET --body <bucket-name>\n' >&2
+  FAILED_STEPS+=("GCS_BUCKET")
+  return 1
+}
+
+# ── step 6: uv sync ───────────────────────────────────────────────────────────
+run_uv_sync() {
+  step "uv sync"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[would run] uv sync"; return 0
+  fi
+  uv sync
+  ok
+}
+
+# ── step 7: prek hooks ────────────────────────────────────────────────────────
+_prek_hooks_installed() {
+  local pc="$REPO_ROOT/.git/hooks/pre-commit"
+  local pp="$REPO_ROOT/.git/hooks/pre-push"
+  [[ -f "$pc" ]] && [[ -f "$pp" ]] && grep -qi prek "$pc" "$pp" 2>/dev/null
+}
+
+ensure_prek_hooks() {
+  step "prek hooks"
+  if [[ ! -d "$REPO_ROOT/.git" ]]; then
+    info "Not a git checkout; skipping prek install."; return 0
+  fi
+  if git -C "$REPO_ROOT" config --get core.hooksPath >/dev/null 2>&1; then
+    info "core.hooksPath is set; skipping (hooks managed externally)."; return 0
+  fi
+  if _prek_hooks_installed; then
+    ok; return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[would install] prek pre-commit + pre-push hooks"; return 0
+  fi
+  uv run prek install -t pre-commit -f
+  uv run prek install -t pre-push -f
+  ok
+}
+
+# ── step 8: bucket probe ──────────────────────────────────────────────────────
+run_bucket_probe() {
+  step "Bucket preflight"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[skipped in dry-run]"; return 0
+  fi
+  if ! uv run python -m tools bucket preflight; then
+    warn "Bucket preflight returned non-zero."
+    warn "The bucket may not be seeded yet. Run 'just deploy' once GCS_BUCKET is set."
+  else
+    ok
+  fi
+}
