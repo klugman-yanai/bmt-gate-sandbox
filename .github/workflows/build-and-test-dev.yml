@@ -135,29 +135,20 @@ jobs:
     name: Handoff
     needs: [build_release]
     if: >-
+      always() &&
       (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
       && (
         (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
         || github.event.pull_request.head.repo.full_name == github.repository
       )
       && (
-        contains(
-          fromJson('["dev","ci/check-bmt-gate"]'),
-          format(
-            '{0}',
-            (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
-          )
+        (
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+          && (github.base_ref == 'dev' || github.base_ref == 'ci/check-bmt-gate')
         )
-        || startsWith(
-          format(
-            '{0}',
-            (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
-          ),
-          'test/check-bmt-gate'
+        || (
+          (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
+          && (github.ref_name == 'dev' || github.ref_name == 'ci/check-bmt-gate')
         )
       )
     permissions:
@@ -173,6 +164,6 @@ jobs:
       head_branch: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.ref || github.ref_name }}
       head_event: ${{ github.event_name }}
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
-      use_mock_runner: false
+      use_mock_runner: true
       cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
       bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
