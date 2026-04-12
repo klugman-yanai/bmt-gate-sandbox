@@ -30,7 +30,7 @@ The bucket layout mirrors [`gcp/stage`](gcp/stage).
 ```bash
 git clone https://github.com/klugman-yanai/bmt-gcloud.git
 cd bmt-gcloud
-just onboard
+just setup
 just test
 ```
 
