@@ -60,6 +60,7 @@ gcp/mnt/
 # Tooling/editor
 compile_commands.json
 .vscode/
+!.vscode/settings.json
 .idea/
 .cursor/plans/
 *.swp

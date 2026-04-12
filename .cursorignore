@@ -29,7 +29,8 @@ dist/
 
 # IDE/editor (keep rules; ignore local state)
 .idea/
-.vscode/
+.vscode/**
+!.vscode/settings.json
 *.swp
 *~
 
