@@ -9,7 +9,7 @@ help:
       '  just test              Full suite: pytest, ruff, ty, actionlint, shellcheck, layout' \
       '  just ship              Pre-push gate (test → preflight → deploy → image); see --help' \
       '  just deploy            Sync gcp/stage to GCS + verify' \
-      '  just onboard           Bootstrap: uv, Python 3.12, hooks (use: just onboard --dry-run)' \
+      '  just setup             Bootstrap: uv, gcloud, ADC, deps, hooks (just setup --dev for full)' \
       '' \
       'Infra & BMT' \
       '  just pulumi            Pulumi apply + repo vars' \
@@ -234,10 +234,12 @@ add-project project:
 add-bmt project bmt_slug:
     uv run python -m tools bmt add-bmt "{{ project }}" "{{ bmt_slug }}"
 
-# One-time local setup: uv, Python 3.12, uv sync, prek hooks (no ty/pytest in the script)
-[group('dev')]
-onboard *args:
-    bash tools/scripts/bootstrap_dev_env.sh {{ args }}
+# One-time setup for a fresh machine: installs uv, gcloud, ADC, syncs deps, installs prek hooks.
+# Pass --dev for a full developer environment (shellcheck, actionlint, pulumi).
+# Pass --dry-run to preview what would be installed without making changes.
+[group('setup')]
+setup *args:
+    bash tools/scripts/setup.sh {{ args }}
 
 [group('dev')]
 publish-bmt project bmt_slug:
