@@ -129,6 +129,9 @@ env:
   # Defaults match docs/configuration.md and gcp/image/config/constants.py (DEFAULT_*).
   CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
   BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
+  # Propagate mock runner flag to all jobs (classify, dispatch). Only workflow_call exposes this
+  # input; workflow_dispatch has no use_mock_runner → expression evaluates to 'false' safely.
+  BMT_USE_MOCK_RUNNER: ${{ inputs.use_mock_runner == true && 'true' || 'false' }}
 
 permissions:
   contents: read
@@ -397,8 +400,6 @@ jobs:
           HEAD_BRANCH: ${{ needs.write_handoff_context.outputs.head_branch }}
           PR_NUMBER: ${{ needs.write_handoff_context.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          # Only explicit boolean true enables mock (matches build-and-test strict pass-through).
-          BMT_USE_MOCK_RUNNER: ${{ inputs.use_mock_runner == true && 'true' || 'false' }}
         run: |
           set -euo pipefail
           uv run bmt handoff write-context

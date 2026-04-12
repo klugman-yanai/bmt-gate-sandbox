@@ -315,6 +315,33 @@ class RunnerManager:
         self.upload()
 
     def resolve_uploaded_projects(self) -> None:
+        from gcp.image.config.env_parse import is_truthy_env_value
+
+        use_mock = is_truthy_env_value(os.environ.get("BMT_USE_MOCK_RUNNER"))
+        w = self._w()
+        runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
+
+        if use_mock:
+            # Mock runner: treat all projects in runner matrix as accepted (bypass GCS checks).
+            mock_projects: set[str] = set()
+            if runner_matrix_raw:
+                try:
+                    runner_matrix = json.loads(runner_matrix_raw)
+                    include = runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
+                    for entry in include:
+                        if isinstance(entry, dict):
+                            project = str(entry.get("project", "")).strip()
+                            if project:
+                                mock_projects.add(project)
+                except json.JSONDecodeError as exc:
+                    gh_warning(f"Invalid RUNNER_MATRIX JSON in mock mode: {exc}")
+            names = sorted(mock_projects)
+            accepted = json.dumps(names)
+            Path("accepted.txt").write_text(accepted)
+            write_github_output(os.environ.get("GITHUB_OUTPUT"), "accepted_projects", accepted)
+            gh_notice(f"Mock runner: accepting all projects (GCS upload skipped): {accepted}")
+            return
+
         run_id = _ci_run_id_for_markers()
         root = core.workflow_runtime_root()
         prefix = f"{root}/_workflow/uploaded/{run_id}/"
@@ -322,8 +349,6 @@ class RunnerManager:
         uploaded_projects = {
             u.split("/")[-1].replace(".json", "").strip() for u in uris if u.endswith(".json")
         }
-        w = self._w()
-        runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
         if runner_matrix_raw:
             try:
                 runner_matrix = json.loads(runner_matrix_raw)
