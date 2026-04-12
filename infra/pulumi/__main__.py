@@ -159,6 +159,15 @@ gcp.storage.BucketIAMMember(
     member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
 )
 
+gcp.artifactregistry.RepositoryIamMember(
+    "job-runner-artifact-registry-writer",
+    location=cfg.cloud_run_region,
+    project=cfg.gcp_project,
+    repository=artifact_registry.name,
+    role="roles/artifactregistry.writer",
+    member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
+)
+
 for secret_name in github_app_secret_ids:
     gcp.secretmanager.SecretIamMember(
         f"job-runner-secret-{secret_name.lower().replace('_', '-')}",
