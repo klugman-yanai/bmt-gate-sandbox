@@ -1,0 +1,68 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'gcp/image/**'
+      - 'gcp/__init__.py'
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-push:
+    name: Build and Push
+    runs-on: ubuntu-22.04
+    env:
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION || 'europe-west4' }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: GCP Auth (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          project_id: ${{ env.GCP_PROJECT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db  # v3.0.1
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.CLOUD_RUN_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --use --name bmt-builder
+          docker buildx inspect --bootstrap
+
+      - name: Build and push
+        env:
+          IMAGE_BASE: ${{ env.CLOUD_RUN_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/bmt-images/bmt-orchestrator
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --push \
+            --platform linux/amd64 \
+            --tag "${IMAGE_BASE}:latest" \
+            --tag "${IMAGE_BASE}:${GIT_SHA}" \
+            -f gcp/image/Dockerfile \
+            .
+          echo "::notice::Pushed ${IMAGE_BASE}:latest and :${GIT_SHA}"
