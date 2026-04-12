@@ -353,3 +353,4 @@ jobs:
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
       cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
       bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
+      use_mock_runner: true
