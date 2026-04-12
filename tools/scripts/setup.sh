@@ -20,17 +20,25 @@ for arg in "$@"; do
 done
 
 # ── color helpers ──────────────────────────────────────────────────────────────
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BOLD='\033[1m'
-RESET='\033[0m'
+if [ -t 1 ]; then
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  RED='\033[0;31m'
+  BOLD='\033[1m'
+  RESET='\033[0m'
+else
+  GREEN=''
+  YELLOW=''
+  RED=''
+  BOLD=''
+  RESET=''
+fi
 
-step() { printf "\n${BOLD}==> %s${RESET}\n" "$1"; }
-ok()   { printf "${GREEN}ok${RESET}\n"; }
-info() { printf "${YELLOW}%s${RESET}\n" "$1"; }
-warn() { printf "${YELLOW}[warn] %s${RESET}\n" "$1" >&2; }
-fail() { printf "${RED}[error] %s${RESET}\n" "$1" >&2; }
+step() { printf '\n%s==> %s%s\n' "$BOLD" "$1" "$RESET"; }
+ok()   { printf '%sok%s\n' "$GREEN" "$RESET"; }
+info() { printf '%s%s%s\n' "$YELLOW" "$1" "$RESET"; }
+warn() { printf '%s[warn] %s%s\n' "$YELLOW" "$1" "$RESET" >&2; }
+fail() { printf '%s[error] %s%s\n' "$RED" "$1" "$RESET" >&2; }
 
 FAILED_STEPS=()
 
