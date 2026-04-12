@@ -47,22 +47,18 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.CLOUD_RUN_REGION }}-docker.pkg.dev --quiet
 
-      - name: Set up Docker Buildx
+      - name: Build image
         run: |
-          docker buildx create --use --name bmt-builder
-          docker buildx inspect --bootstrap
+          docker build -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
 
-      - name: Build and push
+      - name: Push image
         env:
           IMAGE_BASE: ${{ env.CLOUD_RUN_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/bmt-images/bmt-orchestrator
           GIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          docker buildx build \
-            --push \
-            --platform linux/amd64 \
-            --tag "${IMAGE_BASE}:latest" \
-            --tag "${IMAGE_BASE}:${GIT_SHA}" \
-            -f gcp/image/Dockerfile \
-            .
+          docker tag bmt-orchestrator:latest "${IMAGE_BASE}:latest"
+          docker tag bmt-orchestrator:latest "${IMAGE_BASE}:${GIT_SHA}"
+          docker push "${IMAGE_BASE}:latest"
+          docker push "${IMAGE_BASE}:${GIT_SHA}"
           echo "::notice::Pushed ${IMAGE_BASE}:latest and :${GIT_SHA}"
