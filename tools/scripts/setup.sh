@@ -235,3 +235,93 @@ run_bucket_probe() {
     ok
   fi
 }
+
+# ── dev step 9: shellcheck ────────────────────────────────────────────────────
+ensure_shellcheck() {
+  step "shellcheck"
+  if command -v shellcheck >/dev/null 2>&1; then
+    ok; return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[would install] shellcheck via ${PKG}"; return 0
+  fi
+  pkg_install shellcheck
+  ok
+}
+
+# ── dev step 10: actionlint ───────────────────────────────────────────────────
+ensure_actionlint() {
+  step "actionlint"
+  if command -v actionlint >/dev/null 2>&1; then
+    ok; return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[would install] actionlint via ${PKG} (or GitHub release for apt)"; return 0
+  fi
+  case "$PKG" in
+    paru)   paru -S --noconfirm actionlint ;;
+    pacman) sudo pacman -S --noconfirm actionlint ;;
+    apt|*)
+      local tmpdir url
+      tmpdir="$(mktemp -d)"
+      url="$(curl -fsSL https://api.github.com/repos/rhysd/actionlint/releases/latest \
+        | grep -o '"browser_download_url": "[^"]*linux_amd64[^"]*\.tar\.gz"' \
+        | head -1 \
+        | grep -o 'https://[^"]*')"
+      if [[ -z "$url" ]]; then
+        fail "Could not determine actionlint download URL."
+        FAILED_STEPS+=("actionlint"); return 1
+      fi
+      curl -fsSL "$url" -o "$tmpdir/actionlint.tar.gz"
+      tar -xzf "$tmpdir/actionlint.tar.gz" -C "$tmpdir"
+      mkdir -p "${HOME}/.local/bin"
+      mv "$tmpdir/actionlint" "${HOME}/.local/bin/actionlint"
+      chmod +x "${HOME}/.local/bin/actionlint"
+      rm -rf "$tmpdir"
+      ;;
+  esac
+  ok
+}
+
+# ── dev step 11: pulumi ───────────────────────────────────────────────────────
+ensure_pulumi() {
+  step "Pulumi"
+  if command -v pulumi >/dev/null 2>&1; then
+    ok; return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[would install] Pulumi via get.pulumi.com installer"; return 0
+  fi
+  curl -fsSL https://get.pulumi.com | sh
+  export PATH="${HOME}/.pulumi/bin:${PATH}"
+  ok
+}
+
+# ── main ──────────────────────────────────────────────────────────────────────
+ensure_repo_root
+cd "$REPO_ROOT"
+
+ensure_uv
+ensure_gcloud
+ensure_adc
+ensure_gcs_bucket || true   # non-fatal; FAILED_STEPS captures failure
+run_uv_sync
+ensure_prek_hooks
+run_bucket_probe
+
+if [[ "$DEV" -eq 1 ]]; then
+  ensure_shellcheck
+  ensure_actionlint
+  ensure_pulumi
+fi
+
+printf '\n'
+if [[ ${#FAILED_STEPS[@]} -eq 0 ]]; then
+  printf '%sSetup complete.%s\n' "$GREEN$BOLD" "$RESET"
+else
+  printf '%sSetup finished with issues:%s\n' "$RED$BOLD" "$RESET"
+  for s in "${FAILED_STEPS[@]}"; do
+    printf '  - %s\n' "$s"
+  done
+  exit 1
+fi
