@@ -5,7 +5,7 @@ from __future__ import annotations
 from gcp.image.config.decisions import GateDecision, ReasonCode
 
 HTTP_TIMEOUT = 30
-GITHUB_API_VERSION = "2022-11-28"
+GITHUB_API_VERSION = "2026-03-10"
 EXECUTABLE_MODE = 0o111
 
 # GitHub status context used by the coordinator.

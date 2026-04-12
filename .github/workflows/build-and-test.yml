@@ -323,6 +323,7 @@ jobs:
     # BMT when release matrix is ok and: PR merges into dev or ci/check-bmt-gate (any head; forks excluded),
     # or non-PR run on branch dev / ci/check-bmt-gate (e.g. workflow_dispatch; direct push to dev is disallowed by policy).
     if: >-
+      always() &&
       (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
       && (
         (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
