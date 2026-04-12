@@ -73,3 +73,6 @@ Thumbs.db
 gcp-key.json
 .env
 .secrets
+
+# Claude Code local settings (machine-specific paths)
+.claude/settings.local.json
