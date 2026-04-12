@@ -264,6 +264,7 @@ ensure_actionlint() {
     apt|*)
       local tmpdir url
       tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' RETURN
       url="$(curl -fsSL https://api.github.com/repos/rhysd/actionlint/releases/latest \
         | grep -o '"browser_download_url": "[^"]*linux_amd64[^"]*\.tar\.gz"' \
         | head -1 \
@@ -277,6 +278,7 @@ ensure_actionlint() {
       mkdir -p "${HOME}/.local/bin"
       mv "$tmpdir/actionlint" "${HOME}/.local/bin/actionlint"
       chmod +x "${HOME}/.local/bin/actionlint"
+      export PATH="${HOME}/.local/bin:${PATH}"
       rm -rf "$tmpdir"
       ;;
   esac
