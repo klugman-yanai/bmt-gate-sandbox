@@ -146,6 +146,34 @@ def test_filter_upload_matrix_skips_sk_when_old_layout_meta_exists(
     assert any("sk.json" in u for u in written)
 
 
+def test_filter_upload_matrix_skips_sk_when_local_repo_meta_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When all GCS paths return 404 but gcp/stage/projects/sk/runner_latest_meta.json exists locally, skip publish."""
+    # Set up local repo structure under tmp_path (monkeypatched cwd)
+    monkeypatch.chdir(tmp_path)
+    local_meta = tmp_path / "gcp" / "stage" / "projects" / "sk" / "runner_latest_meta.json"
+    local_meta.parent.mkdir(parents=True, exist_ok=True)
+    local_meta.write_text(
+        '{"bucket_path": "sk/runners/sk_gcc_release/kardome_runner", "source_ref": null}',
+        encoding="utf-8",
+    )
+    out = _setup_env(monkeypatch, tmp_path)
+
+    written: list[str] = []
+
+    # All GCS paths return 404
+    monkeypatch.setattr(gcs, "download_json", lambda _uri: (None, "404"))
+    monkeypatch.setattr(gcs, "object_exists", lambda _uri: False)
+    monkeypatch.setattr(gcs, "write_object", lambda u, _: written.append(u))
+
+    RunnerManager.from_env().filter_upload_matrix()
+
+    outputs = _read_output(out)
+    assert outputs["matrix_publish_keys"] == "[]", "sk should NOT be in publish matrix (local meta fallback)"
+    assert any("_workflow/uploaded/99999/sk.json" in u for u in written)
+
+
 def test_filter_upload_matrix_meta_sha_match_still_skips_without_binary_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

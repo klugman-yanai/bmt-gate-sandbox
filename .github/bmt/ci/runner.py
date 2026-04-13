@@ -37,6 +37,17 @@ def _runner_meta_in_gcs(root: str, project: str, preset: str) -> dict[str, Any] 
     payload, _ = gcs.download_json(f"{root}/{project}/runners/{preset}/runner_latest_meta.json")
     if isinstance(payload, dict):
         return payload
+    # Local repo fallback: gcp/stage/projects/{project}/runner_latest_meta.json.
+    # Present when the runner is configured in this repo's stage layout (bucket may not yet
+    # be synced, but the file's presence confirms a runner is intended for this project).
+    local = Path("gcp/stage/projects") / project / "runner_latest_meta.json"
+    if local.is_file():
+        try:
+            data = json.loads(local.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
     return None
 
 
