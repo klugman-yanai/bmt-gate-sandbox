@@ -172,7 +172,7 @@ If two enabled BMTs share the same **`results_path`**, later legs **overwrite** 
 
 ### 11.2 Missing summary conflated with runner failure
 
-`_load_summary_or_failure` catches **`FileNotFoundError`** and returns a synthetic **`LegSummary`** with **`reason_code="runner_failures"`** and **`status=FAIL`**.
+`_load_summary_or_failure` catches **`FileNotFoundError`** and returns a synthetic **`LegSummary`** with **`reason_code="summary_missing"`** and **`status=FAIL`**.
 
 That conflates:
 

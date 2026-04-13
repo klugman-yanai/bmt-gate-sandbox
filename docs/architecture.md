@@ -496,7 +496,7 @@ If two enabled BMTs share the same **`results_path`**, later legs **overwrite** 
 
 ### 11.2 Missing summary conflated with runner failure
 
-`_load_summary_or_failure` catches **`FileNotFoundError`** and returns a synthetic **`LegSummary`** with **`reason_code="runner_failures"`** and **`status=FAIL`**.
+`_load_summary_or_failure` catches **`FileNotFoundError`** and returns a synthetic **`LegSummary`** with **`reason_code="summary_missing"`** and **`status=FAIL`**.
 
 That conflates:
 
@@ -578,7 +578,7 @@ Recommended practices (industry-standard for this architecture):
 - **Structured logs** with `workflow_run_id`, repo, commit, leg identifiers on every line.
 - **Metrics:** time from plan write to **terminal** GitHub check; counts of **missing summaries**, **finalize failures**, **GcsError** by type.
 - **Reconciliation / watchdog:** optional job to find **stuck** pending checks or **orphan** triggers beyond a TTL.
-- **Alerting** on auth failures to GitHub API, GCS permission errors, and rising **synthetic** `runner_failures` from §11.2.
+- **Alerting** on auth failures to GitHub API, GCS permission errors, and rising **synthetic** `summary_missing` from §11.2.
 
 ---
 
