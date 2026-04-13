@@ -66,7 +66,7 @@ def build_plan(*, runtime: StageRuntimePaths, options: PlanOptions) -> Execution
         )
     seen_results_paths: dict[str, str] = {}
     for leg in legs:
-        key = str(leg.results_path)
+        key = leg.results_path
         if key in seen_results_paths:
             raise ValueError(
                 f"Duplicate results_path {key!r}: legs {seen_results_paths[key]!r} and "

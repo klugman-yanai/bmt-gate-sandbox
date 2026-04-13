@@ -66,7 +66,7 @@ def test_build_plan_raises_on_duplicate_results_path(
         lambda path: "fake-digest",
     )
 
-    with pytest.raises(ValueError, match="results_path"):
+    with pytest.raises(ValueError, match="projects/acme/results/shared"):
         build_plan(
             runtime=_runtime(stage_root, tmp_path),
             options=PlanOptions(request=WorkflowRequest(workflow_run_id="wf-test")),
