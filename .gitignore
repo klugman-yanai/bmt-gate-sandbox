@@ -57,6 +57,9 @@ audio/
 # Mount with: just mount-data <project>  Unmount with: just umount-data <project>
 gcp/mnt/
 
+# Git worktrees
+.worktrees/
+
 # Tooling/editor
 compile_commands.json
 .vscode/
