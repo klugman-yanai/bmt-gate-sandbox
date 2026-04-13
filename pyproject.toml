@@ -8,6 +8,7 @@ version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "bmt",
+    "bmt-sdk",
     "PyGithub>=2.0",
     "google-cloud-storage>=2.16",
     "google-cloud-artifact-registry>=1.14.0",
@@ -24,12 +25,13 @@ dependencies = [
 
 [tool.uv.sources]
 bmt = { workspace = true }
+bmt-sdk = { workspace = true }
 # So that member .github/bmt can depend on bmt-gcloud without listing it (keeps that pyproject portable).
 bmt-gcloud = { workspace = true }
 
 # Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
 [tool.uv.workspace]
-members = [".github/bmt", "gcp/image"]
+members = [".github/bmt", "gcp/image", "sdk"]
 # exclude = []   # Optional: globs to exclude from members (e.g. a dir with pyproject you don't want as member)
 
 [tool.uv]
@@ -48,6 +50,7 @@ python-version = "3.12"
 extra-paths = [
 	".github/bmt",
 	"gcp/stage/projects/sk/plugin_workspaces/default/src",
+	"sdk",
 ]
 
 [tool.ty.src]

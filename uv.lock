@@ -7,6 +7,7 @@ members = [
     "bmt",
     "bmt-gcloud",
     "bmt-runtime",
+    "bmt-sdk",
 ]
 
 [[package]]
@@ -104,6 +105,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "bmt" },
+    { name = "bmt-sdk" },
     { name = "google-cloud-artifact-registry" },
     { name = "google-cloud-storage" },
     { name = "orjson" },
@@ -148,6 +150,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bmt", editable = ".github/bmt" },
+    { name = "bmt-sdk", editable = "sdk" },
     { name = "google-cloud-artifact-registry", specifier = ">=1.14.0" },
     { name = "google-cloud-storage", specifier = ">=2.16" },
     { name = "orjson", specifier = ">=3.10" },
@@ -194,6 +197,7 @@ name = "bmt-runtime"
 version = "0.1.0"
 source = { editable = "gcp/image" }
 dependencies = [
+    { name = "bmt-sdk" },
     { name = "cryptography" },
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
@@ -206,6 +210,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bmt-sdk", editable = "sdk" },
     { name = "cryptography", specifier = ">=41.0" },
     { name = "google-cloud-secret-manager", specifier = ">=2.23" },
     { name = "google-cloud-storage", specifier = ">=2.16" },
@@ -218,6 +223,11 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = []
+
+[[package]]
+name = "bmt-sdk"
+version = "0.1.0"
+source = { editable = "sdk" }
 
 [[package]]
 name = "certifi"

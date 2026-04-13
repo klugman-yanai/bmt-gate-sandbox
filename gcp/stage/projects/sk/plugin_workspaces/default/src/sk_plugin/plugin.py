@@ -7,21 +7,21 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
-
-from gcp.image.config.bmt_domain_status import BmtLegStatus
-from gcp.image.runtime.kardome_batch_results import KardomeBatchFile
-from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
-from gcp.image.runtime.sdk.context import ExecutionContext
-from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from gcp.image.runtime.sdk.plugin import BmtPlugin
-from gcp.image.runtime.sdk.results import (
+from bmt_sdk import BmtPlugin
+from bmt_sdk.context import ExecutionContext
+from bmt_sdk.results import (
     CaseResult,
     ExecutionResult,
     PreparedAssets,
     ScoreResult,
     VerdictResult,
 )
+from pydantic import ValidationError
+
+from gcp.image.config.bmt_domain_status import BmtLegStatus
+from gcp.image.runtime.kardome_batch_results import KardomeBatchFile
+from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
+from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
 from gcp.image.runtime.stdout_counter_parse import StdoutCounterParseConfig
 from sk_plugin.sk_scoring_policy import (
     aggregate_mean_ok_cases,

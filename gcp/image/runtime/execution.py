@@ -4,6 +4,14 @@ from __future__ import annotations
 
 import json
 
+from bmt_sdk.context import ExecutionContext
+from bmt_sdk.models import (
+    BmtManifestView,
+    ExecutionConfigView,
+    ProjectManifestView,
+    RunnerConfigView,
+)
+
 from gcp.image.config.bmt_domain_status import BmtLegStatus
 from gcp.image.runtime.models import (
     BmtManifest,
@@ -15,7 +23,35 @@ from gcp.image.runtime.models import (
     StageRuntimePaths,
 )
 from gcp.image.runtime.plugin_loader import load_plugin
-from gcp.image.runtime.sdk.context import ExecutionContext
+
+
+def _make_manifest_view(m: BmtManifest) -> BmtManifestView:
+    return BmtManifestView(
+        project=m.project,
+        bmt_slug=m.bmt_slug,
+        bmt_id=m.bmt_id,
+        enabled=m.enabled,
+        plugin_config=dict(m.plugin_config),
+        inputs_prefix=m.inputs_prefix,
+        results_prefix=str(m.results_path),
+        outputs_prefix=m.outputs_prefix,
+        execution=ExecutionConfigView(
+            policy=m.execution.policy,
+            profile=m.execution.profile,
+        ),
+        runner=RunnerConfigView(
+            uri=m.runner.uri,
+            deps_prefix=m.runner.deps_prefix,
+            template_path=m.runner.template_path,
+        ),
+    )
+
+
+def _make_project_view(p: ProjectManifest) -> ProjectManifestView:
+    return ProjectManifestView(
+        project=p.project,
+        description=p.description,
+    )
 
 
 def execute_leg(*, plan: ExecutionPlan, leg: PlanLeg, runtime: StageRuntimePaths) -> LegSummary:
@@ -52,8 +88,8 @@ def execute_leg(*, plan: ExecutionPlan, leg: PlanLeg, runtime: StageRuntimePaths
 
     deps_prefix = bmt_manifest.runner.deps_prefix.strip()
     context = ExecutionContext(
-        project_manifest=project_manifest,
-        bmt_manifest=bmt_manifest,
+        project_manifest=_make_project_view(project_manifest),
+        bmt_manifest=_make_manifest_view(bmt_manifest),
         plugin_root=plugin_root,
         workspace_root=run_root,
         dataset_root=runtime.stage_root / bmt_manifest.inputs_prefix,

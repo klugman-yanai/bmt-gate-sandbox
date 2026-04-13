@@ -1,21 +1,5 @@
-"""Plugin execution context."""
+"""Backward-compatible re-export. Import from bmt_sdk instead."""
 
-from __future__ import annotations
+from bmt_sdk.context import ExecutionContext
 
-from dataclasses import dataclass
-from pathlib import Path
-
-from gcp.image.runtime.models import BmtManifest, ProjectManifest
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionContext:
-    project_manifest: ProjectManifest
-    bmt_manifest: BmtManifest
-    plugin_root: Path
-    workspace_root: Path
-    dataset_root: Path
-    outputs_root: Path
-    logs_root: Path
-    runner_path: Path | None = None
-    deps_root: Path | None = None
+__all__ = ["ExecutionContext"]
