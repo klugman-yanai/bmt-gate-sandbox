@@ -40,7 +40,7 @@ def test_load_summary_or_failure_returns_synthetic_failure_when_summary_missing(
         leg=leg,
     )
     assert summary.status == BmtLegStatus.FAIL.value
-    assert summary.reason_code == "runner_failures"
+    assert summary.reason_code == "summary_missing"
     assert summary.score.extra.get("unavailable") is True
     assert summary.project == leg.project
     assert summary.bmt_slug == leg.bmt_slug

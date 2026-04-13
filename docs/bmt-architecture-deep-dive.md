@@ -254,7 +254,7 @@ Recommended practices (industry-standard for this architecture):
 - **Structured logs** with `workflow_run_id`, repo, commit, leg identifiers on every line.
 - **Metrics:** time from plan write to **terminal** GitHub check; counts of **missing summaries**, **finalize failures**, **GcsError** by type.
 - **Reconciliation / watchdog:** optional job to find **stuck** pending checks or **orphan** triggers beyond a TTL.
-- **Alerting** on auth failures to GitHub API, GCS permission errors, and rising **synthetic** `runner_failures` from §11.2.
+- **Alerting** on auth failures to GitHub API, GCS permission errors, and rising **synthetic** `summary_missing` reason codes from §11.2 (previously `runner_failures` before 2026-04-13 rename).
 
 ---
 

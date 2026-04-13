@@ -109,7 +109,7 @@ def load_summary_or_failure(*, stage_root: Path, workflow_run_id: str, leg: Plan
             bmt_id=leg.bmt_id,
             run_id=leg.run_id,
             status=BmtLegStatus.FAIL.value,
-            reason_code="runner_failures",
+            reason_code="summary_missing",
             plugin_ref=leg.plugin_ref,
             execution_mode_used="unknown",
             score=ScorePayload(
