@@ -24,3 +24,13 @@ def test_bmt_constants_exports_all_expected_symbols() -> None:
     assert hasattr(bmt_constants, "ENV_GCS_BUCKET")
     assert hasattr(bmt_constants, "ENV_CLOUD_RUN_REGION")
     assert hasattr(bmt_constants, "is_truthy_env_value")
+
+    # Config constants (from config.py usage)
+    assert hasattr(bmt_constants, "DEFAULT_CLOUD_RUN_REGION")
+    assert hasattr(bmt_constants, "ENV_BMT_CONTROL_JOB")
+    assert hasattr(bmt_constants, "ENV_BMT_STATUS_CONTEXT")
+    assert hasattr(bmt_constants, "ENV_BMT_TASK_HEAVY_JOB")
+    assert hasattr(bmt_constants, "ENV_BMT_TASK_STANDARD_JOB")
+    assert hasattr(bmt_constants, "ENV_GCP_SA_EMAIL")
+    assert hasattr(bmt_constants, "ENV_GCP_WIF_PROVIDER")
+    assert hasattr(bmt_constants, "STATUS_CONTEXT")
