@@ -10,7 +10,9 @@ from pathlib import Path
 
 def plugin_digest(plugin_root: Path) -> str:
     hasher = hashlib.sha256()
-    for path in sorted(p for p in plugin_root.rglob("*") if p.is_file()):
+    for path in sorted(
+        p for p in plugin_root.rglob("*") if p.is_file() and "__pycache__" not in p.parts
+    ):
         rel = path.relative_to(plugin_root).as_posix().encode("utf-8")
         hasher.update(rel)
         hasher.update(b"\n")
