@@ -117,17 +117,18 @@ def test_bmt_manifest_view_defaults() -> None:
 
 def test_no_gcp_image_import_needed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify bmt_sdk has no gcp.image dependency at import time."""
+    import importlib
     import sys
 
-    # Remove gcp.image from sys.modules if present and re-import bmt_sdk
+    # Remove both gcp.* and bmt_sdk.* from sys.modules so bmt_sdk is fully re-imported
+    # from scratch (not served from cache), which would expose any gcp import in sub-modules.
     gcp_modules = [k for k in sys.modules if k.startswith("gcp")]
-    saved = {k: sys.modules.pop(k) for k in gcp_modules}
+    bmt_modules = [k for k in sys.modules if k.startswith("bmt_sdk")]
+    saved = {k: sys.modules.pop(k) for k in gcp_modules + bmt_modules}
     try:
-        import importlib
-
         import bmt_sdk
 
         importlib.reload(bmt_sdk)
-        # If we reach here, bmt_sdk imported fine without gcp.image
+        # If we reach here, bmt_sdk and all its sub-modules imported without gcp
     finally:
         sys.modules.update(saved)

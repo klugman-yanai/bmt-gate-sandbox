@@ -33,7 +33,7 @@ def _make_manifest_view(m: BmtManifest) -> BmtManifestView:
         enabled=m.enabled,
         plugin_config=dict(m.plugin_config),
         inputs_prefix=m.inputs_prefix,
-        results_prefix=str(m.results_path),
+        results_prefix=str(m.results_path),  # ResultsPath is NewType[str]; non-empty invariant enforced by BmtManifest
         outputs_prefix=m.outputs_prefix,
         execution=ExecutionConfigView(
             policy=m.execution.policy,
