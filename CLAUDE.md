@@ -103,7 +103,7 @@ To exercise manager-style snapshot writes and **`current.json`** against a real 
 
 ## Devtools and pre-commit
 
-- **Install [uv](https://docs.astral.sh/uv/) first**, then **`just onboard`** (or `bash tools/scripts/bootstrap_dev_env.sh`): `uv sync`, **prek** hooks, **`uv run python -m tools onboard`** (Rich summary). See [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Install [uv](https://docs.astral.sh/uv/) first**, then **`just setup`**: bootstraps Python 3.12+, **prek** hooks, and prints a Rich setup summary. See [CONTRIBUTING.md](CONTRIBUTING.md).
 - **`just deploy`** (with `GCS_BUCKET`) syncs `gcp/` to the bucket and verifies.
 - Pre-commit may **block** commits that touch `gcp/` unless the bucket is in sync (`SKIP_SYNC_VERIFY=1` to bypass intentionally).
 

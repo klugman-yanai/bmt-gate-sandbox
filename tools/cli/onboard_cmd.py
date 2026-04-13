@@ -1,4 +1,4 @@
-"""Post-bootstrap onboarding summary (Rich). Run after tools/scripts/bootstrap_dev_env.sh."""
+"""Post-bootstrap onboarding summary (Rich). Run after setup.sh."""
 
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ def _dry_run_prek_renderable(prek_state: str | None) -> Panel | None:
         border = "dim"
     else:
         msg = (
-            "Run [cyan]just onboard[/] without [cyan]--dry-run[/] after [cyan]uv sync[/] to install hooks. "
+            "Run [cyan]just setup[/] to complete bootstrap and install hooks. "
             "See [cyan]CONTRIBUTING.md[/]."
         )
         border = "dim"

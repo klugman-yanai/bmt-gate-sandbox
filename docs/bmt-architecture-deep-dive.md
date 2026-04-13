@@ -172,7 +172,7 @@ If two enabled BMTs share the same **`results_path`**, later legs **overwrite** 
 
 ### 11.2 Missing summary conflated with runner failure
 
-`_load_summary_or_failure` catches **`FileNotFoundError`** and returns a synthetic **`LegSummary`** with **`reason_code="runner_failures"`** and **`status=FAIL`**.
+`_load_summary_or_failure` catches **`FileNotFoundError`** and returns a synthetic **`LegSummary`** with **`reason_code="summary_missing"`** and **`status=FAIL`**.
 
 That conflates:
 
@@ -183,38 +183,53 @@ That conflates:
 
 ### 11.3 GitHub outcome can diverge from GCS
 
-**`gcp/image/runtime/github_reporting.py`** uses **`except Exception`** in several places (e.g. **`create_started_check_run`**, finalize paths). **Transient** GitHub API errors can leave **Checks or status stale** while **GCS** already reflects the true BMT outcome.
+**`gcp/image/runtime/github_reporting.py`** catches `GithubException` (not broad `Exception`) but
+without retry — a single transient GitHub API error on `finalize_check_run` silently logs a warning
+and moves on. **GCS** will already reflect the true BMT outcome while **GitHub Checks** may remain
+stale.
 
 **Mitigation direction:** Structured retries with backoff, **non-zero exit** or explicit **reconciliation** when finalization fails, **metrics** on finalize failures.
 
-### 11.4 `object_exists` swallows infrastructure errors
+### 11.4 `object_exists` swallows infrastructure errors — RESOLVED
 
-In **`.github/bmt/ci/gcs.py`**, **`object_exists`** catches **any** `Exception` and returns **`False`**:
+**Status: Fixed.** The implementation in **`.github/bmt/ci/gcs.py`** now raises `GcsError` for
+all non-404 failures, not `False`. Callers see `GcsError` on auth failure, quota, or network
+error — distinct from `False` for a legitimate missing object.
 
-```106:115:/home/yanai/sandbox/bmt-gcloud/.github/bmt/ci/gcs.py
+Current implementation (`gcs.py:107–122`):
+
+```python
 def object_exists(uri: str) -> bool:
-    """Return True if the GCS object exists."""
+    “””Return True if the GCS object exists.
+
+    Raises :exc:`ValueError` for invalid ``gs://`` URIs. Propagates :exc:`GcsError` on
+    GCS/network/auth failures so callers do not treat infrastructure errors as “missing”.
+    “””
     try:
         bucket_name, path = parse_gs_uri(uri)
         client = _get_client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(path)
         return blob.exists()
-    except Exception:
-        return False
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise GcsError(f”Failed to check existence of {uri}: {exc}”) from exc
 ```
 
-Callers cannot distinguish **“object missing”** from **auth failure, quota, or network error** — leading to **wrong control-flow** (e.g. skip upload, wrong branch).
+### 11.5 Workflows dispatch: retry on safe transient errors — RESOLVED
 
-**Mitigation direction:** Let **`NotFound` / false** be distinct from **`GcsError`** for other failures.
+**Status: Fixed.** `start_execution` now retries up to 3 times with exponential backoff (1 s, 2 s)
+on `ConnectionError`, HTTP 429, and HTTP 503 — conditions where the server provably did **not**
+start an execution. Timeout and HTTP 500 are still not retried (ambiguous: server may have
+processed the request, retrying risks duplicate executions).
 
-### 11.5 Workflows dispatch: single HTTP attempt
+### 11.6 CI ↔ `gcp.image` import coupling — RESOLVED
 
-**`start_execution`** in **`.github/bmt/ci/workflows_api.py`** performs a **single** `POST` with a fixed timeout. Transient **5xx/429** can fail the handoff. Retries require **care** (idempotency, duplicate execution ids) if added.
-
-### 11.6 CI ↔ `gcp.image` import coupling
-
-**`.github/bmt/ci/core.py`** (and related modules) import **`gcp.image.config`** and related symbols. Refactors under **`gcp/image/config`** can break **`uv run bmt`** without a **stable, narrow** interface.
+**Status: Fixed.** All `gcp.image.config.*` imports in the CI layer are now routed through
+**`.github/bmt/ci/bmt_constants.py`** — a thin re-export facade. Refactors under `gcp/image/config/`
+only require updating `bmt_constants.py`; callers in `core.py`, `workflow_dispatch.py`, etc. are
+insulated from internal renames.
 
 ### 11.7 Broad exception handling elsewhere
 
@@ -254,7 +269,7 @@ Recommended practices (industry-standard for this architecture):
 - **Structured logs** with `workflow_run_id`, repo, commit, leg identifiers on every line.
 - **Metrics:** time from plan write to **terminal** GitHub check; counts of **missing summaries**, **finalize failures**, **GcsError** by type.
 - **Reconciliation / watchdog:** optional job to find **stuck** pending checks or **orphan** triggers beyond a TTL.
-- **Alerting** on auth failures to GitHub API, GCS permission errors, and rising **synthetic** `runner_failures` from §11.2.
+- **Alerting** on auth failures to GitHub API, GCS permission errors, and rising **synthetic** `summary_missing` reason codes from §11.2 (previously `runner_failures` before 2026-04-13 rename).
 
 ---
 
@@ -266,10 +281,10 @@ The **full backlog** (why + recommendations per issue) lives in **[plans/bmt-wea
 | -------- | ---- | --------- |
 | P0 | Enforce **unique `results_path`** per plan (or namespace pointers) | Prevents silent cross-leg corruption. |
 | P1 | **Distinct reason codes** for missing summary vs runner failure | Correct operations and debugging. |
-| P1 | **Fix `object_exists`** (and similar) to surface non-404 errors | Prevents wrong CI branches on infra failure. |
-| P2 | **Retry/backoff** for Workflows start + GitHub finalize with clear idempotency rules | Reduces flaky handoff and split-brain. |
+| ~~P1~~ | ~~**Fix `object_exists`**~~ — **RESOLVED** | Fixed: raises `GcsError` for non-404; see §11.4. |
+| ~~P2~~ (Workflows) | ~~**Retry/backoff** for Workflows start~~ — **RESOLVED** · GitHub finalize retry still pending (§11.3) | Reduces flaky handoff and split-brain. |
 | P2 | **Centralize** path/URI builders and critical JSON schemas | Reduces contract drift. |
-| P3 | Introduce a **thin stable API** between CI package and `gcp.image` config | Safer refactors. |
+| ~~P3~~ | ~~Introduce a **thin stable API**~~ — **RESOLVED** | `ci/bmt_constants.py` facade; see §11.6. |
 
 ---
 

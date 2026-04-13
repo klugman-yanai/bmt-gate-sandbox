@@ -1,6 +1,6 @@
 # Prek (pre-commit compatible): https://prek.j178.dev/
 # Install: prek install -t pre-commit -f && prek install -t pre-push -f
-#   (or: tools/scripts/bootstrap_dev_env.sh / just onboard)
+#   (or: just setup)
 # Run manually: prek run --all-files
 # Requires: uv sync (dev group default; use --no-dev to exclude)
 #

@@ -64,6 +64,16 @@ def build_plan(*, runtime: StageRuntimePaths, options: PlanOptions) -> Execution
                 outputs_prefix=bmt_manifest.outputs_prefix,
             )
         )
+    seen_results_paths: dict[str, str] = {}
+    for leg in legs:
+        key = leg.results_path
+        if key in seen_results_paths:
+            raise ValueError(
+                f"Duplicate results_path {key!r}: legs {seen_results_paths[key]!r} and "
+                f"{leg.project!r}/{leg.bmt_slug!r} both write to the same path. "
+                "Each enabled BMT must have a unique results_path."
+            )
+        seen_results_paths[key] = f"{leg.project}/{leg.bmt_slug}"
     standard_task_count = sum(1 for leg in legs if leg.execution_profile == "standard")
     heavy_task_count = sum(1 for leg in legs if leg.execution_profile == "heavy")
     return ExecutionPlan(

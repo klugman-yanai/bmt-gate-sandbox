@@ -7,7 +7,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-from gcp.image.config.constants import (
+from ci.bmt_constants import (
     DEFAULT_CLOUD_RUN_REGION,
     ENV_BMT_CONTROL_JOB,
     ENV_BMT_STATUS_CONTEXT,

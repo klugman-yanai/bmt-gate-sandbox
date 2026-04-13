@@ -42,7 +42,7 @@ class ContributorDocRefs:
     def setup_reminder_line(self) -> str:
         """One stderr line: onboarding + quick start + docs index (repo-relative paths)."""
         return (
-            f"See {self._rel(self.contributing)} for one-time setup (`just onboard`, `uv sync`). "
+            f"See {self._rel(self.contributing)} for one-time setup (`just setup`). "
             f"{self._rel(self.readme)} for quick start; {self._rel(self.docs_index)} for the documentation index."
         )
 
@@ -55,7 +55,7 @@ class ContributorDocRefs:
     def missing_dev_dependency_line(self, *, what: str) -> str:
         return (
             f"{what} is not available — install the repo dev environment from the repository root "
-            f"(`just onboard` or `uv sync` includes dev dependencies). " + self.setup_reminder_line()
+            f"(`just setup` includes dev dependencies). " + self.setup_reminder_line()
         )
 
     def external_cli_missing_line(self, *, cli: str, hint: str) -> str:

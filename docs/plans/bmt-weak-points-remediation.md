@@ -57,11 +57,11 @@ This document tracks **design-level** and **implementation-level** issues called
 
 ### B.2 Missing summary conflated with runner failure
 
-**Why it matters:** `_load_summary_or_failure` in `gcp/image/runtime/entrypoint.py` maps `FileNotFoundError` to `reason_code="runner_failures"`, mixing **missing artifact** with **real runner failure** — wrong ops signals.
+**Why it matters:** `_load_summary_or_failure` in `gcp/image/runtime/artifacts.py` maps `FileNotFoundError` to `reason_code="summary_missing"` (renamed from `runner_failures`), keeping **missing artifact** distinct from **real runner failure** — correct ops signals. The rename is complete.
 
 **Recommendations:**
 
-- **P1:** Distinct `reason_code` (e.g. `summary_missing`, `incomplete_plan`) and metrics/alerts.
+- **P1:** Metrics/alerts on `summary_missing` distinct from `runner_failures`; add `incomplete_plan` for partial-plan scenarios.
 
 ### B.3 GitHub outcome vs GCS divergence
 
