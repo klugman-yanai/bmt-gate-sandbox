@@ -7,17 +7,15 @@ import os
 from pathlib import Path
 from typing import Any
 
-import gcp.image.config.constants as _bmt_constants
-from gcp.image.config.decisions import GateDecision
-from gcp.image.config.value_types import (
-    sanitize_run_id as sanitize_run_id,  # noqa: F811 — re-export
+from ci.bmt_constants import (
+    DECISION_ACCEPTED as DECISION_ACCEPTED,
+    DECISION_ACCEPTED_WITH_WARNINGS as DECISION_ACCEPTED_WITH_WARNINGS,
+    DECISION_REJECTED as DECISION_REJECTED,
+    DECISION_TIMEOUT as DECISION_TIMEOUT,
+    ENV_GCS_BUCKET as ENV_GCS_BUCKET,
+    GateDecision as GateDecision,
+    sanitize_run_id as sanitize_run_id,
 )
-
-# Re-export gate decision strings for `from ci.core import DECISION_*` (tests, callers).
-DECISION_ACCEPTED = _bmt_constants.DECISION_ACCEPTED
-DECISION_ACCEPTED_WITH_WARNINGS = _bmt_constants.DECISION_ACCEPTED_WITH_WARNINGS
-DECISION_REJECTED = _bmt_constants.DECISION_REJECTED
-DECISION_TIMEOUT = _bmt_constants.DECISION_TIMEOUT
 
 
 class ConfigError(RuntimeError):
@@ -74,8 +72,6 @@ def workflow_run_id() -> str:
 
 def workflow_runtime_root() -> str:
     """Return gs://{GCS_BUCKET} (bucket root); raise if GCS_BUCKET unset."""
-    from gcp.image.config.constants import ENV_GCS_BUCKET
-
     return f"gs://{require_env(ENV_GCS_BUCKET)}"
 
 

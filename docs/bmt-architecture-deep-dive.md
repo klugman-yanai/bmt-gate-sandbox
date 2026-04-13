@@ -224,9 +224,12 @@ on `ConnectionError`, HTTP 429, and HTTP 503 — conditions where the server pro
 start an execution. Timeout and HTTP 500 are still not retried (ambiguous: server may have
 processed the request, retrying risks duplicate executions).
 
-### 11.6 CI ↔ `gcp.image` import coupling
+### 11.6 CI ↔ `gcp.image` import coupling — RESOLVED
 
-**`.github/bmt/ci/core.py`** (and related modules) import **`gcp.image.config`** and related symbols. Refactors under **`gcp/image/config`** can break **`uv run bmt`** without a **stable, narrow** interface.
+**Status: Fixed.** All `gcp.image.config.*` imports in the CI layer are now routed through
+**`.github/bmt/ci/bmt_constants.py`** — a thin re-export facade. Refactors under `gcp/image/config/`
+only require updating `bmt_constants.py`; callers in `core.py`, `workflow_dispatch.py`, etc. are
+insulated from internal renames.
 
 ### 11.7 Broad exception handling elsewhere
 
@@ -281,7 +284,7 @@ The **full backlog** (why + recommendations per issue) lives in **[plans/bmt-wea
 | ~~P1~~ | ~~**Fix `object_exists`**~~ — **RESOLVED** | Fixed: raises `GcsError` for non-404; see §11.4. |
 | ~~P2~~ (Workflows) | ~~**Retry/backoff** for Workflows start~~ — **RESOLVED** · GitHub finalize retry still pending (§11.3) | Reduces flaky handoff and split-brain. |
 | P2 | **Centralize** path/URI builders and critical JSON schemas | Reduces contract drift. |
-| P3 | Introduce a **thin stable API** between CI package and `gcp.image` config | Safer refactors. |
+| ~~P3~~ | ~~Introduce a **thin stable API**~~ — **RESOLVED** | `ci/bmt_constants.py` facade; see §11.6. |
 
 ---
 
