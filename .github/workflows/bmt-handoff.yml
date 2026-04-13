@@ -199,6 +199,16 @@ jobs:
           gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
 
+      - name: Check bucket sync (advisory)
+        continue-on-error: true
+        env:
+          GCS_BUCKET: ${{ env.GCS_BUCKET }}
+        run: |
+          set +e
+          uv run python -m tools.remote.bucket_verify_runtime_seed_sync 2>&1 \
+            | sed 's/::error::/::warning::/g'
+          exit 0
+
       - id: filter
         env:
           GCS_BUCKET: ${{ env.GCS_BUCKET }}

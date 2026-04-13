@@ -99,9 +99,7 @@ def test_coordinator_skips_recovery_when_first_publish_marks_github_complete(
     publish_calls: list[str] = []
     failure_calls: list[object] = []
 
-    def _publish_then_complete(
-        *, plan: ExecutionPlan, summaries: object, runtime: StageRuntimePaths
-    ) -> None:
+    def _publish_then_complete(*, plan: ExecutionPlan, summaries: object, runtime: StageRuntimePaths) -> None:
         publish_calls.append("publish")
         write_reporting_metadata(
             stage_root=runtime.stage_root,

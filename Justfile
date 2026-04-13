@@ -18,6 +18,7 @@ help:
       '  just add-bmt / publish-bmt' \
       '' \
       'Bucket & data' \
+      '  just check-sync        Verify gcp/stage matches GCS bucket (advisory)' \
       '  just upload-data       Dataset zip/folder → GCS' \
       '  just mount-project / umount-project' \
       '' \
@@ -99,6 +100,12 @@ test:
 [group('bucket')]
 deploy:
     uv run python -m tools bucket deploy
+
+# Verify gcp/stage matches the GCS bucket's runtime seed manifest (requires GCS_BUCKET).
+# Run this before triggering BMT to catch stale local mirrors.
+[group('bucket')]
+check-sync:
+    uv run python -m tools.remote.bucket_verify_runtime_seed_sync
 
 [private]
 [group('bucket')]

@@ -69,7 +69,9 @@ def test_handoff_does_not_use_ci_side_github_reporting() -> None:
 def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
     build_test = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
     clang_format = (repo_root() / ".github" / "workflows" / "clang-format-auto-fix.yml").read_text(encoding="utf-8")
-    image_build = (repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml").read_text(encoding="utf-8")
+    image_build = (repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml").read_text(
+        encoding="utf-8"
+    )
 
     assert "actions/checkout@v4" not in build_test
     assert "actions/checkout@v4" not in clang_format

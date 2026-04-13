@@ -358,9 +358,7 @@ def run_coordinator_mode(*, workflow_run_id: str, stage_root: Path | None = None
                 keep_run_ids.add(last_passing)
             prune_snapshots(results_root=results_root, keep_run_ids=keep_run_ids)
         publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
-        meta = load_optional_reporting_metadata(
-            stage_root=runtime.stage_root, workflow_run_id=workflow_run_id
-        )
+        meta = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)
         publish_done = meta is not None and meta.github_publish_complete
         typer.echo(json.dumps({"status": aggregate_status(summaries), "plan": plan_path(workflow_run_id)}, indent=2))
     finally:
