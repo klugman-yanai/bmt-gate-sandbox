@@ -27,11 +27,16 @@ def _project_has_bmt_stage_layout(project: str) -> bool:
     return (base / "project.json").is_file() or (base / "bmts").is_dir()
 
 
-def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any] | None:
+def _runner_meta_in_gcs(root: str, project: str, preset: str) -> dict[str, Any] | None:
+    # New layout: projects/{project}/{meta}
     for name in ("runner_meta.json", "runner_latest_meta.json"):
         payload, _ = gcs.download_json(f"{root}/projects/{project}/{name}")
         if isinstance(payload, dict):
             return payload
+    # Old layout (bucket_upload_runner.py): {project}/runners/{preset}/{meta}
+    payload, _ = gcs.download_json(f"{root}/{project}/runners/{preset}/runner_latest_meta.json")
+    if isinstance(payload, dict):
+        return payload
     return None
 
 
@@ -159,7 +164,14 @@ class RunnerManager:
             supported = "true" if _project_has_bmt_stage_layout(project) else "false"
             payload = _runner_meta_in_gcs(root, project, preset)
             if payload is not None:
-                if preseeded:
+                # Use GCS runner when: explicitly preseeded, SHA matches, OR no GitHub
+                # artifacts are available (this repo doesn't build runners).
+                use_gcs = (
+                    preseeded
+                    or not artifact_set
+                    or str(payload.get("source_ref", "")).strip() == head_sha
+                )
+                if use_gcs:
                     if project not in projects_written:
                         marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
                         try:
@@ -167,30 +179,31 @@ class RunnerManager:
                         except gcs.GcsError as e:
                             gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
                         projects_written.add(project)
-                    print(
-                        f"::notice::Preseeded GCS runner for {project}/{preset}: verified in GCS (will show as Skipped)."
+                    reason = (
+                        "preseeded"
+                        if preseeded
+                        else ("no GitHub artifacts" if not artifact_set else f"ref {head_sha[:7]}")
                     )
-                    continue
-                if str(payload.get("source_ref", "")).strip() == head_sha:
-                    if project not in projects_written:
-                        marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
-                        try:
-                            gcs.write_object(marker_uri, "{}")
-                        except gcs.GcsError as e:
-                            gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
-                        projects_written.add(project)
                     print(
-                        f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]} (will show as Skipped)."
+                        f"::notice::Skip upload for {project}/{preset}: runner in GCS ({reason}) (will show as Skipped)."
                     )
                     continue
             # No GitHub artifacts provided — caller doesn't build runners.
-            # Fall back: check if the runner binary itself already exists in GCS.
+            # Fall back: check if the runner binary itself already exists in GCS
+            # (new layout: projects/{project}/kardome_runner;
+            #  old layout: {project}/runners/{preset}/kardome_runner).
             if not artifact_set:
-                binary_uri = f"{root}/projects/{project}/kardome_runner"
-                try:
-                    binary_exists = gcs.object_exists(binary_uri)
-                except gcs.GcsError:
-                    binary_exists = False
+                binary_exists = False
+                for binary_uri in (
+                    f"{root}/projects/{project}/kardome_runner",
+                    f"{root}/{project}/runners/{preset}/kardome_runner",
+                ):
+                    try:
+                        if gcs.object_exists(binary_uri):
+                            binary_exists = True
+                            break
+                    except gcs.GcsError:
+                        pass
                 if binary_exists:
                     if project not in projects_written:
                         marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
