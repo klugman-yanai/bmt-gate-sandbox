@@ -705,3 +705,51 @@ def test_publish_final_results_pr_comment_includes_case_crash_count(
     assert bmt_name == "false_rejects"
     assert "runner crashed on one or more test files" in detail
     assert "(2 of 24 cases crashed)" in detail
+
+
+def test_publish_final_results_retries_finalize_check_run_on_github_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """publish_final_results retries finalize_check_run up to 3 times on GithubException."""
+    from unittest.mock import MagicMock
+    from github import GithubException
+    from gcp.image.runtime.github_reporting import publish_final_results
+    from gcp.image.runtime.models import ExecutionPlan, ReportingMetadata, StageRuntimePaths
+
+    plan = ExecutionPlan(
+        workflow_run_id="wf-retry-test",
+        legs=[],
+        repository="owner/repo",
+        head_sha="a" * 40,
+    )
+    runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "ws")
+    metadata = ReportingMetadata(
+        check_run_id=99,
+        workflow_execution_url="https://console.cloud.google.com/exec/abc",
+    )
+    mock_reporter = MagicMock()
+    call_count = 0
+
+    def _finalize_side_effect(**kwargs: object) -> tuple[None, bool]:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise GithubException(500, {"message": "transient"}, {})
+        return None, True
+
+    mock_reporter.finalize_check_run.side_effect = _finalize_side_effect
+    mock_reporter.post_final_status.return_value = True
+
+    monkeypatch.setattr(
+        "gcp.image.runtime.github_reporting._load_reporter",
+        lambda **kwargs: (mock_reporter, metadata),
+    )
+    monkeypatch.setattr(
+        "gcp.image.runtime.github_reporting._write_log_dump_and_sign",
+        lambda *a, **kw: None,
+    )
+    monkeypatch.setattr("time.sleep", lambda _: None)
+
+    publish_final_results(plan=plan, summaries=[], runtime=runtime)
+
+    assert call_count == 3, f"Expected 3 finalize attempts, got {call_count}"

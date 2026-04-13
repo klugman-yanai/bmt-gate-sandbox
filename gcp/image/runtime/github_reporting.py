@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -236,20 +237,28 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
     description = _commit_status_description(summaries, is_pass=is_pass)
 
     finalized_ok = False
-    try:
-        _, finalized_ok = reporter.finalize_check_run(
-            check_run_id=metadata.check_run_id,
-            view=final_view,
-            details_url=workflow_url,
-        )
-    except GithubException:
-        logger.warning("finalize_check_run failed workflow_run_id=%s", plan.workflow_run_id, exc_info=True)
-    else:
-        if not finalized_ok:
-            logger.warning(
-                "finalize_check_run did not complete successfully workflow_run_id=%s",
-                plan.workflow_run_id,
+    for _attempt in range(1, 4):
+        try:
+            _, finalized_ok = reporter.finalize_check_run(
+                check_run_id=metadata.check_run_id,
+                view=final_view,
+                details_url=workflow_url,
             )
+            if not finalized_ok:
+                logger.warning(
+                    "finalize_check_run did not complete successfully workflow_run_id=%s",
+                    plan.workflow_run_id,
+                )
+            break
+        except GithubException:
+            if _attempt < 3:
+                time.sleep(1)
+            else:
+                logger.warning(
+                    "finalize_check_run failed after 3 attempts workflow_run_id=%s",
+                    plan.workflow_run_id,
+                    exc_info=True,
+                )
 
     # Commit status uses PyGithub; failures return False without raising.
     commit_ok = reporter.post_final_status(
