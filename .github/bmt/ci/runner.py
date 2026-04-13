@@ -183,6 +183,27 @@ class RunnerManager:
                         f"::notice::Skip upload for {project}/{preset}: already on GCS for ref {head_sha[:7]} (will show as Skipped)."
                     )
                     continue
+            # No GitHub artifacts provided — caller doesn't build runners.
+            # Fall back: check if the runner binary itself already exists in GCS.
+            if not artifact_set:
+                binary_uri = f"{root}/projects/{project}/kardome_runner"
+                try:
+                    binary_exists = gcs.object_exists(binary_uri)
+                except gcs.GcsError:
+                    binary_exists = False
+                if binary_exists:
+                    if project not in projects_written:
+                        marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
+                        try:
+                            gcs.write_object(marker_uri, "{}")
+                        except gcs.GcsError as e:
+                            gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
+                        projects_written.add(project)
+                    print(
+                        f"::notice::No artifact list; runner binary in GCS for {project}/{preset}: "
+                        "using bucket runner (will show as Skipped)."
+                    )
+                    continue
             if artifact_set and f"runner-{preset}" not in artifact_set:
                 print(
                     f"::notice::Skip upload for {project}/{preset}: artifact not in available list (will show as Skipped)."
