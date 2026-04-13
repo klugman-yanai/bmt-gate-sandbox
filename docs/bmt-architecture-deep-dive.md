@@ -279,7 +279,7 @@ The **full backlog** (why + recommendations per issue) lives in **[plans/bmt-wea
 | P0 | Enforce **unique `results_path`** per plan (or namespace pointers) | Prevents silent cross-leg corruption. |
 | P1 | **Distinct reason codes** for missing summary vs runner failure | Correct operations and debugging. |
 | ~~P1~~ | ~~**Fix `object_exists`**~~ — **RESOLVED** | Fixed: raises `GcsError` for non-404; see §11.4. |
-| P2 | **Retry/backoff** for Workflows start + GitHub finalize with clear idempotency rules | Reduces flaky handoff and split-brain. |
+| ~~P2~~ (Workflows) | ~~**Retry/backoff** for Workflows start~~ — **RESOLVED** · GitHub finalize retry still pending (§11.3) | Reduces flaky handoff and split-brain. |
 | P2 | **Centralize** path/URI builders and critical JSON schemas | Reduces contract drift. |
 | P3 | Introduce a **thin stable API** between CI package and `gcp.image` config | Safer refactors. |
 

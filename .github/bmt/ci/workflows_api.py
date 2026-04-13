@@ -67,7 +67,7 @@ def start_execution(
             )
             if attempt < _max_attempts:
                 time.sleep(2 ** (attempt - 1))
-                continue
+            continue
 
         if not response.ok:
             raise WorkflowsApiError(f"POST {url} failed: {response.status_code} {response.text}")

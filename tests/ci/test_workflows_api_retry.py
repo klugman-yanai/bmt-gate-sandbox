@@ -81,7 +81,7 @@ def test_raises_after_exhausting_all_attempts_on_429(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("ci.workflows_api._session", lambda: _mock_session([_Resp(429)]))
     monkeypatch.setattr("time.sleep", lambda _: None)
 
-    with pytest.raises(WorkflowsApiError):
+    with pytest.raises(WorkflowsApiError, match="failed after 3 attempts"):
         start_execution(**_args())
 
 
