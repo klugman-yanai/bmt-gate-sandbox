@@ -56,7 +56,15 @@ Avoid `time.time()` / `datetime.now()` for new code. CI and `gcp/` may use local
 | `tools/scripts/` | Pre-commit hooks and preflight scripts |
 | `tools/cli/` | Typer command modules (`bmt_cmd.py`, `bucket_cmd.py`, `build_cmd.py`, `repo_cmd.py`, `terraform_cmd.py`) |
 
-**CLI:** `uv run python -m tools --help` (Typer). **Just** recipes are preferred wrappers (`just deploy`, etc.).
+**CLI:** `uv run python -m tools --help` (Typer). **Just** recipes are preferred wrappers:
+
+| Recipe | What it does |
+| ------ | ------------ |
+| `just deploy` | Sync `gcp/stage` → bucket + verify |
+| `just test` | Full pre-push suite (pytest, ruff, ty, actionlint, shellcheck, layout) |
+| `just upload-data <project> <folder>` | Upload WAV dataset → `projects/<project>/inputs/<dataset>/` + manifest |
+| `just ship` | Pre-push gate (test → preflight → deploy → image) |
+| `just image` | Docker build + push to Artifact Registry |
 
 **Layout tests:** `just test` runs the full pre-push suite: pytest, ruff, `ty check`, actionlint, shellcheck, and both layout policies. Run layout policies standalone: `uv run python -m tools.repo.gcp_layout_policy` / `repo_layout_policy`.
 
@@ -127,18 +135,7 @@ When searching the tree, parsing structured output, or running repo commands, **
 | **`uv`** | `python3 -m venv` + `pip` per [uv docs](https://docs.astral.sh/uv/) | Python env and `uv run` |
 | **`just`** | invoke the underlying `recipe` commands manually | Task runner from [Justfile](Justfile) |
 
-**Example `command --version` output** from a current dev install (not minimum requirements; re-run to verify after upgrades):
-
-```text
-ripgrep 15.1.0
-fd 10.4.2
-jq-1.8.1
-yq (https://github.com/mikefarah/yq/) version v4.52.4
-sd 1.0.0
-uv 0.10.12 (00d72dac7 2026-03-19 x86_64-unknown-linux-gnu)
-just 1.47.1
-ast-grep 0.41.1
-```
+(Version numbers omitted — run `<tool> --version` to verify.)
 
 ## Architecture (short)
 
@@ -156,6 +153,27 @@ Runtime code: **`gcp/image/runtime/`**, entry via **`gcp/image/main.py`**. Plugi
 ## GCP / repo environment
 
 Required variables are documented in **[docs/configuration.md](docs/configuration.md)** (from Pulumi): e.g. `GCS_BUCKET`, `GCP_PROJECT`, `CLOUD_RUN_REGION`, `BMT_CONTROL_JOB`, `BMT_TASK_STANDARD_JOB`, `BMT_TASK_HEAVY_JOB`, `GCP_SA_EMAIL`, WIF provider, GitHub App secrets for reporting. Branch protection should require the configured **BMT status context**.
+
+## Datasets
+
+`inputs/` in `gcp/stage` holds only `.keep` placeholder files — WAV datasets are **not committed** (30–40 GB). Upload via:
+
+```bash
+GCS_BUCKET=train-kws-202311-bmt-gate just upload-data sk /path/to/false_alarms --dataset false_alarms
+```
+
+For large files (10–30 GB), use `gcloud storage cp` first then run `just upload-data --force` for manifest regen only.
+
+## Runner metadata
+
+`gcp/stage/projects/sk/runner_latest_meta.json` is a **placeholder** with `null` fields — intentional. It signals that a runner is configured for `sk` so CI skips the publish step and uses the bucket runner. Do not populate it with fake values.
+
+## CI pipeline flags
+
+| Env var | Effect |
+| ------- | ------ |
+| `BMT_SKIP_PUBLISH_RUNNERS=1` | Skip all runner publish jobs; assume runners already in bucket |
+| `BMT_RUNNERS_PRESEEDED_IN_GCS=1` | Same but per-project; write upload markers without artifact check |
 
 ## Not committed
 

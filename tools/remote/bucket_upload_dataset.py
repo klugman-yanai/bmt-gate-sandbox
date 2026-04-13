@@ -28,13 +28,14 @@ from google.cloud import storage
 
 from gcp.image.config.constants import (
     ENV_BMT_CONTROL_JOB,
+    ENV_BMT_DATASET_TRANSFER_JOB,
     ENV_CLOUD_RUN_REGION,
     ENV_GCP_PROJECT,
     ENV_GCS_BUCKET,
 )
 from tools.remote.gen_input_manifest import GenInputManifest
 from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
-from tools.shared.gcloud_storage import GCloudStorageError, sync_directory_to_gcs, upload_file_to_gcs
+from tools.shared.gcloud_storage import GCloudStorageError, sync_directory_to_gcs, upload_file_to_gcs, upload_file_to_gcs_parallel
 from tools.shared.gcs_storage_client import GcsStorageClientLike
 from tools.shared.gcs_sync import prefix_stats
 from tools.shared.google_api import GoogleApiError, run_cloud_run_job

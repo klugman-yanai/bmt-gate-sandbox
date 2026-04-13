@@ -32,6 +32,11 @@ def upload_file_to_gcs(*, source: Path, destination_uri: str) -> None:
     _run_storage_command("cp", str(source), destination_uri)
 
 
+def upload_file_to_gcs_parallel(*, source: Path, destination_uri: str) -> None:
+    """Upload a single file using parallel composite uploads (best for files >150 MB)."""
+    _run_storage_command("cp", str(source), destination_uri, "--parallel-composite-upload-threshold=150MB")
+
+
 def sync_directory_to_gcs(*, source_root: Path, destination_uri: str) -> None:
     _run_storage_command(
         "rsync",

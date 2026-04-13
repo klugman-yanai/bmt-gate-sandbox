@@ -33,6 +33,7 @@ dist/
 !.vscode/settings.json
 *.swp
 *~
+!.worktrees
 
 # OS
 .DS_Store
