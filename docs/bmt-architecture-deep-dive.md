@@ -217,9 +217,12 @@ def object_exists(uri: str) -> bool:
         raise GcsError(f”Failed to check existence of {uri}: {exc}”) from exc
 ```
 
-### 11.5 Workflows dispatch: single HTTP attempt
+### 11.5 Workflows dispatch: retry on safe transient errors — RESOLVED
 
-**`start_execution`** in **`.github/bmt/ci/workflows_api.py`** performs a **single** `POST` with a fixed timeout. Transient **5xx/429** can fail the handoff. Retries require **care** (idempotency, duplicate execution ids) if added.
+**Status: Fixed.** `start_execution` now retries up to 3 times with exponential backoff (1 s, 2 s)
+on `ConnectionError`, HTTP 429, and HTTP 503 — conditions where the server provably did **not**
+start an execution. Timeout and HTTP 500 are still not retried (ambiguous: server may have
+processed the request, retrying risks duplicate executions).
 
 ### 11.6 CI ↔ `gcp.image` import coupling
 
