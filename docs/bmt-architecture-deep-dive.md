@@ -183,30 +183,39 @@ That conflates:
 
 ### 11.3 GitHub outcome can diverge from GCS
 
-**`gcp/image/runtime/github_reporting.py`** uses **`except Exception`** in several places (e.g. **`create_started_check_run`**, finalize paths). **Transient** GitHub API errors can leave **Checks or status stale** while **GCS** already reflects the true BMT outcome.
+**`gcp/image/runtime/github_reporting.py`** catches `GithubException` (not broad `Exception`) but
+without retry — a single transient GitHub API error on `finalize_check_run` silently logs a warning
+and moves on. **GCS** will already reflect the true BMT outcome while **GitHub Checks** may remain
+stale.
 
 **Mitigation direction:** Structured retries with backoff, **non-zero exit** or explicit **reconciliation** when finalization fails, **metrics** on finalize failures.
 
-### 11.4 `object_exists` swallows infrastructure errors
+### 11.4 `object_exists` swallows infrastructure errors — RESOLVED
 
-In **`.github/bmt/ci/gcs.py`**, **`object_exists`** catches **any** `Exception` and returns **`False`**:
+**Status: Fixed.** The implementation in **`.github/bmt/ci/gcs.py`** now raises `GcsError` for
+all non-404 failures, not `False`. Callers see `GcsError` on auth failure, quota, or network
+error — distinct from `False` for a legitimate missing object.
 
-```106:115:/home/yanai/sandbox/bmt-gcloud/.github/bmt/ci/gcs.py
+Current implementation (`gcs.py:107–122`):
+
+```python
 def object_exists(uri: str) -> bool:
-    """Return True if the GCS object exists."""
+    “””Return True if the GCS object exists.
+
+    Raises :exc:`ValueError` for invalid ``gs://`` URIs. Propagates :exc:`GcsError` on
+    GCS/network/auth failures so callers do not treat infrastructure errors as “missing”.
+    “””
     try:
         bucket_name, path = parse_gs_uri(uri)
         client = _get_client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(path)
         return blob.exists()
-    except Exception:
-        return False
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise GcsError(f”Failed to check existence of {uri}: {exc}”) from exc
 ```
-
-Callers cannot distinguish **“object missing”** from **auth failure, quota, or network error** — leading to **wrong control-flow** (e.g. skip upload, wrong branch).
-
-**Mitigation direction:** Let **`NotFound` / false** be distinct from **`GcsError`** for other failures.
 
 ### 11.5 Workflows dispatch: single HTTP attempt
 
@@ -266,7 +275,7 @@ The **full backlog** (why + recommendations per issue) lives in **[plans/bmt-wea
 | -------- | ---- | --------- |
 | P0 | Enforce **unique `results_path`** per plan (or namespace pointers) | Prevents silent cross-leg corruption. |
 | P1 | **Distinct reason codes** for missing summary vs runner failure | Correct operations and debugging. |
-| P1 | **Fix `object_exists`** (and similar) to surface non-404 errors | Prevents wrong CI branches on infra failure. |
+| ~~P1~~ | ~~**Fix `object_exists`**~~ — **RESOLVED** | Fixed: raises `GcsError` for non-404; see §11.4. |
 | P2 | **Retry/backoff** for Workflows start + GitHub finalize with clear idempotency rules | Reduces flaky handoff and split-brain. |
 | P2 | **Centralize** path/URI builders and critical JSON schemas | Reduces contract drift. |
 | P3 | Introduce a **thin stable API** between CI package and `gcp.image` config | Safer refactors. |
