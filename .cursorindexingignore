@@ -1,0 +1,17 @@
+.worktrees
+*.tar.gz
+*.zip
+*.wav
+*.7z
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.o
+*.obj
+*.res
+*.rc
+*.manifest
+*.
