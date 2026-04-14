@@ -271,7 +271,7 @@ def _load_contract(
     consistency_raw = payload.get("consistency_checks", {})
     if consistency_raw and not isinstance(consistency_raw, dict):
         raise RuntimeError("'consistency_checks' must be an object")
-    branch_checks_raw = (
+    branch_checks_raw: list[object] = (
         consistency_raw.get("repo_var_vs_branch_required_status_context", [])
         if isinstance(consistency_raw, dict)
         else []

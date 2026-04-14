@@ -34,29 +34,8 @@ class HandoffEnv:
     @classmethod
     def resolve(cls, ctx: BmtContext | None) -> HandoffEnv:
         w = ctx.workflow if ctx is not None else None
-        if w is not None and isinstance(w, WorkflowContext):
-            return _handoff_env_from_workflow(w)
         if w is not None:
-            return cls(
-                prepare_result=_w_attr(w, "prepare_result"),
-                mode=_w_attr(w, "mode"),
-                head_sha=(
-                    _w_attr(w, "prepare_head_sha")
-                    or _w_attr(w, "dispatch_head_sha")
-                    or _w_attr(w, "head_sha")
-                    or os.environ.get("GITHUB_SHA", "")
-                ),
-                pr_number=(_w_attr(w, "prepare_pr_number") or _w_attr(w, "dispatch_pr_number")),
-                orch_has_legs=_w_attr(w, "orch_has_legs") == "true",
-                repository=_w_attr(w, "repository") or _w_attr(w, "github_repository"),
-                head_branch=_w_attr(w, "head_branch"),
-                filtered_matrix_raw=_w_attr(w, "filtered_matrix") or '{"include":[]}',
-                accepted_projects_raw=_w_attr(w, "accepted_projects") or "[]",
-                dispatch_confirmed=_w_attr(w, "handshake_ok") == "true",
-                failure_reason=_w_attr(w, "failure_reason"),
-                server=_w_attr(w, "github_server_url") or "https://github.com",
-                run_id=_w_attr(w, "github_run_id"),
-            )
+            return _handoff_env_from_workflow(w)
         return cls(
             prepare_result=(os.environ.get("PREPARE_RESULT") or "").strip(),
             mode=(os.environ.get("MODE") or "").strip(),

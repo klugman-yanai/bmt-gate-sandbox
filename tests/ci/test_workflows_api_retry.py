@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests.exceptions
-
 from ci.workflows_api import WorkflowsApiError, start_execution
 
 pytestmark = pytest.mark.unit

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 from typing import Literal
@@ -20,9 +21,8 @@ def _make_plugin():
     """Import and instantiate SkPlugin."""
     if _SK_PLUGIN_SRC not in sys.path:
         sys.path.insert(0, _SK_PLUGIN_SRC)
-    from sk_plugin.plugin import SkPlugin
-
-    return SkPlugin()
+    mod = importlib.import_module("sk_plugin.plugin")
+    return mod.SkPlugin()
 
 
 def _case(

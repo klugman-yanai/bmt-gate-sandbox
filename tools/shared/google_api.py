@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Mapping
-from typing import Any
+from typing import cast
 
 import google.auth
 from google.auth.transport.requests import AuthorizedSession, Request
@@ -18,7 +18,9 @@ class GoogleApiError(RuntimeError):
 
 
 def _session() -> AuthorizedSession:
-    credentials, _ = google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE])
+    from google.auth.credentials import Credentials
+
+    credentials, _ = cast(tuple[Credentials, object], google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE]))
     if not credentials.valid:
         credentials.refresh(Request())
     return AuthorizedSession(credentials)
@@ -36,8 +38,8 @@ def invoke_workflow_execution(
     project: str,
     region: str,
     workflow_name: str,
-    argument: Mapping[str, Any],
-) -> dict[str, Any]:
+    argument: Mapping[str, object],
+) -> dict[str, object]:
     session = _session()
     url = (
         "https://workflowexecutions.googleapis.com/v1/"
@@ -61,10 +63,10 @@ def run_cloud_run_job(
     wait: bool = True,
     poll_interval_sec: float = 5.0,
     timeout_sec: int = 3600,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     session = _session()
     url = f"https://run.googleapis.com/v2/projects/{project}/locations/{region}/jobs/{job_name}:run"
-    overrides: dict[str, Any] = {}
+    overrides: dict[str, object] = {}
     if task_count is not None:
         overrides["taskCount"] = task_count
     if env_vars:

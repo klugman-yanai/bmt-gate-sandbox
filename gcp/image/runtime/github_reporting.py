@@ -5,6 +5,7 @@ import os
 import time
 from datetime import timedelta
 from pathlib import Path
+from typing import cast
 
 import google.auth
 import whenever
@@ -703,7 +704,9 @@ def _write_log_dump_and_sign(
 
 def _generate_signed_url(*, bucket_name: str, blob_name: str) -> str | None:
     try:
-        credentials, _ = google.auth.default()
+        from google.auth.credentials import Credentials
+
+        credentials, _ = cast(tuple[Credentials, object], google.auth.default())
         credentials.refresh(Request())
         service_account_email = getattr(credentials, "service_account_email", "")
         if not service_account_email or not getattr(credentials, "token", ""):

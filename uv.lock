@@ -104,6 +104,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "bmt" },
+    { name = "google-auth-stubs" },
     { name = "google-cloud-artifact-registry" },
     { name = "google-cloud-storage" },
     { name = "orjson" },
@@ -148,6 +149,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bmt", editable = ".github/bmt" },
+    { name = "google-auth-stubs", specifier = ">=0.3.0" },
     { name = "google-cloud-artifact-registry", specifier = ">=1.14.0" },
     { name = "google-cloud-storage", specifier = ">=2.16" },
     { name = "orjson", specifier = ">=3.10" },

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 
@@ -15,9 +16,7 @@ _SK_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugi
 def _sp():
     if _SK_SRC not in sys.path:
         sys.path.insert(0, _SK_SRC)
-    from sk_plugin import sk_scoring_policy as sp
-
-    return sp
+    return importlib.import_module("sk_plugin.sk_scoring_policy")
 
 
 def test_scoring_policy_record_defaults() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -16,9 +17,7 @@ pytestmark = pytest.mark.unit
 def _import_plugin_module():
     if _SK_PLUGIN_SRC not in sys.path:
         sys.path.insert(0, _SK_PLUGIN_SRC)
-    from sk_plugin import plugin as sk_plugin_mod
-
-    return sk_plugin_mod
+    return importlib.import_module("sk_plugin.plugin")
 
 
 def _make_plugin():

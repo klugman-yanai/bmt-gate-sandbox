@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus
 from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
@@ -130,12 +131,14 @@ class SkPlugin(BmtPlugin):
         payload = json.loads(batch_path.read_text(encoding="utf-8"))
         case_results: list[CaseResult] = []
         for item in payload.get("results", []):
+            status_raw = str(item.get("status") or "ok").strip().lower()
+            status: Literal["ok", "failed"] = "failed" if status_raw == "failed" else "ok"
             case_results.append(
                 CaseResult(
                     case_id=str(item.get("case_id") or item.get("file") or ""),
                     input_path=Path(str(item.get("file") or "")),
                     exit_code=int(item.get("exit_code", 0) or 0),
-                    status=str(item.get("status") or "ok"),
+                    status=status,
                     metrics={"namuh_count": float(item.get("namuh_count", 0.0) or 0.0)},
                     artifacts={},
                     error=str(item.get("error") or ""),

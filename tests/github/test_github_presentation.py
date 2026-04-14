@@ -10,7 +10,6 @@ from gcp.image.github.presentation import (
     LiveLinks,
     ProgressBmtRow,
     StartedCommentView,
-    how_to_read_this_run_markdown,
     multi_leg_score_scope_markdown,
     render_final_check_output,
     render_final_pr_comment,
@@ -113,7 +112,7 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     assert "- ETA: `5m 0s`" in output["summary"]
     assert "| Project |" not in output["summary"]
     assert "context note" in output["summary"].lower()
-    text = output["text"]
+    text = output.get("text") or ""
     assert "| Project | BMT | Status | Avg. | Tests | Duration |" in text
     assert "| sk | false_rejects | Complete | 12.34 | — | 1m 1s |" in text
     assert "| sk | false_alarms | Running | — | — | — |" in text
@@ -144,8 +143,9 @@ def test_render_final_check_output_includes_score_scope_when_multiple_legs() -> 
             ],
         )
     )
-    assert "Each BMT row stands alone" in output["text"]
-    assert "separate" in output["text"].lower()
+    text_out = output.get("text") or ""
+    assert "Each BMT row stands alone" in text_out
+    assert "separate" in text_out.lower()
 
 
 def test_multi_leg_score_scope_markdown_empty_for_single() -> None:
@@ -235,7 +235,7 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
     assert "| Project |" not in output["summary"]
     assert "### Failure summary" in output["summary"]
     assert "- `false_rejects`: score dropped below baseline" in output["summary"]
-    text = output["text"]
+    text = output.get("text") or ""
     assert "| Project | BMT | Status | Avg. | Tests | Reason | Duration |" in text
     assert "| sk | false_rejects | FAIL | 41.25 | 22/24 passed | score dropped below baseline | 1m 5s |" in text
     assert "| sk | false_alarms | PASS | 56.80 | 30/30 passed | score met or exceeded baseline | 59s |" in text
@@ -260,8 +260,9 @@ def test_render_final_check_output_unavailable_score_not_shown_as_numeric() -> N
             ],
         )
     )
-    assert "| sk | false_alarms | FAIL | — | — |" in output["text"]
-    assert "| sk | false_alarms | FAIL | 0.00 |" not in output["text"]
+    final_text = output.get("text") or ""
+    assert "| sk | false_alarms | FAIL | — | — |" in final_text
+    assert "| sk | false_alarms | FAIL | 0.00 |" not in final_text
 
 
 def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> None:
@@ -282,7 +283,7 @@ def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> N
             ],
         )
     )
-    assert "| sk | false_rejects | PASS | — (mock) | — |" in output["text"]
+    assert "| sk | false_rejects | PASS | — (mock) | — |" in (output.get("text") or "")
 
 
 def test_human_reason_runner_case_failures() -> None:
@@ -331,10 +332,11 @@ def test_render_final_check_output_per_case_failures_and_annotations() -> None:
             ],
         )
     )
-    assert "### Per-case failures" in output["text"]
-    assert "bad.wav" in output["text"]
-    assert "runner_exit_139" in output["text"]
-    assert "2.00 ↓" in output["text"]
+    per_case_text = output.get("text") or ""
+    assert "### Per-case failures" in per_case_text
+    assert "bad.wav" in per_case_text
+    assert "runner_exit_139" in per_case_text
+    assert "2.00 ↓" in per_case_text
     assert "annotations" in output
     assert output["annotations"][0]["path"].startswith("bmt/sk/false_alarms/")
     assert output["annotations"][0]["annotation_level"] == "failure"

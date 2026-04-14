@@ -123,7 +123,7 @@ class RunnerManager:
             w, "bmt_skip_publish_runners", "BMT_SKIP_PUBLISH_RUNNERS"
         ).lower() in ("1", "true", "yes")
         if skip_publish:
-            out = {"include": []}
+            out: dict[str, Any] = {"include": []}
             path = Path(core.require_env("GITHUB_OUTPUT"))
             with path.open("a", encoding="utf-8") as f:
                 f.write(f"matrix_need_upload<<FILTER_EOF\n{json.dumps(out)}\nFILTER_EOF\n")
@@ -372,15 +372,18 @@ class RunnerManager:
         if runner_matrix_raw:
             try:
                 runner_matrix = json.loads(runner_matrix_raw)
-                include = (
+                include: list[object] = (
                     runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
                 )
                 if isinstance(include, list):
                     for entry in include:
                         if not isinstance(entry, dict):
                             continue
-                        project = str(entry.get("project", "")).strip()
-                        preset = str(entry.get("preset", "")).strip()
+                        entry_d = cast(dict[str, object], entry)
+                        project_raw = entry_d.get("project")
+                        preset_raw = entry_d.get("preset")
+                        project = str(project_raw).strip() if isinstance(project_raw, str) else ""
+                        preset = str(preset_raw).strip() if isinstance(preset_raw, str) else ""
                         if not project or not preset:
                             continue
                         if _runner_meta_in_gcs(root, project, preset) is not None:

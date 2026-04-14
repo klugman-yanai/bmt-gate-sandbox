@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from gcp.image.config.bmt_domain_status import BmtLegStatus
 from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
@@ -149,12 +150,14 @@ class SkPlugin(BmtPlugin):
             raw_count = item.get("namuh_count")
             if raw_status is None or raw_count is None:
                 raise ValueError(f"Batch result item missing required fields 'status' and/or 'namuh_count': {item}")
+            status_raw = str(raw_status).strip().lower()
+            status: Literal["ok", "failed"] = "failed" if status_raw == "failed" else "ok"
             case_results.append(
                 CaseResult(
                     case_id=str(item.get("case_id") or item.get("file") or ""),
                     input_path=Path(str(item.get("file") or "")),
                     exit_code=int(item.get("exit_code", 0) or 0),
-                    status=str(raw_status),
+                    status=status,
                     metrics={"namuh_count": float(raw_count)},
                     artifacts={},
                     error=str(item.get("error") or ""),

@@ -6,11 +6,16 @@ import json
 import os
 from typing import TypedDict
 
-from ci.bmt_constants import DEFAULT_WORKFLOW_NAME, ENV_GCP_PROJECT, ENV_GCS_BUCKET, is_truthy_env_value
 from gcp.image.github.reporting import workflow_execution_console_url
 
 from ci import config, core
 from ci.actions import write_github_output
+from ci.bmt_constants import (
+    DEFAULT_WORKFLOW_NAME,
+    ENV_GCP_PROJECT,
+    ENV_GCS_BUCKET,
+    is_truthy_env_value,
+)
 from ci.config import BmtConfig
 from ci.workflows_api import start_execution
 

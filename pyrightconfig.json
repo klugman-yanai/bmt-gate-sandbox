@@ -30,7 +30,7 @@
 	],
 	"venvPath": ".",
 	"venv": ".venv",
-	"reportMissingTypeStubs": "warning",
+	"reportMissingTypeStubs": "none",
 	"reportGeneralTypeIssues": "error",
 	"reportUnusedImport": "warning",
 	"reportUnusedVariable": "warning",

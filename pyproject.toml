@@ -20,6 +20,7 @@ dependencies = [
     "rich>=13.0",
     "typer>=0.15.0",
     "whenever>=0.9.5",
+    "google-auth-stubs>=0.3.0",
 ]
 
 [tool.uv.sources]

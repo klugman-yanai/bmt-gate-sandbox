@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Protocol
 
 from github import GithubIntegration
 
@@ -14,20 +13,8 @@ from gcp.image.config.constants import HTTP_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-
-class _PyJWTRS256Encode(Protocol):
-    """Subset of :func:`jwt.encode` used for GitHub App JWTs."""
-
-    def __call__(
-        self,
-        payload: dict[str, int | str],
-        key: str,
-        *,
-        algorithm: str,
-    ) -> str: ...
-
-
-_jwt_encode: _PyJWTRS256Encode | None = None
+# PyJWT's encode signature is broader than our GitHub App payloads; store as untyped callable.
+_jwt_encode: Callable[..., str] | None = None
 try:
     import jwt as _jwt_module
 

@@ -7,6 +7,9 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from ci.bmt_constants import (
     DEFAULT_CLOUD_RUN_REGION,
     ENV_BMT_CONTROL_JOB,
@@ -20,8 +23,6 @@ from ci.bmt_constants import (
     ENV_GCS_BUCKET,
     STATUS_CONTEXT,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
     "BmtConfig",
@@ -128,7 +129,7 @@ class WorkflowContext(BaseModel):
 class BmtContext(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
-    config: BmtConfig = Field(default_factory=BmtConfig)
+    config: BmtConfig = Field(default_factory=lambda: BmtConfig.model_validate({}))
     workflow: WorkflowContext | None = None
 
 
@@ -143,7 +144,7 @@ def get_config(runtime: Mapping[str, str] | None = None) -> BmtConfig:
                 if str(env.get(key, "")).strip()
             }
         )
-    return BmtConfig()
+    return BmtConfig.model_validate({})
 
 
 def get_context_path(runtime: Mapping[str, str] | None = None) -> Path:

@@ -131,11 +131,12 @@ class PreflightSnapshot:
             if not isinstance(p, str):
                 raise ValueError("snapshot code_rel_paths must be a list of strings")
             str_paths.append(p)
-        stats = raw.get("stats") or {}
-        if not isinstance(stats, dict):
-            stats = {}
-        code_s = stats.get("code") or {}
-        rt_s = stats.get("runtime") or {}
+        stats_raw = raw.get("stats")
+        stats: dict[str, Any] = stats_raw if isinstance(stats_raw, dict) else {}
+        code_s_raw = stats.get("code")
+        code_s: dict[str, Any] = code_s_raw if isinstance(code_s_raw, dict) else {}
+        rt_s_raw = stats.get("runtime")
+        rt_s: dict[str, Any] = rt_s_raw if isinstance(rt_s_raw, dict) else {}
         top = raw.get("top_level_uris")
         if top is not None and not isinstance(top, list):
             raise ValueError("top_level_uris must be a list or null")
@@ -145,8 +146,8 @@ class PreflightSnapshot:
             bucket=bucket,
             generated_at=generated_at,
             code_rel_paths=frozenset(str_paths),
-            stats_code=dict(code_s) if isinstance(code_s, dict) else {},
-            stats_runtime=dict(rt_s) if isinstance(rt_s, dict) else {},
+            stats_code=dict(code_s),
+            stats_runtime=dict(rt_s),
             top_level_uris=tuple(top_t) if all(isinstance(x, str) for x in top_t) else (),
         )
 

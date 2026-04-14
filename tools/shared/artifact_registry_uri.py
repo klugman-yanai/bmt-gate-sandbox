@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Literal
 
 import google.auth
-import google.auth.exceptions
 from google.api_core import exceptions as gexc
+from google.auth import exceptions as google_auth_exceptions
 from google.cloud import artifactregistry_v1
 
 ArtifactRegistryTagStatus = Literal["present", "absent", "unavailable", "permission_denied"]
@@ -107,7 +107,7 @@ def artifact_registry_tag_status(*, image_base: str, tag: str) -> ArtifactRegist
         return "unavailable"
     try:
         google.auth.default()
-    except google.auth.exceptions.DefaultCredentialsError:
+    except google_auth_exceptions.DefaultCredentialsError:
         return "unavailable"
 
     name = artifactregistry_v1.ArtifactRegistryClient.tag_path(project, location, repository, package, tag)

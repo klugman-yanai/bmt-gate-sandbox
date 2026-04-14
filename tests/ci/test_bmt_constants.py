@@ -8,7 +8,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_bmt_constants_exports_all_expected_symbols() -> None:
-    from ci import bmt_constants  # noqa: PLC0415
+    from ci import bmt_constants
 
     # Decision constants (from core.py usage)
     assert hasattr(bmt_constants, "DECISION_ACCEPTED")

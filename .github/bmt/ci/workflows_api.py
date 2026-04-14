@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import google.auth
 import requests.exceptions
@@ -22,7 +22,9 @@ class WorkflowsApiError(RuntimeError):
 
 
 def _session() -> AuthorizedSession:
-    credentials, _ = google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE])
+    from google.auth.credentials import Credentials
+
+    credentials, _ = cast(tuple[Credentials, object], google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE]))
     if not credentials.valid:
         credentials.refresh(Request())
     return AuthorizedSession(credentials)

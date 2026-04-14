@@ -712,7 +712,9 @@ def test_publish_final_results_retries_finalize_check_run_on_github_exception(
 ) -> None:
     """publish_final_results retries finalize_check_run up to 3 times on GithubException."""
     from unittest.mock import MagicMock
+
     from github import GithubException
+
     from gcp.image.runtime.github_reporting import publish_final_results
     from gcp.image.runtime.models import ExecutionPlan, ReportingMetadata, StageRuntimePaths
 
