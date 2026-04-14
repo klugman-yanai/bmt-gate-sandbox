@@ -126,7 +126,7 @@ env:
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
-  # Defaults match docs/configuration.md and gcp/image/config/constants.py (DEFAULT_*).
+  # Defaults match docs/configuration.md and runtime/config/constants.py (DEFAULT_*).
   CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
   BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
 
@@ -334,7 +334,8 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             .github
-            gcp
+            runtime
+            ci
 
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv
@@ -493,7 +494,8 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             .github
-            gcp
+            runtime
+            ci
 
       - uses: ./.github/actions/setup-gcp-uv
         if: steps.invoke-workflow.outcome != 'success'
@@ -507,7 +509,7 @@ jobs:
         if: steps.invoke-workflow.outcome != 'success'
         id: bmt-constants
         run: |
-          STATUS_CONTEXT=$(uv run python -c "from gcp.image.config.constants import STATUS_CONTEXT; print(STATUS_CONTEXT)")
+          STATUS_CONTEXT=$(uv run python -c "from runtime.config.constants import STATUS_CONTEXT; print(STATUS_CONTEXT)")
           echo "status_context=$STATUS_CONTEXT" >> "$GITHUB_OUTPUT"
           echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
 

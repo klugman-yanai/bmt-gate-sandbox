@@ -24,6 +24,7 @@ kardome-bmt = "kardome_bmt.driver:main"
 kardome-bmt-matrix = "kardome_bmt.driver:main_matrix"
 kardome-bmt-write-context = "kardome_bmt.driver:main_write_context"
 kardome-bmt-write-summary = "kardome_bmt.driver:main_write_handoff_summary"
+bmt = "kardome_bmt.driver:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

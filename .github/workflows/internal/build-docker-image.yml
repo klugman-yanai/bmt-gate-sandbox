@@ -6,8 +6,8 @@ on:
       - ci/check-bmt-gate
       - dev
     paths:
-      - 'gcp/image/**'
-      - 'gcp/__init__.py'
+      - 'runtime/**'
+      - 'runtime/__init__.py'
   workflow_dispatch:
 
 defaults:
@@ -50,7 +50,7 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
+          docker build -t bmt-orchestrator:latest -f runtime/Dockerfile .
 
       - name: Push image
         env:

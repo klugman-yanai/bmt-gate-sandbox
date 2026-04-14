@@ -49,7 +49,6 @@ include = ["tools*"]
 python-version = "3.12"
 extra-paths = [
     "ci",
-    "plugins/sk/plugin_workspaces/default/src",
 ]
 
 [tool.ty.src]

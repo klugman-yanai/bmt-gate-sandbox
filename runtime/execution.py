@@ -70,7 +70,12 @@ def execute_leg(*, plan: ExecutionPlan, leg: PlanLeg, runtime: StageRuntimePaths
             score=ScorePayload(aggregate_score=0.0),
         )
     manifest_path = runtime.stage_root / leg.manifest_path
-    bmt_manifest = BmtManifest.model_validate(json.loads(manifest_path.read_text(encoding="utf-8")))
+    # Use from_flat_file for flat-layout manifests (any non-bmt.json file)
+    # so path-derived fields (project, bmt_slug, prefixes) are filled in.
+    if manifest_path.name == "bmt.json":
+        bmt_manifest = BmtManifest.model_validate(json.loads(manifest_path.read_text(encoding="utf-8")))
+    else:
+        bmt_manifest = BmtManifest.from_flat_file(manifest_path)
     project_manifest_path = runtime.stage_root / "projects" / leg.project / "project.json"
     project_manifest = ProjectManifest.model_validate(json.loads(project_manifest_path.read_text(encoding="utf-8")))
     plugin, plugin_root = load_plugin(
