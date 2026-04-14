@@ -25,25 +25,22 @@ COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /usr/local/bin/uv
 WORKDIR /opt/bmt
 
 # Copy only dependency metadata first (layer caching)
-COPY gcp/image/pyproject.toml /opt/bmt/gcp/image/
-COPY gcp/__init__.py /opt/bmt/gcp/__init__.py
-COPY gcp/image/__init__.py /opt/bmt/gcp/image/__init__.py
+COPY runtime/pyproject.toml /opt/bmt/runtime/
 
 # Install deps into a project-local .venv from pyproject dependencies.
 # Do not rely on stale lock snapshots for runtime-critical deps.
-RUN cd /opt/bmt/gcp/image && uv sync --python /usr/bin/python3.12 --no-dev --no-editable
+RUN cd /opt/bmt/runtime && uv sync --python /usr/bin/python3.12 --no-dev --no-editable
 
 # Stage 2: application code
 FROM deps AS app
 
-# Copy the full gcp/image package (managers, contracts, schemas, scripts, etc.)
-COPY gcp/__init__.py /opt/bmt/gcp/__init__.py
-COPY gcp/image/ /opt/bmt/gcp/image/
+# Copy the full runtime package (managers, contracts, schemas, scripts, etc.)
+COPY runtime/ /opt/bmt/runtime/
 
 ENV PYTHONPATH=/opt/bmt
-ENV PATH="/opt/bmt/gcp/image/.venv/bin:$PATH"
+ENV PATH="/opt/bmt/runtime/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
 # Config via BMT_CONFIG env var pointing to a JSON payload file,
 # or mount at /etc/bmt/config.json (well-known path)
-CMD ["python", "gcp/image/main.py"]
+CMD ["python", "runtime/main.py"]

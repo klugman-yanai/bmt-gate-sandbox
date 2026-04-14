@@ -24,11 +24,11 @@ New work always branches from and PRs to `ci/check-bmt-gate`.
 
 - **GitHub Actions** authenticates with **WIF**, uploads artifacts as needed, and **starts Google Workflows** via the Workflow Executions API.
 - **Google Workflows** runs **Cloud Run** jobs: `bmt-control` (plan + coordinator) and `bmt-task-standard` / `bmt-task-heavy` (one BMT leg per task).
-- **GCS** holds frozen plans under `triggers/`, snapshots and `current.json` under each project’s `results/` tree. The bucket layout mirrors **`gcp/stage`**.
+- **GCS** holds frozen plans under `triggers/`, snapshots and `current.json` under each project’s `results/` tree. The bucket layout mirrors **`plugins`**.
 
 Legacy **VM + vm_watcher** descriptions in old docs are **not** the current production story. Use **[docs/architecture.md](docs/architecture.md)** for the full pipeline, diagrams, and maintainer deep dive.
 
-**Bucket:** 1:1 mirror of `gcp/stage` at the bucket root (see [gcp/README.md](gcp/README.md), [tools/shared/bucket_env.py](tools/shared/bucket_env.py)). **`gcp/image`** is baked into the **Cloud Run** image; **`gcp/stage`** is the editable mirror of runtime/config content.
+**Bucket:** 1:1 mirror of `plugins` at the bucket root (see [gcp/README.md](gcp/README.md), [tools/shared/bucket_env.py](tools/shared/bucket_env.py)). **`runtime`** is baked into the **Cloud Run** image; **`plugins`** is the editable mirror of runtime/config content.
 
 **Docs index:** [docs/README.md](docs/README.md) · **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
@@ -40,7 +40,7 @@ Legacy **VM + vm_watcher** descriptions in old docs are **not** the current prod
 | Durations, timeouts | `time.monotonic()` |
 | Sleep / backoff | `time.sleep()` |
 
-Avoid `time.time()` / `datetime.now()` for new code. CI and `gcp/` may use local helpers to stay self-contained when synced to the bucket.
+Avoid `time.time()` / `datetime.now()` for new code. CI and `plugins/` may use local helpers to stay self-contained when synced to the bucket.
 
 ## `tools/` layout
 
@@ -64,7 +64,7 @@ Avoid `time.time()` / `datetime.now()` for new code. CI and `gcp/` may use local
 
 ## CI / BMT CLI
 
-Entrypoint: **`uv run bmt <cmd>`** from repo root; implementation under **`.github/bmt/ci/`** (workspace member `bmt` is installed by **`uv sync`** at the repo root).
+Entrypoint: **`uv run kardome-bmt <cmd>`** from repo root; implementation under **`ci/`** (workspace member `kardome-bmt` is installed by **`uv sync`** at the repo root).
 
 Workflows in **`.github/workflows/`** call into this CLI (e.g. **`bmt-handoff.yml`**: `write-context`, `filter-upload-matrix`, `invoke-workflow`, etc.). See **[.github/README.md](.github/README.md)** for workflow layout.
 
@@ -81,7 +81,7 @@ Config: [pyproject.toml](pyproject.toml), [pyrightconfig.json](pyrightconfig.jso
 
 **Lint / types vs. code smell:** Do not “fix” Ruff or `ty` by introducing sustained smell (for example `cast()` only to appease a `Protocol` assignment, or broad `# type: ignore` / `# noqa`). Prefer honest types: a **union of concrete classes** (or an ABC) when several implementations share a call site; structural `Protocol` typing where LSP-compatible; small factories with explicit return types; narrow single-line ignores with a one-line rationale. If the only option seems to be a cast or a blanket ignore, adjust boundaries until types are honest.
 
-**Path map:** CI → `uv run bmt` / `.github/bmt/ci/`. Bucket tools → `tools/remote/bucket_*.py`. Local BMT → `tools/bmt/`.
+**Path map:** CI → `uv run kardome-bmt` / `ci/`. Bucket tools → `tools/remote/bucket_*.py`. Local BMT → `tools/bmt/`.
 
 ## Testing
 
@@ -104,8 +104,8 @@ To exercise manager-style snapshot writes and **`current.json`** against a real 
 ## Devtools and pre-commit
 
 - **Install [uv](https://docs.astral.sh/uv/) first**, then **`just setup`**: bootstraps Python 3.12+, **prek** hooks, and prints a Rich setup summary. See [CONTRIBUTING.md](CONTRIBUTING.md).
-- **`just deploy`** (with `GCS_BUCKET`) syncs `gcp/` to the bucket and verifies.
-- Pre-commit may **block** commits that touch `gcp/` unless the bucket is in sync (`SKIP_SYNC_VERIFY=1` to bypass intentionally).
+- **`just deploy`** (with `GCS_BUCKET`) syncs `plugins/` to the bucket and verifies.
+- Pre-commit may **block** commits that touch `plugins/` unless the bucket is in sync (`SKIP_SYNC_VERIFY=1` to bypass intentionally).
 
 ```bash
 just deploy
@@ -146,10 +146,10 @@ ast-grep 0.41.1
 | ----- | ---- |
 | **Actions** | Build, validate, start Workflows, post status/handoff |
 | **Workflows** | Plan → parallel Cloud Run tasks → coordinator |
-| **Cloud Run** | `gcp/image` runtime: plan / task / coordinator modes |
+| **Cloud Run** | `runtime` image: plan / task / coordinator modes |
 | **GCS** | Plans, summaries, snapshots, `current.json` |
 
-Runtime code: **`gcp/image/runtime/`**, entry via **`gcp/image/main.py`**. Plugins live under **`gcp/stage/projects/.../plugins/`** (published bundles).
+Runtime code: **`runtime/`**, entry via **`runtime/main.py`**. Plugins live under **`plugins/projects/.../plugins/`** (published bundles).
 
 **Details:** [docs/architecture.md](docs/architecture.md).
 

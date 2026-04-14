@@ -8,7 +8,7 @@ help:
       'Daily' \
       '  just test              Full suite: pytest, ruff, ty, actionlint, shellcheck, layout' \
       '  just ship              Pre-push gate (test → preflight → deploy → image); see --help' \
-      '  just deploy            Sync gcp/stage to GCS + verify' \
+      '  just deploy            Sync plugins to GCS + verify' \
       '  just setup             Bootstrap: uv, gcloud, ADC, deps, hooks (just setup --dev for full)' \
       '' \
       'Infra & BMT' \
@@ -18,12 +18,12 @@ help:
       '  just add-bmt / publish-bmt' \
       '' \
       'Bucket & data' \
-      '  just check-sync        Verify gcp/stage matches GCS bucket (advisory)' \
+      '  just check-sync        Verify plugins matches GCS bucket (advisory)' \
       '  just upload-data       Dataset zip/folder → GCS' \
       '  just mount-project / umount-project' \
       '' \
       'Other' \
-      '  just typecheck [section]   ty: all sections, or one of ci | runtime | infra | tools | tests | stage' \
+      '  just typecheck [section]   ty: all sections, or one of ci | runtime | infra | tools | tests | plugins' \
       '  just release / release-check' \
       '  just show-env, validate, doctor' \
       '' \
@@ -42,9 +42,9 @@ tools *args:
 # Optional diagnostics (not part of `just test`): dead code + duplicate-code on env-related modules.
 [group('validate')]
 doctor:
-    uv run vulture gcp/image/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
+    uv run vulture runtime/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
     uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 \
-      gcp/image/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py .github/bmt/ci/workflow_dispatch.py
+      runtime/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py ci/ci/workflow_dispatch.py
 
 [group('validate')]
 typecheck section="all":
@@ -53,17 +53,17 @@ typecheck section="all":
     run() { printf '\n==> ty check: %s (%s)\n' "$1" "$2"; uv run ty check "$2"; }
     case "{{section}}" in
       all)
-        run "CI" ".github/bmt"
-        run "Runtime (gcp/image)" "gcp/image"
+        run "CI" "ci"
+        run "Runtime" "runtime"
         run "Infra" "infra"
         run "Tools" "tools"
         run "Tests" "tests"
-        run "Stage mirror" "gcp/stage"
+        run "Plugins mirror" "plugins"
         ;;
       ci)
-        printf '\n==> ty check: CI (.github/bmt)\n'; uv run ty check .github/bmt ;;
+        printf '\n==> ty check: CI (ci)\n'; uv run ty check ci ;;
       runtime|gcp)
-        printf '\n==> ty check: Runtime (gcp/image)\n'; uv run ty check gcp/image ;;
+        printf '\n==> ty check: Runtime\n'; uv run ty check runtime ;;
       infra)
         printf '\n==> ty check: Infra\n'; uv run ty check infra ;;
       tools)
@@ -71,7 +71,7 @@ typecheck section="all":
       tests)
         printf '\n==> ty check: Tests\n'; uv run ty check tests ;;
       stage)
-        printf '\n==> ty check: Stage mirror\n'; uv run ty check gcp/stage ;;
+        printf '\n==> ty check: Plugins mirror\n'; uv run ty check plugins ;;
       *)
         printf 'Unknown section %q. Use: all | ci | runtime | infra | tools | tests | stage\n' "{{section}}" >&2
         exit 1
@@ -101,7 +101,7 @@ test:
 deploy:
     uv run python -m tools bucket deploy
 
-# Verify gcp/stage matches the GCS bucket's runtime seed manifest (requires GCS_BUCKET).
+# Verify plugins matches the GCS bucket's runtime seed manifest (requires GCS_BUCKET).
 # Run this before triggering BMT to catch stale local mirrors.
 [group('bucket')]
 check-sync:
@@ -115,7 +115,7 @@ preflight:
 # Upload WAV dataset to projects/<project>/inputs/<dataset>/ in GCS only (datasets can be 30-40 GB).
 # Archives use gcloud storage cp + Cloud Run extraction. Folders use gcloud storage rsync.
 # Dataset name is auto-detected from the filename.
-# Pass --local to also mirror into gcp/stage/. Example: just upload-data sk audio/sk_false_rejects.zip
+# Pass --local to also mirror into plugins/. Example: just upload-data sk audio/sk_false_rejects.zip
 [group('bucket')]
 upload-data project source *args:
     uv run python -m tools bucket upload-dataset "{{ project }}" "{{ source }}" {{ args }}
@@ -133,20 +133,20 @@ clean-bloat *args:
 
 # -- Data access (local fetch, manifests, FUSE mounts) -----------------------
 
-# Fetch a full dataset from GCS into gcp/stage/ for local use.
+# Fetch a full dataset from GCS into plugins/ for local use.
 # Example: just fetch-inputs sk false_rejects
 [private]
 [group('bucket')]
 fetch-inputs project dataset:
     gcloud storage cp -r "gs://$GCS_BUCKET/projects/{{ project }}/inputs/{{ dataset }}/" \
-        "gcp/stage/projects/{{ project }}/inputs/{{ dataset }}/"
+        "plugins/projects/{{ project }}/inputs/{{ dataset }}/"
 
-# Fetch a single file from GCS into gcp/stage/.
+# Fetch a single file from GCS into plugins/.
 # Example: just fetch-wav projects/sk/inputs/false_rejects/ambient/cafe_001.wav
 [private]
 [group('bucket')]
 fetch-wav path:
-    gcloud storage cp "gs://$GCS_BUCKET/{{ path }}" "gcp/stage/{{ path }}"
+    gcloud storage cp "gs://$GCS_BUCKET/{{ path }}" "plugins/{{ path }}"
 
 # (Re-)generate dataset_manifest.json for a dataset (requires GCS_BUCKET).
 # Example: just gen-manifest sk false_rejects
@@ -160,7 +160,7 @@ gen-manifest project dataset:
 [private]
 [group('bucket')]
 mount-data project:
-    mkdir -p gcp/mnt/{{ project }}-inputs
+    mkdir -p mnt/{{ project }}-inputs
     gcsfuse \
         --only-dir="projects/{{ project }}/inputs" \
         --file-mode=444 \
@@ -169,7 +169,7 @@ mount-data project:
         --stat-cache-ttl=300s \
         --type-cache-ttl=300s \
         --kernel-list-cache-ttl-secs=60 \
-        "$GCS_BUCKET" gcp/mnt/{{ project }}-inputs
+        "$GCS_BUCKET" mnt/{{ project }}-inputs
 
 [group('bucket')]
 mount-project project:
@@ -179,7 +179,7 @@ mount-project project:
 [private]
 [group('bucket')]
 umount-data project:
-    fusermount -u gcp/mnt/{{ project }}-inputs
+    fusermount -u mnt/{{ project }}-inputs
 
 [group('bucket')]
 umount-project project:
@@ -291,14 +291,14 @@ image: docker-build docker-push
 [private]
 [group('docker')]
 docker-build:
-    docker buildx build --load -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
+    docker buildx build --load -t bmt-orchestrator:latest -f runtime/Dockerfile .
 
-# Run the container locally with gcp/stage bind-mounted as /mnt/runtime (FUSE simulation)
+# Run the container locally with plugins bind-mounted as /mnt/runtime (FUSE simulation)
 [private]
 [group('docker')]
 docker-run-test *args:
     docker run --rm \
-        -v "$(pwd)/gcp/stage:/mnt/runtime:ro" \
+        -v "$(pwd)/plugins:/mnt/runtime:ro" \
         -e BMT_CONFIG=/etc/bmt/config.json \
         {{ args }} \
         bmt-orchestrator:latest
