@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from kardome_bmt import core
-from ci.actions import gh_notice, gh_warning
+from kardome_bmt.actions import gh_notice, gh_warning
 
 
 def _load_configure_presets(presets_file: Path) -> list[dict[str, Any]]:
@@ -106,9 +106,7 @@ class MatrixManager:
         presets_file = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
         presets = _load_configure_presets(presets_file)
         rows = _build_bmt_rows(presets).get("include", [])
-        matrix = {
-            "include": [{"project": str(r["project"]), "bmt_id": str(r["bmt_id"])} for r in rows]
-        }
+        matrix = {"include": [{"project": str(r["project"]), "bmt_id": str(r["bmt_id"])} for r in rows]}
         if not matrix["include"]:
             gh_warning("No supported release runner rows found in CMake presets.")
         with Path(github_output).open("a", encoding="utf-8") as fh:
@@ -121,9 +119,7 @@ class MatrixManager:
         has_legs_key = os.environ.get("BMT_HAS_LEGS_KEY", "has_legs")
         runner_matrix = _load_json(core.require_env("RUNNER_MATRIX"), "RUNNER_MATRIX")
         full_matrix = _load_json(core.require_env("FULL_MATRIX"), "FULL_MATRIX")
-        accepted_projects = _load_json(
-            os.environ.get("ACCEPTED_PROJECTS", "[]"), "ACCEPTED_PROJECTS"
-        )
+        accepted_projects = _load_json(os.environ.get("ACCEPTED_PROJECTS", "[]"), "ACCEPTED_PROJECTS")
         if (
             not isinstance(runner_matrix, dict)
             or not isinstance(full_matrix, dict)
@@ -149,9 +145,7 @@ class MatrixManager:
             row = dict(entry)
             if not str(row.get("bmt_id", "")).strip():
                 row["bmt_id"] = (
-                    str(row.get("preset", "") or row.get("configure", "") or f"{project}_default")
-                    .strip()
-                    .lower()
+                    str(row.get("preset", "") or row.get("configure", "") or f"{project}_default").strip().lower()
                     or f"{project}_default"
                 )
             filtered_include.append(row)
@@ -162,9 +156,7 @@ class MatrixManager:
         if supported_legs == 0:
             print("::warning::No supported BMT projects in requested runner set; skipping BMT.")
         elif legs == 0:
-            raise RuntimeError(
-                "Supported BMT projects exist but no supported runner upload succeeded."
-            )
+            raise RuntimeError("Supported BMT projects exist but no supported runner upload succeeded.")
         else:
             gh_notice(f"Triggering BMT for {legs} leg(s) (supported runners only).")
         with Path(github_output).open("a", encoding="utf-8") as fh:

@@ -137,11 +137,7 @@ def get_config(runtime: Mapping[str, str] | None = None) -> BmtConfig:
     if runtime is not None:
         env = dict(runtime)
         return BmtConfig.model_validate(
-            {
-                key.lower(): str(env[key]).strip()
-                for key in _RUNTIME_ENV_KEYS
-                if str(env.get(key, "")).strip()
-            }
+            {key.lower(): str(env[key]).strip() for key in _RUNTIME_ENV_KEYS if str(env.get(key, "")).strip()}
         )
     return BmtConfig()
 
@@ -198,6 +194,7 @@ def load_env() -> None:
     if not github_env:
         raise RuntimeError("GITHUB_ENV is not set (not running in a GitHub Actions step?)")
     config = get_config()
-    with open(github_env, "a", encoding="utf-8") as handle:
-        for name in BmtConfig.model_fields:
-            handle.write(f"{name.upper()}={_github_env_escape(str(getattr(config, name)))}\n")
+    with Path(github_env).open("a", encoding="utf-8") as handle:
+        handle.writelines(
+            f"{name.upper()}={_github_env_escape(str(getattr(config, name)))}\n" for name in BmtConfig.model_fields
+        )

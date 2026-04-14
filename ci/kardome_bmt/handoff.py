@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 
 from kardome_bmt import config, github, handoff_dataset
-from ci.actions import gh_notice, gh_warning
-from ci.config import BmtConfig, BmtContext
-from ci.handoff_env import HandoffEnv, resolve_repository_and_sha
-from ci.handoff_summary import write_handoff_step_summary
+from kardome_bmt.actions import gh_notice, gh_warning
+from kardome_bmt.config import BmtConfig, BmtContext
+from kardome_bmt.handoff_env import HandoffEnv, resolve_repository_and_sha
+from kardome_bmt.handoff_summary import write_handoff_step_summary
 
 
 class HandoffManager:
@@ -41,11 +41,7 @@ class HandoffManager:
     def post_pending_status(self) -> None:
         repository, head_sha = resolve_repository_and_sha(self._ctx)
         w = self._ctx.workflow if self._ctx else None
-        target_url = (
-            (w.target_url or "").strip()
-            if w is not None
-            else (os.environ.get("TARGET_URL") or None)
-        )
+        target_url = (w.target_url or "").strip() if w is not None else (os.environ.get("TARGET_URL") or None)
         target_url = target_url or None
         context = self._cfg.bmt_status_context
         description = self._cfg.bmt_progress_description
@@ -53,9 +49,7 @@ class HandoffManager:
             gh_warning("Skipping pending status post (missing repository or head_sha).")
             return
         try:
-            github.post_commit_status(
-                repository, head_sha, "pending", context, description, target_url=target_url
-            )
+            github.post_commit_status(repository, head_sha, "pending", context, description, target_url=target_url)
             gh_notice(f"Posted pending status '{context}': {description}")
         except github.GitHubApiError as e:
             gh_warning(f"Failed to post pending status for {head_sha}: {e}")
@@ -69,9 +63,7 @@ class HandoffManager:
             return
         try:
             if not github.should_post_failure_status(repository, head_sha, context):
-                print(
-                    f"::notice::Fallback status skipped: '{context}' is already terminal for {head_sha}."
-                )
+                print(f"::notice::Fallback status skipped: '{context}' is already terminal for {head_sha}.")
                 return
             github.post_commit_status(repository, head_sha, "error", context, description)
             gh_notice(f"Posted fallback terminal status '{context}=error' for {head_sha}.")

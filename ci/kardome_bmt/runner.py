@@ -12,10 +12,10 @@ from typing import Any, cast
 from whenever import Instant
 
 from kardome_bmt import config, core, gcs
-from ci.actions import gh_notice, gh_warning, write_github_output
-from ci.config import BmtConfig, BmtContext, WorkflowContext
-from ci.runner_provenance import write_runner_provenance
-from ci.workflow_env import read_workflow_str
+from kardome_bmt.actions import gh_notice, gh_warning, write_github_output
+from kardome_bmt.config import BmtConfig, BmtContext, WorkflowContext
+from kardome_bmt.runner_provenance import write_runner_provenance
+from kardome_bmt.workflow_env import read_workflow_str
 
 
 def _project_has_bmt_stage_layout(project: str) -> bool:
@@ -23,7 +23,7 @@ def _project_has_bmt_stage_layout(project: str) -> bool:
     slug = str(project).strip().lower()
     if not slug:
         return False
-    base = Path("gcp/stage/projects") / slug
+    base = Path("plugins/projects") / slug
     return (base / "project.json").is_file() or (base / "bmts").is_dir()
 
 
@@ -38,7 +38,7 @@ def _runner_meta_in_gcs(root: str, project: str, _preset: str) -> dict[str, Any]
 def _ci_run_id_for_markers() -> str:
     """Prefer parent CI run id (``BMT_CI_RUN_ID``) so GCS markers align with build-and-test."""
     rid = (os.environ.get("BMT_CI_RUN_ID") or "").strip()
-    return rid if rid else core.workflow_run_id()
+    return rid or core.workflow_run_id()
 
 
 def _sha256_file(path: Path) -> str:
@@ -73,19 +73,15 @@ class RunnerManager:
             print(f"::warning::Could not verify runner in GCS ({exc}); checking local fallbacks.")
             exists = False
         if exists:
-            print(
-                f"::notice::Requested runner exists in bucket: {canonical_runner_uri} (validated for handoff)."
-            )
+            print(f"::notice::Requested runner exists in bucket: {canonical_runner_uri} (validated for handoff).")
         else:
             local_candidates = (
-                Path("gcp/stage") / project / "runners" / preset / "kardome_runner",
-                Path("gcp/stage/projects") / project / "kardome_runner",
+                Path("plugins") / project / "runners" / preset / "kardome_runner",
+                Path("plugins/projects") / project / "kardome_runner",
             )
             for candidate in local_candidates:
                 if candidate.is_file():
-                    print(
-                        f"::notice::Requested runner exists in repo mirror: {candidate} (validated for handoff)."
-                    )
+                    print(f"::notice::Requested runner exists in repo mirror: {candidate} (validated for handoff).")
                     break
             else:
                 gh_warning(
@@ -103,9 +99,11 @@ class RunnerManager:
 
     def filter_upload_matrix(self) -> None:
         w = self._w()
-        skip_publish = read_workflow_str(
-            w, "bmt_skip_publish_runners", "BMT_SKIP_PUBLISH_RUNNERS"
-        ).lower() in ("1", "true", "yes")
+        skip_publish = read_workflow_str(w, "bmt_skip_publish_runners", "BMT_SKIP_PUBLISH_RUNNERS").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         if skip_publish:
             out = {"include": []}
             path = Path(core.require_env("GITHUB_OUTPUT"))
@@ -120,12 +118,12 @@ class RunnerManager:
             return
         runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
         head_sha = read_workflow_str(w, "head_sha", "HEAD_SHA")
-        preseeded = read_workflow_str(
-            w, "bmt_runners_preseeded_in_gcs", "BMT_RUNNERS_PRESEEDED_IN_GCS"
-        ).lower() in ("1", "true", "yes")
-        available_artifacts_raw = read_workflow_str(
-            w, "available_artifacts", "AVAILABLE_ARTIFACTS", "[]"
+        preseeded = read_workflow_str(w, "bmt_runners_preseeded_in_gcs", "BMT_RUNNERS_PRESEEDED_IN_GCS").lower() in (
+            "1",
+            "true",
+            "yes",
         )
+        available_artifacts_raw = read_workflow_str(w, "available_artifacts", "AVAILABLE_ARTIFACTS", "[]")
         github_run_id = (os.environ.get("BMT_CI_RUN_ID") or "").strip() or (
             read_workflow_str(w, "github_run_id", "GITHUB_RUN_ID") or core.workflow_run_id()
         )
@@ -283,9 +281,7 @@ class RunnerManager:
             print(
                 f"Runner upload skipped: no content changes for {project}/{preset} ({', '.join(skipped) if skipped else 'none'})"
             )
-            write_runner_provenance(
-                bucket, root, dest_prefix, local_files, source_ref, project, preset
-            )
+            write_runner_provenance(bucket, root, dest_prefix, local_files, source_ref, project, preset)
             return
         meta = {
             "uploaded_at": Instant.now().format_iso(unit="second"),
@@ -293,8 +289,7 @@ class RunnerManager:
             "project": project,
             "preset": preset,
             "files": [
-                {"name": str(r["name"]), "size": int(r["size"]), "sha256": str(r["sha256"])}
-                for r in local_files
+                {"name": str(r["name"]), "size": int(r["size"]), "sha256": str(r["sha256"])} for r in local_files
             ],
             "uploaded_files": uploaded,
             "skipped_unchanged_files": skipped,
@@ -319,17 +314,13 @@ class RunnerManager:
         root = core.workflow_runtime_root()
         prefix = f"{root}/_workflow/uploaded/{run_id}/"
         uris = gcs.list_prefix(prefix)
-        uploaded_projects = {
-            u.split("/")[-1].replace(".json", "").strip() for u in uris if u.endswith(".json")
-        }
+        uploaded_projects = {u.split("/")[-1].replace(".json", "").strip() for u in uris if u.endswith(".json")}
         w = self._w()
         runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
         if runner_matrix_raw:
             try:
                 runner_matrix = json.loads(runner_matrix_raw)
-                include = (
-                    runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
-                )
+                include = runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
                 if isinstance(include, list):
                     for entry in include:
                         if not isinstance(entry, dict):
@@ -358,7 +349,5 @@ class RunnerManager:
         accepted_raw = read_workflow_str(w, "accepted", "ACCEPTED", "[]")
         accepted = json.loads(accepted_raw)
         filtered_matrix = json.loads(filtered_raw)
-        bmt_jobs = sorted(
-            {str(e.get("project", "")).strip() for e in filtered_matrix.get("include", []) if e}
-        )
+        bmt_jobs = sorted({str(e.get("project", "")).strip() for e in filtered_matrix.get("include", []) if e})
         print(f"::notice::Matrix handshake: uploaded={len(accepted)} legs={len(bmt_jobs)}")

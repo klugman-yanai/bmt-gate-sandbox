@@ -8,12 +8,12 @@ import sys
 import typer
 
 from kardome_bmt import config
-from ci.actions import gh_error
-from ci.handoff import HandoffManager
-from ci.matrix import MatrixManager
-from ci.preset import PresetManager
-from ci.runner import RunnerManager
-from ci.workflow_dispatch import WorkflowDispatchManager
+from kardome_bmt.actions import gh_error
+from kardome_bmt.handoff import HandoffManager
+from kardome_bmt.matrix import MatrixManager
+from kardome_bmt.preset import PresetManager
+from kardome_bmt.runner import RunnerManager
+from kardome_bmt.workflow_dispatch import WorkflowDispatchManager
 
 app = typer.Typer(
     no_args_is_help=True,

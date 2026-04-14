@@ -12,14 +12,6 @@ from pathlib import Path
 
 import typer
 
-from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
-from runtime.config.constants import (
-    ENV_BMT_FAILURE_REASON,
-    ENV_BMT_STATUS_CONTEXT,
-    ENV_GCS_BUCKET,
-    STATUS_CONTEXT,
-)
-from runtime.config.env_parse import is_truthy_env_value
 from runtime.artifacts import (
     aggregate_status,
     case_digest_result_path,
@@ -39,6 +31,14 @@ from runtime.artifacts import (
     write_progress,
     write_summary,
 )
+from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
+from runtime.config.constants import (
+    ENV_BMT_FAILURE_REASON,
+    ENV_BMT_STATUS_CONTEXT,
+    ENV_GCS_BUCKET,
+    STATUS_CONTEXT,
+)
+from runtime.config.env_parse import is_truthy_env_value
 from runtime.execution import execute_leg
 from runtime.github_reporting import (
     ensure_reporting_metadata_for_plan,
@@ -70,7 +70,7 @@ def _default_runtime_root() -> Path:
     mounted_root = Path("/mnt/runtime")
     if mounted_root.exists():
         return mounted_root.resolve()
-    return Path("gcp/stage").resolve()
+    return Path("plugins").resolve()
 
 
 def _default_workspace_root() -> Path:

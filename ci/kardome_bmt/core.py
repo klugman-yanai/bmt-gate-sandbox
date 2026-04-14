@@ -9,11 +9,9 @@ from typing import Any
 
 import runtime.config.constants as _bmt_constants
 from runtime.config.decisions import GateDecision
-from runtime.config.value_types import (
-    sanitize_run_id as sanitize_run_id,  # noqa: F811 — re-export
-)
+from runtime.config.value_types import sanitize_run_id as sanitize_run_id  # noqa: PLC0414 — intentional re-export for callers
 
-# Re-export gate decision strings for `from ci.core import DECISION_*` (tests, callers).
+# Re-export gate decision strings for `from kardome_bmt.core import DECISION_*` (tests, callers).
 DECISION_ACCEPTED = _bmt_constants.DECISION_ACCEPTED
 DECISION_ACCEPTED_WITH_WARNINGS = _bmt_constants.DECISION_ACCEPTED_WITH_WARNINGS
 DECISION_REJECTED = _bmt_constants.DECISION_REJECTED
@@ -28,7 +26,7 @@ class GcloudError(RuntimeError):
     """Raised when a GCP operation fails in a non-recoverable way."""
 
 
-DEFAULT_CONFIG_ROOT = "gcp/image"
+DEFAULT_CONFIG_ROOT = "runtime"
 DEFAULT_ENV_CONTRACT_PATH = "tools/repo/vars_contract.py"
 
 # Trigger path subdirectories under {bucket_root}/triggers/

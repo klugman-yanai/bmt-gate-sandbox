@@ -29,15 +29,12 @@ def write_runner_provenance(
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     git_sha = os.environ.get("GITHUB_SHA", "")
     builder_id = (
-        f"https://github.com/{repository}/.github/workflows/build-and-test.yml"
-        if repository
-        else _SLSA_BUILD_TYPE
+        f"https://github.com/{repository}/.github/workflows/build-and-test.yml" if repository else _SLSA_BUILD_TYPE
     )
     provenance = {
         "_type": _SLSA_STATEMENT_TYPE,
         "subject": [
-            {"name": f"{root}/{dest_prefix}/{r['name']}", "digest": {"sha256": str(r["sha256"])}}
-            for r in local_files
+            {"name": f"{root}/{dest_prefix}/{r['name']}", "digest": {"sha256": str(r["sha256"])}} for r in local_files
         ],
         "predicateType": _SLSA_PREDICATE_TYPE,
         "predicate": {
@@ -48,9 +45,7 @@ def write_runner_provenance(
                     "project": project,
                     "preset": preset,
                 },
-                "resolvedDependencies": [
-                    {"uri": f"https://github.com/{repository}", "digest": {"gitCommit": git_sha}}
-                ]
+                "resolvedDependencies": [{"uri": f"https://github.com/{repository}", "digest": {"gitCommit": git_sha}}]
                 if git_sha
                 else [],
             },

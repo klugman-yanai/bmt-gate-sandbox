@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 
 from kardome_bmt import gcs
-from ci.actions import gh_notice, gh_warning
-from ci.config import BmtConfig
+from kardome_bmt.actions import gh_notice, gh_warning
+from kardome_bmt.config import BmtConfig
 
 
 def validate_dataset_inputs(cfg: BmtConfig) -> None:
@@ -22,7 +22,7 @@ def validate_dataset_inputs(cfg: BmtConfig) -> None:
         gh_notice("No accepted projects to validate.")
         return
 
-    stage_root = Path("gcp/stage")
+    stage_root = Path("plugins")
     errors: list[str] = []
     for project in accepted_projects:
         bmts_dir = stage_root / "projects" / project / "bmts"
@@ -47,16 +47,14 @@ def validate_dataset_inputs(cfg: BmtConfig) -> None:
                 expected_count = len(manifest_payload.get("files", []))
                 if wav_count != expected_count:
                     errors.append(
-                        f"{project}/{bmt_slug}: GCS has {wav_count} .wav files "
-                        f"but manifest expects {expected_count}"
+                        f"{project}/{bmt_slug}: GCS has {wav_count} .wav files but manifest expects {expected_count}"
                     )
                 else:
                     gh_notice(f"{project}/{bmt_slug}: {wav_count} .wav file(s) match manifest ✓")
+            elif wav_count == 0:
+                errors.append(f"{project}/{bmt_slug}: no .wav files found at {prefix_uri}")
             else:
-                if wav_count == 0:
-                    errors.append(f"{project}/{bmt_slug}: no .wav files found at {prefix_uri}")
-                else:
-                    gh_notice(f"{project}/{bmt_slug}: {wav_count} .wav file(s) at {prefix_uri}")
+                gh_notice(f"{project}/{bmt_slug}: {wav_count} .wav file(s) at {prefix_uri}")
 
     if errors:
         for e in errors:

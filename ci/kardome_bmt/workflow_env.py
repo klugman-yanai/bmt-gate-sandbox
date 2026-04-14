@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from ci.config import WorkflowContext
+from kardome_bmt.config import WorkflowContext
 
 
 def read_workflow_str(

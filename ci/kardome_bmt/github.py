@@ -99,9 +99,7 @@ def post_pr_comment(repository: str, pr_number: int, body: str) -> None:
         issue = repo.get_issue(pr_number)
         issue.create_comment(body)
     except Exception as exc:
-        raise GitHubApiError(
-            f"Failed to post PR comment on {repository}#{pr_number}: {exc}"
-        ) from exc
+        raise GitHubApiError(f"Failed to post PR comment on {repository}#{pr_number}: {exc}") from exc
 
 
 def trigger_workflow_dispatch(
@@ -118,6 +116,4 @@ def trigger_workflow_dispatch(
         workflow = repo.get_workflow(workflow_id)
         workflow.create_dispatch(ref, inputs or {})
     except Exception as exc:
-        raise GitHubApiError(
-            f"Failed to trigger workflow {workflow_id} on {repository}@{ref}: {exc}"
-        ) from exc
+        raise GitHubApiError(f"Failed to trigger workflow {workflow_id} on {repository}@{ref}: {exc}") from exc

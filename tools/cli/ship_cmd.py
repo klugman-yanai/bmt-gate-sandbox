@@ -68,8 +68,8 @@ _DRY_RUN_PAUSE_SEC: dict[str, float] = {
     "image": 1.6,
 }
 
-# Paths that invalidate the Cloud Run image (see gcp/image/Dockerfile COPY lines).
-_IMAGE_GIT_PATHSPECS = ("gcp/image", "gcp/__init__.py")
+# Paths that invalidate the Cloud Run image (see runtime/Dockerfile COPY lines).
+_IMAGE_GIT_PATHSPECS = ("runtime",)
 
 
 def _console() -> Console:
@@ -220,7 +220,7 @@ def register_ship(root: typer.Typer) -> None:
             typer.Option(
                 "--force-image",
                 help="Always run `just image` (default: skip when git shows no edits under "
-                "gcp/image or gcp/__init__.py and Artifact Registry has an image tagged with "
+                "runtime/ and Artifact Registry has an image tagged with "
                 "the current git HEAD commit, verified via the Artifact Registry API). "
                 "If the registry probe is unavailable (network/ADC), ship runs `just image` anyway "
                 "(fail-open). If the probe reports permission denied (IAM), ship shows an error and "
@@ -251,7 +251,7 @@ def register_ship(root: typer.Typer) -> None:
                 skips["image"] = True
                 head_preview = (_git_head_sha(root_s) or "?")[:7]
                 auto_skip_note = (
-                    "[dim]image auto-skipped (dry-run):[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/].\n"
+                    "[dim]image auto-skipped (dry-run):[/] no git changes under [cyan]runtime/[/].\n"
                     "[dim]Artifact Registry is not queried in dry-run;[/] run without [cyan]--dry-run[/] to check "
                     f"[cyan]bmt-orchestrator:{head_preview}[/] [dim]before skipping the image step.[/]"
                 )
@@ -263,7 +263,7 @@ def register_ship(root: typer.Typer) -> None:
                     skips["image"] = True
                     short = head_sha[:7]
                     auto_skip_note = (
-                        "[dim]image auto-skipped:[/] no git changes under [cyan]gcp/image[/] or [cyan]gcp/__init__.py[/]; "
+                        "[dim]image auto-skipped:[/] no git changes under [cyan]runtime/[/]; "
                         f"Artifact Registry has [cyan]bmt-orchestrator:{short}[/].\n"
                         "[dim]Still wrong bits?[/] base-image-only updates or policy rebuilds — "
                         "[dim]run[/] [cyan]just ship --force-image[/][dim].[/]"

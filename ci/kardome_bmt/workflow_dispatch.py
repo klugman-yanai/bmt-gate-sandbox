@@ -11,9 +11,9 @@ from runtime.config.env_parse import is_truthy_env_value
 from runtime.github.reporting import workflow_execution_console_url
 
 from kardome_bmt import config, core
-from ci.actions import write_github_output
-from ci.config import BmtConfig
-from ci.workflows_api import start_execution
+from kardome_bmt.actions import write_github_output
+from kardome_bmt.config import BmtConfig
+from kardome_bmt.workflows_api import start_execution
 
 
 class WorkflowDispatchInvokePayload(TypedDict):
@@ -38,7 +38,7 @@ def _accepted_projects(filtered_matrix_json: str) -> list[str]:
     payload = json.loads(filtered_matrix_json)
     include = payload.get("include", [])
     if not isinstance(include, list):
-        raise RuntimeError("FILTERED_MATRIX_JSON must contain an 'include' array")
+        raise TypeError("FILTERED_MATRIX_JSON must contain an 'include' array")
     accepted: list[str] = []
     seen: set[str] = set()
     for row in include:
@@ -101,9 +101,7 @@ class WorkflowDispatchManager:
             execution_name=execution_name,
         )
 
-        write_github_output(
-            github_output, "accepted_projects", json.dumps(accepted_projects, separators=(",", ":"))
-        )
+        write_github_output(github_output, "accepted_projects", json.dumps(accepted_projects, separators=(",", ":")))
         write_github_output(github_output, "workflow_execution_name", execution_name)
         write_github_output(github_output, "workflow_execution_url", execution_url)
         write_github_output(github_output, "workflow_execution_state", execution_state or "UNKNOWN")

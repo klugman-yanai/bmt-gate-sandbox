@@ -35,7 +35,7 @@ DEFAULT_STAGE_ROOT = Path("plugins")
 DEFAULT_RUNTIME_ROOT = DEFAULT_STAGE_ROOT
 
 # Other canonical roots (relative to repo root).
-GITHUB_BMT_ROOT = Path(".github/bmt")
+GITHUB_BMT_ROOT = Path("ci")  # kardome-bmt package (formerly .github/bmt)
 INFRA_PULUMI = Path("infra/pulumi")
 
 
@@ -95,8 +95,8 @@ class WorkspaceLayout:
         """Construct from environment variables, falling back to defaults.
 
         Override any root via:
-          BMT_STAGE_ROOT  — overrides stage_root (gcp/stage/)
-          BMT_IMAGE_ROOT  — overrides image_root (gcp/image/)
+          BMT_STAGE_ROOT  — overrides stage_root (plugins/)
+          BMT_IMAGE_ROOT  — overrides image_root (runtime/)
           BMT_MNT_ROOT    — overrides mnt_root   (gcp/mnt/)
           BMT_DATA_ROOT   — overrides data_root   (data/)
         """

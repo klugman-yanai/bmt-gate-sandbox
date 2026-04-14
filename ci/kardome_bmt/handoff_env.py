@@ -5,8 +5,8 @@ from __future__ import annotations
 import dataclasses
 import os
 
-from ci.actions import gh_warning
-from ci.config import BmtContext, WorkflowContext
+from kardome_bmt.actions import gh_warning
+from kardome_bmt.config import BmtContext, WorkflowContext
 
 
 def _w_attr(w: object, name: str, default: str = "") -> str:
@@ -65,9 +65,7 @@ class HandoffEnv:
                 or os.environ.get("DISPATCH_HEAD_SHA")
                 or os.environ.get("GITHUB_SHA", "")
             ),
-            pr_number=(
-                os.environ.get("PREPARE_PR_NUMBER") or os.environ.get("DISPATCH_PR_NUMBER") or ""
-            ),
+            pr_number=(os.environ.get("PREPARE_PR_NUMBER") or os.environ.get("DISPATCH_PR_NUMBER") or ""),
             orch_has_legs=os.environ.get("ORCH_HAS_LEGS") == "true",
             repository=(os.environ.get("REPOSITORY") or os.environ.get("GITHUB_REPOSITORY", "")),
             head_branch=(os.environ.get("HEAD_BRANCH") or "").strip(),

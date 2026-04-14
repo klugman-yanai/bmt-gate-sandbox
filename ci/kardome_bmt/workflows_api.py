@@ -35,9 +35,7 @@ def start_execution(
         "https://workflowexecutions.googleapis.com/v1/"
         f"projects/{project}/locations/{region}/workflows/{workflow_name}/executions"
     )
-    response = session.post(
-        url, json={"argument": json.dumps(argument, separators=(",", ":"))}, timeout=60
-    )
+    response = session.post(url, json={"argument": json.dumps(argument, separators=(",", ":"))}, timeout=60)
     if not response.ok:
         raise WorkflowsApiError(f"POST {url} failed: {response.status_code} {response.text}")
     payload = response.json()

@@ -154,7 +154,7 @@ def _bmt_manifest(project: str, bmt_slug: str, *, plugin_ref: str) -> str:
                 "runner": {
                     "uri": "",
                     "deps_prefix": "",
-                    "template_path": "gcp/image/runtime/assets/kardome_input_template.json",
+                    "template_path": "runtime/assets/kardome_input_template.json",
                 },
                 "execution": {
                     "policy": "adaptive_batch_then_legacy",

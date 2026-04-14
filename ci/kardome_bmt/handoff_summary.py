@@ -6,8 +6,8 @@ import json
 import os
 from pathlib import Path
 
-from ci.config import BmtConfig
-from ci.handoff_env import HandoffEnv, canonical_repo_slug_for_github_links
+from kardome_bmt.config import BmtConfig
+from kardome_bmt.handoff_env import HandoffEnv, canonical_repo_slug_for_github_links
 
 
 def _append_step_summary(text: str) -> None:
@@ -47,9 +47,7 @@ def write_handoff_step_summary(cfg: BmtConfig, env: HandoffEnv) -> None:
     _accepted = json.loads(env.accepted_projects_raw)
     if isinstance(_accepted, str):
         _accepted = json.loads(_accepted)
-    subtask_projects = [
-        str(p).strip() for p in (_accepted if isinstance(_accepted, list) else []) if str(p).strip()
-    ]
+    subtask_projects = [str(p).strip() for p in (_accepted if isinstance(_accepted, list) else []) if str(p).strip()]
     if not subtask_projects and isinstance(matrix_include, list):
         seen: set[str] = set()
         for row in matrix_include:

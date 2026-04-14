@@ -7,7 +7,7 @@ import os
 import shutil
 from pathlib import Path
 
-from ci.actions import gh_notice
+from kardome_bmt.actions import gh_notice
 
 
 def _get_configure() -> str:
@@ -57,14 +57,14 @@ class PresetManager:
         if runner_bin.is_file():
             print(f"Using existing runner from {runners_dir} (build/ layout)")
             return
-        sk_runner = Path("gcp/stage/sk/runners/sk_gcc_release/kardome_runner")
-        sk_lib = Path("gcp/stage/sk/runners/lib/libKardome.so")
+        sk_runner = Path("plugins/sk/runners/sk_gcc_release/kardome_runner")
+        sk_lib = Path("plugins/sk/runners/lib/libKardome.so")
         if sk_runner.is_file() and project == "sk":
             shutil.copy2(sk_runner, runner_bin)
             if sk_lib.is_file():
                 shutil.copy2(sk_lib, kardome_dir / "libKardome.so")
             runner_bin.chmod(0o755)
-            print("Using real runner from gcp/stage/sk/runners/ (production-like artifact)")
+            print("Using real runner from plugins/sk/runners/ (production-like artifact)")
             return
         runner_bin.touch()
         (kardome_dir / "libKardome.so").touch()
@@ -83,6 +83,4 @@ class PresetManager:
         runners_dir = f"{binary_dir}/Runners"
         lib_dir = f"{binary_dir}/Kardome"
         with Path(out).open("a", encoding="utf-8") as f:
-            f.write(
-                f"preset={preset}\nproject={project}\nrunners_dir={runners_dir}\nlib_dir={lib_dir}\n"
-            )
+            f.write(f"preset={preset}\nproject={project}\nrunners_dir={runners_dir}\nlib_dir={lib_dir}\n")
