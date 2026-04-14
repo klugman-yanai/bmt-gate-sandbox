@@ -1,1 +1,0 @@
-"""Modern BMT framework package."""
