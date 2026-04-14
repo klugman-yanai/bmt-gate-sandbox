@@ -5,8 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from ci.handoff import HandoffManager
 
+from ci.kardome_bmt.handoff import HandoffManager
 from tests.support.fixtures.ci import mock_config, mock_github_api
 
 __all__ = ["mock_config", "mock_github_api"]  # re-export for pytest fixture discovery

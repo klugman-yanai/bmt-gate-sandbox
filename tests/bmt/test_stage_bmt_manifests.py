@@ -25,6 +25,7 @@ from runtime.plugin_loader import load_plugin
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _STAGE_ROOT = _REPO_ROOT / "plugins"
+_FLAT_EXCLUDE: frozenset[str] = frozenset({"project.json", "runner_latest_meta.json"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +53,6 @@ def _discover_stage_bmt_manifests(stage_root: Path) -> list[StageBmtRecord]:
         out.append(StageBmtRecord(manifest_path=path, id_posix=rel, is_flat=False))
     # New flat layout: projects/sk/false_alarms.json
     # Exclude well-known non-BMT files and any _* names.
-    _FLAT_EXCLUDE = frozenset({"project.json", "runner_latest_meta.json"})
     for path in sorted(projects_root.glob("*/*.json")):
         if path.name not in _FLAT_EXCLUDE and not path.name.startswith("_"):
             rel = path.relative_to(stage_root).as_posix()
@@ -97,9 +97,7 @@ def _assert_flat_path_matches_manifest(stage_root: Path, manifest_path: Path, ma
     assert len(parts) == 3, f"Unexpected flat manifest path shape: {rel}"
     assert parts[0] == "projects", f"Expected 'projects' first segment, got: {rel}"
     assert parts[1] == manifest.project, f"path project {parts[1]!r} != manifest.project {manifest.project!r}"
-    assert parts[2] == f"{manifest.bmt_slug}.json", (
-        f"path file {parts[2]!r} != expected {manifest.bmt_slug}.json"
-    )
+    assert parts[2] == f"{manifest.bmt_slug}.json", f"path file {parts[2]!r} != expected {manifest.bmt_slug}.json"
 
 
 def _validate_direct_plugin(stage_root: Path, manifest: BmtManifest) -> None:

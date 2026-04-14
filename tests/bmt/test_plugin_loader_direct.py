@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from bmt_sdk import BmtPlugin
 from bmt_sdk.context import ExecutionContext
 from bmt_sdk.results import ExecutionResult, PreparedAssets, ScoreResult, VerdictResult
-from runtime.plugin_loader import load_plugin_direct
+
+from runtime.plugin_loader import load_plugin, load_plugin_direct
 
 pytestmark = pytest.mark.unit
 
@@ -55,7 +55,7 @@ def test_load_plugin_direct_raises_if_no_plugin_py(tmp_path: Path) -> None:
     project_dir = tmp_path / "plugins" / "empty"
     project_dir.mkdir(parents=True)
 
-    with pytest.raises(FileNotFoundError, match="plugin.py"):
+    with pytest.raises(FileNotFoundError, match=r"plugin\.py"):
         load_plugin_direct(project_dir)
 
 
@@ -91,6 +91,20 @@ class PluginB(PluginA):
 
     with pytest.raises(RuntimeError, match="exactly one BmtPlugin subclass"):
         load_plugin_direct(project_dir)
+
+
+def test_load_plugin_ignores_plugin_ref_and_uses_direct(tmp_path: Path) -> None:
+    """load_plugin accepts any plugin_ref for API compat but always uses direct loading."""
+    stage_root = tmp_path / "stage"
+    project_dir = stage_root / "projects" / "myproj"
+    project_dir.mkdir(parents=True)
+    _write_plugin(project_dir)
+
+    # Any plugin_ref value should load directly from plugin.py
+    for plugin_ref in ("direct", "published:default:sha256-abc", "workspace:default", ""):
+        plugin, root = load_plugin(stage_root, "myproj", plugin_ref)
+        assert isinstance(plugin, BmtPlugin)
+        assert root == project_dir
 
 
 def test_sibling_module_importable(tmp_path: Path) -> None:

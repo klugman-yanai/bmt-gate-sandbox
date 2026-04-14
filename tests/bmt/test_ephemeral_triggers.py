@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from runtime.config.bmt_domain_status import BmtLegStatus
 from runtime.artifacts import (
     aggregate_status,
     cleanup_ephemeral_triggers,
@@ -14,6 +13,7 @@ from runtime.artifacts import (
     write_reporting_metadata,
     write_summary,
 )
+from runtime.config.bmt_domain_status import BmtLegStatus
 from runtime.models import ExecutionPlan, LegSummary, ReportingMetadata, ScorePayload
 
 pytestmark = pytest.mark.integration

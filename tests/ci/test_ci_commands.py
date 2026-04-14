@@ -29,7 +29,7 @@ def _run(
     if env:
         full_env.update(env)
     return subprocess.run(
-        ["uv", "run", "bmt", *cmd],
+        ["uv", "run", "kardome-bmt", *cmd],
         check=check,
         capture_output=True,
         text=True,

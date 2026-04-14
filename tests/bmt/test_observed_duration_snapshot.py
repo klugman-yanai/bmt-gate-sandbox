@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from runtime.config.value_types import ResultsPath
 from runtime.artifacts import (
     earliest_progress_started_at_iso,
     load_observed_duration_sec_from_latest_snapshot,
     parse_optional_instant_iso,
 )
+from runtime.config.value_types import ResultsPath
 from runtime.models import PlanLeg, ReportingMetadata
 
 pytestmark = pytest.mark.unit

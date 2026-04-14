@@ -13,6 +13,18 @@ from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import Request
 from google.cloud import storage as gcs_storage
 
+from runtime.artifacts import (
+    aggregate_status,
+    earliest_progress_started_at_iso,
+    load_observed_duration_sec_from_latest_snapshot,
+    load_optional_progress,
+    load_optional_reporting_metadata,
+    load_summary_or_failure,
+    now_iso,
+    parse_optional_instant_iso,
+    summary_path,
+    write_reporting_metadata,
+)
 from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from runtime.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET
 from runtime.config.status import CheckConclusion, CheckStatus, CommitStatus
@@ -29,18 +41,6 @@ from runtime.github.presentation import (
     human_reason,
 )
 from runtime.github.reporting import GitHubReporter
-from runtime.artifacts import (
-    aggregate_status,
-    earliest_progress_started_at_iso,
-    load_observed_duration_sec_from_latest_snapshot,
-    load_optional_progress,
-    load_optional_reporting_metadata,
-    load_summary_or_failure,
-    now_iso,
-    parse_optional_instant_iso,
-    summary_path,
-    write_reporting_metadata,
-)
 from runtime.models import ExecutionPlan, LegSummary, PlanLeg, ReportingMetadata, StageRuntimePaths
 
 logger = logging.getLogger(__name__)

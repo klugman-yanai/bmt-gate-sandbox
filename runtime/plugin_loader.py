@@ -1,54 +1,12 @@
-"""Load a plugin instance from a workspace or immutable bundle."""
+"""Load a plugin instance from plugin.py by convention."""
 
 from __future__ import annotations
 
-import importlib
 import importlib.util
-import json
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 from bmt_sdk import BmtPlugin
-
-from runtime.models import PluginManifest
-
-
-class ManifestValidationError(RuntimeError):
-    pass
-
-
-class PluginLoadError(RuntimeError):
-    pass
-
-
-class WorkspacePluginRefError(RuntimeError):
-    pass
-
-
-def _resolve_plugin_root(stage_root: Path, project: str, plugin_ref: str, *, allow_workspace: bool) -> Path:
-    if plugin_ref.startswith("workspace:"):
-        if not allow_workspace:
-            raise WorkspacePluginRefError(f"Workspace plugin refs are not allowed here: {plugin_ref}")
-        plugin_name = plugin_ref.split(":", 1)[1]
-        return stage_root / "projects" / project / "plugin_workspaces" / plugin_name
-    if plugin_ref.startswith("published:"):
-        _, plugin_name, digest = plugin_ref.split(":", 2)
-        return stage_root / "projects" / project / "plugins" / plugin_name / digest
-    raise ManifestValidationError(f"Unsupported plugin_ref: {plugin_ref}")
-
-
-@contextmanager
-def _plugin_path(path: Path) -> Iterator[None]:
-    sys.path.insert(0, str(path))
-    try:
-        yield
-    finally:
-        if sys.path and sys.path[0] == str(path):
-            sys.path.pop(0)
-        else:
-            sys.path[:] = [entry for entry in sys.path if entry != str(path)]
 
 
 def load_plugin_direct(project_dir: Path) -> tuple[BmtPlugin, Path]:
@@ -95,27 +53,18 @@ def load_plugin_direct(project_dir: Path) -> tuple[BmtPlugin, Path]:
     return candidates[0](), project_dir
 
 
-def load_plugin(stage_root: Path, project: str, plugin_ref: str, *, allow_workspace: bool) -> tuple[BmtPlugin, Path]:
-    if plugin_ref == "direct" or not plugin_ref:
-        project_dir = stage_root / "projects" / project  # still projects/ until Phase 4
-        return load_plugin_direct(project_dir)
-    plugin_root = _resolve_plugin_root(stage_root, project, plugin_ref, allow_workspace=allow_workspace)
-    manifest_path = plugin_root / "plugin.json"
-    if not manifest_path.is_file():
-        raise PluginLoadError(f"Missing plugin manifest: {manifest_path}")
-    manifest = PluginManifest.model_validate(json.loads(manifest_path.read_text(encoding="utf-8")))
-    module_name, class_name = manifest.entrypoint.split(":", 1)
-    package_root = plugin_root / manifest.package_root
-    with _plugin_path(package_root):
-        importlib.invalidate_caches()
-        stale_modules = [name for name in sys.modules if name == module_name or name.startswith(f"{module_name}.")]
-        for name in stale_modules:
-            sys.modules.pop(name, None)
-        module = importlib.import_module(module_name)
-    plugin_cls = getattr(module, class_name, None)
-    if plugin_cls is None:
-        raise PluginLoadError(f"Entrypoint not found: {manifest.entrypoint}")
-    plugin = plugin_cls()
-    if not isinstance(plugin, BmtPlugin):
-        raise PluginLoadError(f"Entrypoint is not a BmtPlugin: {manifest.entrypoint}")
-    return plugin, plugin_root
+def load_plugin(
+    stage_root: Path,
+    project: str,
+    plugin_ref: str = "direct",  # noqa: ARG001 — API compat; ignored, always uses direct loading
+    *,
+    allow_workspace: bool = True,  # noqa: ARG001 — API compat; direct loading ignores allow_workspace
+) -> tuple[BmtPlugin, Path]:
+    """Load a BmtPlugin from plugins/<project>/plugin.py.
+
+    plugin_ref is accepted for API compatibility but ignored — all plugins
+    load directly from plugin.py by convention.
+    allow_workspace is accepted for API compatibility but ignored.
+    """
+    project_dir = stage_root / "projects" / project
+    return load_plugin_direct(project_dir)

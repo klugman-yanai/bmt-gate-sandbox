@@ -5,14 +5,14 @@ from pathlib import Path
 import pytest
 from github import GithubException
 
-from runtime.config.value_types import as_results_path
-from runtime.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
 from runtime.artifacts import (
     load_optional_reporting_metadata,
     write_progress,
     write_reporting_metadata,
     write_summary,
 )
+from runtime.config.value_types import as_results_path
+from runtime.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
 from runtime.github_reporting import (
     _elapsed_seconds,
     _estimate_eta_sec_parallel,

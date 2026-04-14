@@ -6,9 +6,8 @@ import math
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
 from bmt_sdk.results import CaseResult
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class KardomeBatchCase(BaseModel):

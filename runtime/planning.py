@@ -15,7 +15,6 @@ from runtime.models import (
     StageRuntimePaths,
     WorkflowRequest,
 )
-from runtime.plugin_loader import _resolve_plugin_root
 from runtime.plugin_publisher import plugin_digest
 
 
@@ -23,6 +22,9 @@ from runtime.plugin_publisher import plugin_digest
 class PlanOptions:
     request: WorkflowRequest
     allow_workspace_plugins: bool = False
+
+
+_FLAT_EXCLUDE: frozenset[str] = frozenset({"project.json", "runner_latest_meta.json"})
 
 
 def _file_digest(path: Path) -> str:
@@ -38,7 +40,6 @@ def _discover_bmt_manifests(projects_root: Path) -> list[tuple[Path, BmtManifest
         results.append((manifest_path, bmt_manifest))
     # New flat layout: projects/sk/false_alarms.json
     # Exclude well-known non-BMT files and any _* names.
-    _FLAT_EXCLUDE = frozenset({"project.json", "runner_latest_meta.json"})
     for manifest_path in sorted(projects_root.glob("*/*.json")):
         if manifest_path.name not in _FLAT_EXCLUDE and not manifest_path.name.startswith("_"):
             bmt_manifest = BmtManifest.from_flat_file(manifest_path)
@@ -57,15 +58,7 @@ def build_plan(*, runtime: StageRuntimePaths, options: PlanOptions) -> Execution
             continue
         project_manifest_path = projects_root / bmt_manifest.project / "project.json"
         _ = ProjectManifest.model_validate(json.loads(project_manifest_path.read_text(encoding="utf-8")))
-        if bmt_manifest.plugin_ref == "direct" or not bmt_manifest.plugin_ref:
-            plugin_root = projects_root / bmt_manifest.project
-        else:
-            plugin_root = _resolve_plugin_root(
-                runtime.stage_root,
-                bmt_manifest.project,
-                bmt_manifest.plugin_ref,
-                allow_workspace=options.allow_workspace_plugins,
-            )
+        plugin_root = projects_root / bmt_manifest.project
         run_id = f"{options.request.workflow_run_id}-{bmt_manifest.bmt_slug}"
         legs.append(
             PlanLeg(

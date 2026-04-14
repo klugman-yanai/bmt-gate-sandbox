@@ -1,8 +1,8 @@
 """Tests for .github/bmt/ci/core.py — pure functions only, no I/O."""
 
 import pytest
-from ci import core as models
 
+from ci.kardome_bmt import core as models
 from runtime.config import value_types as vt
 from runtime.config.decisions import GateDecision
 

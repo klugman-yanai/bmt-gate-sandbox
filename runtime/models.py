@@ -20,13 +20,6 @@ def _coerce_results_path(v: Any) -> ResultsPath:
 ResultsPathField = Annotated[ResultsPath, BeforeValidator(_coerce_results_path)]
 
 
-class PluginManifest(BaseModel):
-    api_version: str = "v1"
-    plugin_name: str
-    entrypoint: str
-    package_root: str = "src"
-
-
 class ProjectManifest(BaseModel):
     schema_version: int = 1
     project: str
@@ -65,7 +58,7 @@ class BmtManifest(BaseModel):
     plugin_config: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_flat_file(cls, path: Path) -> "BmtManifest":
+    def from_flat_file(cls, path: Path) -> BmtManifest:
         """Load a flat BMT config (plugins/projects/sk/false_alarms.json) and derive path fields."""
         import json as _json
 

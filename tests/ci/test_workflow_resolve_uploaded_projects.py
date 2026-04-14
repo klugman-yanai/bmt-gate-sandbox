@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 
 import pytest
-from ci import gcs
-from ci.runner import RunnerManager
+from kardome_bmt import gcs
+
+from ci.kardome_bmt.runner import RunnerManager
 
 pytestmark = pytest.mark.unit
 

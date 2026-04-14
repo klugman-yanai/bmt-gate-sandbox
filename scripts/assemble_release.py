@@ -32,9 +32,10 @@ from tools.repo.core_main_workflows import run_drift_check
 
 REPO = Path(__file__).parent.parent
 SRC = REPO / ".github"
+BMT_SRC = REPO / "ci"
 TEMPLATES = Path(__file__).parent / "release_templates"
 DEST = REPO / ".github-release"
-SECRETS_SRC = REPO / "gcp" / "image" / "github" / "secrets"
+SECRETS_SRC = REPO / "runtime" / "github" / "secrets"
 PEM_NAME = "Kardome-org_core-main.pem"
 
 EXCLUDE_ACTIONS = {"check-image-up-to-date"}
@@ -126,11 +127,11 @@ def assemble(*, skip_secrets: bool) -> None:
             continue
         _copy(action_dir / "action.yml", DEST / "actions" / action_dir.name / "action.yml")
 
-    # 6. Copy bmt package
-    _copy_tree(SRC / "bmt" / "ci", DEST / "bmt" / "ci")
-    _copy(SRC / "bmt" / "pyproject.toml", DEST / "bmt" / "pyproject.toml")
-    _copy(SRC / "bmt" / "uv.lock", DEST / "bmt" / "uv.lock")
-    _copy(SRC / "bmt" / "config" / "README.md", DEST / "bmt" / "config" / "README.md")
+    # 6. Copy bmt package (ci/ in source → bmt/ in release bundle)
+    _copy_tree(BMT_SRC / "kardome_bmt", DEST / "bmt" / "ci")
+    _copy(BMT_SRC / "pyproject.toml", DEST / "bmt" / "pyproject.toml")
+    _copy(BMT_SRC / "uv.lock", DEST / "bmt" / "uv.lock")
+    _copy(BMT_SRC / "config" / "README.md", DEST / "bmt" / "config" / "README.md")
 
     # 7. Copy production GitHub App key (optional for CI)
     pem_src = SECRETS_SRC / PEM_NAME

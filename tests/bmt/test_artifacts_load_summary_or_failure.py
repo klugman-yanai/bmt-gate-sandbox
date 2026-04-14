@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from runtime.artifacts import load_summary_or_failure
 from runtime.config.bmt_domain_status import BmtLegStatus
 from runtime.config.value_types import as_results_path
-from runtime.artifacts import load_summary_or_failure
 from runtime.models import PlanLeg
 
 pytestmark = pytest.mark.unit

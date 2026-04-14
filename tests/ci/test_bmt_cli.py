@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from ci.driver import app
 from typer.testing import CliRunner
+
+from ci.kardome_bmt.driver import app
 
 runner = CliRunner()
 
