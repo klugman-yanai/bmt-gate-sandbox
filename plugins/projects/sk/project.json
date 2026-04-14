@@ -1,6 +1,5 @@
 {
   "schema_version": 1,
   "project": "sk",
-  "default_plugin": "default",
-  "description": "SK BMT project on the modern framework"
+  "description": "Keyword spotting false-alarm and false-reject BMTs"
 }

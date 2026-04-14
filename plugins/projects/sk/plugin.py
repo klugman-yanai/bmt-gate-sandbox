@@ -7,14 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
-
-from runtime.config.bmt_domain_status import BmtLegStatus
-from runtime.kardome_batch_results import KardomeBatchFile
-from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
-from bmt_sdk import ExecutionContext
-from runtime.kardome import AdaptiveKardomeExecutor
 from bmt_sdk import BmtPlugin
+from bmt_sdk.context import ExecutionContext
 from bmt_sdk.results import (
     CaseResult,
     ExecutionResult,
@@ -22,8 +16,14 @@ from bmt_sdk.results import (
     ScoreResult,
     VerdictResult,
 )
+from pydantic import ValidationError
+
+from runtime.config.bmt_domain_status import BmtLegStatus
+from runtime.kardome import AdaptiveKardomeExecutor
+from runtime.kardome_batch_results import KardomeBatchFile
+from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
 from runtime.stdout_counter_parse import StdoutCounterParseConfig
-from sk_plugin.sk_scoring_policy import (
+from sk_scoring_policy import (
     aggregate_mean_ok_cases,
     build_case_outcomes,
     scoring_policy_record,

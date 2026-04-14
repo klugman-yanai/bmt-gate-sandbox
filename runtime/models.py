@@ -37,7 +37,7 @@ class ProjectManifest(BaseModel):
 class RunnerConfig(BaseModel):
     uri: str = ""
     deps_prefix: str = ""
-    template_path: str = "gcp/image/runtime/assets/kardome_input_template.json"
+    template_path: str = "runtime/assets/kardome_input_template.json"
 
 
 class ExecutionConfig(BaseModel):
@@ -63,6 +63,23 @@ class BmtManifest(BaseModel):
     runner: RunnerConfig = Field(default_factory=RunnerConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     plugin_config: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_flat_file(cls, path: Path) -> "BmtManifest":
+        """Load a flat BMT config (plugins/projects/sk/false_alarms.json) and derive path fields."""
+        import json as _json
+
+        project = path.parent.name
+        bmt_slug = path.stem
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        data.setdefault("schema_version", 1)
+        data.setdefault("project", project)
+        data.setdefault("bmt_slug", bmt_slug)
+        data.setdefault("plugin_ref", "direct")
+        data.setdefault("inputs_prefix", f"projects/{project}/inputs/{bmt_slug}")
+        data.setdefault("results_prefix", f"projects/{project}/results/{bmt_slug}")
+        data.setdefault("outputs_prefix", f"projects/{project}/outputs/{bmt_slug}")
+        return cls.model_validate(data)
 
 
 class WorkflowRequest(BaseModel):

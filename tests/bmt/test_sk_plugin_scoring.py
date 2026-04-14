@@ -7,20 +7,20 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from bmt_sdk.results import CaseResult, ExecutionResult, ScoreResult
 
 from runtime.config.bmt_domain_status import BmtLegStatus
-from bmt_sdk.results import CaseResult, ExecutionResult, ScoreResult
 
 pytestmark = pytest.mark.unit
 
-_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "plugins/projects/sk")
 
 
 def _make_plugin():
     """Import and instantiate SkPlugin."""
     if _SK_PLUGIN_SRC not in sys.path:
         sys.path.insert(0, _SK_PLUGIN_SRC)
-    from sk_plugin.plugin import SkPlugin
+    from plugin import SkPlugin
 
     return SkPlugin()
 

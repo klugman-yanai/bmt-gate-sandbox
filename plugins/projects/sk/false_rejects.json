@@ -1,21 +1,6 @@
 {
-  "schema_version": 1,
-  "project": "sk",
-  "bmt_slug": "false_rejects",
   "bmt_id": "4a5b6e82-a048-5c96-8734-2f64d2288378",
   "enabled": true,
-  "plugin_ref": "published:default:sha256-fccdfbc14b1aace04b7354be550e805c3cb130583c1cf6d508f090cad4374d43",
-  "inputs_prefix": "projects/sk/inputs/false_rejects",
-  "results_prefix": "projects/sk/results/false_rejects",
-  "outputs_prefix": "projects/sk/outputs/false_rejects",
-  "runner": {
-    "uri": "projects/sk/runner_bundle/kardome_runner",
-    "deps_prefix": "projects/shared/dependencies",
-    "template_path": "runtime/assets/kardome_input_template.json"
-  },
-  "execution": {
-    "policy": "adaptive_batch_then_legacy"
-  },
   "plugin_config": {
     "comparison": "gte",
     "tolerance_abs": 0.25,

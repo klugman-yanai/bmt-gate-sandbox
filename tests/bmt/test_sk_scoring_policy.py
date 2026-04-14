@@ -9,13 +9,13 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-_SK_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
+_SK_SRC = str(Path(__file__).resolve().parents[2] / "plugins/projects/sk")
 
 
 def _sp():
     if _SK_SRC not in sys.path:
         sys.path.insert(0, _SK_SRC)
-    from sk_plugin import sk_scoring_policy as sp
+    import sk_scoring_policy as sp
 
     return sp
 

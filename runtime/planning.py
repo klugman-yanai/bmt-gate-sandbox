@@ -29,24 +29,43 @@ def _file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _discover_bmt_manifests(projects_root: Path) -> list[tuple[Path, BmtManifest]]:
+    """Discover BMT manifests from both nested (*/bmts/*/bmt.json) and flat (*/*.json) layouts."""
+    results: list[tuple[Path, BmtManifest]] = []
+    # Legacy nested layout: projects/sk/bmts/false_alarms/bmt.json
+    for manifest_path in sorted(projects_root.glob("*/bmts/*/bmt.json")):
+        bmt_manifest = BmtManifest.model_validate(json.loads(manifest_path.read_text(encoding="utf-8")))
+        results.append((manifest_path, bmt_manifest))
+    # New flat layout: projects/sk/false_alarms.json
+    # Exclude well-known non-BMT files and any _* names.
+    _FLAT_EXCLUDE = frozenset({"project.json", "runner_latest_meta.json"})
+    for manifest_path in sorted(projects_root.glob("*/*.json")):
+        if manifest_path.name not in _FLAT_EXCLUDE and not manifest_path.name.startswith("_"):
+            bmt_manifest = BmtManifest.from_flat_file(manifest_path)
+            results.append((manifest_path, bmt_manifest))
+    return results
+
+
 def build_plan(*, runtime: StageRuntimePaths, options: PlanOptions) -> ExecutionPlan:
     legs: list[PlanLeg] = []
     projects_root = runtime.stage_root / "projects"
     accepted_projects = {project for project in options.request.accepted_projects if project}
-    for manifest_path in sorted(projects_root.glob("*/bmts/*/bmt.json")):
-        bmt_manifest = BmtManifest.model_validate(json.loads(manifest_path.read_text(encoding="utf-8")))
+    for manifest_path, bmt_manifest in _discover_bmt_manifests(projects_root):
         if not bmt_manifest.enabled:
             continue
         if accepted_projects and bmt_manifest.project not in accepted_projects:
             continue
         project_manifest_path = projects_root / bmt_manifest.project / "project.json"
         _ = ProjectManifest.model_validate(json.loads(project_manifest_path.read_text(encoding="utf-8")))
-        plugin_root = _resolve_plugin_root(
-            runtime.stage_root,
-            bmt_manifest.project,
-            bmt_manifest.plugin_ref,
-            allow_workspace=options.allow_workspace_plugins,
-        )
+        if bmt_manifest.plugin_ref == "direct" or not bmt_manifest.plugin_ref:
+            plugin_root = projects_root / bmt_manifest.project
+        else:
+            plugin_root = _resolve_plugin_root(
+                runtime.stage_root,
+                bmt_manifest.project,
+                bmt_manifest.plugin_ref,
+                allow_workspace=options.allow_workspace_plugins,
+            )
         run_id = f"{options.request.workflow_run_id}-{bmt_manifest.bmt_slug}"
         legs.append(
             PlanLeg(

@@ -1,21 +1,6 @@
 {
-  "schema_version": 1,
-  "project": "sk",
-  "bmt_slug": "false_alarms",
   "bmt_id": "ac73397e-1162-5004-9ca2-17c969f53ee5",
   "enabled": true,
-  "plugin_ref": "published:default:sha256-fccdfbc14b1aace04b7354be550e805c3cb130583c1cf6d508f090cad4374d43",
-  "inputs_prefix": "projects/sk/inputs/false_alarms",
-  "results_prefix": "projects/sk/results/false_alarms",
-  "outputs_prefix": "projects/sk/outputs/false_alarms",
-  "runner": {
-    "uri": "projects/sk/runner_bundle/kardome_runner",
-    "deps_prefix": "projects/shared/dependencies",
-    "template_path": "runtime/assets/kardome_input_template.json"
-  },
-  "execution": {
-    "policy": "adaptive_batch_then_legacy"
-  },
   "plugin_config": {
     "comparison": "lte",
     "tolerance_abs": 0.25,
