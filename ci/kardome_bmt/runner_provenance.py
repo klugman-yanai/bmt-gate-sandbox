@@ -8,7 +8,7 @@ from typing import Any
 
 from whenever import Instant
 
-from ci import gcs
+from kardome_bmt import gcs
 
 _SLSA_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 _SLSA_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"

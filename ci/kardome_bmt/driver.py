@@ -7,7 +7,7 @@ import sys
 
 import typer
 
-from ci import config
+from kardome_bmt import config
 from ci.actions import gh_error
 from ci.handoff import HandoffManager
 from ci.matrix import MatrixManager

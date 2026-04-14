@@ -1,4 +1,4 @@
-"""BMT CI driver: matrix, trigger, VM lifecycle, runner upload. Module name: ci (under .github/bmt/)."""
+"""Kardome BMT CI driver: matrix, trigger, Cloud Run handoff, runner upload."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ __all__ = [
     "get_context",
 ]
 
-from ci import config
+from kardome_bmt import config
 
 get_config = config.get_config
 get_context = config.get_context

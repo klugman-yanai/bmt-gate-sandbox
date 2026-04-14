@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ci import config, github, handoff_dataset
+from kardome_bmt import config, github, handoff_dataset
 from ci.actions import gh_notice, gh_warning
 from ci.config import BmtConfig, BmtContext
 from ci.handoff_env import HandoffEnv, resolve_repository_and_sha

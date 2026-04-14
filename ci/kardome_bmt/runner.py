@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from whenever import Instant
 
-from ci import config, core, gcs
+from kardome_bmt import config, core, gcs
 from ci.actions import gh_notice, gh_warning, write_github_output
 from ci.config import BmtConfig, BmtContext, WorkflowContext
 from ci.runner_provenance import write_runner_provenance

@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from ci import gcs
+from kardome_bmt import gcs
 from ci.actions import gh_notice, gh_warning
 from ci.config import BmtConfig
 

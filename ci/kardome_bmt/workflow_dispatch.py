@@ -10,7 +10,7 @@ from gcp.image.config.constants import DEFAULT_WORKFLOW_NAME, ENV_GCP_PROJECT, E
 from gcp.image.config.env_parse import is_truthy_env_value
 from gcp.image.github.reporting import workflow_execution_console_url
 
-from ci import config, core
+from kardome_bmt import config, core
 from ci.actions import write_github_output
 from ci.config import BmtConfig
 from ci.workflows_api import start_execution

@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ci import core
+from kardome_bmt import core
 from ci.actions import gh_notice, gh_warning
 
 
