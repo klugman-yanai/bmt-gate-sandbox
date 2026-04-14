@@ -3,8 +3,8 @@
 import pytest
 from ci import core as models
 
-from gcp.image.config import value_types as vt
-from gcp.image.config.decisions import GateDecision
+from runtime.config import value_types as vt
+from runtime.config.decisions import GateDecision
 
 pytestmark = pytest.mark.unit
 

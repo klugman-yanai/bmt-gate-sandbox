@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.config.value_types import as_results_path
-from gcp.image.runtime.entrypoint import _leg_summary_from_execute_failure
-from gcp.image.runtime.models import PlanLeg
+from runtime.config.value_types import as_results_path
+from runtime.entrypoint import _leg_summary_from_execute_failure
+from runtime.models import PlanLeg
 
 pytestmark = pytest.mark.unit
 

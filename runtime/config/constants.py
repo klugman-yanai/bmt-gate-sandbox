@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gcp.image.config.decisions import GateDecision, ReasonCode
+from runtime.config.decisions import GateDecision, ReasonCode
 
 HTTP_TIMEOUT = 30
 GITHUB_API_VERSION = "2026-03-10"

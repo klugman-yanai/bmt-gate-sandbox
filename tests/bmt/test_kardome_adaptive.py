@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult
+from runtime.kardome import AdaptiveKardomeExecutor
+from bmt_sdk.results import CaseResult, ExecutionResult
 
 pytestmark = pytest.mark.integration
 

@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from gcp.image.runtime import legacy_kardome
-from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
+from runtime import legacy_kardome
+from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
 
 pytestmark = pytest.mark.unit
 

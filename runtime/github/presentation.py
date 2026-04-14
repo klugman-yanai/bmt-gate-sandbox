@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
-from gcp.image.config.status import CheckConclusion
-from gcp.image.github.duration_format import format_duration_seconds
-from gcp.image.github.github_checks import CheckRunOutput
+from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
+from runtime.config.status import CheckConclusion
+from runtime.github.duration_format import format_duration_seconds
+from runtime.github.github_checks import CheckRunOutput
 
 # ``case_outcomes[].status`` wire value for a passing file (matches ``CaseStatus``); never shown as the word “ok” to operators.
 _CASE_OUTCOME_STATUS_PASSED = "ok"

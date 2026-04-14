@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from gcp.image.runtime.models import BmtManifest, ProjectManifest
-from gcp.image.runtime.plugin_loader import load_plugin
-from gcp.image.runtime.plugin_publisher import PublishResult, publish_workspace_plugin
+from runtime.models import BmtManifest, ProjectManifest
+from runtime.plugin_loader import load_plugin
+from runtime.plugin_publisher import PublishResult, publish_workspace_plugin
 from tools.remote.bucket_sync_project import BucketSyncProject
 from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
 from tools.shared.bucket_env import bucket_from_env

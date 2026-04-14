@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.github import github_checks
+from runtime.github import github_checks
 
 pytestmark = pytest.mark.unit
 

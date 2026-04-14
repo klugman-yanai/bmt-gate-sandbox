@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.github.presentation import (
+from runtime.github.presentation import (
     CheckFinalView,
     CheckProgressView,
     FinalBmtRow,
@@ -286,19 +286,19 @@ def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> N
 
 
 def test_human_reason_runner_case_failures() -> None:
-    from gcp.image.github.presentation import human_reason
+    from runtime.github.presentation import human_reason
 
     assert human_reason("runner_case_failures") == "runner crashed on one or more test files"
 
 
 def test_human_reason_no_dataset_cases() -> None:
-    from gcp.image.github.presentation import human_reason
+    from runtime.github.presentation import human_reason
 
     assert "no test cases" in human_reason("no_dataset_cases")
 
 
 def test_human_reason_plugin_execute_failed() -> None:
-    from gcp.image.github.presentation import human_reason
+    from runtime.github.presentation import human_reason
 
     assert "execute" in human_reason("plugin_execute_failed").lower()
 
@@ -341,7 +341,7 @@ def test_render_final_check_output_per_case_failures_and_annotations() -> None:
 
 
 def test_github_check_annotations_cap_at_50() -> None:
-    from gcp.image.github.presentation import (
+    from runtime.github.presentation import (
         MAX_GITHUB_CHECK_ANNOTATIONS,
         github_check_annotations_from_final_rows,
     )
@@ -369,7 +369,7 @@ def test_github_check_annotations_cap_at_50() -> None:
 
 
 def test_human_reason_unknown_code_is_explicit() -> None:
-    from gcp.image.github.presentation import human_reason
+    from runtime.github.presentation import human_reason
 
     assert human_reason("totally_unknown_reason") == "unmapped reason code: `totally_unknown_reason`"
     assert human_reason("") == "empty reason code"

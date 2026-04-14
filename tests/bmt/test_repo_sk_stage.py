@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.runtime.models import StageRuntimePaths, WorkflowRequest
-from gcp.image.runtime.planning import PlanOptions, build_plan
+from runtime.models import StageRuntimePaths, WorkflowRequest
+from runtime.planning import PlanOptions, build_plan
 
 pytestmark = pytest.mark.integration
 

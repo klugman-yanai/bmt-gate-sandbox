@@ -8,8 +8,8 @@ from typing import Literal
 
 import pytest
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus
-from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult, ScoreResult
+from runtime.config.bmt_domain_status import BmtLegStatus
+from bmt_sdk.results import CaseResult, ExecutionResult, ScoreResult
 
 pytestmark = pytest.mark.unit
 

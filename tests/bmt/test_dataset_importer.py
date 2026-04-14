@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.runtime.importer import DatasetImporter
+from runtime.importer import DatasetImporter
 
 pytestmark = pytest.mark.integration
 

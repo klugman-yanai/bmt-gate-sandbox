@@ -156,7 +156,7 @@ class RuntimeFacade:
         return self.invocation
 
     def _run_plan(self) -> int:
-        from gcp.image.runtime.entrypoint import run_plan_mode
+        from runtime.entrypoint import run_plan_mode
 
         invocation = self._require_invocation()
         return run_plan_mode(
@@ -165,7 +165,7 @@ class RuntimeFacade:
         )
 
     def _run_task(self) -> int:
-        from gcp.image.runtime.entrypoint import run_task_mode
+        from runtime.entrypoint import run_task_mode
 
         invocation = self._require_invocation()
         return run_task_mode(
@@ -177,7 +177,7 @@ class RuntimeFacade:
         )
 
     def _run_coordinator(self) -> int:
-        from gcp.image.runtime.entrypoint import run_coordinator_mode
+        from runtime.entrypoint import run_coordinator_mode
 
         invocation = self._require_invocation()
         return run_coordinator_mode(
@@ -186,7 +186,7 @@ class RuntimeFacade:
         )
 
     def _run_finalize_failure(self) -> int:
-        from gcp.image.runtime.entrypoint import run_finalize_failure_mode
+        from runtime.entrypoint import run_finalize_failure_mode
 
         invocation = self._require_invocation()
         return run_finalize_failure_mode(
@@ -196,12 +196,12 @@ class RuntimeFacade:
 
     @staticmethod
     def _run_dataset_import() -> int:
-        from gcp.image.runtime.entrypoint import run_dataset_import_mode
+        from runtime.entrypoint import run_dataset_import_mode
 
         return run_dataset_import_mode()
 
     def _run_local(self) -> int:
-        from gcp.image.runtime.entrypoint import run_local_mode
+        from runtime.entrypoint import run_local_mode
 
         invocation = self._require_invocation()
         return run_local_mode(

@@ -11,8 +11,8 @@ from pathlib import Path
 from pydantic import ValidationError
 from whenever import Instant
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus, leg_status_is_pass
-from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ProgressRecord, ReportingMetadata, ScorePayload
+from runtime.config.bmt_domain_status import BmtLegStatus, leg_status_is_pass
+from runtime.models import ExecutionPlan, LegSummary, PlanLeg, ProgressRecord, ReportingMetadata, ScorePayload
 
 logger = logging.getLogger(__name__)
 

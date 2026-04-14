@@ -2,7 +2,7 @@
 
 import pytest
 
-from gcp.image.runtime.artifacts import summary_path
+from runtime.artifacts import summary_path
 
 pytestmark = pytest.mark.unit
 

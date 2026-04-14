@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.runtime.execution import execute_leg
-from gcp.image.runtime.models import StageRuntimePaths, WorkflowRequest
-from gcp.image.runtime.planning import PlanOptions, build_plan
-from gcp.image.runtime.plugin_loader import WorkspacePluginRefError
+from runtime.execution import execute_leg
+from runtime.models import StageRuntimePaths, WorkflowRequest
+from runtime.planning import PlanOptions, build_plan
+from runtime.plugin_loader import WorkspacePluginRefError
 from tools.bmt.publisher import publish_bmt
 from tools.bmt.scaffold import add_bmt, add_project
 

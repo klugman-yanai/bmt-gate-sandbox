@@ -9,8 +9,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from gcp.image.runtime.models import PluginManifest
-from gcp.image.runtime.sdk.plugin import BmtPlugin
+from runtime.models import PluginManifest
+from bmt_sdk import BmtPlugin
 
 
 class ManifestValidationError(RuntimeError):

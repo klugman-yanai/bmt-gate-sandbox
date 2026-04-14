@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.runtime.stdout_counter_parse import (
+from runtime.stdout_counter_parse import (
     StdoutCounterParseConfig,
     compile_counter_pattern,
     read_counter_from_log,

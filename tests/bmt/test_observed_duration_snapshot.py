@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.config.value_types import ResultsPath
-from gcp.image.runtime.artifacts import (
+from runtime.config.value_types import ResultsPath
+from runtime.artifacts import (
     earliest_progress_started_at_iso,
     load_observed_duration_sec_from_latest_snapshot,
     parse_optional_instant_iso,
 )
-from gcp.image.runtime.models import PlanLeg, ReportingMetadata
+from runtime.models import PlanLeg, ReportingMetadata
 
 pytestmark = pytest.mark.unit
 

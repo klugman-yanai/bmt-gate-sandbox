@@ -41,7 +41,7 @@ def test_scoring_policy_record_merges_reporting_hints() -> None:
 
 
 def test_build_case_outcomes_truncates_long_error(tmp_path: Path) -> None:
-    from gcp.image.runtime.sdk.results import CaseResult
+    from bmt_sdk.results import CaseResult
 
     sp = _sp()
     long_err = "x" * 3000

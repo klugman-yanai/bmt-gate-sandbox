@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.runtime.kardome_batch_results import KardomeBatchFile
+from runtime.kardome_batch_results import KardomeBatchFile
 
 pytestmark = pytest.mark.unit
 

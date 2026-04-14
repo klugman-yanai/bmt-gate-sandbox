@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from gcp.image.runtime.sdk.results import CaseResult
+from bmt_sdk.results import CaseResult
 
 PRIMARY_METRIC = "namuh_count"
 DEFAULT_REDUCER: Literal["mean_ok_cases"] = "mean_ok_cases"

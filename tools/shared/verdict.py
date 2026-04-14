@@ -10,7 +10,7 @@ import json
 import subprocess
 from typing import Any
 
-from gcp.image.config.value_types import (
+from runtime.config.value_types import (
     ResultsPath,
     RunId,
     as_results_path,

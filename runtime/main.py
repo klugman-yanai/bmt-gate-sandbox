@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def main() -> int:
-    from gcp.image.runtime.facade import RuntimeFacade
+    from runtime.facade import RuntimeFacade
 
     return (
         RuntimeFacade()

@@ -6,11 +6,11 @@ from typing import Any
 from github import Auth, Github, GithubException
 from github.GithubObject import NotSet
 
-from gcp.image.config.bmt_domain_status import BmtProgressStatus
-from gcp.image.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
-from gcp.image.config.status import CheckConclusion, CheckStatus, CommitStatus
-from gcp.image.github import github_checks
-from gcp.image.github.presentation import (
+from runtime.config.bmt_domain_status import BmtProgressStatus
+from runtime.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
+from runtime.config.status import CheckConclusion, CheckStatus, CommitStatus
+from runtime.github import github_checks
+from runtime.github.presentation import (
     CheckFinalView,
     CheckProgressView,
     FinalCommentView,

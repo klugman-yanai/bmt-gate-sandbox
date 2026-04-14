@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.runtime.entrypoint import _case_digest_payload
-from gcp.image.runtime.models import LegSummary, ScorePayload
+from runtime.entrypoint import _case_digest_payload
+from runtime.models import LegSummary, ScorePayload
 
 pytestmark = pytest.mark.unit
 

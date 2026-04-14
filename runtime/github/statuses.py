@@ -7,10 +7,10 @@ from typing import Any
 
 from github import Auth, Github, GithubException
 
-from gcp.image.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
-from gcp.image.config.status import CheckConclusion, CheckStatus
-from gcp.image.github import github_checks
-from gcp.image.github.presentation import render_results_table
+from runtime.config.constants import HTTP_TIMEOUT, STATUS_CONTEXT
+from runtime.config.status import CheckConclusion, CheckStatus
+from runtime.github import github_checks
+from runtime.github.presentation import render_results_table
 
 DEFAULT_STATUS_CONTEXT: str = STATUS_CONTEXT
 

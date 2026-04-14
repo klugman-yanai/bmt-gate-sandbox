@@ -26,7 +26,7 @@ from pathlib import Path
 
 from google.cloud import storage
 
-from gcp.image.config.constants import (
+from runtime.config.constants import (
     ENV_BMT_CONTROL_JOB,
     ENV_CLOUD_RUN_REGION,
     ENV_GCP_PROJECT,

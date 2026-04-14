@@ -6,12 +6,12 @@ import os
 import subprocess
 from pathlib import Path
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus
-from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
-from gcp.image.runtime.sdk.context import ExecutionContext
-from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from gcp.image.runtime.sdk.plugin import BmtPlugin
-from gcp.image.runtime.sdk.results import (
+from runtime.config.bmt_domain_status import BmtLegStatus
+from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
+from bmt_sdk import ExecutionContext
+from runtime.kardome import AdaptiveKardomeExecutor
+from bmt_sdk import BmtPlugin
+from bmt_sdk.results import (
     CaseResult,
     ExecutionResult,
     PreparedAssets,

@@ -14,9 +14,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from gcp.image.config.constants import ENV_BMT_KARDOME_CASE_TIMEOUT_SEC
-from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult
-from gcp.image.runtime.stdout_counter_parse import counter_pattern_from_parsing_dict, read_counter_from_log
+from runtime.config.constants import ENV_BMT_KARDOME_CASE_TIMEOUT_SEC
+from bmt_sdk.results import CaseResult, ExecutionResult
+from runtime.stdout_counter_parse import counter_pattern_from_parsing_dict, read_counter_from_log
 
 logger = logging.getLogger(__name__)
 

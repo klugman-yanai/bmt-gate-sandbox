@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from gcp.image.runtime.sdk.results import CaseResult
+from bmt_sdk.results import CaseResult
 
 
 class KardomeBatchCase(BaseModel):

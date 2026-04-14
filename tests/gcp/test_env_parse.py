@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.config.env_parse import is_truthy_env_value
+from runtime.config.env_parse import is_truthy_env_value
 
 
 @pytest.mark.parametrize(

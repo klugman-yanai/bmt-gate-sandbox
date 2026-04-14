@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from gcp.image.config.env_parse import is_truthy_env_value
+from runtime.config.env_parse import is_truthy_env_value
 
 
 def get(key: str, default: str = "") -> str:

@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
-import gcp.image.main as image_main
-import gcp.image.runtime.entrypoint as runtime_entrypoint
-from gcp.image.runtime.artifacts import load_summary
-from gcp.image.runtime.entrypoint import run_coordinator_mode, run_plan_mode, run_task_mode
+import runtime.main as image_main
+import runtime.entrypoint as runtime_entrypoint
+from runtime.artifacts import load_summary
+from runtime.entrypoint import run_coordinator_mode, run_plan_mode, run_task_mode
 from tools.bmt.publisher import publish_bmt
 from tools.bmt.scaffold import add_bmt, add_project
 

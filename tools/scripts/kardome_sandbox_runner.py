@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import ValidationError
 from whenever import Instant
 
-from gcp.image.runtime.stdout_counter_parse import (
+from runtime.stdout_counter_parse import (
     DEFAULT_KARDOME_COUNTER_KEYWORD,
     StdoutCounterParseConfig,
     compile_counter_pattern,

@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from gcp.image.runtime.models import (
+from runtime.models import (
     BmtManifest,
     ExecutionPlan,
     PlanLeg,
@@ -15,8 +15,8 @@ from gcp.image.runtime.models import (
     StageRuntimePaths,
     WorkflowRequest,
 )
-from gcp.image.runtime.plugin_loader import _resolve_plugin_root
-from gcp.image.runtime.plugin_publisher import plugin_digest
+from runtime.plugin_loader import _resolve_plugin_root
+from runtime.plugin_publisher import plugin_digest
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,7 +8,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from gcp.image.config.value_types import ResultsPath, as_results_path
+from runtime.config.value_types import ResultsPath, as_results_path
 
 
 def _coerce_results_path(v: Any) -> ResultsPath:

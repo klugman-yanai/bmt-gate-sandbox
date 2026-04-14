@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from gcp.image.runtime.sdk.results import ExecutionResult
+from bmt_sdk.results import ExecutionResult
 
 
 class AdaptiveKardomeExecutor:

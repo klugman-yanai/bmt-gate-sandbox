@@ -12,8 +12,8 @@ from bmt_sdk.models import (
     RunnerConfigView,
 )
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus
-from gcp.image.runtime.models import (
+from runtime.config.bmt_domain_status import BmtLegStatus
+from runtime.models import (
     BmtManifest,
     ExecutionPlan,
     LegSummary,
@@ -22,7 +22,7 @@ from gcp.image.runtime.models import (
     ScorePayload,
     StageRuntimePaths,
 )
-from gcp.image.runtime.plugin_loader import load_plugin
+from runtime.plugin_loader import load_plugin
 
 
 def _make_manifest_view(m: BmtManifest) -> BmtManifestView:

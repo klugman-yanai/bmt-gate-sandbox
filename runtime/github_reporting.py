@@ -13,12 +13,12 @@ from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import Request
 from google.cloud import storage as gcs_storage
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
-from gcp.image.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET
-from gcp.image.config.status import CheckConclusion, CheckStatus, CommitStatus
-from gcp.image.github import github_checks
-from gcp.image.github.github_auth import resolve_github_app_token
-from gcp.image.github.presentation import (
+from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
+from runtime.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET
+from runtime.config.status import CheckConclusion, CheckStatus, CommitStatus
+from runtime.github import github_checks
+from runtime.github.github_auth import resolve_github_app_token
+from runtime.github.presentation import (
     CheckFinalView,
     CheckProgressView,
     FinalBmtRow,
@@ -28,8 +28,8 @@ from gcp.image.github.presentation import (
     StartedCommentView,
     human_reason,
 )
-from gcp.image.github.reporting import GitHubReporter
-from gcp.image.runtime.artifacts import (
+from runtime.github.reporting import GitHubReporter
+from runtime.artifacts import (
     aggregate_status,
     earliest_progress_started_at_iso,
     load_observed_duration_sec_from_latest_snapshot,
@@ -41,7 +41,7 @@ from gcp.image.runtime.artifacts import (
     summary_path,
     write_reporting_metadata,
 )
-from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ReportingMetadata, StageRuntimePaths
+from runtime.models import ExecutionPlan, LegSummary, PlanLeg, ReportingMetadata, StageRuntimePaths
 
 logger = logging.getLogger(__name__)
 

@@ -18,11 +18,11 @@ from bmt_sdk.results import (
 )
 from pydantic import ValidationError
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus
-from gcp.image.runtime.kardome_batch_results import KardomeBatchFile
-from gcp.image.runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
-from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from gcp.image.runtime.stdout_counter_parse import StdoutCounterParseConfig
+from runtime.config.bmt_domain_status import BmtLegStatus
+from runtime.kardome_batch_results import KardomeBatchFile
+from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
+from runtime.kardome import AdaptiveKardomeExecutor
+from runtime.stdout_counter_parse import StdoutCounterParseConfig
 from sk_plugin.sk_scoring_policy import (
     aggregate_mean_ok_cases,
     build_case_outcomes,

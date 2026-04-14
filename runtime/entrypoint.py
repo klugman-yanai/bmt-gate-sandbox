@@ -12,15 +12,15 @@ from pathlib import Path
 
 import typer
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
-from gcp.image.config.constants import (
+from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
+from runtime.config.constants import (
     ENV_BMT_FAILURE_REASON,
     ENV_BMT_STATUS_CONTEXT,
     ENV_GCS_BUCKET,
     STATUS_CONTEXT,
 )
-from gcp.image.config.env_parse import is_truthy_env_value
-from gcp.image.runtime.artifacts import (
+from runtime.config.env_parse import is_truthy_env_value
+from runtime.artifacts import (
     aggregate_status,
     case_digest_result_path,
     cleanup_ephemeral_triggers,
@@ -39,15 +39,15 @@ from gcp.image.runtime.artifacts import (
     write_progress,
     write_summary,
 )
-from gcp.image.runtime.execution import execute_leg
-from gcp.image.runtime.github_reporting import (
+from runtime.execution import execute_leg
+from runtime.github_reporting import (
     ensure_reporting_metadata_for_plan,
     publish_final_results,
     publish_github_failure,
     publish_progress,
 )
-from gcp.image.runtime.importer import DatasetImporter, DatasetImportRequest
-from gcp.image.runtime.models import (
+from runtime.importer import DatasetImporter, DatasetImportRequest
+from runtime.models import (
     ExecutionPlan,
     LegSummary,
     PlanLeg,
@@ -56,7 +56,7 @@ from gcp.image.runtime.models import (
     StageRuntimePaths,
     WorkflowRequest,
 )
-from gcp.image.runtime.planning import PlanOptions, build_plan
+from runtime.planning import PlanOptions, build_plan
 
 logger = logging.getLogger(__name__)
 

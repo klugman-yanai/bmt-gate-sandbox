@@ -19,10 +19,10 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.runtime.models import BmtManifest, PluginManifest, ProjectManifest, StageRuntimePaths, WorkflowRequest
-from gcp.image.runtime.planning import PlanOptions, build_plan
-from gcp.image.runtime.plugin_loader import load_plugin
-from gcp.image.runtime.plugin_publisher import plugin_digest
+from runtime.models import BmtManifest, PluginManifest, ProjectManifest, StageRuntimePaths, WorkflowRequest
+from runtime.planning import PlanOptions, build_plan
+from runtime.plugin_loader import load_plugin
+from runtime.plugin_publisher import plugin_digest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _STAGE_ROOT = _REPO_ROOT / "gcp" / "stage"

@@ -7,9 +7,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-import gcp.image.config.constants as _bmt_constants
-from gcp.image.config.decisions import GateDecision
-from gcp.image.config.value_types import (
+import runtime.config.constants as _bmt_constants
+from runtime.config.decisions import GateDecision
+from runtime.config.value_types import (
     sanitize_run_id as sanitize_run_id,  # noqa: F811 — re-export
 )
 
@@ -74,7 +74,7 @@ def workflow_run_id() -> str:
 
 def workflow_runtime_root() -> str:
     """Return gs://{GCS_BUCKET} (bucket root); raise if GCS_BUCKET unset."""
-    from gcp.image.config.constants import ENV_GCS_BUCKET
+    from runtime.config.constants import ENV_GCS_BUCKET
 
     return f"gs://{require_env(ENV_GCS_BUCKET)}"
 

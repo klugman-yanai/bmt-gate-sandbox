@@ -6,7 +6,7 @@ match between CI, VM, and tools.
 
 from __future__ import annotations
 
-from gcp.image.config.value_types import sanitize_run_id
+from runtime.config.value_types import sanitize_run_id
 
 __all__ = ["run_handshake_uri", "run_trigger_uri", "runtime_root_uri", "sanitize_run_id"]
 

@@ -11,7 +11,7 @@ from typing import Any, NotRequired, TypedDict
 from github import Auth, Github
 from github.GithubObject import NotSet
 
-from gcp.image.config.constants import HTTP_TIMEOUT
+from runtime.config.constants import HTTP_TIMEOUT
 
 # GitHub REST API documents large max for check run output fields; stay under a safe UTF-8 byte cap.
 GITHUB_CHECK_OUTPUT_FIELD_MAX_BYTES = 65535

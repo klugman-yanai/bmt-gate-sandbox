@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.config.bmt_domain_status import (
+from runtime.config.bmt_domain_status import (
     BmtLegStatus,
     BmtProgressStatus,
     leg_status_is_fail,

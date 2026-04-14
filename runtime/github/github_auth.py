@@ -10,7 +10,7 @@ from typing import Protocol
 
 from github import GithubIntegration
 
-from gcp.image.config.constants import HTTP_TIMEOUT
+from runtime.config.constants import HTTP_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
