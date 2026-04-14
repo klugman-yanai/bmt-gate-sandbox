@@ -111,71 +111,26 @@ strict = true
 max-complexity = 10
 
 [lint.per-file-ignores]
-# Release/utility scripts: print to stdout/stderr for operator feedback
-"scripts/**" = ["T20"]
-# Lazy/google.* imports: allow inside functions (PLC0415) and isort single-line (I001)
-"gcp/image/**" = ["PLC0415"]
+"scripts/**" = ["T20", "C901"]
+"infra/pulumi/**" = ["S106"]
+"runtime/**" = ["PLC0415"]
 "tests/**" = [
-    "S101",    # assert is fine in tests
-    "PLR2004", # magic values OK in tests
-    "PLR0913", # many args OK in test fixtures
-    "T20",     # print OK in tests
-    "ARG001",  # unused fixture args (pytest pattern)
-    "RUF059",  # unpacked variable unused OK (e.g. status, _ = f())
-    "PLC0415", # imports in test functions OK
-    "FBT001",  # boolean args OK in tests
-    "FBT002",  # boolean defaults OK in tests
-    "F401",    # imports in try/except for availability
-    "S108",    # /tmp paths OK in tests
-    "S110",    # try/except/pass OK in tests
-    "B007",    # unused loop variable OK in tests
-    "B017",    # broad exception assertions OK in tests
-    "PT011",   # broad pytest.raises OK in tests
-    "PT018",   # compound assertions OK in tests
-    "SLF001",  # private member access OK in tests
+    "S101", "PLR2004", "PLR0913", "T20", "ARG001", "RUF059",
+    "PLC0415", "FBT001", "FBT002", "F401", "S108", "S110",
+    "B007", "B017", "PT011", "PT018", "SLF001",
 ]
-# tools: PLC0415 — lazy imports (CLI subcommands, Rich when TTY); top-level would load deps on every run
 "tools/**" = [
-    "ERA001",  # commented code OK during development
-    "T20",     # print OK in tools CLI scripts
-    "E402",    # module import not at top (path/setup before imports)
-    "PLC0415", # see comment above
-    "PLR0911", # many returns OK (e.g. generators)
-    "PLR0912", # many branches OK
-    "PLR0915", # many statements OK in scripts
-    "C901",    # complexity OK in scripts
-    "G004",    # logging f-strings OK (not perf-critical)
-    "TC003",   # stdlib imports at runtime OK
-    "FBT001",  # boolean positional args OK
-    "FBT002",  # boolean default args OK
-    "TRY004",  # RuntimeError OK for CLI validation (not type errors)
-    "ARG001",  # unused args OK (interface compliance)
-    "SIM117",  # nested with OK (mock/patch patterns)
+    "ERA001", "T20", "E402", "PLC0415", "PLR0911", "PLR0912",
+    "PLR0915", "C901", "G004", "TC003", "FBT001", "FBT002",
+    "TRY004", "ARG001", "SIM117",
 ]
-"gcp/image/vm_watcher.py" = [
-    "C901",    # _process_run_trigger is intentionally monolithic (refactor planned)
-    "PLR0911", # many return paths: guard clauses in _process_run_trigger
-    "PLR0912", # many branches: guard clauses in _process_run_trigger
-    "PLR0915", # many statements: _process_run_trigger is the main dispatch loop
-    "S110",    # try/except/pass for best-effort GCS URL generation
+"runtime/vm_watcher.py" = [
+    "C901", "PLR0911", "PLR0912", "PLR0915", "S110",
 ]
-".github/bmt/**" = [
-    "T20",     # print OK for CLI (driver)
-    "ARG001",  # unused args OK (command interface)
-    "PLC0415", # lazy imports OK in driver.py
-    "I001",    # isort single-line; google.cloud imports often multi-line
-    "C901",    # complexity OK in wait_verdicts
-    "PLR0912", # many branches OK
-    "PLR0915", # many statements OK
+"ci/**" = [
+    "T20", "ARG001", "PLC0415", "I001", "C901", "PLR0912", "PLR0915",
 ]
 "deploy/**" = [
-    "T20",     # print OK in VM-side scripts
-    "ARG001",  # unused args OK (argparse/interface)
-    "FBT001",  # boolean positional args (ThreadPoolExecutor, etc.)
-    "FBT002",  # boolean default args
-    "S108",    # /tmp/dummy is template placeholder, not insecure
-    "C901",    # complexity OK in bmt_manager
-    "PLR0912", # many branches OK
-    "PLR0915", # many statements OK
-    "PLW0603", # global for signal handler (_shutdown) is intentional
+    "T20", "ARG001", "FBT001", "FBT002", "S108", "C901",
+    "PLR0912", "PLR0915", "PLW0603",
 ]
