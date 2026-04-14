@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from gcp.image.config.constants import (
+from runtime.config.constants import (
     ENV_BMT_CONTROL_JOB,
     ENV_BMT_STATUS_CONTEXT,
     ENV_BMT_TASK_HEAVY_JOB,

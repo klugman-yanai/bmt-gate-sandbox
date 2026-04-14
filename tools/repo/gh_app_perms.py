@@ -11,7 +11,7 @@ from pathlib import Path
 
 from github import Auth, Github, GithubException
 
-from gcp.image.github.github_auth import (
+from runtime.github.github_auth import (
     DEV_PROFILE,
     HAS_JWT,
     PRIMARY_PROFILE,

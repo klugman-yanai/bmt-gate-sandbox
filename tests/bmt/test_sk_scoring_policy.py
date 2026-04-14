@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 
@@ -10,13 +9,15 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-_SK_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
+_SK_SRC = str(Path(__file__).resolve().parents[2] / "plugins/projects/sk")
 
 
 def _sp():
     if _SK_SRC not in sys.path:
         sys.path.insert(0, _SK_SRC)
-    return importlib.import_module("sk_plugin.sk_scoring_policy")
+    import sk_scoring_policy as sp
+
+    return sp
 
 
 def test_scoring_policy_record_defaults() -> None:
@@ -40,7 +41,7 @@ def test_scoring_policy_record_merges_reporting_hints() -> None:
 
 
 def test_build_case_outcomes_truncates_long_error(tmp_path: Path) -> None:
-    from gcp.image.runtime.sdk.results import CaseResult
+    from bmt_sdk.results import CaseResult
 
     sp = _sp()
     long_err = "x" * 3000

@@ -1,0 +1,21 @@
+{
+  "bmt_id": "4a5b6e82-a048-5c96-8734-2f64d2288378",
+  "enabled": true,
+  "plugin_config": {
+    "comparison": "gte",
+    "tolerance_abs": 0.25,
+    "keyword": "NAMUH",
+    "counter_pattern": "Hi NAMUH counter = (\\d+)",
+    "num_source_test": 0,
+    "enable_overrides": {
+      "KWS_CONFIG.KWS_ENABLE": true,
+      "BIOMETRICS_CONFIG.BIO_ENABLE": false
+    },
+    "reporting_hints": {
+      "utterances_per_file": 100,
+      "dataset_note": "Per-file keyword recognition style; aggregate is the average of per-file counters over passing cases.",
+      "metric_short_label": "keyword hits per file (avg.)",
+      "success_in_words": "Higher is better: counts keyword hits per test file vs your baseline; a larger average means stronger recognition. Do not compare this row to false_alarms (different metric and direction)."
+    }
+  }
+}

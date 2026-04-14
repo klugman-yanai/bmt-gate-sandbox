@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
-_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "gcp/stage/projects/sk/plugin_workspaces/default/src")
+_SK_PLUGIN_SRC = str(Path(__file__).resolve().parents[2] / "plugins/projects/sk")
 
 pytestmark = pytest.mark.unit
 
@@ -17,7 +16,9 @@ pytestmark = pytest.mark.unit
 def _import_plugin_module():
     if _SK_PLUGIN_SRC not in sys.path:
         sys.path.insert(0, _SK_PLUGIN_SRC)
-    return importlib.import_module("sk_plugin.plugin")
+    import plugin as sk_plugin_mod
+
+    return sk_plugin_mod
 
 
 def _make_plugin():

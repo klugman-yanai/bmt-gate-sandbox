@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from gcp.image.github.github_auth import DEV_PROFILE, PRIMARY_PROFILE
+from runtime.github.github_auth import DEV_PROFILE, PRIMARY_PROFILE
 
 __all__ = [
     "DEV_APP_ID_KEYS",

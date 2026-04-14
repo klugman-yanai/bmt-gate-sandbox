@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests.exceptions
-from ci.workflows_api import WorkflowsApiError, start_execution
+from kardome_bmt.workflows_api import WorkflowsApiError, start_execution
 
 pytestmark = pytest.mark.unit
 
@@ -37,7 +37,7 @@ def _mock_session(responses: list) -> MagicMock:
 
 def test_retries_on_429_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     sessions = [_mock_session([_Resp(429)]), _mock_session([_Resp(429)]), _mock_session([_SUCCESS])]
-    monkeypatch.setattr("ci.workflows_api._session", lambda: sessions.pop(0))
+    monkeypatch.setattr("kardome_bmt.workflows_api._session", lambda: sessions.pop(0))
     monkeypatch.setattr("time.sleep", lambda _: None)
 
     result = start_execution(**_args())
@@ -47,7 +47,7 @@ def test_retries_on_429_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_retries_on_503_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     sessions = [_mock_session([_Resp(503)]), _mock_session([_SUCCESS])]
-    monkeypatch.setattr("ci.workflows_api._session", lambda: sessions.pop(0))
+    monkeypatch.setattr("kardome_bmt.workflows_api._session", lambda: sessions.pop(0))
     monkeypatch.setattr("time.sleep", lambda _: None)
 
     result = start_execution(**_args())
@@ -68,7 +68,7 @@ def test_retries_on_connection_error_then_succeeds(monkeypatch: pytest.MonkeyPat
             session.post.return_value = _SUCCESS
         return session
 
-    monkeypatch.setattr("ci.workflows_api._session", _session_factory)
+    monkeypatch.setattr("kardome_bmt.workflows_api._session", _session_factory)
     monkeypatch.setattr("time.sleep", lambda _: None)
 
     result = start_execution(**_args())
@@ -77,7 +77,7 @@ def test_retries_on_connection_error_then_succeeds(monkeypatch: pytest.MonkeyPat
 
 
 def test_raises_after_exhausting_all_attempts_on_429(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("ci.workflows_api._session", lambda: _mock_session([_Resp(429)]))
+    monkeypatch.setattr("kardome_bmt.workflows_api._session", lambda: _mock_session([_Resp(429)]))
     monkeypatch.setattr("time.sleep", lambda _: None)
 
     with pytest.raises(WorkflowsApiError, match="failed after 3 attempts"):
@@ -86,7 +86,7 @@ def test_raises_after_exhausting_all_attempts_on_429(monkeypatch: pytest.MonkeyP
 
 def test_raises_immediately_on_non_retryable_4xx(monkeypatch: pytest.MonkeyPatch) -> None:
     sessions = [_mock_session([_Resp(400)])]
-    monkeypatch.setattr("ci.workflows_api._session", lambda: sessions.pop(0))
+    monkeypatch.setattr("kardome_bmt.workflows_api._session", lambda: sessions.pop(0))
 
     with pytest.raises(WorkflowsApiError, match="400"):
         start_execution(**_args())
@@ -97,7 +97,7 @@ def test_raises_immediately_on_non_retryable_4xx(monkeypatch: pytest.MonkeyPatch
 def test_does_not_retry_on_500(monkeypatch: pytest.MonkeyPatch) -> None:
     """500 is ambiguous — execution may have started. Never retry."""
     sessions = [_mock_session([_Resp(500)])]
-    monkeypatch.setattr("ci.workflows_api._session", lambda: sessions.pop(0))
+    monkeypatch.setattr("kardome_bmt.workflows_api._session", lambda: sessions.pop(0))
 
     with pytest.raises(WorkflowsApiError, match="500"):
         start_execution(**_args())

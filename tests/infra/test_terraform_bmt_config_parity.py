@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.config.constants import DEFAULT_IMAGE_FAMILY
+from runtime.config.constants import DEFAULT_IMAGE_FAMILY
 
 # Load InfraConfig from the Pulumi project (not a regular package)
 _pulumi_dir = Path(__file__).resolve().parents[2] / "infra" / "pulumi"

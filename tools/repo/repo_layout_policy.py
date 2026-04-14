@@ -37,6 +37,7 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     "ruff.toml",
     "schemas",
     "scripts",
+    "sdk",
     "tests",
     "tools",
     "uv.lock",

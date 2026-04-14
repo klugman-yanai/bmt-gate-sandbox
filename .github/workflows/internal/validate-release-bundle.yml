@@ -9,7 +9,7 @@ on:
     paths:
       - "scripts/assemble_release.py"
       - "scripts/release_templates/**"
-      - ".github/bmt/**"
+      - "ci/**"
       - ".github/workflows/**"
       - ".github/actions/**"
   pull_request:
@@ -19,7 +19,7 @@ on:
     paths:
       - "scripts/assemble_release.py"
       - "scripts/release_templates/**"
-      - ".github/bmt/**"
+      - "ci/**"
       - ".github/workflows/**"
       - ".github/actions/**"
   workflow_dispatch:

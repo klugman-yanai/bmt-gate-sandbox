@@ -7,7 +7,9 @@ name = "bmt-gcloud"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "bmt",
+    "kardome-bmt",
+    "bmt-sdk",
+    "bmt-runtime",
     "PyGithub>=2.0",
     "google-cloud-storage>=2.16",
     "google-cloud-artifact-registry>=1.14.0",
@@ -24,31 +26,32 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-bmt = { workspace = true }
-# So that member .github/bmt can depend on bmt-gcloud without listing it (keeps that pyproject portable).
+kardome-bmt = { workspace = true }
+bmt-sdk = { workspace = true }
+bmt-runtime = { workspace = true }
+# So that member ci/ can depend on bmt-gcloud without listing it (keeps that pyproject portable).
 bmt-gcloud = { workspace = true }
 
 # Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
 [tool.uv.workspace]
-members = [".github/bmt", "gcp/image"]
+members = ["ci", "runtime", "sdk"]
 # exclude = []   # Optional: globs to exclude from members (e.g. a dir with pyproject you don't want as member)
 
 [tool.uv]
 package = true
 
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-runtime).
-# Run a member with: uv run --package bmt … or uv run --package bmt-runtime …
+# Root package exposes tools. Workspace members: ci/ (kardome-bmt CLI), runtime/ (bmt-runtime).
+# Run a member with: uv run --package kardome-bmt … or uv run --package bmt-runtime …
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gcp*", "tools*"]
+include = ["tools*"]
 
 # Typecheck: `uv run ty check` (see `[tool.ty]`). IDE: Pylance/Cursor uses [pyrightconfig.json].
 [tool.ty.environment]
 python-version = "3.12"
 extra-paths = [
-	".github/bmt",
-	"gcp/stage/projects/sk/plugin_workspaces/default/src",
+    "ci",
 ]
 
 [tool.ty.src]
@@ -57,8 +60,7 @@ exclude = [
     "sk_runtime",
     "local_batch",
     "secrets",
-    # Bucket mirror; layout mirrors image but imports are not a full package tree.
-    "gcp/stage",
+    "plugins",
 ]
 
 # Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Included by default on `uv sync`; omit with `uv sync --no-dev`.
@@ -97,5 +99,5 @@ markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
     "integration: subprocess/filesystem orchestration tests with local fakes",
-    "bmt_plugin_load: load published BMT plugins from committed gcp/stage (import side effects)",
+    "bmt_plugin_load: load published BMT plugins from committed plugins/ (import side effects)",
 ]

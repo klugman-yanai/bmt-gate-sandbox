@@ -1,13 +1,13 @@
-"""Validate committed `gcp/stage` BMT manifests against runtime models.
+"""Validate committed plugins BMT manifests against runtime models.
 
-Discovery matches ``build_plan`` (``projects/*/bmts/*/bmt.json`` under the stage root).
+Discovery matches ``build_plan`` — supports both nested (``projects/*/bmts/*/bmt.json``)
+and flat (``projects/*/*.json``) layouts under the stage root.
 This suite performs a **full-tree scan**; a future optional **git-diff-only** mode could
 accelerate PRs but must not replace full validation on the default branch.
 
-Fast tests (default): parse, path consistency, ``project.json``, published bundle /
-workspace layout rules.
+Fast tests (default): parse, path consistency, ``project.json``, plugin layout rules.
 
-Optional tiers: ``@pytest.mark.bmt_plugin_load`` (import published plugins) and
+Optional tiers: ``@pytest.mark.bmt_plugin_load`` (import direct plugins) and
 ``@pytest.mark.integration`` (single ``build_plan`` smoke over the tree).
 """
 
@@ -19,55 +19,68 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.runtime.models import BmtManifest, PluginManifest, ProjectManifest, StageRuntimePaths, WorkflowRequest
-from gcp.image.runtime.planning import PlanOptions, build_plan
-from gcp.image.runtime.plugin_loader import load_plugin
-from gcp.image.runtime.plugin_publisher import plugin_digest
+from runtime.models import BmtManifest, ProjectManifest, StageRuntimePaths, WorkflowRequest
+from runtime.planning import PlanOptions, build_plan
+from runtime.plugin_loader import load_plugin
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_STAGE_ROOT = _REPO_ROOT / "gcp" / "stage"
+_STAGE_ROOT = _REPO_ROOT / "plugins"
+_FLAT_EXCLUDE: frozenset[str] = frozenset({"project.json", "runner_latest_meta.json"})
 
 
 @dataclass(frozen=True, slots=True)
 class StageBmtRecord:
-    """One discovered ``bmt.json`` under the stage tree."""
+    """One discovered BMT manifest under the stage tree."""
 
     manifest_path: Path
-    """Path relative to ``gcp/stage``, posix, for stable pytest ids."""
+    """Absolute path to the manifest file."""
 
     id_posix: str
+    """Path relative to stage root, posix, for stable pytest ids."""
+
+    is_flat: bool
+    """True if this is a flat layout manifest (projects/sk/false_alarms.json)."""
 
 
 def _discover_stage_bmt_manifests(stage_root: Path) -> list[StageBmtRecord]:
     if not stage_root.is_dir():
         return []
     out: list[StageBmtRecord] = []
-    for path in sorted(stage_root.glob("projects/*/bmts/*/bmt.json")):
+    projects_root = stage_root / "projects"
+    # Legacy nested layout: projects/sk/bmts/false_alarms/bmt.json
+    for path in sorted(projects_root.glob("*/bmts/*/bmt.json")):
         rel = path.relative_to(stage_root).as_posix()
-        out.append(StageBmtRecord(manifest_path=path, id_posix=rel))
+        out.append(StageBmtRecord(manifest_path=path, id_posix=rel, is_flat=False))
+    # New flat layout: projects/sk/false_alarms.json
+    # Exclude well-known non-BMT files and any _* names.
+    for path in sorted(projects_root.glob("*/*.json")):
+        if path.name not in _FLAT_EXCLUDE and not path.name.startswith("_"):
+            rel = path.relative_to(stage_root).as_posix()
+            out.append(StageBmtRecord(manifest_path=path, id_posix=rel, is_flat=True))
     return out
 
 
-def _manifest_enabled(manifest_path: Path) -> bool:
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+def _manifest_enabled(record: StageBmtRecord) -> bool:
+    data = json.loads(record.manifest_path.read_text(encoding="utf-8"))
     return bool(data.get("enabled", False))
 
 
 _RECORDS = _discover_stage_bmt_manifests(_STAGE_ROOT)
-_ENABLED_RECORDS = [r for r in _RECORDS if _manifest_enabled(r.manifest_path)]
+_ENABLED_RECORDS = [r for r in _RECORDS if _manifest_enabled(r)]
 
 
 @pytest.mark.unit
 def test_stage_tree_has_bmt_manifests(repo_stage_root: Path) -> None:
     """Guard: parametrized tests vanish if the tree is empty—fail loudly instead."""
     assert _RECORDS, (
-        "Expected at least one projects/*/bmts/*/bmt.json under gcp/stage; "
+        "Expected at least one BMT manifest under plugins/projects "
+        "(either projects/*/bmts/*/bmt.json or projects/*/*.json); "
         "an empty tree would skip all parametrized manifest checks."
     )
     assert repo_stage_root.resolve() == _STAGE_ROOT.resolve()
 
 
-def _assert_path_matches_manifest(stage_root: Path, manifest_path: Path, manifest: BmtManifest) -> None:
+def _assert_nested_path_matches_manifest(stage_root: Path, manifest_path: Path, manifest: BmtManifest) -> None:
     rel = manifest_path.relative_to(stage_root)
     parts = rel.parts
     assert len(parts) == 5, f"Unexpected manifest path shape: {rel}"
@@ -78,30 +91,22 @@ def _assert_path_matches_manifest(stage_root: Path, manifest_path: Path, manifes
     assert parts[3] == manifest.bmt_slug, f"path slug {parts[3]!r} != manifest.bmt_slug {manifest.bmt_slug!r}"
 
 
-def _validate_published_bundle(stage_root: Path, manifest: BmtManifest) -> None:
-    assert manifest.plugin_ref.startswith("published:"), (
-        f"enabled BMT must use published: plugin_ref, got {manifest.plugin_ref!r}"
-    )
-    parts = manifest.plugin_ref.split(":", 2)
-    assert len(parts) == 3, f"Malformed published ref: {manifest.plugin_ref!r}"
-    _, plugin_name, digest_segment = parts
-    published_root = stage_root / "projects" / manifest.project / "plugins" / plugin_name / digest_segment
-    plugin_json = published_root / "plugin.json"
-    assert plugin_json.is_file(), f"Missing published plugin bundle: {plugin_json}"
-    raw = json.loads(plugin_json.read_text(encoding="utf-8"))
-    PluginManifest.model_validate(raw)
-    # Digest in path must match content (same as planner / publisher).
-    assert plugin_digest(published_root) == digest_segment.removeprefix("sha256-"), (
-        f"plugin digest mismatch for {published_root}: path digest does not match tree content"
-    )
+def _assert_flat_path_matches_manifest(stage_root: Path, manifest_path: Path, manifest: BmtManifest) -> None:
+    rel = manifest_path.relative_to(stage_root)
+    parts = rel.parts
+    assert len(parts) == 3, f"Unexpected flat manifest path shape: {rel}"
+    assert parts[0] == "projects", f"Expected 'projects' first segment, got: {rel}"
+    assert parts[1] == manifest.project, f"path project {parts[1]!r} != manifest.project {manifest.project!r}"
+    assert parts[2] == f"{manifest.bmt_slug}.json", f"path file {parts[2]!r} != expected {manifest.bmt_slug}.json"
 
 
-def _validate_workspace_ref(stage_root: Path, manifest: BmtManifest) -> None:
-    if not manifest.plugin_ref.startswith("workspace:"):
-        return
-    name = manifest.plugin_ref.split(":", 1)[1]
-    ws = stage_root / "projects" / manifest.project / "plugin_workspaces" / name
-    assert ws.is_dir(), f"workspace plugin_ref points to missing directory: {ws}"
+def _validate_direct_plugin(stage_root: Path, manifest: BmtManifest) -> None:
+    """Flat-layout manifests use plugin_ref='direct': plugin.py must exist at project root."""
+    assert manifest.plugin_ref == "direct", (
+        f"flat-layout enabled BMT must use plugin_ref='direct', got {manifest.plugin_ref!r}"
+    )
+    plugin_py = stage_root / "projects" / manifest.project / "plugin.py"
+    assert plugin_py.is_file(), f"Missing plugin.py for direct plugin_ref: {plugin_py}"
 
 
 @pytest.mark.unit
@@ -114,33 +119,38 @@ def test_committed_bmt_manifest_static(
     manifest_path = record.manifest_path
     assert manifest_path.is_file(), f"Manifest not found: {manifest_path}"
 
-    raw_text = manifest_path.read_text(encoding="utf-8")
-    manifest = BmtManifest.model_validate(json.loads(raw_text))
-
-    _assert_path_matches_manifest(repo_stage_root, manifest_path, manifest)
+    if record.is_flat:
+        manifest = BmtManifest.from_flat_file(manifest_path)
+        _assert_flat_path_matches_manifest(repo_stage_root, manifest_path, manifest)
+    else:
+        raw_text = manifest_path.read_text(encoding="utf-8")
+        manifest = BmtManifest.model_validate(json.loads(raw_text))
+        _assert_nested_path_matches_manifest(repo_stage_root, manifest_path, manifest)
 
     project_json = repo_stage_root / "projects" / manifest.project / "project.json"
     assert project_json.is_file(), f"Missing project.json for project {manifest.project}: {project_json}"
     ProjectManifest.model_validate(json.loads(project_json.read_text(encoding="utf-8")))
 
     if manifest.enabled:
-        assert manifest.plugin_ref.startswith("published:"), (
-            "enabled BMTs must use a published plugin ref (not workspace:) for CI/prod parity"
-        )
-        _validate_published_bundle(repo_stage_root, manifest)
-    else:
-        _validate_workspace_ref(repo_stage_root, manifest)
+        if record.is_flat:
+            _validate_direct_plugin(repo_stage_root, manifest)
+        else:
+            assert manifest.plugin_ref.startswith("published:"), (
+                "enabled nested-layout BMTs must use a published plugin ref for CI/prod parity"
+            )
 
 
 @pytest.mark.bmt_plugin_load
 @pytest.mark.parametrize("record", _ENABLED_RECORDS, ids=lambda r: r.id_posix)
-def test_enabled_bmt_loads_published_plugin(
+def test_enabled_bmt_loads_plugin(
     repo_stage_root: Path,
     record: StageBmtRecord,
 ) -> None:
-    """``load_plugin`` with ``allow_workspace=False`` (same as planner)."""
-    raw_text = record.manifest_path.read_text(encoding="utf-8")
-    manifest = BmtManifest.model_validate(json.loads(raw_text))
+    """``load_plugin`` resolves correctly for both direct and published refs."""
+    if record.is_flat:
+        manifest = BmtManifest.from_flat_file(record.manifest_path)
+    else:
+        manifest = BmtManifest.model_validate(json.loads(record.manifest_path.read_text(encoding="utf-8")))
     assert manifest.enabled
     plugin, _root = load_plugin(
         repo_stage_root,
@@ -169,5 +179,8 @@ def test_build_plan_smoke_includes_enabled_legs(
     assert len(plan.legs) == len(_ENABLED_RECORDS)
     slugs = {leg.bmt_slug for leg in plan.legs}
     for record in _ENABLED_RECORDS:
-        m = BmtManifest.model_validate(json.loads(record.manifest_path.read_text(encoding="utf-8")))
+        if record.is_flat:
+            m = BmtManifest.from_flat_file(record.manifest_path)
+        else:
+            m = BmtManifest.model_validate(json.loads(record.manifest_path.read_text(encoding="utf-8")))
         assert m.bmt_slug in slugs

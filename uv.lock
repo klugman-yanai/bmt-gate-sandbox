@@ -4,9 +4,10 @@ requires-python = "==3.12.*"
 
 [manifest]
 members = [
-    "bmt",
     "bmt-gcloud",
     "bmt-runtime",
+    "bmt-sdk",
+    "kardome-bmt",
 ]
 
 [[package]]
@@ -68,45 +69,15 @@ wheels = [
 ]
 
 [[package]]
-name = "bmt"
-version = "0.1.0"
-source = { editable = ".github/bmt" }
-dependencies = [
-    { name = "bmt-gcloud" },
-    { name = "google-cloud-compute" },
-    { name = "google-cloud-storage" },
-    { name = "pydantic" },
-    { name = "pygithub" },
-    { name = "typer" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "bmt-gcloud", editable = "." },
-    { name = "google-cloud-compute", specifier = ">=1.45" },
-    { name = "google-cloud-storage", specifier = ">=2.16" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pygithub", specifier = ">=2.0" },
-    { name = "typer", specifier = ">=0.15.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.15.0" }]
-
-[[package]]
 name = "bmt-gcloud"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "bmt" },
-    { name = "google-auth-stubs" },
+    { name = "bmt-runtime" },
+    { name = "bmt-sdk" },
     { name = "google-cloud-artifact-registry" },
     { name = "google-cloud-storage" },
+    { name = "kardome-bmt" },
     { name = "orjson" },
     { name = "prek" },
     { name = "pulumi-gcp" },
@@ -148,10 +119,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bmt", editable = ".github/bmt" },
-    { name = "google-auth-stubs", specifier = ">=0.3.0" },
+    { name = "bmt-runtime", editable = "runtime" },
+    { name = "bmt-sdk", editable = "sdk" },
     { name = "google-cloud-artifact-registry", specifier = ">=1.14.0" },
     { name = "google-cloud-storage", specifier = ">=2.16" },
+    { name = "kardome-bmt", editable = "ci" },
     { name = "orjson", specifier = ">=3.10" },
     { name = "prek", specifier = ">=0.3.5" },
     { name = "pulumi-gcp", specifier = ">=9.15.0" },
@@ -194,8 +166,9 @@ dev = [
 [[package]]
 name = "bmt-runtime"
 version = "0.1.0"
-source = { editable = "gcp/image" }
+source = { editable = "runtime" }
 dependencies = [
+    { name = "bmt-sdk" },
     { name = "cryptography" },
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
@@ -208,6 +181,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bmt-sdk", editable = "sdk" },
     { name = "cryptography", specifier = ">=41.0" },
     { name = "google-cloud-secret-manager", specifier = ">=2.23" },
     { name = "google-cloud-storage", specifier = ">=2.16" },
@@ -220,6 +194,11 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = []
+
+[[package]]
+name = "bmt-sdk"
+version = "0.1.0"
+source = { editable = "sdk" }
 
 [[package]]
 name = "certifi"
@@ -702,6 +681,31 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa6d1095e7cc5569bebf04342ee146178e2d36600708b/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d", size = 32855, upload-time = "2025-09-08T01:34:59.186Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
+]
+
+[[package]]
+name = "kardome-bmt"
+version = "0.1.0"
+source = { editable = "ci" }
+dependencies = [
+    { name = "bmt-gcloud" },
+    { name = "bmt-runtime" },
+    { name = "google-cloud-compute" },
+    { name = "google-cloud-storage" },
+    { name = "pydantic" },
+    { name = "pygithub" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bmt-gcloud", editable = "." },
+    { name = "bmt-runtime", editable = "runtime" },
+    { name = "google-cloud-compute", specifier = ">=1.45" },
+    { name = "google-cloud-storage", specifier = ">=2.16" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pygithub", specifier = ">=2.0" },
+    { name = "typer", specifier = ">=0.15.0" },
 ]
 
 [[package]]

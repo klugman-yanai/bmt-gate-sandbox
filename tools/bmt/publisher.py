@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from gcp.image.runtime.models import BmtManifest, ProjectManifest
-from gcp.image.runtime.plugin_loader import load_plugin
-from gcp.image.runtime.plugin_publisher import PublishResult, publish_workspace_plugin
+from runtime.models import BmtManifest, ProjectManifest
+from runtime.plugin_loader import load_plugin_direct
+from runtime.plugin_publisher import PublishResult, publish_workspace_plugin
 from tools.remote.bucket_sync_project import BucketSyncProject
 from tools.repo.paths import DEFAULT_STAGE_ROOT, repo_root
 from tools.shared.bucket_env import bucket_from_env
@@ -39,12 +39,29 @@ def _plugin_name_for_publish(plugin_ref: str) -> str:
     raise ValueError(f"Unsupported plugin_ref for publish: {plugin_ref}")
 
 
+def _load_workspace_plugin(workspace_dir: Path) -> None:
+    """Validate that the workspace plugin loads without errors.
+
+    Workspace plugins have a plugin.json with package_root and entrypoint.
+    We locate the package directory (plugin.json["package_root"]) and use
+    load_plugin_direct to verify the BmtPlugin subclass is importable.
+    """
+    plugin_json_path = workspace_dir / "plugin.json"
+    plugin_json = json.loads(plugin_json_path.read_text(encoding="utf-8"))
+    package_root = plugin_json.get("package_root", "src")
+    entrypoint: str = plugin_json["entrypoint"]
+    pkg_name = entrypoint.split(":", maxsplit=1)[0]
+    pkg_dir = workspace_dir / package_root / pkg_name
+    load_plugin_direct(pkg_dir)
+
+
 def validate_workspace_plugin(*, stage_root: Path, project: str, bmt_slug: str) -> str:
     project_root = _project_root(stage_root, project)
     ProjectManifest.model_validate(json.loads((project_root / "project.json").read_text(encoding="utf-8")))
     bmt_manifest = _load_bmt_manifest(stage_root, project, bmt_slug)
     plugin_name = _plugin_name_for_publish(bmt_manifest.plugin_ref)
-    load_plugin(stage_root, project, f"workspace:{plugin_name}", allow_workspace=True)
+    workspace_dir = project_root / "plugin_workspaces" / plugin_name
+    _load_workspace_plugin(workspace_dir)
     return plugin_name
 
 

@@ -9,7 +9,7 @@ import re
 import pytest
 from pydantic import ValidationError
 
-from gcp.image.runtime.stdout_counter_parse import (
+from runtime.stdout_counter_parse import (
     StdoutCounterParseConfig,
     compile_counter_pattern,
     counter_pattern_from_parsing_dict,

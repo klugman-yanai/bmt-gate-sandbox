@@ -70,10 +70,10 @@ def _plugin_code(project: str) -> str:
     class_name = _plugin_class_name(project)
     return f"""from __future__ import annotations
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus
-from gcp.image.runtime.sdk.context import ExecutionContext
-from gcp.image.runtime.sdk.plugin import BmtPlugin
-from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult, PreparedAssets, ScoreResult, VerdictResult
+from runtime.config.bmt_domain_status import BmtLegStatus
+from bmt_sdk import ExecutionContext
+from bmt_sdk import BmtPlugin
+from bmt_sdk.results import CaseResult, ExecutionResult, PreparedAssets, ScoreResult, VerdictResult
 
 
 class {class_name}(BmtPlugin):
@@ -154,7 +154,7 @@ def _bmt_manifest(project: str, bmt_slug: str, *, plugin_ref: str) -> str:
                 "runner": {
                     "uri": "",
                     "deps_prefix": "",
-                    "template_path": "gcp/image/runtime/assets/kardome_input_template.json",
+                    "template_path": "runtime/assets/kardome_input_template.json",
                 },
                 "execution": {
                     "policy": "adaptive_batch_then_legacy",

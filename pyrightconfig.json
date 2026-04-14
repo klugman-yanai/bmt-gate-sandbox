@@ -16,15 +16,13 @@
 		"node_modules"
 	],
 	"extraPaths": [
-		".github/bmt",
-		"gcp/stage/projects/sk/plugin_workspaces/default/src"
+		"ci"
 	],
 	"executionEnvironments": [
 		{
 			"root": ".",
 			"extraPaths": [
-				".github/bmt",
-				"gcp/stage/projects/sk/plugin_workspaces/default/src"
+				"ci"
 			]
 		}
 	],

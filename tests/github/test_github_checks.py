@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gcp.image.github import github_checks
+from runtime.github import github_checks
 
 pytestmark = pytest.mark.unit
 

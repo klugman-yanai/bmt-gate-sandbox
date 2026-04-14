@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from bmt_sdk.results import CaseResult, ExecutionResult
 
-from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult
+from runtime.kardome import AdaptiveKardomeExecutor
 
 pytestmark = pytest.mark.integration
 

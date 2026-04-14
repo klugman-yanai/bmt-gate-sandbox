@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from ci import config, github as github_api_module
+from kardome_bmt import config, github as github_api_module
 
 
 @pytest.fixture

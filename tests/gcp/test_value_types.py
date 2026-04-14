@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gcp.image.config.value_types import (
+from runtime.config.value_types import (
     as_results_path,
     as_run_id,
     results_path_str,

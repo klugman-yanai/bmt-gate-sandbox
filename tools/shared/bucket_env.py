@@ -9,8 +9,8 @@ Scripts organized by prefix:
 
 from __future__ import annotations
 
-from gcp.image.config.constants import ENV_GCS_BUCKET
-from gcp.image.config.env_parse import is_truthy_env_value
+from runtime.config.constants import ENV_GCS_BUCKET
+from runtime.config.env_parse import is_truthy_env_value
 from tools.shared.repo_vars import repo_var
 
 

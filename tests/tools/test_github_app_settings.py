@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.github.github_auth import DEV_PROFILE, PRIMARY_PROFILE
+from runtime.github.github_auth import DEV_PROFILE, PRIMARY_PROFILE
 from tools.shared.github_app_settings import (
     DEV_APP_ID_KEYS,
     PRIMARY_APP_ID_KEYS,

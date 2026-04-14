@@ -20,22 +20,22 @@ from pathlib import Path
 
 
 def repo_root() -> Path:
-    """Resolve repo root by walking up to a directory containing pyproject.toml, gcp/, and infra/."""
+    """Resolve repo root by walking up to a directory containing pyproject.toml and infra/."""
     here = Path(__file__).resolve()
     for parent in here.parents:
-        if (parent / "pyproject.toml").is_file() and (parent / "gcp").is_dir() and (parent / "infra").is_dir():
+        if (parent / "pyproject.toml").is_file() and (parent / "infra").is_dir():
             return parent
     raise RuntimeError(f"Unable to resolve repo root from {here}")
 
 
-# Default roots for VM mirror and staging area (relative to repo root).
-DEFAULT_CONFIG_ROOT = Path("gcp/image")
-DEFAULT_STAGE_ROOT = Path("gcp/stage")
+# Default roots for runtime image and plugins/staging area (relative to repo root).
+DEFAULT_CONFIG_ROOT = Path("runtime")
+DEFAULT_STAGE_ROOT = Path("plugins")
 # Legacy alias; prefer DEFAULT_STAGE_ROOT in new code.
 DEFAULT_RUNTIME_ROOT = DEFAULT_STAGE_ROOT
 
 # Other canonical roots (relative to repo root).
-GITHUB_BMT_ROOT = Path(".github/bmt")
+GITHUB_BMT_ROOT = Path("ci")  # kardome-bmt package (formerly .github/bmt)
 INFRA_PULUMI = Path("infra/pulumi")
 
 
@@ -66,10 +66,10 @@ class WorkspaceLayout:
     a ``WorkspaceLayout`` instance will automatically pick up the change.
 
     Attributes:
-        stage_root:  gcp/stage/ — local staging mirror of GCS (renamed from gcp/remote/).
-        image_root:  gcp/image/ — VM code baked into image (read-only locally).
-        mnt_root:    gcp/mnt/   — FUSE mount points (gitignored, opt-in).
-        data_root:   data/      — local dataset archives and optional scratch data.
+        stage_root:  plugins/ — local staging mirror of GCS (formerly gcp/stage/).
+        image_root:  runtime/ — Cloud Run image code (formerly gcp/image/).
+        mnt_root:    gcp/mnt/ — FUSE mount points (gitignored, opt-in).
+        data_root:   data/    — local dataset archives and optional scratch data.
 
     Note: transient execution workspaces are not part of WorkspaceLayout.
     Cloud Run and local runs create per-run scratch directories separately.
@@ -84,8 +84,8 @@ class WorkspaceLayout:
     def default(cls) -> WorkspaceLayout:
         """Canonical defaults for a fresh repo checkout."""
         return cls(
-            stage_root=DEFAULT_STAGE_ROOT,
-            image_root=DEFAULT_CONFIG_ROOT,
+            stage_root=Path("plugins"),
+            image_root=Path("runtime"),
             mnt_root=Path("gcp/mnt"),
             data_root=Path("data"),
         )
@@ -95,8 +95,8 @@ class WorkspaceLayout:
         """Construct from environment variables, falling back to defaults.
 
         Override any root via:
-          BMT_STAGE_ROOT  — overrides stage_root (gcp/stage/)
-          BMT_IMAGE_ROOT  — overrides image_root (gcp/image/)
+          BMT_STAGE_ROOT  — overrides stage_root (plugins/)
+          BMT_IMAGE_ROOT  — overrides image_root (runtime/)
           BMT_MNT_ROOT    — overrides mnt_root   (gcp/mnt/)
           BMT_DATA_ROOT   — overrides data_root   (data/)
         """

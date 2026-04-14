@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.config.bmt_domain_status import BmtLegStatus
-from gcp.image.config.value_types import as_results_path
-from gcp.image.runtime.github_reporting import (
+from runtime.config.bmt_domain_status import BmtLegStatus
+from runtime.config.value_types import as_results_path
+from runtime.github_reporting import (
     _resolved_logs_dir_under_stage,
     _write_log_dump_and_sign,
 )
-from gcp.image.runtime.models import ExecutionPlan, LegSummary, PlanLeg, ScorePayload, StageRuntimePaths
+from runtime.models import ExecutionPlan, LegSummary, PlanLeg, ScorePayload, StageRuntimePaths
 
 pytestmark = pytest.mark.unit
 

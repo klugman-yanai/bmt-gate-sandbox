@@ -5,15 +5,15 @@ from pathlib import Path
 import pytest
 from github import GithubException
 
-from gcp.image.config.value_types import as_results_path
-from gcp.image.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
-from gcp.image.runtime.artifacts import (
+from runtime.artifacts import (
     load_optional_reporting_metadata,
     write_progress,
     write_reporting_metadata,
     write_summary,
 )
-from gcp.image.runtime.github_reporting import (
+from runtime.config.value_types import as_results_path
+from runtime.github.presentation import CheckFinalView, CheckProgressView, FinalCommentView, ProgressBmtRow
+from runtime.github_reporting import (
     _elapsed_seconds,
     _estimate_eta_sec_parallel,
     ensure_reporting_metadata_for_plan,
@@ -21,7 +21,7 @@ from gcp.image.runtime.github_reporting import (
     publish_github_failure,
     publish_progress,
 )
-from gcp.image.runtime.models import (
+from runtime.models import (
     ExecutionPlan,
     LegSummary,
     PlanLeg,
@@ -155,8 +155,8 @@ def test_publish_progress_updates_the_existing_check_run(tmp_path: Path, monkeyp
         cap.resolved_repository = repository
         return "app-token"
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", _resolve_token)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", _resolve_token)
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
 
     publish_progress(plan=plan, runtime=runtime)
 
@@ -254,9 +254,9 @@ def test_publish_final_results_posts_status_and_failure_comment_with_log_dump(
         cap.resolved_repository = repository
         return "app-token"
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", _resolve_token)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting._generate_signed_url", _fake_signed_url)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", _resolve_token)
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting._generate_signed_url", _fake_signed_url)
     monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
 
     publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
@@ -333,9 +333,9 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
         cap.resolved_repository = repository
         return "app-token"
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", _resolve_token)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting._write_log_dump_and_sign", lambda **_kwargs: None)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", _resolve_token)
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting._write_log_dump_and_sign", lambda **_kwargs: None)
 
     publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
 
@@ -368,7 +368,7 @@ def test_publish_github_failure_skips_when_github_publish_complete(tmp_path: Pat
     def _fail_if_called(*_a: object, **_k: object) -> None:
         cap.called = True
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.publish_final_results", _fail_if_called)
+    monkeypatch.setattr("runtime.github_reporting.publish_final_results", _fail_if_called)
     publish_github_failure(plan=plan, runtime=runtime, reason="should not run")
     assert not getattr(cap, "called", False)
 
@@ -391,7 +391,7 @@ def test_publish_github_failure_skips_without_check_run_id(tmp_path: Path, monke
     def _fail_if_called(*_a: object, **_k: object) -> None:
         cap.called = True
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.publish_final_results", _fail_if_called)
+    monkeypatch.setattr("runtime.github_reporting.publish_final_results", _fail_if_called)
     publish_github_failure(plan=plan, runtime=runtime, reason="noop")
     assert not getattr(cap, "called", False)
 
@@ -411,10 +411,10 @@ def test_publish_github_failure_syncs_metadata_when_remote_check_completed(tmp_p
         ),
     )
     monkeypatch.setattr(
-        "gcp.image.runtime.github_reporting.github_checks.get_check_run_status",
+        "runtime.github_reporting.github_checks.get_check_run_status",
         lambda *_a, **_k: "completed",
     )
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
 
     publish_github_failure(plan=plan, runtime=runtime, reason="irrelevant")
 
@@ -449,8 +449,8 @@ def test_ensure_reporting_metadata_for_plan_skips_when_already_complete(tmp_path
             return 1
 
     monkeypatch.setenv("BMT_WORKFLOW_EXECUTION_URL", "https://env.example/wf")
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
 
     ensure_reporting_metadata_for_plan(plan=plan, runtime=runtime)
 
@@ -478,8 +478,8 @@ def test_ensure_reporting_metadata_backfills_started_at_when_complete_but_missin
             cap.create_called = True
             return 1
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
 
     ensure_reporting_metadata_for_plan(plan=plan, runtime=runtime)
 
@@ -501,7 +501,7 @@ def test_parallel_eta_maxes_only_in_flight_remaining_not_completed_duration(tmp_
         return None
 
     monkeypatch.setattr(
-        "gcp.image.runtime.github_reporting.load_observed_duration_sec_from_latest_snapshot",
+        "runtime.github_reporting.load_observed_duration_sec_from_latest_snapshot",
         _hist,
     )
     rows = [
@@ -552,7 +552,7 @@ def test_elapsed_seconds_uses_progress_when_reporting_started_at_missing(tmp_pat
     import whenever
 
     fixed_now = whenever.Instant.parse_iso("2020-01-01T01:00:00Z")
-    monkeypatch.setattr("gcp.image.runtime.github_reporting._instant_now", lambda: fixed_now)
+    monkeypatch.setattr("runtime.github_reporting._instant_now", lambda: fixed_now)
     assert _elapsed_seconds(runtime=runtime, workflow_run_id=wid) == 3600
 
 
@@ -579,8 +579,8 @@ def test_ensure_reporting_metadata_for_plan_creates_check_and_writes_file(tmp_pa
         def upsert_started_pr_comment(self, *, pr_number: int, view: object) -> None:
             cap.started_pr_number = pr_number
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "app-token")
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", lambda _r: "app-token")
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
 
     ensure_reporting_metadata_for_plan(plan=plan, runtime=runtime)
 
@@ -621,8 +621,8 @@ def test_ensure_reporting_metadata_merges_url_when_check_id_exists_without_url(
             return 1
 
     monkeypatch.setenv("BMT_WORKFLOW_EXECUTION_URL", "https://env.example/wf")
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", lambda _r: "tok")
 
     ensure_reporting_metadata_for_plan(plan=plan, runtime=runtime)
 
@@ -685,9 +685,9 @@ def test_publish_final_results_pr_comment_includes_case_crash_count(
         def upsert_final_pr_comment(self, *, pr_number: int, view: FinalCommentView) -> None:
             cap.comment_view = view
 
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.resolve_github_app_token", lambda _r: "app-token")
-    monkeypatch.setattr("gcp.image.runtime.github_reporting.GitHubReporter", FakeReporter)
-    monkeypatch.setattr("gcp.image.runtime.github_reporting._write_log_dump_and_sign", lambda **_kwargs: None)
+    monkeypatch.setattr("runtime.github_reporting.resolve_github_app_token", lambda _r: "app-token")
+    monkeypatch.setattr("runtime.github_reporting.GitHubReporter", FakeReporter)
+    monkeypatch.setattr("runtime.github_reporting._write_log_dump_and_sign", lambda **_kwargs: None)
 
     publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
 
@@ -707,8 +707,8 @@ def test_publish_final_results_retries_finalize_check_run_on_github_exception(
 
     from github import GithubException
 
-    from gcp.image.runtime.github_reporting import publish_final_results
-    from gcp.image.runtime.models import ExecutionPlan, ReportingMetadata, StageRuntimePaths
+    from runtime.github_reporting import publish_final_results
+    from runtime.models import ExecutionPlan, ReportingMetadata, StageRuntimePaths
 
     plan = ExecutionPlan(
         workflow_run_id="wf-retry-test",
@@ -735,11 +735,11 @@ def test_publish_final_results_retries_finalize_check_run_on_github_exception(
     mock_reporter.post_final_status.return_value = True
 
     monkeypatch.setattr(
-        "gcp.image.runtime.github_reporting._load_reporter",
+        "runtime.github_reporting._load_reporter",
         lambda **_kwargs: (mock_reporter, metadata),
     )
     monkeypatch.setattr(
-        "gcp.image.runtime.github_reporting._write_log_dump_and_sign",
+        "runtime.github_reporting._write_log_dump_and_sign",
         lambda *_a, **_kw: None,
     )
     monkeypatch.setattr("time.sleep", lambda _: None)

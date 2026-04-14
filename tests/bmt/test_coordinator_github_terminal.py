@@ -9,10 +9,10 @@ from typing import Any, cast
 
 import pytest
 
-from gcp.image.runtime.artifacts import write_plan, write_reporting_metadata
-from gcp.image.runtime.entrypoint import run_coordinator_mode, run_finalize_failure_mode
-from gcp.image.runtime.facade import RuntimeFacade, RuntimeMode
-from gcp.image.runtime.models import ExecutionPlan, ReportingMetadata, StageRuntimePaths
+from runtime.artifacts import write_plan, write_reporting_metadata
+from runtime.entrypoint import run_coordinator_mode, run_finalize_failure_mode
+from runtime.facade import RuntimeFacade, RuntimeMode
+from runtime.models import ExecutionPlan, ReportingMetadata, StageRuntimePaths
 
 pytestmark = pytest.mark.unit
 
@@ -65,9 +65,9 @@ def test_coordinator_finally_invokes_github_failure_when_publish_does_not_comple
     def _track_failure(**_kwargs: object) -> None:
         hook.append("failure")
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_final_results", _track_publish)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _track_failure)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
+    monkeypatch.setattr("runtime.entrypoint.publish_final_results", _track_publish)
+    monkeypatch.setattr("runtime.entrypoint.publish_github_failure", _track_failure)
+    monkeypatch.setattr("runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
     exit_code = run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root)
     assert exit_code == 0
@@ -112,13 +112,13 @@ def test_coordinator_skips_recovery_when_first_publish_marks_github_complete(
             ),
         )
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_final_results", _publish_then_complete)
+    monkeypatch.setattr("runtime.entrypoint.publish_final_results", _publish_then_complete)
 
     def _track_failure(**_kwargs: object) -> None:
         failure_calls.append(True)
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _track_failure)
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
+    monkeypatch.setattr("runtime.entrypoint.publish_github_failure", _track_failure)
+    monkeypatch.setattr("runtime.entrypoint.cleanup_ephemeral_triggers", lambda **_k: None)
 
     assert run_coordinator_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 0
     assert publish_calls == ["publish"]
@@ -134,7 +134,7 @@ def test_finalize_failure_mode_returns_zero_without_plan_and_does_not_call_publi
     def _boom(**_kwargs: object) -> None:
         raise AssertionError("publish_github_failure must not run when plan is missing")
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _boom)
+    monkeypatch.setattr("runtime.entrypoint.publish_github_failure", _boom)
     assert run_finalize_failure_mode(workflow_run_id="missing-plan-id", stage_root=stage_root) == 0
 
 
@@ -160,7 +160,7 @@ def test_finalize_failure_mode_passes_reason_from_env_to_publish_github_failure(
     def _capture_failure(*, reason: str, **_kwargs: object) -> None:
         captured["reason"] = reason
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _capture_failure)
+    monkeypatch.setattr("runtime.entrypoint.publish_github_failure", _capture_failure)
     monkeypatch.setenv("BMT_FAILURE_REASON", "workflow_step_read_plan_failed")
 
     assert run_finalize_failure_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 0
@@ -189,7 +189,7 @@ def test_finalize_failure_mode_uses_default_reason_when_env_unset(
     def _capture_failure(*, reason: str, **_kwargs: object) -> None:
         captured["reason"] = reason
 
-    monkeypatch.setattr("gcp.image.runtime.entrypoint.publish_github_failure", _capture_failure)
+    monkeypatch.setattr("runtime.entrypoint.publish_github_failure", _capture_failure)
     monkeypatch.delenv("BMT_FAILURE_REASON", raising=False)
 
     assert run_finalize_failure_mode(workflow_run_id=plan.workflow_run_id, stage_root=stage_root) == 0

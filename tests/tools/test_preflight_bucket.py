@@ -59,7 +59,7 @@ def test_replay_rejects_txt_snapshot(tmp_path: Path) -> None:
 
 
 def test_gcp_image_files_respects_excludes(tmp_path: Path) -> None:
-    img = tmp_path / "gcp" / "image"
+    img = tmp_path / "runtime"
     img.mkdir(parents=True)
     (img / "keep.py").write_text("x", encoding="utf-8")
     (img / "__pycache__").mkdir(parents=True)

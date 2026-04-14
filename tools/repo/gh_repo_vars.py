@@ -16,7 +16,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from gcp.image.config.constants import ENV_GCP_PROJECT, ENV_GCP_WIF_PROVIDER
+from runtime.config.constants import ENV_GCP_PROJECT, ENV_GCP_WIF_PROVIDER
 from tools.pulumi.pulumi_repo_vars import get_expected_repo_vars_from_pulumi
 from tools.shared.bucket_env import truthy
 from tools.shared.cli_availability import command_available

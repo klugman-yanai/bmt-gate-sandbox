@@ -6,8 +6,8 @@ verify_runtime_seed_sync, clean_bloat, and gcp_layout_policy.
 
 from __future__ import annotations
 
-# Layout policy: allowed top-level entries under gcp/
-ALLOWED_TOP_LEVEL = {"README.md", "image", "stage", "local", "__init__.py"}
+# Layout policy: allowed top-level entries under gcp/ (legacy; plugins/ and runtime/ are now repo-root dirs)
+ALLOWED_TOP_LEVEL = {"README.md", "plugins", "runtime", "__init__.py"}
 
 # Shared: bytecode, virtualenvs, tool caches, packaging metadata (used by multiple policy tuples).
 _ARTIFACT_EXCLUDES: tuple[str, ...] = (

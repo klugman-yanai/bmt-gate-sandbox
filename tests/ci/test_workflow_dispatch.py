@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import TypedDict
 
 import pytest
-from ci.workflow_dispatch import (
+
+from ci.kardome_bmt.workflow_dispatch import (
     WorkflowDispatchInvokePayload,
     WorkflowDispatchManager,
 )
@@ -65,7 +66,7 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
             "state": "ACTIVE",
         }
 
-    monkeypatch.setattr("ci.workflow_dispatch.start_execution", _fake_start_execution)
+    monkeypatch.setattr("ci.kardome_bmt.workflow_dispatch.start_execution", _fake_start_execution)
 
     WorkflowDispatchManager.from_env().invoke()
 

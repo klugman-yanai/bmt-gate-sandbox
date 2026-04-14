@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from gcp.image.runtime.models import StageRuntimePaths, WorkflowRequest
-from gcp.image.runtime.planning import PlanOptions, build_plan
+from runtime.models import StageRuntimePaths, WorkflowRequest
+from runtime.planning import PlanOptions, build_plan
 
 pytestmark = pytest.mark.unit
 
@@ -63,11 +63,7 @@ def test_build_plan_raises_on_duplicate_results_path(tmp_path: Path, monkeypatch
         "projects/acme/results/shared",
     )
     monkeypatch.setattr(
-        "gcp.image.runtime.planning._resolve_plugin_root",
-        lambda *_a, **_kw: tmp_path / "fake_plugin",
-    )
-    monkeypatch.setattr(
-        "gcp.image.runtime.planning.plugin_digest",
+        "runtime.planning.plugin_digest",
         lambda _path: "fake-digest",
     )
 
@@ -94,11 +90,7 @@ def test_build_plan_accepts_unique_results_paths(tmp_path: Path, monkeypatch: py
         "projects/acme/results/bmt_b",
     )
     monkeypatch.setattr(
-        "gcp.image.runtime.planning._resolve_plugin_root",
-        lambda *_a, **_kw: tmp_path / "fake_plugin",
-    )
-    monkeypatch.setattr(
-        "gcp.image.runtime.planning.plugin_digest",
+        "runtime.planning.plugin_digest",
         lambda _path: "fake-digest",
     )
 

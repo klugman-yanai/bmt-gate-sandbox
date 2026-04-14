@@ -24,13 +24,13 @@ repos:
         name: gcp/ bucket sync check
         entry: tools/scripts/hooks/pre-commit-sync-gcp.sh
         language: script
-        files: ^gcp/
+        files: ^plugins/
         pass_filenames: false
       - id: image-build-warning
         name: image-build path warning
         entry: tools/scripts/hooks/pre-commit-image-build-warning.sh
         language: script
-        files: ^(infra/packer/|gcp/image/)
+        files: ^(infra/packer/|runtime/)
         pass_filenames: false
       - id: ty-check
         name: ty check

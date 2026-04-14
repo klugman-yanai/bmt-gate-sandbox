@@ -6,32 +6,99 @@ from pathlib import Path
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
-import gcp.image.main as image_main
-import gcp.image.runtime.entrypoint as runtime_entrypoint
-from gcp.image.runtime.artifacts import load_summary
-from gcp.image.runtime.entrypoint import run_coordinator_mode, run_plan_mode, run_task_mode
-from tools.bmt.publisher import publish_bmt
-from tools.bmt.scaffold import add_bmt, add_project
+import runtime.entrypoint as runtime_entrypoint
+import runtime.main as image_main
+from runtime.artifacts import load_summary
+from runtime.entrypoint import run_coordinator_mode, run_plan_mode, run_task_mode
 
 pytestmark = pytest.mark.integration
+
+
+def _setup_flat_project(stage_root: Path, project: str, bmt_slug: str) -> None:
+    """Set up a flat-layout project with plugin.py at project root and a flat BMT manifest."""
+    import uuid
+
+    project_dir = stage_root / "projects" / project
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "project.json").write_text(
+        json.dumps({"schema_version": 1, "project": project}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    bmt_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://bmt/{project}/{bmt_slug}"))
+    (project_dir / f"{bmt_slug}.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project": project,
+                "bmt_slug": bmt_slug,
+                "bmt_id": bmt_id,
+                "enabled": True,
+                "plugin_ref": "direct",
+                "inputs_prefix": f"projects/{project}/inputs/{bmt_slug}",
+                "results_prefix": f"projects/{project}/results/{bmt_slug}",
+                "outputs_prefix": f"projects/{project}/outputs/{bmt_slug}",
+                "runner": {"uri": "", "deps_prefix": "", "template_path": "runtime/assets/kardome_input_template.json"},
+                "execution": {"policy": "adaptive_batch_then_legacy"},
+                "plugin_config": {"pass_threshold": 1.0},
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # Flat layout: plugin.py at project root
+    (project_dir / "plugin.py").write_text(
+        f"""from __future__ import annotations
+from bmt_sdk import BmtPlugin, ExecutionContext
+from bmt_sdk.results import CaseResult, ExecutionResult, PreparedAssets, ScoreResult, VerdictResult
+from runtime.config.bmt_domain_status import BmtLegStatus
+
+
+class {project.capitalize()}Plugin(BmtPlugin):
+    plugin_name = "default"
+    api_version = "v1"
+
+    def prepare(self, context: ExecutionContext) -> PreparedAssets:
+        return PreparedAssets(
+            dataset_root=context.dataset_root,
+            workspace_root=context.workspace_root,
+            runner_path=context.runner_path,
+        )
+
+    def execute(self, context: ExecutionContext, prepared_assets: PreparedAssets) -> ExecutionResult:
+        case_results: list[CaseResult] = []
+        for wav_path in sorted(context.dataset_root.rglob("*.wav")):
+            rel = wav_path.relative_to(context.dataset_root).as_posix()
+            case_results.append(
+                CaseResult(case_id=rel, input_path=wav_path, exit_code=0, status="ok", metrics={{"score": 1.0}})
+            )
+        return ExecutionResult(execution_mode_used="plugin_direct", case_results=case_results)
+
+    def score(self, execution_result: ExecutionResult, baseline: ScoreResult | None, context: ExecutionContext) -> ScoreResult:
+        aggregate = 1.0 if execution_result.case_results else 0.0
+        return ScoreResult(aggregate_score=aggregate, metrics={{"case_count": len(execution_result.case_results)}}, extra={{"baseline_present": baseline is not None}})
+
+    def evaluate(self, score_result: ScoreResult, baseline: ScoreResult | None, context: ExecutionContext) -> VerdictResult:
+        passed = score_result.aggregate_score >= 1.0
+        return VerdictResult(
+            passed=passed,
+            status=BmtLegStatus.PASS.value if passed else BmtLegStatus.FAIL.value,
+            reason_code="score_above_threshold" if passed else "score_below_threshold",
+            summary={{"aggregate_score": score_result.aggregate_score}},
+        )
+""",
+        encoding="utf-8",
+    )
 
 
 def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatch) -> None:
     stage_root = tmp_path / "gcp" / "stage"
     workspace_root = tmp_path / "workspace"
-    add_project("acme", stage_root=stage_root, dry_run=False)
-    add_bmt("acme", "wake_word_quality", stage_root=stage_root, plugin="default")
-
-    manifest_path = stage_root / "projects" / "acme" / "bmts" / "wake_word_quality" / "bmt.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["enabled"] = True
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    _setup_flat_project(stage_root, "acme", "wake_word_quality")
 
     dataset_root = stage_root / "projects" / "acme" / "inputs" / "wake_word_quality"
     dataset_root.mkdir(parents=True, exist_ok=True)
     (dataset_root / "sample.wav").write_bytes(b"fake")
-    # Avoid live GCS sync (GCS_BUCKET in env); this test exercises local runtime modes only.
-    publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality", sync=False)
 
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("BMT_HEAD_SHA", "0123456789abcdef0123456789abcdef01234567")
@@ -66,18 +133,11 @@ def test_runtime_modes_write_plan_summary_and_pointer(tmp_path: Path, monkeypatc
 def test_run_task_mode_writes_failure_summary_when_execute_leg_raises(tmp_path: Path, monkeypatch) -> None:
     stage_root = tmp_path / "gcp" / "stage"
     workspace_root = tmp_path / "workspace"
-    add_project("acme", stage_root=stage_root, dry_run=False)
-    add_bmt("acme", "wake_word_quality", stage_root=stage_root, plugin="default")
-
-    manifest_path = stage_root / "projects" / "acme" / "bmts" / "wake_word_quality" / "bmt.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["enabled"] = True
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    _setup_flat_project(stage_root, "acme", "wake_word_quality")
 
     dataset_root = stage_root / "projects" / "acme" / "inputs" / "wake_word_quality"
     dataset_root.mkdir(parents=True, exist_ok=True)
     (dataset_root / "sample.wav").write_bytes(b"fake")
-    publish_bmt(stage_root=stage_root, project="acme", bmt_slug="wake_word_quality", sync=False)
 
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("BMT_HEAD_SHA", "0123456789abcdef0123456789abcdef01234567")
