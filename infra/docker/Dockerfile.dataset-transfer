@@ -1,0 +1,9 @@
+FROM google/cloud-sdk:slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends rclone \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY infra/docker/transfer_entrypoint.sh /usr/local/bin/transfer_entrypoint.sh
+RUN chmod +x /usr/local/bin/transfer_entrypoint.sh
+
+CMD ["/usr/local/bin/transfer_entrypoint.sh"]

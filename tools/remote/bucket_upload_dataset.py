@@ -35,7 +35,12 @@ from gcp.image.config.constants import (
 )
 from tools.remote.gen_input_manifest import GenInputManifest
 from tools.shared.bucket_env import bucket_from_env, bucket_root_uri, truthy
-from tools.shared.gcloud_storage import GCloudStorageError, sync_directory_to_gcs, upload_file_to_gcs, upload_file_to_gcs_parallel
+from tools.shared.gcloud_storage import (
+    GCloudStorageError,
+    sync_directory_to_gcs,
+    upload_file_to_gcs,
+    upload_file_to_gcs_parallel,
+)
 from tools.shared.gcs_storage_client import GcsStorageClientLike
 from tools.shared.gcs_sync import prefix_stats
 from tools.shared.google_api import GoogleApiError, run_cloud_run_job
@@ -132,6 +137,8 @@ class BucketUploadDataset:
         dataset_name: str | None = None,
         force: bool = False,
         local_mirror: Path | None = None,
+        drive: bool = False,
+        drive_folder_id: str = "",
     ) -> int:
         if not bucket:
             print(f"::error::Set {ENV_GCS_BUCKET} (or pass --bucket)", file=sys.stderr)
@@ -139,6 +146,38 @@ class BucketUploadDataset:
         if not project:
             print("::error::project is required", file=sys.stderr)
             return 1
+
+        # Drive mode: cloud-to-cloud, non-blocking — no local source to resolve
+        if drive:
+            if not drive_folder_id:
+                print("::error::--drive requires a folder ID as source", file=sys.stderr)
+                return 1
+            if not dataset_name:
+                print("::error::--drive requires an explicit dataset name (--dataset)", file=sys.stderr)
+                return 1
+            gcs_dest = f"{bucket_root_uri(bucket)}/projects/{project}/inputs/{dataset_name}"
+            console = step_console()
+            if console:
+                from rich.table import Table
+
+                table = Table.grid(padding=(0, 2))
+                table.add_row("[bold]Dataset[/]", dataset_name)
+                table.add_row("[bold]Source[/]", f"Google Drive folder: {drive_folder_id}")
+                table.add_row("[bold]Dest[/]", gcs_dest + "/")
+                table.add_row("[bold]Mode[/]", "cloud-transfer  (Cloud Run rclone job, non-blocking)")
+                console.print(table)
+                console.print()
+            else:
+                print(f"Dataset  {dataset_name}")
+                print(f"Source   Google Drive folder: {drive_folder_id}")
+                print(f"Dest     {gcs_dest}/")
+                print("Mode     cloud-transfer  (Cloud Run rclone job, non-blocking)")
+            return self._dispatch_drive_transfer_job(
+                bucket=bucket,
+                project=project,
+                drive_folder_id=drive_folder_id,
+                dataset_name=dataset_name,
+            )
 
         src = Path(source).resolve()
         if not src.exists():
@@ -156,8 +195,11 @@ class BucketUploadDataset:
         elif src.is_dir():
             file_count, total_bytes = _dir_stats(src)
             mode = "rsync"
+        elif src.is_file():
+            file_count, total_bytes = 1, src.stat().st_size
+            mode = "gcloud storage cp  (parallel composite upload)"
         else:
-            print(f"::error::Source is neither a directory nor a .zip archive: {src}", file=sys.stderr)
+            print(f"::error::Source is neither a file, directory, nor .zip archive: {src}", file=sys.stderr)
             return 1
 
         if console:
@@ -187,7 +229,7 @@ class BucketUploadDataset:
                 dataset_name=name,
                 force=force,
             )
-        else:
+        elif _is_zip(src):
             # Archive: Cloud Run import only
             if not self._can_use_import_job():
                 missing = [
@@ -210,6 +252,9 @@ class BucketUploadDataset:
                 source=src,
                 dataset_name=name,
             )
+        else:
+            # Single file: parallel composite upload
+            rc = self._upload_single_file(source=src, gcs_dest=gcs_dest)
 
         if rc == 0:
             self._validate_upload(gcs_dest=gcs_dest, expected_count=file_count, expected_bytes=total_bytes)
@@ -222,6 +267,67 @@ class BucketUploadDataset:
 
     def _can_use_import_job(self) -> bool:
         return bool(_control_job_name() and _cloud_run_region() and _gcp_project())
+
+    def _upload_single_file(self, *, source: Path, gcs_dest: str) -> int:
+        dest_uri = f"{gcs_dest}/{source.name}"
+        print(f"  gcloud storage cp {source} → {dest_uri}  (parallel composite)")
+        try:
+            upload_file_to_gcs_parallel(source=source, destination_uri=dest_uri)
+        except GCloudStorageError as exc:
+            print(f"::error::{exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    def _dispatch_drive_transfer_job(
+        self,
+        *,
+        bucket: str,
+        project: str,
+        drive_folder_id: str,
+        dataset_name: str,
+    ) -> int:
+        transfer_job = repo_var(ENV_BMT_DATASET_TRANSFER_JOB).strip()
+        region = _cloud_run_region()
+        gcp_project = _gcp_project()
+        if not transfer_job or not region or not gcp_project:
+            missing = [
+                v
+                for v, val in [
+                    (ENV_BMT_DATASET_TRANSFER_JOB, transfer_job),
+                    (ENV_CLOUD_RUN_REGION, region),
+                    (ENV_GCP_PROJECT, gcp_project),
+                ]
+                if not val
+            ]
+            print(
+                "::error::Drive transfer requires the following vars to be set: " + ", ".join(missing),
+                file=sys.stderr,
+            )
+            return 1
+
+        print(f"Dispatching Drive transfer job {transfer_job!r} (non-blocking)…")
+        try:
+            run_cloud_run_job(
+                project=gcp_project,
+                region=region,
+                job_name=transfer_job,
+                env_vars={
+                    "DRIVE_FOLDER_ID": drive_folder_id,
+                    "DEST_PROJECT": project,
+                    "DEST_DATASET": dataset_name,
+                    "DEST_BUCKET": bucket,
+                },
+                wait=False,
+            )
+        except GoogleApiError as exc:
+            print(f"::error::{exc}", file=sys.stderr)
+            return 1
+
+        print(
+            f"Transfer job dispatched. Monitor progress:\n"
+            f"  gcloud logging read 'resource.labels.job_name={transfer_job}' --limit=50 --format=text"
+        )
+        return 0
 
     def _dispatch_import_job(
         self,

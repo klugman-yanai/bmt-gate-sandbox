@@ -113,6 +113,8 @@ max-complexity = 10
 [lint.per-file-ignores]
 # Release/utility scripts: print to stdout/stderr for operator feedback
 "scripts/**" = ["T20"]
+# Pulumi infra: secret_id= arguments are resource names, not hardcoded passwords
+"infra/pulumi/**" = ["S106"]
 # Lazy/google.* imports: allow inside functions (PLC0415) and isort single-line (I001)
 "gcp/image/**" = ["PLC0415"]
 "tests/**" = [

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import posixpath
 import tempfile
 from pathlib import Path
@@ -115,6 +116,10 @@ def _job(
     )
 
 
+cloud_run_image_transfer_uri = (
+    f"{cfg.cloud_run_region}-docker.pkg.dev/{cfg.gcp_project}/{cfg.artifact_registry_repo}/bmt-transfer"
+)
+
 cloud_run_job_control = _job(
     "bmt-control",
     job_name="bmt-control",
@@ -135,6 +140,80 @@ cloud_run_job_heavy = _job(
     cpu=cfg.cloud_run_cpu_heavy,
     memory=cfg.cloud_run_memory_heavy,
 )
+
+cloud_run_job_dataset_transfer = gcp.cloudrunv2.Job(
+    "bmt-dataset-transfer",
+    name="bmt-dataset-transfer",
+    location=cfg.cloud_run_region,
+    project=cfg.gcp_project,
+    launch_stage="GA",
+    template=gcp.cloudrunv2.JobTemplateArgs(
+        task_count=1,
+        template=gcp.cloudrunv2.JobTemplateTemplateArgs(
+            service_account=job_runner_sa.email,
+            timeout=f"{cfg.cloud_run_task_timeout_sec}s",
+            max_retries=0,
+            containers=[
+                gcp.cloudrunv2.JobTemplateTemplateContainerArgs(
+                    image=f"{cloud_run_image_transfer_uri}:latest",
+                    envs=[
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(name="GCS_BUCKET", value=cfg.gcs_bucket),
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
+                            name="GCP_PROJECT", value=cfg.gcp_project
+                        ),
+                        _secret_env("BMT_DRIVE_SA_KEY"),
+                    ],
+                    resources=gcp.cloudrunv2.JobTemplateTemplateContainerResourcesArgs(
+                        limits={"cpu": cfg.cloud_run_cpu_standard, "memory": cfg.cloud_run_memory_standard}
+                    ),
+                )
+            ],
+        ),
+    ),
+)
+
+# SA key for Google Drive access (rclone inside the transfer Cloud Run job).
+# The job_runner_sa email must be added as a Viewer on the target Shared Drive.
+job_runner_drive_key = gcp.serviceaccount.Key(
+    "bmt-job-runner-drive-key",
+    service_account_id=job_runner_sa.name,
+)
+
+bmt_drive_sa_key_secret = gcp.secretmanager.Secret(
+    "bmt-drive-sa-key-secret",
+    secret_id="BMT_DRIVE_SA_KEY",
+    project=cfg.gcp_project,
+    replication=gcp.secretmanager.SecretReplicationArgs(
+        auto=gcp.secretmanager.SecretReplicationAutoArgs(),
+    ),
+)
+
+gcp.secretmanager.SecretVersion(
+    "bmt-drive-sa-key-version",
+    secret=bmt_drive_sa_key_secret.id,
+    secret_data=job_runner_drive_key.private_key.apply(
+        lambda k: base64.b64decode(k).decode("utf-8")
+    ),
+)
+
+gcp.secretmanager.SecretIamMember(
+    "job-runner-drive-sa-key-secret",
+    project=cfg.gcp_project,
+    secret_id=bmt_drive_sa_key_secret.secret_id,
+    role="roles/secretmanager.secretAccessor",
+    member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
+)
+
+gcp.cloudrunv2.JobIamMember(
+    "developer-invokes-transfer-job",
+    name=cloud_run_job_dataset_transfer.name,
+    location=cfg.cloud_run_region,
+    project=cfg.gcp_project,
+    role="roles/run.jobsExecutorWithOverrides",
+    member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
+)
+
+pulumi.export("cloud_run_job_dataset_transfer", cloud_run_job_dataset_transfer.name)
 
 workflow_source = render_workflow_source(
     template_path=Path(__file__).parent / "workflow.yaml",

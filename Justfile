@@ -18,7 +18,7 @@ help:
       '  just add-bmt / publish-bmt' \
       '' \
       'Bucket & data' \
-      '  just upload-data       Dataset zip/folder → GCS' \
+      '  just upload-dataset    Dataset file/folder/Drive → GCS' \
       '  just mount-project / umount-project' \
       '' \
       'Other' \
@@ -105,13 +105,19 @@ deploy:
 preflight:
     uv run python -m tools bucket preflight
 
-# Upload WAV dataset to projects/<project>/inputs/<dataset>/ in GCS only (datasets can be 30-40 GB).
-# Archives use gcloud storage cp + Cloud Run extraction. Folders use gcloud storage rsync.
-# Dataset name is auto-detected from the filename.
-# Pass --local to also mirror into gcp/stage/. Example: just upload-data sk audio/sk_false_rejects.zip
+# Upload dataset to projects/<project>/inputs/<dataset>/ in GCS.
+# Single file:   just upload-dataset sk my_data /path/to/audio.wav
+# Local folder:  just upload-dataset sk my_data /path/to/folder --recursive
+# Google Drive:  just upload-dataset sk my_data <drive-folder-id> --drive
+[group('bucket')]
+upload-dataset project dataset source *args:
+    uv run python -m tools bucket upload-dataset "{{ project }}" "{{ dataset }}" "{{ source }}" {{ args }}
+
+# Legacy alias — use upload-dataset instead
+[private]
 [group('bucket')]
 upload-data project source *args:
-    uv run python -m tools bucket upload-dataset "{{ project }}" "{{ source }}" {{ args }}
+    uv run python -m tools bucket upload-dataset "{{ project }}" "{{ project }}" "{{ source }}" {{ args }}
 
 [private]
 [group('bucket')]

@@ -173,44 +173,71 @@ def upload_dataset(
         str,
         typer.Argument(help="Project name (e.g. sk)"),
     ],
-    source: Annotated[
-        Path,
-        typer.Argument(help="Path to a .zip archive or a folder containing WAV files"),
+    dataset: Annotated[
+        str,
+        typer.Argument(help="Dataset name (e.g. false_alarms)"),
     ],
-    dataset_name: Annotated[
-        str | None,
-        typer.Option("--dataset", help="Dataset name override (auto-detected from source if omitted)"),
-    ] = None,
+    source: Annotated[
+        str,
+        typer.Argument(
+            help="Local file path, local folder path, or Google Drive folder ID (with --drive)"
+        ),
+    ],
+    drive: Annotated[
+        bool,
+        typer.Option("--drive", help="Source is a Google Drive folder ID; transfer runs via Cloud Run (non-blocking)"),
+    ] = False,
+    recursive: Annotated[
+        bool,
+        typer.Option("--recursive", "-r", help="Source is a local folder; use gcloud storage rsync"),
+    ] = False,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Re-upload even if GCS already matches"),
+        typer.Option("--force", help="Re-upload even if GCS already matches (local modes only)"),
     ] = False,
     local: Annotated[
         bool,
         typer.Option("--local", help="Also mirror files into gcp/stage/ (off by default; datasets can be 30-40 GB)"),
     ] = False,
 ) -> None:
-    """Upload a WAV dataset (zip or folder) to projects/<project>/inputs/<dataset>/.
+    """Upload a WAV dataset to projects/<project>/inputs/<dataset>/.
 
-    Uploads to GCS only by default — datasets can be 30-40 GB. Archives use
-    ``gcloud storage cp`` followed by the Cloud Run dataset importer; folders
-    use ``gcloud storage rsync``. Pass --local to also mirror into gcp/stage/.
-    Dataset name is auto-detected from the source filename when not given:
-    sk_false_rejects.zip → false_rejects.
+    Three modes:
+
+    \b
+    Single file (up to 20 GB):
+        uv run bmt bucket upload-dataset sk my_data /path/to/audio.wav
+
+    Local folder (recursive):
+        uv run bmt bucket upload-dataset sk my_data /path/to/folder --recursive
+
+    Google Drive folder (non-blocking Cloud Run job):
+        uv run bmt bucket upload-dataset sk my_data <drive-folder-id> --drive
     """
     from tools.remote.bucket_upload_dataset import BucketUploadDataset
     from tools.repo.paths import repo_root
 
     bucket = bucket_from_env()
     local_mirror = repo_root() / "gcp" / "stage" if local else None
-    rc = BucketUploadDataset().run(
-        bucket=bucket,
-        project=project,
-        source=source,
-        dataset_name=dataset_name,
-        force=force,
-        local_mirror=local_mirror,
-    )
+
+    if drive:
+        rc = BucketUploadDataset().run(
+            bucket=bucket,
+            project=project,
+            source="",
+            dataset_name=dataset,
+            drive=True,
+            drive_folder_id=source,
+        )
+    else:
+        rc = BucketUploadDataset().run(
+            bucket=bucket,
+            project=project,
+            source=Path(source),
+            dataset_name=dataset,
+            force=force,
+            local_mirror=local_mirror,
+        )
     raise typer.Exit(rc)
 
 
