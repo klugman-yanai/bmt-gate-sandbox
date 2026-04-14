@@ -9,6 +9,7 @@ requires-python = ">=3.12,<3.13"
 description = "Kardome BMT CI driver: matrix discovery, Cloud Run handoff, and runner upload."
 dependencies = [
     "bmt-gcloud",
+    "bmt-runtime",
     "google-cloud-compute>=1.45",
     "google-cloud-storage>=2.16",
     "PyGithub>=2.0",

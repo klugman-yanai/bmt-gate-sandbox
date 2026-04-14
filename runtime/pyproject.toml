@@ -25,5 +25,5 @@ package = true
 dev = []
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = [".."]
 include = ["runtime*"]

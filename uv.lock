@@ -73,6 +73,7 @@ name = "bmt-gcloud"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "bmt-runtime" },
     { name = "bmt-sdk" },
     { name = "google-cloud-artifact-registry" },
     { name = "google-cloud-storage" },
@@ -118,6 +119,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bmt-runtime", editable = "runtime" },
     { name = "bmt-sdk", editable = "sdk" },
     { name = "google-cloud-artifact-registry", specifier = ">=1.14.0" },
     { name = "google-cloud-storage", specifier = ">=2.16" },
@@ -687,6 +689,7 @@ version = "0.1.0"
 source = { editable = "ci" }
 dependencies = [
     { name = "bmt-gcloud" },
+    { name = "bmt-runtime" },
     { name = "google-cloud-compute" },
     { name = "google-cloud-storage" },
     { name = "pydantic" },
@@ -697,6 +700,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "bmt-gcloud", editable = "." },
+    { name = "bmt-runtime", editable = "runtime" },
     { name = "google-cloud-compute", specifier = ">=1.45" },
     { name = "google-cloud-storage", specifier = ">=2.16" },
     { name = "pydantic", specifier = ">=2.12.5" },
