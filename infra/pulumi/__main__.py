@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import posixpath
 import tempfile
 from pathlib import Path
@@ -161,7 +160,9 @@ cloud_run_job_dataset_transfer = gcp.cloudrunv2.Job(
                         gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
                             name="GCP_PROJECT", value=cfg.gcp_project
                         ),
-                        _secret_env("BMT_DRIVE_SA_KEY"),
+                        _secret_env("BMT_DRIVE_CLIENT_ID"),
+                        _secret_env("BMT_DRIVE_CLIENT_SECRET"),
+                        _secret_env("BMT_DRIVE_REFRESH_TOKEN"),
                     ],
                     resources=gcp.cloudrunv2.JobTemplateTemplateContainerResourcesArgs(
                         limits={"cpu": cfg.cloud_run_cpu_standard, "memory": cfg.cloud_run_memory_standard}
@@ -172,37 +173,32 @@ cloud_run_job_dataset_transfer = gcp.cloudrunv2.Job(
     ),
 )
 
-# SA key for Google Drive access (rclone inside the transfer Cloud Run job).
-# The job_runner_sa email must be added as a Viewer on the target Shared Drive.
-job_runner_drive_key = gcp.serviceaccount.Key(
-    "bmt-job-runner-drive-key",
-    service_account_id=job_runner_sa.name,
-)
+# OAuth2 credentials for Google Drive access (rclone inside the transfer Cloud Run job).
+# SA key creation is blocked by org policy; these secrets are populated manually after deploy:
+#   gcloud secrets versions add BMT_DRIVE_CLIENT_ID --data-file=- <<< "<value>"
+#   gcloud secrets versions add BMT_DRIVE_CLIENT_SECRET --data-file=- <<< "<value>"
+#   gcloud secrets versions add BMT_DRIVE_REFRESH_TOKEN --data-file=- <<< "<value>"
+# Use a Google OAuth2 Desktop app (Drive API scope). The Drive folder owner must share it
+# with the authenticating user account used to generate the refresh token.
+_drive_oauth_secret_names = ("BMT_DRIVE_CLIENT_ID", "BMT_DRIVE_CLIENT_SECRET", "BMT_DRIVE_REFRESH_TOKEN")
 
-bmt_drive_sa_key_secret = gcp.secretmanager.Secret(
-    "bmt-drive-sa-key-secret",
-    secret_id="BMT_DRIVE_SA_KEY",
-    project=cfg.gcp_project,
-    replication=gcp.secretmanager.SecretReplicationArgs(
-        auto=gcp.secretmanager.SecretReplicationAutoArgs(),
-    ),
-)
-
-gcp.secretmanager.SecretVersion(
-    "bmt-drive-sa-key-version",
-    secret=bmt_drive_sa_key_secret.id,
-    secret_data=job_runner_drive_key.private_key.apply(
-        lambda k: base64.b64decode(k).decode("utf-8")
-    ),
-)
-
-gcp.secretmanager.SecretIamMember(
-    "job-runner-drive-sa-key-secret",
-    project=cfg.gcp_project,
-    secret_id=bmt_drive_sa_key_secret.secret_id,
-    role="roles/secretmanager.secretAccessor",
-    member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
-)
+_drive_oauth_secrets: dict[str, gcp.secretmanager.Secret] = {}
+for _name in _drive_oauth_secret_names:
+    _drive_oauth_secrets[_name] = gcp.secretmanager.Secret(
+        f"bmt-drive-{_name.lower().replace('_', '-')}-secret",
+        secret_id=_name,
+        project=cfg.gcp_project,
+        replication=gcp.secretmanager.SecretReplicationArgs(
+            auto=gcp.secretmanager.SecretReplicationAutoArgs(),
+        ),
+    )
+    gcp.secretmanager.SecretIamMember(
+        f"job-runner-drive-{_name.lower().replace('_', '-')}-secret",
+        project=cfg.gcp_project,
+        secret_id=_drive_oauth_secrets[_name].secret_id,
+        role="roles/secretmanager.secretAccessor",
+        member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
+    )
 
 gcp.cloudrunv2.JobIamMember(
     "developer-invokes-transfer-job",

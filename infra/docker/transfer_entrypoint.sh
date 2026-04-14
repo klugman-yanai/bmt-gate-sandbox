@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 # Cloud Run entrypoint for the bmt-dataset-transfer job.
 # Copies a Google Drive folder to GCS using rclone, then generates a dataset manifest.
+#
+# Required env vars (injected as Cloud Run secrets):
+#   BMT_DRIVE_CLIENT_ID     — OAuth2 Desktop app client ID
+#   BMT_DRIVE_CLIENT_SECRET — OAuth2 client secret
+#   BMT_DRIVE_REFRESH_TOKEN — OAuth2 refresh token (drive.readonly scope)
+#
+# Required env vars (set by caller via --update-env-vars):
+#   DRIVE_FOLDER_ID  — Google Drive folder ID to copy from
+#   DEST_PROJECT     — BMT project slug (e.g. "sk")
+#   DEST_DATASET     — Dataset name (e.g. "false_alarms")
+#   DEST_BUCKET      — GCS bucket name
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Validate required env vars
 # ---------------------------------------------------------------------------
 missing=()
-for var in DRIVE_FOLDER_ID DEST_PROJECT DEST_DATASET DEST_BUCKET BMT_DRIVE_SA_KEY; do
+for var in DRIVE_FOLDER_ID DEST_PROJECT DEST_DATASET DEST_BUCKET \
+           BMT_DRIVE_CLIENT_ID BMT_DRIVE_CLIENT_SECRET BMT_DRIVE_REFRESH_TOKEN; do
     if [[ -z "${!var:-}" ]]; then
         missing+=("$var")
     fi
@@ -18,25 +30,40 @@ if [[ ${#missing[@]} -gt 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Write Drive service account key to a temp file
+# Write rclone config with OAuth2 token
+# Uses Python to safely construct the token JSON without shell escaping issues.
+# GCS backend uses Workload Identity (ADC) — no credentials needed.
 # ---------------------------------------------------------------------------
-SA_KEY_FILE=/tmp/sa.json
-printf '%s' "$BMT_DRIVE_SA_KEY" > "$SA_KEY_FILE"
-chmod 600 "$SA_KEY_FILE"
+python3 - <<'PYEOF'
+import json, os
 
-# ---------------------------------------------------------------------------
-# Write rclone config
-# Drive backend uses the SA key; GCS backend uses Workload Identity (ADC).
-# ---------------------------------------------------------------------------
-mkdir -p ~/.config/rclone
-cat > ~/.config/rclone/rclone.conf <<EOF
-[gdrive]
-type = drive
-service_account_file = ${SA_KEY_FILE}
+client_id     = os.environ["BMT_DRIVE_CLIENT_ID"]
+client_secret = os.environ["BMT_DRIVE_CLIENT_SECRET"]
+refresh_token = os.environ["BMT_DRIVE_REFRESH_TOKEN"]
 
-[gcs]
-type = google cloud storage
-EOF
+token_json = json.dumps({
+    "access_token": "ya29.placeholder",  # non-empty so rclone triggers a refresh
+    "token_type": "Bearer",
+    "refresh_token": refresh_token,
+    "expiry": "2020-01-01T00:00:00Z",  # clearly past; rclone will exchange refresh_token
+})
+
+config = (
+    "[gdrive]\n"
+    "type = drive\n"
+    f"client_id = {client_id}\n"
+    f"client_secret = {client_secret}\n"
+    f"token = {token_json}\n"
+    "\n"
+    "[gcs]\n"
+    "type = google cloud storage\n"
+)
+
+os.makedirs(os.path.expanduser("~/.config/rclone"), exist_ok=True)
+with open(os.path.expanduser("~/.config/rclone/rclone.conf"), "w") as f:
+    f.write(config)
+print("rclone.conf written")
+PYEOF
 
 # ---------------------------------------------------------------------------
 # Run rclone copy: Drive folder → GCS destination prefix
@@ -45,8 +72,9 @@ DEST_PREFIX="projects/${DEST_PROJECT}/inputs/${DEST_DATASET}"
 GCS_DEST="gcs:${DEST_BUCKET}/${DEST_PREFIX}/"
 
 echo "Copying Google Drive folder ${DRIVE_FOLDER_ID} → gs://${DEST_BUCKET}/${DEST_PREFIX}/"
+# gdrive: (empty path) — drive-root-folder-id makes that folder the remote root.
 rclone copy \
-    "gdrive:${DRIVE_FOLDER_ID}" \
+    "gdrive:" \
     "$GCS_DEST" \
     --drive-root-folder-id="${DRIVE_FOLDER_ID}" \
     --transfers=8 \
