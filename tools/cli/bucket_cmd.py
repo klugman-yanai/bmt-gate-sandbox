@@ -179,9 +179,7 @@ def upload_dataset(
     ],
     source: Annotated[
         str,
-        typer.Argument(
-            help="Local file path, local folder path, or Google Drive folder ID (with --drive)"
-        ),
+        typer.Argument(help="Local file path, local folder path, or Google Drive folder ID (with --drive)"),
     ],
     drive: Annotated[
         bool,

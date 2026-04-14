@@ -26,7 +26,7 @@ _SUCCESS = _Resp(200, {"name": "projects/p/locations/r/workflows/w/executions/ab
 
 
 def _args() -> dict:
-    return dict(project="p", region="r", workflow_name="w", argument={})
+    return {"project": "p", "region": "r", "workflow_name": "w", "argument": {}}
 
 
 def _mock_session(responses: list) -> MagicMock:

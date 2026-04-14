@@ -68,9 +68,7 @@ def _remote_workflow_names() -> list[str] | None:
             if isinstance(name, str) and name.endswith((".yml", ".yaml")):
                 names.add(name)
         elif row.get("type") == "dir" and row.get("name") == "internal":
-            internal = _gh_api_json(
-                f"repos/{CORE_MAIN_REPO}/contents/.github/workflows/internal?ref={CORE_MAIN_REF}"
-            )
+            internal = _gh_api_json(f"repos/{CORE_MAIN_REPO}/contents/.github/workflows/internal?ref={CORE_MAIN_REF}")
             if not isinstance(internal, list):
                 continue
             for child in internal:
@@ -87,9 +85,7 @@ def _remote_workflow_names() -> list[str] | None:
 
 def _remote_workflow_text(name: str) -> str | None:
     for rel in (name, f"internal/{name}"):
-        data = _gh_api_json(
-            f"repos/{CORE_MAIN_REPO}/contents/.github/workflows/{rel}?ref={CORE_MAIN_REF}"
-        )
+        data = _gh_api_json(f"repos/{CORE_MAIN_REPO}/contents/.github/workflows/{rel}?ref={CORE_MAIN_REF}")
         if not isinstance(data, dict):
             continue
         payload = cast(dict[str, Any], data)

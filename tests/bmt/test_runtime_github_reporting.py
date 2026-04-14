@@ -280,9 +280,7 @@ def test_publish_final_results_posts_status_and_failure_comment_with_log_dump(
     assert cap.comment_view.failed_bmts == [("false_rejects", "score dropped below baseline")]
     assert cap.comment_view.links.log_dump_url == "https://example.test/log-dumps/wf-123.txt"
 
-    meta_after = load_optional_reporting_metadata(
-        stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id
-    )
+    meta_after = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
     assert meta_after is not None
     assert meta_after.github_publish_complete is True
 
@@ -346,9 +344,7 @@ def test_publish_final_results_still_posts_status_when_check_and_comment_fail(
     assert cap.status_details_url == "https://example.test/workflows/123"
     assert cap.resolved_repository == "owner/repo"
 
-    meta_after = load_optional_reporting_metadata(
-        stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id
-    )
+    meta_after = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
     assert meta_after is not None
     assert meta_after.github_publish_complete is False
 
@@ -400,9 +396,7 @@ def test_publish_github_failure_skips_without_check_run_id(tmp_path: Path, monke
     assert not getattr(cap, "called", False)
 
 
-def test_publish_github_failure_syncs_metadata_when_remote_check_completed(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_publish_github_failure_syncs_metadata_when_remote_check_completed(tmp_path: Path, monkeypatch) -> None:
     runtime = StageRuntimePaths(stage_root=tmp_path / "stage", workspace_root=tmp_path / "workspace")
     runtime.stage_root.mkdir(parents=True, exist_ok=True)
     plan = _plan()
@@ -424,9 +418,7 @@ def test_publish_github_failure_syncs_metadata_when_remote_check_completed(
 
     publish_github_failure(plan=plan, runtime=runtime, reason="irrelevant")
 
-    meta_after = load_optional_reporting_metadata(
-        stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id
-    )
+    meta_after = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=plan.workflow_run_id)
     assert meta_after is not None
     assert meta_after.github_publish_complete is True
 
@@ -744,11 +736,11 @@ def test_publish_final_results_retries_finalize_check_run_on_github_exception(
 
     monkeypatch.setattr(
         "gcp.image.runtime.github_reporting._load_reporter",
-        lambda **kwargs: (mock_reporter, metadata),
+        lambda **_kwargs: (mock_reporter, metadata),
     )
     monkeypatch.setattr(
         "gcp.image.runtime.github_reporting._write_log_dump_and_sign",
-        lambda *a, **kw: None,
+        lambda *_a, **_kw: None,
     )
     monkeypatch.setattr("time.sleep", lambda _: None)
 

@@ -119,10 +119,7 @@ def _dry_run_prek_renderable(prek_state: str | None) -> Panel | None:
         msg = "[dim]Not a git working tree — hook install does not apply.[/]"
         border = "dim"
     else:
-        msg = (
-            "Run [cyan]just setup[/] to complete bootstrap and install hooks. "
-            "See [cyan]CONTRIBUTING.md[/]."
-        )
+        msg = "Run [cyan]just setup[/] to complete bootstrap and install hooks. See [cyan]CONTRIBUTING.md[/]."
         border = "dim"
 
     return Panel(

@@ -84,9 +84,7 @@ def test_filter_upload_matrix_skips_sk_when_no_artifacts_and_runner_binary_in_gc
 
     monkeypatch.setattr(gcs, "download_json", lambda _uri: (None, "404"))
     # Only old-layout path exists
-    monkeypatch.setattr(
-        gcs, "object_exists", lambda uri: "sk/runners/sk_gcc_release/kardome_runner" in uri
-    )
+    monkeypatch.setattr(gcs, "object_exists", lambda uri: "sk/runners/sk_gcc_release/kardome_runner" in uri)
     monkeypatch.setattr(gcs, "write_object", lambda u, _: written.append(u))
 
     RunnerManager.from_env().filter_upload_matrix()

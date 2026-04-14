@@ -434,8 +434,7 @@ def publish_github_failure(
 
     if aggregate_status(summaries) == BmtLegStatus.PASS.value:
         logger.error(
-            "publish_github_failure gave up: legs passed on disk but GitHub publish incomplete "
-            "workflow_run_id=%s",
+            "publish_github_failure gave up: legs passed on disk but GitHub publish incomplete workflow_run_id=%s",
             plan.workflow_run_id,
         )
         return

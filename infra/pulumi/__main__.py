@@ -157,9 +157,7 @@ cloud_run_job_dataset_transfer = gcp.cloudrunv2.Job(
                     image=f"{cloud_run_image_transfer_uri}:latest",
                     envs=[
                         gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(name="GCS_BUCKET", value=cfg.gcs_bucket),
-                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
-                            name="GCP_PROJECT", value=cfg.gcp_project
-                        ),
+                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(name="GCP_PROJECT", value=cfg.gcp_project),
                         _secret_env("BMT_DRIVE_CLIENT_ID"),
                         _secret_env("BMT_DRIVE_CLIENT_SECRET"),
                         _secret_env("BMT_DRIVE_REFRESH_TOKEN"),

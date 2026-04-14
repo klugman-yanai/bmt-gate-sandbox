@@ -24,7 +24,9 @@ class WorkflowsApiError(RuntimeError):
 def _session() -> AuthorizedSession:
     from google.auth.credentials import Credentials
 
-    credentials, _ = cast(tuple[Credentials, object], google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE]))
+    credentials, _ = cast(
+        tuple[Credentials, object], google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE])
+    )
     if not credentials.valid:
         credentials.refresh(Request())
     return AuthorizedSession(credentials)
@@ -79,6 +81,4 @@ def start_execution(
             raise WorkflowsApiError("Workflow execution response was not a JSON object")
         return payload
 
-    raise WorkflowsApiError(
-        f"POST {url} failed after {_max_attempts} attempts"
-    ) from last_exc
+    raise WorkflowsApiError(f"POST {url} failed after {_max_attempts} attempts") from last_exc
