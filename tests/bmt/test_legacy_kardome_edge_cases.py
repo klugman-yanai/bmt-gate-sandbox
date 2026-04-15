@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -214,3 +215,58 @@ def test_corrupt_manifest_logs_warning_and_proceeds(tmp_path: Path) -> None:
 
     ex = _make_executor(ds, tmp_path)
     assert ex._check_manifest_completeness() == []
+
+
+def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> None:
+    """Runner lacks execute bit (GCSFuse mount): only binary + .so copied, not inputs/ dir."""
+    # Simulate projects/sk/ structure: runner + libKardome.so + huge inputs/ subdir
+    sk_dir = tmp_path / "sk"
+    sk_dir.mkdir()
+    runner = sk_dir / "kardome_runner"
+    runner.write_bytes(b"#!/bin/sh\n")
+    # Explicitly remove execute bit so os.access returns False
+    runner.chmod(0o644)
+    (sk_dir / "libKardome.so").write_bytes(b"ELF")
+    inputs_dir = sk_dir / "inputs"
+    inputs_dir.mkdir()
+    (inputs_dir / "huge.wav").write_bytes(b"x" * 100)
+
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "a.wav").write_bytes(b"RIFF")
+    runtime, outputs, logs = _minimal_dirs(tmp_path)
+    tpl = tmp_path / "t.json"
+    tpl.write_text("{}", encoding="utf-8")
+
+    ex = LegacyKardomeStdoutExecutor(
+        LegacyKardomeStdoutConfig(
+            runner_path=runner,
+            template_path=tpl,
+            dataset_root=ds,
+            runtime_root=runtime,
+            outputs_root=outputs,
+            logs_root=logs,
+        )
+    )
+
+    # Capture the temp bundle directory contents while it still exists (before finally-cleanup)
+    captured: dict[str, object] = {}
+
+    def _mock_run(cmd: list[str], **_kwargs: object) -> object:
+        runner_used = Path(cmd[0])
+        tmp_bundle_dir = runner_used.parent
+        captured["runner_used"] = runner_used
+        captured["inputs_exists"] = (tmp_bundle_dir / "inputs").exists()
+        captured["so_exists"] = (tmp_bundle_dir / "libKardome.so").exists()
+        return types.SimpleNamespace(returncode=0)
+
+    with patch.object(legacy_kardome.subprocess, "run", side_effect=_mock_run):
+        ex.run()
+
+    assert captured, "subprocess.run was not called"
+    # Runner was copied to a temp location (not invoked from the original GCSFuse path)
+    assert captured["runner_used"] != runner
+    # inputs/ must NOT have been copied — that would exhaust container disk
+    assert not captured["inputs_exists"], "inputs/ must not be copied to temp"
+    # The shared library alongside the binary should be copied for RPATH/$ORIGIN resolution
+    assert captured["so_exists"], "libKardome.so must be copied to temp"

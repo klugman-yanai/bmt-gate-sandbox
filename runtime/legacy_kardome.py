@@ -292,13 +292,22 @@ class LegacyKardomeStdoutExecutor:
         _tmp_runner_dir: str | None = None
         if not os.access(runner_path, os.X_OK):
             _tmp_runner_dir = tempfile.mkdtemp(prefix="bmt-runner-")
-            # Copy the entire bundle dir so RPATH-relative .so files are found
-            src_bundle = runner_path.parent
-            tmp_bundle = Path(_tmp_runner_dir) / src_bundle.name
-            shutil.copytree(src_bundle, tmp_bundle)
+            # Copy only the runner binary and .so files alongside it — NOT the entire parent
+            # directory. The parent may be a large project root containing multi-GB dataset
+            # directories (e.g. inputs/) that would exhaust container disk if copied wholesale.
+            # LD_LIBRARY_PATH already includes runner_path.parent (see _runner_env), so
+            # libKardome.so and any other .so files placed there are found by the dynamic linker.
+            tmp_bundle = Path(_tmp_runner_dir) / runner_path.parent.name
+            tmp_bundle.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(runner_path, tmp_bundle / runner_path.name)
+            for so_file in runner_path.parent.glob("*.so"):
+                shutil.copy2(so_file, tmp_bundle / so_file.name)
+            src_lib = runner_path.parent / "lib"
+            if src_lib.is_dir():
+                shutil.copytree(src_lib, tmp_bundle / "lib")
             runner_path = tmp_bundle / runner_path.name
             runner_path.chmod(0o755)
-            logger.info("Copied runner bundle to %s (GCSFuse execute-bit workaround)", runner_path)
+            logger.info("Copied runner binary + .so files to %s (GCSFuse execute-bit workaround)", runner_path)
         try:
             template = json.loads(self.config.template_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
