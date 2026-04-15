@@ -19,8 +19,18 @@ help:
       '' \
       'Bucket & data' \
       '  just check-sync        Verify plugins matches GCS bucket (advisory)' \
-      '  just upload-data       Dataset zip/folder → GCS' \
+      '  just upload-data       Small datasets: zip/folder → GCS via rsync' \
+      '  just infra-setup       One-time: create Transfer Service agent pool' \
+      '  just agent-start/stop  Manage local Transfer Service agent (Docker)' \
+      '  just transfer          Large WAV datasets → GCS via Transfer Service agent' \
+      '  just drive-sync        Google Drive folder → GCS via rclone (Docker)' \
+      '  just upload-status     Compare local vs GCS file counts for a dataset' \
       '  just mount-project / umount-project' \
+      '' \
+      'Monitoring' \
+      '  just logs              Tail Cloud Run job logs' \
+      '  just image-status      Show image digest pinned to each Cloud Run job' \
+      '  just e2e-trigger       Open a PR to trigger the full E2E BMT pipeline' \
       '' \
       'Other' \
       '  just typecheck [section]   ty: all sections, or one of ci | runtime | infra | tools | tests | plugins' \
@@ -190,6 +200,125 @@ umount-project project:
 [group('bucket')]
 set-bucket-var:
     gh variable set GCS_BUCKET --body "$(cd infra/pulumi && pulumi stack output gcs_bucket)"
+
+# -- Large dataset uploads (Storage Transfer Service agent) ------------------
+
+# One-time: create the agent pool. Safe to re-run.
+[group('upload')]
+infra-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="${GCP_PROJECT:-train-kws-202311}"
+    gcloud transfer agent-pools create bmt-upload-pool --project="$PROJECT" 2>/dev/null || true
+    echo "Agent pool ready."
+    echo "Next: 'just agent-start' before any large upload, then 'just transfer <project> <dataset> <source>'"
+    echo "For Drive→GCS: docker run --rm -it -v \$HOME/.config/rclone:/config/rclone rclone/rclone config"
+
+# Start the Transfer Service agent. Mounts ./data as /transfer_root inside the container.
+# Run once before a batch of transfers; stop when done.
+[group('upload')]
+agent-start:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="${GCP_PROJECT:-train-kws-202311}"
+    if docker ps --format '{{{{.Names}}}}' | grep -q '^bmt-transfer-agent$'; then
+      echo "Agent already running."
+      exit 0
+    fi
+    docker run -d --name bmt-transfer-agent \
+      -v "$HOME/.config/gcloud:/root/.config/gcloud" \
+      -v "$(pwd)/data:/transfer_root" \
+      gcr.io/cloud-ingest/tsop-agent \
+      --project="$PROJECT" \
+      --agent-pool=bmt-upload-pool
+    echo "Agent started. Stop with: just agent-stop"
+
+[group('upload')]
+agent-stop:
+    docker rm -f bmt-transfer-agent || true
+
+# Create a managed transfer job for a WAV dataset.
+# <source> is a path relative to ./data (e.g. false_alarms or rejects/quiet).
+# Monitor at https://console.cloud.google.com/storage-transfer
+# Example: GCS_BUCKET=train-kws-202311-bmt-gate just transfer sk false_alarms false_alarms
+[group('upload')]
+transfer project dataset source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="${GCP_PROJECT:-train-kws-202311}"
+    gcloud transfer jobs create \
+      --source-agent-pool=bmt-upload-pool \
+      --source-directory="/transfer_root/{{source}}" \
+      --destination="gs://${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}" \
+      --project="$PROJECT"
+    echo ""
+    echo "Monitor: https://console.cloud.google.com/storage-transfer?project=$PROJECT"
+    echo "After completion run: GCS_BUCKET=${GCS_BUCKET} just upload-data {{project}} {{dataset}} data/{{source}} --force"
+
+# Compare local vs GCS file counts for a dataset.
+# Example: GCS_BUCKET=... just upload-status sk false_alarms
+[group('upload')]
+upload-status project dataset:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    LOCAL=$(find "data/{{dataset}}" -type f 2>/dev/null | wc -l || echo 0)
+    REMOTE=$(gcloud storage ls "gs://${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}/**" 2>/dev/null | wc -l || echo 0)
+    echo "Local  (data/{{dataset}}):                         $LOCAL files"
+    echo "Remote (gs://${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}): $REMOTE files"
+    if [ "$LOCAL" -eq "$REMOTE" ]; then echo "✓ In sync"; else echo "✗ Mismatch"; fi
+
+# Google Drive folder → GCS via rclone (requires prior: docker run --rm -it rclone/rclone config).
+# <folder_id> is the Drive folder ID from the URL.
+# Example: GCS_BUCKET=... just drive-sync 1CFF2GQ... sk false_alarms
+[group('upload')]
+drive-sync folder_id project dataset:
+    docker run --rm \
+      -v "$HOME/.config/rclone:/config/rclone" \
+      rclone/rclone copy \
+      "drive:{{folder_id}}" \
+      "gcs:${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}" \
+      --drive-root-folder-id="{{folder_id}}" \
+      --progress \
+      --transfers=4 \
+      --stats=5s
+
+# -- Monitoring & debug -------------------------------------------------------
+
+# Tail recent logs for a Cloud Run job. Default: last 1 hour.
+# Example: just logs bmt-control
+[group('monitor')]
+logs job freshness="1h":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="${GCP_PROJECT:-train-kws-202311}"
+    gcloud logging read \
+      "resource.type=cloud_run_job AND resource.labels.job_name={{job}}" \
+      --project="$PROJECT" \
+      --limit=200 \
+      --freshness="{{freshness}}" \
+      --format="table(timestamp,textPayload)"
+
+# Show the image digest each Cloud Run job is currently pinned to.
+[group('monitor')]
+image-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="${GCP_PROJECT:-train-kws-202311}"
+    REGION="${CLOUD_RUN_REGION:-europe-west4}"
+    printf '%-35s %s\n' "JOB" "IMAGE"
+    for JOB in bmt-control bmt-task-standard bmt-task-heavy bmt-orchestrator-standard bmt-orchestrator-heavy; do
+      IMG=$(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT" \
+        --format="value(spec.template.spec.template.spec.containers[0].image)" 2>/dev/null || echo "(not found)")
+      printf '%-35s %s\n' "$JOB" "$IMG"
+    done
+
+# Open a PR from the current branch targeting ci/check-bmt-gate to trigger the E2E BMT pipeline.
+[group('monitor')]
+e2e-trigger:
+    gh pr create \
+      --title "chore: E2E trigger" \
+      --body "Trigger BMT gate E2E pipeline." \
+      --base ci/check-bmt-gate
 
 # -- Infrastructure ----------------------------------------------------------
 
