@@ -2,7 +2,7 @@
   "bmt_id": "4a5b6e82-a048-5c96-8734-2f64d2288378",
   "enabled": true,
   "runner": {
-    "uri": "projects/sk/runner_bundle/kardome_runner",
+    "uri": "projects/sk/kardome_runner",
     "deps_prefix": "projects/shared/dependencies"
   },
   "plugin_config": {
