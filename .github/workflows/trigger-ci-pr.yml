@@ -1,0 +1,142 @@
+# Thin trigger — PRs to dev / ci/check-bmt-gate run full CI + BMT handoff.
+# Push-only build trigger lives in trigger-ci.yml.
+#
+# One snapshot + parallel release / non-release matrices (same graph as build-and-test-dev.yml);
+# BMT needs only build_release so it does not wait for non-release legs.
+name: Build + BMT (PR)
+
+on:
+    pull_request:
+        branches:
+            - dev
+            - ci/check-bmt-gate
+
+concurrency:
+    group: ci-pr-${{ github.repository }}-${{ github.event.pull_request.head.ref }}
+    cancel-in-progress: true
+
+defaults:
+    run:
+        shell: bash
+
+permissions:
+    contents: read
+    actions: write
+    id-token: write
+    statuses: write
+    pull-requests: read
+
+jobs:
+    checkout:
+        name: Snapshot
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: read
+            actions: write
+        outputs:
+            artifact_size: ${{ steps.snap.outputs.artifact_size }}
+            release_presets: ${{ steps.snap.outputs.release_presets }}
+            non_release_presets: ${{ steps.snap.outputs.non_release_presets }}
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
+                  submodules: false
+                  lfs: false
+            - id: snap
+              uses: ./.github/actions/dev/checkout-presets
+
+    build_release:
+        name: Build (release)
+        needs: checkout
+        if: ${{ needs.checkout.outputs.release_presets != '[]' && needs.checkout.outputs.release_presets != '' }}
+        runs-on: ubuntu-22.04
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
+        steps:
+            - name: Checkout source to build
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
+                  fetch-depth: 1
+                  submodules: false
+                  lfs: false
+                  persist-credentials: false
+
+            - name: Set up uv (BMT runner packaging)
+              uses: ./.github/actions/setup/uv-repo
+
+            - name: Stage release runner for BMT upload
+              env:
+                  MATRIX_CONFIGURE: ${{ matrix.configure }}
+              run: uv run bmt preset stage-release-runner
+
+            - name: Runner artifact paths
+              id: runner_artifact
+              env:
+                  MATRIX_CONFIGURE: ${{ matrix.configure }}
+              run: uv run bmt preset compute-info
+
+            - name: Upload runner artifact for handoff
+              uses: ./.github/actions/artifacts/upload-repo
+              with:
+                  name: runner-${{ steps.runner_artifact.outputs.preset }}
+                  path: |
+                      ${{ steps.runner_artifact.outputs.runners_dir }}/kardome_runner
+                      ${{ steps.runner_artifact.outputs.lib_dir }}/libKardome.so
+                  if-no-files-found: warn
+                  retention-days: "7"
+
+            - name: Append release build row to job summary
+              shell: bash
+              run: |
+                  {
+                    echo "- **${{ matrix.short }}** → \`runner-${{ steps.runner_artifact.outputs.preset }}\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+    build_non_release:
+        name: Build (non-release)
+        needs: checkout
+        if: ${{ needs.checkout.outputs.non_release_presets != '[]' && needs.checkout.outputs.non_release_presets != '' }}
+        continue-on-error: true
+        runs-on: ubuntu-22.04
+        strategy:
+            fail-fast: false
+            max-parallel: 6
+            matrix:
+                include: ${{ fromJson(needs.checkout.outputs.non_release_presets) }}
+        steps:
+            - name: Non-release build placeholder (bmt-gcloud)
+              run: |
+                  echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
+
+    bmt:
+        name: BMT
+        needs: [build_release]
+        if: >-
+            always() &&
+            (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
+            && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            contents: read
+            actions: read
+            id-token: write
+            statuses: write
+            pull-requests: read
+        uses: ./.github/workflows/bmt-handoff.yml
+        with:
+            ci_run_id: ${{ github.run_id }}
+            head_sha: ${{ github.event.pull_request.head.sha }}
+            head_branch: ${{ github.event.pull_request.head.ref }}
+            head_event: ${{ github.event_name }}
+            pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+            use_mock_runner: false
+            skip_missing_runner_artifacts: false
+            cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
+            bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
