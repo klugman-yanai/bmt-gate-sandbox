@@ -122,10 +122,16 @@ def assemble(*, skip_secrets: bool) -> None:
     _copy(TEMPLATES / "actionlint.yaml", DEST / "actionlint.yaml")
 
     # 5. Copy actions (exclude dev-only)
+    # Flat actions have a direct action.yml; namespace dirs (e.g. artifacts/, dev/) contain
+    # sub-action subdirectories instead — copy the whole tree in that case.
     for action_dir in sorted((SRC / "actions").iterdir()):
         if action_dir.name in EXCLUDE_ACTIONS:
             continue
-        _copy(action_dir / "action.yml", DEST / "actions" / action_dir.name / "action.yml")
+        flat_yml = action_dir / "action.yml"
+        if flat_yml.is_file():
+            _copy(flat_yml, DEST / "actions" / action_dir.name / "action.yml")
+        else:
+            _copy_tree(action_dir, DEST / "actions" / action_dir.name)
 
     # 6. Copy bmt package (ci/ in source → bmt/ in release bundle)
     _copy_tree(BMT_SRC / "kardome_bmt", DEST / "bmt" / "ci")
