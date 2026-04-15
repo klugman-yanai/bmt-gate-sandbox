@@ -135,3 +135,82 @@ def test_log_open_oserror_yields_failed_case(tmp_path: Path) -> None:
         result = ex.run()
     assert len(result.case_results) == 1
     assert "log_open_failed" in result.case_results[0].error
+
+
+def _make_executor(dataset_root: Path, tmp_path: Path) -> LegacyKardomeStdoutExecutor:
+    runtime, outputs, logs = _minimal_dirs(tmp_path)
+    runner = tmp_path / "kardome_runner"
+    runner.write_text("#!/bin/sh\necho\n", encoding="utf-8")
+    runner.chmod(0o755)
+    tpl = tmp_path / "t.json"
+    tpl.write_text("{}", encoding="utf-8")
+    return LegacyKardomeStdoutExecutor(
+        LegacyKardomeStdoutConfig(
+            runner_path=runner,
+            template_path=tpl,
+            dataset_root=dataset_root,
+            runtime_root=runtime,
+            outputs_root=outputs,
+            logs_root=logs,
+        )
+    )
+
+
+def _write_manifest(ds: Path, names: list[str]) -> None:
+    import json
+
+    manifest = {
+        "schema_version": 1,
+        "project": "test",
+        "dataset": "test_ds",
+        "bucket": "test-bucket",
+        "prefix": "projects/test/inputs/test_ds",
+        "generated_at": "2024-01-01T00:00:00Z",
+        "files": [{"name": n, "size_bytes": 4, "sha256": "", "updated": ""} for n in names],
+    }
+    (ds / "dataset_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_manifest_missing_files_returns_dataset_incomplete_error(tmp_path: Path) -> None:
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "present.wav").write_bytes(b"RIFF")
+    _write_manifest(ds, ["present.wav", "missing.wav"])
+
+    result = _make_executor(ds, tmp_path).run()
+
+    assert len(result.case_results) == 1
+    assert result.case_results[0].case_id == "_dataset_"
+    assert "dataset_incomplete" in result.case_results[0].error
+    assert "missing.wav" in result.case_results[0].error
+
+
+def test_manifest_all_files_present_proceeds_past_completeness_check(tmp_path: Path) -> None:
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "a.wav").write_bytes(b"RIFF")
+    (ds / "b.wav").write_bytes(b"RIFF")
+    _write_manifest(ds, ["a.wav", "b.wav"])
+
+    ex = _make_executor(ds, tmp_path)
+    assert ex._check_manifest_completeness() == []
+
+
+def test_no_manifest_proceeds_without_check(tmp_path: Path) -> None:
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "a.wav").write_bytes(b"RIFF")
+    # No dataset_manifest.json written
+
+    ex = _make_executor(ds, tmp_path)
+    assert ex._check_manifest_completeness() == []
+
+
+def test_corrupt_manifest_logs_warning_and_proceeds(tmp_path: Path) -> None:
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "a.wav").write_bytes(b"RIFF")
+    (ds / "dataset_manifest.json").write_text("{not json}", encoding="utf-8")
+
+    ex = _make_executor(ds, tmp_path)
+    assert ex._check_manifest_completeness() == []

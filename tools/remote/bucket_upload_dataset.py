@@ -257,7 +257,11 @@ class BucketUploadDataset:
             rc = self._upload_single_file(source=src, gcs_dest=gcs_dest)
 
         if rc == 0:
-            self._validate_upload(gcs_dest=gcs_dest, expected_count=file_count, expected_bytes=total_bytes)
+            try:
+                self._validate_upload(gcs_dest=gcs_dest, expected_count=file_count, expected_bytes=total_bytes)
+            except GCloudStorageError as exc:
+                print(f"::error::{exc}", file=sys.stderr)
+                return 1
             self._regen_manifest(bucket=bucket, project=project, dataset_name=name, local_mirror=local_mirror)
             elapsed = time.monotonic() - start
             summary = f"{name} · {file_count} files · {_fmt_bytes(total_bytes)} · {_fmt_elapsed(elapsed)}\n{gcs_dest}/"
@@ -415,13 +419,12 @@ class BucketUploadDataset:
         bucket_name, prefix = self._split_gs_uri(gcs_dest)
         actual = prefix_stats(client=self.storage_client, bucket_name=bucket_name, prefix=prefix)
         if actual.file_count != expected_count or actual.total_bytes != expected_bytes:
-            print(
-                f"Warning: GCS has {actual.file_count} files / {_fmt_bytes(actual.total_bytes)} "
-                f"but expected {expected_count} files / {_fmt_bytes(expected_bytes)}",
-                file=sys.stderr,
+            raise GCloudStorageError(
+                f"Upload incomplete: GCS has {actual.file_count} files / {_fmt_bytes(actual.total_bytes)} "
+                f"but expected {expected_count} files / {_fmt_bytes(expected_bytes)}. "
+                f"Re-run upload to sync missing files."
             )
-        else:
-            print(f"Verified: {actual.file_count} files / {_fmt_bytes(actual.total_bytes)} in GCS.")
+        print(f"Verified: {actual.file_count} files / {_fmt_bytes(actual.total_bytes)} in GCS.")
 
     def _regen_manifest(
         self,

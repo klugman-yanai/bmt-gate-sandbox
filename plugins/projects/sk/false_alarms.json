@@ -1,6 +1,10 @@
 {
   "bmt_id": "ac73397e-1162-5004-9ca2-17c969f53ee5",
   "enabled": true,
+  "runner": {
+    "uri": "projects/sk/runner_bundle/kardome_runner",
+    "deps_prefix": "projects/shared/dependencies"
+  },
   "plugin_config": {
     "comparison": "lte",
     "tolerance_abs": 0.25,

@@ -1,0 +1,11 @@
+data/
+local_batch/
+.git/
+.venv/
+infra/
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.egg-info
+**/*.tar.gz
+**/*.wav

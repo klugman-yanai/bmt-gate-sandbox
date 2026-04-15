@@ -38,10 +38,16 @@ def upload_file_to_gcs_parallel(*, source: Path, destination_uri: str) -> None:
 
 
 def sync_directory_to_gcs(*, source_root: Path, destination_uri: str) -> None:
-    _run_storage_command(
-        "rsync",
+    # Disable parallel composite uploads to avoid expired-session 400s on retry.
+    # gcloud SDK 564+ uses a config flag rather than a per-command argument.
+    env = {**__import__("os").environ, "CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED": "False"}
+    command = [
+        _gcloud_binary(), "storage", "rsync",
         str(source_root),
         destination_uri,
         "--recursive",
         "--delete-unmatched-destination-objects",
-    )
+    ]
+    result = subprocess.run(command, check=False, env=env)
+    if result.returncode != 0:
+        raise GCloudStorageError(f"command failed with exit code {result.returncode}: {' '.join(command)}")

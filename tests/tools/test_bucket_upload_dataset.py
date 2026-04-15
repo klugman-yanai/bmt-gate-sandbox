@@ -83,6 +83,7 @@ def test_upload_dataset_uses_import_job_for_archives_when_configured(tmp_path: P
 
     monkeypatch.setattr("tools.remote.bucket_upload_dataset.upload_file_to_gcs", _fake_upload_archive)
     monkeypatch.setattr("tools.remote.bucket_upload_dataset.run_cloud_run_job", _fake_run_cloud_job)
+    monkeypatch.setattr(BucketUploadDataset, "_validate_upload", lambda *_a, **_k: None)
     monkeypatch.setattr(BucketUploadDataset, "_regen_manifest", lambda *_a, **_k: None)
     result = BucketUploadDataset(storage_client=fake_client).run(
         bucket="demo-bucket",
@@ -117,6 +118,7 @@ def test_upload_dataset_uses_gcloud_rsync_for_directories(tmp_path: Path, monkey
 
     monkeypatch.setattr("tools.remote.bucket_upload_dataset.sync_directory_to_gcs", _fake_rsync_directory)
     monkeypatch.setattr(BucketUploadDataset, "_already_synced", _never_synced)
+    monkeypatch.setattr(BucketUploadDataset, "_validate_upload", lambda *_a, **_k: None)
     monkeypatch.setattr(BucketUploadDataset, "_regen_manifest", lambda *_a, **_k: None)
 
     result = BucketUploadDataset(storage_client=_FakeStorageClient()).run(

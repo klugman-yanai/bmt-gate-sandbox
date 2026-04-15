@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
-from ci import gcs
-from ci.runner import RunnerManager
+from kardome_bmt import gcs
+from kardome_bmt.runner import RunnerManager
 
 pytestmark = pytest.mark.unit
 
@@ -146,10 +146,10 @@ def test_filter_upload_matrix_skips_sk_when_old_layout_meta_exists(
 def test_filter_upload_matrix_skips_sk_when_local_repo_meta_exists(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """When all GCS paths return 404 but gcp/stage/projects/sk/runner_latest_meta.json exists locally, skip publish."""
+    """When all GCS paths return 404 but plugins/projects/sk/runner_latest_meta.json exists locally, skip publish."""
     # Set up local repo structure under tmp_path (monkeypatched cwd)
     monkeypatch.chdir(tmp_path)
-    local_meta = tmp_path / "gcp" / "stage" / "projects" / "sk" / "runner_latest_meta.json"
+    local_meta = tmp_path / "plugins" / "projects" / "sk" / "runner_latest_meta.json"
     local_meta.parent.mkdir(parents=True, exist_ok=True)
     local_meta.write_text(
         '{"bucket_path": "sk/runners/sk_gcc_release/kardome_runner", "source_ref": null}',

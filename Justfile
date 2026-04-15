@@ -287,11 +287,11 @@ act:
 [group('docker')]
 image: docker-build docker-push
 
-# Build the BMT orchestrator container image (buildx for BuildKit/cache)
+# Build the BMT orchestrator container image (legacy builder; install buildx for BuildKit)
 [private]
 [group('docker')]
 docker-build:
-    docker buildx build --load -t bmt-orchestrator:latest -f runtime/Dockerfile .
+    docker build -t bmt-orchestrator:latest -f runtime/Dockerfile .
 
 # Run the container locally with plugins bind-mounted as /mnt/runtime (FUSE simulation)
 [private]

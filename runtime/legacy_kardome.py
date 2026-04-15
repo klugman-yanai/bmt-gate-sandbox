@@ -231,6 +231,25 @@ class LegacyKardomeStdoutExecutor:
         finally:
             config_path.unlink(missing_ok=True)
 
+    def _check_manifest_completeness(self) -> list[str]:
+        """Return relative paths of files listed in dataset_manifest.json that are not present on disk.
+
+        Returns an empty list if the manifest is absent (no check performed) or all files are present.
+        """
+        manifest_path = self.config.dataset_root / "dataset_manifest.json"
+        if not manifest_path.is_file():
+            return []
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            logger.warning("Could not read dataset_manifest.json at %s — skipping completeness check", manifest_path)
+            return []
+        return [
+            entry["name"]
+            for entry in data.get("files", [])
+            if isinstance(entry, dict) and not (self.config.dataset_root / str(entry.get("name", ""))).is_file()
+        ]
+
     def run(self) -> ExecutionResult:
         if not self.config.dataset_root.is_dir():
             logger.error("dataset_root does not exist or is not a directory: %s", self.config.dataset_root)
@@ -245,6 +264,27 @@ class LegacyKardomeStdoutExecutor:
                         metrics={},
                         artifacts={},
                         error="dataset_root_missing_or_not_a_directory",
+                    )
+                ],
+            )
+        missing = self._check_manifest_completeness()
+        if missing:
+            logger.error(
+                "Dataset incomplete: %d file(s) listed in dataset_manifest.json are not present on disk: %s",
+                len(missing),
+                missing,
+            )
+            return ExecutionResult(
+                execution_mode_used="kardome_legacy_stdout",
+                case_results=[
+                    CaseResult(
+                        case_id="_dataset_",
+                        input_path=self.config.dataset_root,
+                        exit_code=-1,
+                        status="failed",
+                        metrics={},
+                        artifacts={},
+                        error=f"dataset_incomplete:{len(missing)}_missing:{missing[0]}",
                     )
                 ],
             )
