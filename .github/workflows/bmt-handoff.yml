@@ -336,6 +336,7 @@ jobs:
             .github
             runtime
             ci
+            sdk
 
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv
@@ -496,6 +497,7 @@ jobs:
             .github
             runtime
             ci
+            sdk
 
       - uses: ./.github/actions/setup-gcp-uv
         if: steps.invoke-workflow.outcome != 'success'
