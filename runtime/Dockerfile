@@ -46,4 +46,4 @@ ENV PYTHONUNBUFFERED=1
 
 # Config via BMT_CONFIG env var pointing to a JSON payload file,
 # or mount at /etc/bmt/config.json (well-known path)
-CMD ["python", "runtime/main.py"]
+CMD ["python", "-m", "runtime.main"]
