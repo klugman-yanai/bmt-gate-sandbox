@@ -15,3 +15,6 @@
 *.rc
 *.manifest
 *.
+
+!**/libKardome.so
+!**/kardome_runner

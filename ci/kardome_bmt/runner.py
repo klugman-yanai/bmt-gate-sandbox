@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -46,8 +47,8 @@ def _runner_meta_in_gcs(root: str, project: str, preset: str) -> dict[str, Any] 
             data = json.loads(local.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return data
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"::warning::Failed to parse local runner meta {local}: {e}", file=sys.stderr)
     return None
 
 
@@ -63,6 +64,14 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _require_nonempty_file(path: Path, *, label: str) -> None:
+    if not path.is_file():
+        raise RuntimeError(f"{label} not found: {path}")
+    size = path.stat().st_size
+    if size <= 0:
+        raise RuntimeError(f"{label} is empty (placeholder artifact refused): {path}")
 
 
 class RunnerManager:
@@ -124,9 +133,17 @@ class RunnerManager:
             out: dict[str, Any] = {"include": []}
             path = Path(core.require_env("GITHUB_OUTPUT"))
             with path.open("a", encoding="utf-8") as f:
-                f.write(f"matrix_need_upload<<FILTER_EOF\n{json.dumps(out)}\nFILTER_EOF\n")
+                matrix_need_upload_str = f"""matrix_need_upload<<FILTER_EOF
+{json.dumps(out)}
+FILTER_EOF
+"""
+                f.write(matrix_need_upload_str)
                 f.write("matrix_need_upload_keys=[]\n")
-                f.write(f"matrix_publish<<PUBLISH_EOF\n{json.dumps(out)}\nPUBLISH_EOF\n")
+                matrix_publish_str = f"""matrix_publish<<PUBLISH_EOF
+{json.dumps(out)}
+PUBLISH_EOF
+"""
+                f.write(matrix_publish_str)
                 f.write("matrix_publish_keys=[]\n")
             print(
                 "::notice::Filter upload matrix: BMT_SKIP_PUBLISH_RUNNERS=true — no publish jobs (runners assumed in bucket)."
@@ -175,11 +192,7 @@ class RunnerManager:
             if payload is not None:
                 # Use GCS runner when: explicitly preseeded, SHA matches, OR no GitHub
                 # artifacts are available (this repo doesn't build runners).
-                use_gcs = (
-                    preseeded
-                    or not artifact_set
-                    or str(payload.get("source_ref", "")).strip() == head_sha
-                )
+                use_gcs = preseeded or not artifact_set or str(payload.get("source_ref", "")).strip() == head_sha
                 if use_gcs:
                     if project not in projects_written:
                         marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
@@ -197,7 +210,7 @@ class RunnerManager:
                         f"::notice::Skip upload for {project}/{preset}: runner in GCS ({reason}) (will show as Skipped)."
                     )
                     continue
-            # No GitHub artifacts provided — caller doesn't build runners.
+            # No GitHub artifacts provided — caller doesn't build runners).
             # Fall back: check if the runner binary itself already exists in GCS
             # (new layout: projects/{project}/kardome_runner;
             #  old layout: {project}/runners/{preset}/kardome_runner).
@@ -242,10 +255,18 @@ class RunnerManager:
         pub_json = json.dumps(pub, separators=(",", ":"))
         path = Path(core.require_env("GITHUB_OUTPUT"))
         with path.open("a", encoding="utf-8") as f:
-            f.write(f"matrix_need_upload<<FILTER_EOF\n{out_json}\nFILTER_EOF\n")
+            matrix_need_upload_str = f"""matrix_need_upload<<FILTER_EOF
+{out_json}
+FILTER_EOF
+"""
+            f.write(matrix_need_upload_str)
             keys = [f"{e['project']}|{e['preset']}" for e in need_include]
             f.write(f"matrix_need_upload_keys={json.dumps(keys)}\n")
-            f.write(f"matrix_publish<<PUBLISH_EOF\n{pub_json}\nPUBLISH_EOF\n")
+            matrix_publish_str = f"""matrix_publish<<PUBLISH_EOF
+{pub_json}
+PUBLISH_EOF
+"""
+            f.write(matrix_publish_str)
             pub_keys = [f"{e['project']}|{e['preset']}" for e in publish_include]
             f.write(f"matrix_publish_keys={json.dumps(pub_keys)}\n")
         print(
@@ -271,8 +292,7 @@ class RunnerManager:
         dest_prefix = f"projects/{project}"
         meta_dest = f"{root}/{dest_prefix}/runner_meta.json"
         runner_binary = runner_dir / "kardome_runner"
-        if not runner_binary.is_file():
-            raise RuntimeError(f"kardome_runner not found in {runner_dir}")
+        _require_nonempty_file(runner_binary, label="kardome_runner")
         local_files = [
             {
                 "name": "kardome_runner",
@@ -285,6 +305,7 @@ class RunnerManager:
         if lib_dir is not None:
             lib_file = lib_dir / "libKardome.so"
             if lib_file.is_file():
+                _require_nonempty_file(lib_file, label="libKardome.so")
                 local_files.append(
                     {
                         "name": "libKardome.so",
@@ -365,9 +386,7 @@ class RunnerManager:
         if runner_matrix_raw:
             try:
                 runner_matrix = json.loads(runner_matrix_raw)
-                include: list[object] = (
-                    runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
-                )
+                include: list[object] = runner_matrix.get("include", []) if isinstance(runner_matrix, dict) else []
                 if isinstance(include, list):
                     for entry in include:
                         if not isinstance(entry, dict):

@@ -105,6 +105,20 @@ def _subprocess_timeout_sec() -> float | None:
     return float(sec)
 
 
+def _copy_shared_libraries(src_dir: Path, dst_dir: Path) -> list[Path]:
+    copied: list[Path] = []
+    if not src_dir.is_dir():
+        return copied
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for child in sorted(src_dir.iterdir()):
+        if not child.is_file() or ".so" not in child.name:
+            continue
+        target = dst_dir / child.name
+        shutil.copy2(child, target)
+        copied.append(target)
+    return copied
+
+
 @dataclass(frozen=True, slots=True)
 class LegacyKardomeStdoutConfig:
     runner_path: Path
@@ -116,6 +130,7 @@ class LegacyKardomeStdoutConfig:
     parsing: dict[str, Any] = field(default_factory=dict)
     enable_overrides: dict[str, Any] = field(default_factory=dict)
     num_source_test: int | None = None
+    deps_root: Path | None = None
     runner_env: dict[str, str] = field(default_factory=dict)
 
 
@@ -130,6 +145,7 @@ class LegacyKardomeStdoutExecutor:
         template: dict[str, Any],
         counter_re: re.Pattern[str],
         runner_path: Path,
+        runner_env: dict[str, str],
     ) -> CaseResult:
         log_path = self.config.logs_root / rel.with_suffix(rel.suffix + ".log")
         output_path = self.config.outputs_root / rel
@@ -173,7 +189,7 @@ class LegacyKardomeStdoutExecutor:
                     proc = subprocess.run(
                         [str(runner_path), str(config_path)],
                         cwd=str(self.config.runtime_root),
-                        env=self._runner_env(),
+                        env=runner_env,
                         stdout=log_stream,
                         stderr=subprocess.STDOUT,
                         check=False,
@@ -289,25 +305,27 @@ class LegacyKardomeStdoutExecutor:
                 ],
             )
         runner_path = self.config.runner_path
+        deps_root = self.config.deps_root if self.config.deps_root and self.config.deps_root.is_dir() else None
         _tmp_runner_dir: str | None = None
-        if not os.access(runner_path, os.X_OK):
+        if not os.access(runner_path, os.X_OK) or deps_root is not None:
             _tmp_runner_dir = tempfile.mkdtemp(prefix="bmt-runner-")
-            # Copy only the runner binary and .so files alongside it — NOT the entire parent
-            # directory. The parent may be a large project root containing multi-GB dataset
-            # directories (e.g. inputs/) that would exhaust container disk if copied wholesale.
-            # LD_LIBRARY_PATH already includes runner_path.parent (see _runner_env), so
-            # libKardome.so and any other .so files placed there are found by the dynamic linker.
+            # Copy only the native runtime bundle, not the whole project tree. Large input trees
+            # under the runner directory would exhaust local disk, but native libs loaded straight
+            # from GCSFuse have been a recurring source of Cloud Run instability.
             tmp_bundle = Path(_tmp_runner_dir) / runner_path.parent.name
             tmp_bundle.mkdir(parents=True, exist_ok=True)
             shutil.copy2(runner_path, tmp_bundle / runner_path.name)
-            for so_file in runner_path.parent.glob("*.so"):
-                shutil.copy2(so_file, tmp_bundle / so_file.name)
+            _copy_shared_libraries(runner_path.parent, tmp_bundle)
             src_lib = runner_path.parent / "lib"
+            staged_lib = tmp_bundle / "lib"
             if src_lib.is_dir():
-                shutil.copytree(src_lib, tmp_bundle / "lib")
+                shutil.copytree(src_lib, staged_lib, dirs_exist_ok=True)
+            if deps_root is not None:
+                _copy_shared_libraries(deps_root, staged_lib)
             runner_path = tmp_bundle / runner_path.name
             runner_path.chmod(0o755)
-            logger.info("Copied runner binary + .so files to %s (GCSFuse execute-bit workaround)", runner_path)
+            logger.info("Staged runner bundle locally at %s (deps_root=%s)", runner_path.parent, deps_root or "<none>")
+        runner_env = self._runner_env(runner_path)
         try:
             template = json.loads(self.config.template_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -331,16 +349,16 @@ class LegacyKardomeStdoutExecutor:
         try:
             for wav_path in sorted(self.config.dataset_root.rglob("*.wav")):
                 rel = wav_path.relative_to(self.config.dataset_root)
-                results.append(self._case_for_wav(wav_path, rel, template, counter_re, runner_path))
+                results.append(self._case_for_wav(wav_path, rel, template, counter_re, runner_path, runner_env))
         finally:
             if _tmp_runner_dir:
                 shutil.rmtree(_tmp_runner_dir, ignore_errors=True)
 
         return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=results)
 
-    def _runner_env(self) -> dict[str, str]:
+    def _runner_env(self, runner_path: Path) -> dict[str, str]:
         env = dict(os.environ)
-        runner_dir = self.config.runner_path.parent.resolve()
+        runner_dir = runner_path.parent.resolve()
         ld_dirs = [str(runner_dir)]
         lib_dir = runner_dir / "lib"
         if lib_dir.is_dir():
@@ -352,7 +370,9 @@ class LegacyKardomeStdoutExecutor:
         )
         extra_ld = self.config.runner_env.get("LD_LIBRARY_PATH", "").strip()
         if extra_ld:
-            ld_dirs.append(extra_ld)
+            ld_dirs.extend(path for path in extra_ld.split(":") if path)
         existing = env.get("LD_LIBRARY_PATH", "").strip()
-        env["LD_LIBRARY_PATH"] = ":".join(ld_dirs + ([existing] if existing else []))
+        if existing:
+            ld_dirs.extend(path for path in existing.split(":") if path)
+        env["LD_LIBRARY_PATH"] = ":".join(dict.fromkeys(ld_dirs))
         return env

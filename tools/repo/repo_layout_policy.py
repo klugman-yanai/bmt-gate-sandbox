@@ -11,7 +11,10 @@ from tools.repo.paths import DEFAULT_CONFIG_ROOT
 
 ALLOWED_TRACKED_TOP_LEVEL = {
     ".actrc",
+    ".codex",
     ".cursorignore",
+    ".cursorindexingignore",
+    ".dockerignore",
     ".env.example",
     ".gitattributes",
     ".github",
@@ -29,12 +32,15 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     "README.md",
     "ROADMAP.md",
     "cache",
+    "ci",
     "docs",
     "gcp",
     "infra",
+    "plugins",
     "pyproject.toml",
     "pyrightconfig.json",
     "ruff.toml",
+    "runtime",
     "schemas",
     "scripts",
     "sdk",
@@ -59,6 +65,10 @@ REQUIRED_PATHS = (
     ".github/workflows/build-and-test.yml",
     DEFAULT_CONFIG_ROOT,
     "tools/scripts/hooks/pre-commit-sync-gcp.sh",
+    # SK BMT: native runner + lib (bucket URI projects/sk/kardome_runner); must not disappear in refactors.
+    "plugins/projects/sk/kardome_runner",
+    "plugins/projects/sk/libKardome.so",
+    "plugins/projects/sk/runner_integration_contract.json",
 )
 # gcp/stage (DEFAULT_STAGE_ROOT) is optional: populated by sync; not required to exist for policy pass.
 

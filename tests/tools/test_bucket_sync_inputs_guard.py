@@ -7,10 +7,12 @@ Covers:
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 
+from tests.sk_runner_repo_paths import SK_KARDOME_RUNNER
 from tools.shared.bucket_sync import is_inputs_data_path, local_digest
 from tools.shared.layout_patterns import FORBIDDEN_RUNTIME_SEED
 
@@ -46,11 +48,10 @@ def test_non_inputs_path_is_not_data():
 
 @pytest.fixture
 def staging_tree(tmp_path: Path) -> Path:
-    """Create a synthetic gcp/stage tree with runner, inputs (.keep + WAV), and manifest."""
-    # Runner binary
+    """Create a gcp/stage tree with the real SK runner, inputs (.keep + WAV), and manifest."""
     runner = tmp_path / "projects" / "sk" / "kardome_runner"
     runner.parent.mkdir(parents=True)
-    runner.write_bytes(b"binary content")
+    shutil.copy2(SK_KARDOME_RUNNER, runner)
 
     # .keep placeholder — must appear in digest
     keep = tmp_path / "projects" / "sk" / "inputs" / "false_rejects" / ".keep"

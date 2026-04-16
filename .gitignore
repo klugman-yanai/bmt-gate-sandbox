@@ -5,6 +5,8 @@
 
 # Build/output junk
 build/
+dist/pexb/
+dist/bmt.pex
 data/
 local_batch/
 sk_runtime/

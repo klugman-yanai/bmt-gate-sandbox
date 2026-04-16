@@ -35,7 +35,7 @@ def load_plugin_direct(project_dir: Path) -> tuple[BmtPlugin, Path]:
     try:
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)  # type: ignore[union-attr]
+        spec.loader.exec_module(module)
     finally:
         if added and path_str in sys.path:
             sys.path.remove(path_str)

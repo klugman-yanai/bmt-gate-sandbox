@@ -5,3 +5,6 @@ config-variables:
   - GCP_PROJECT
   - CLOUD_RUN_REGION
   - BMT_STATUS_CONTEXT
+  - BMT_CLI
+  - BMT_PEX_TAG
+  - BMT_PEX_REPO

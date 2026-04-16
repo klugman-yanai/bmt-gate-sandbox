@@ -1,16 +1,25 @@
-"""Unit tests for graceful failures in LegacyKardomeStdoutExecutor."""
+"""Unit tests for graceful failures in LegacyKardomeStdoutExecutor.
+
+Uses the real ``plugins/projects/sk/kardome_runner`` and ``libKardome.so`` plus
+``runtime/assets/kardome_input_template.json``—the same benchmark bundle the pipeline
+relies on. Temporary directories hold only datasets, outputs, and invalid-template
+fixtures; they do not substitute fake runners for behavioral tests.
+"""
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import types
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 
 from runtime import legacy_kardome
 from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
+from tests.sk_runner_repo_paths import KARDOME_INPUT_TEMPLATE, SK_KARDOME_RUNNER, SK_LIBKARDOME_SO
 
 pytestmark = pytest.mark.unit
 
@@ -28,15 +37,10 @@ def test_dataset_not_directory_returns_single_failed_case(tmp_path: Path) -> Non
     bad = tmp_path / "not_a_dir"
     bad.write_text("x", encoding="utf-8")
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    runner = tmp_path / "kardome_runner"
-    runner.write_text("#!/bin/sh\necho\n", encoding="utf-8")
-    runner.chmod(0o755)
-    tpl = tmp_path / "t.json"
-    tpl.write_text("{}", encoding="utf-8")
     ex = LegacyKardomeStdoutExecutor(
         LegacyKardomeStdoutConfig(
-            runner_path=runner,
-            template_path=tpl,
+            runner_path=SK_KARDOME_RUNNER,
+            template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=bad,
             runtime_root=runtime,
             outputs_root=outputs,
@@ -53,14 +57,11 @@ def test_invalid_template_json_returns_single_failed_case(tmp_path: Path) -> Non
     ds = tmp_path / "ds"
     ds.mkdir()
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    runner = tmp_path / "kardome_runner"
-    runner.write_text("#!/bin/sh\necho\n", encoding="utf-8")
-    runner.chmod(0o755)
     tpl = tmp_path / "bad.json"
     tpl.write_text("{not json", encoding="utf-8")
     ex = LegacyKardomeStdoutExecutor(
         LegacyKardomeStdoutConfig(
-            runner_path=runner,
+            runner_path=SK_KARDOME_RUNNER,
             template_path=tpl,
             dataset_root=ds,
             runtime_root=runtime,
@@ -79,15 +80,10 @@ def _executor_with_one_wav(tmp_path: Path) -> LegacyKardomeStdoutExecutor:
     ds.mkdir()
     (ds / "a.wav").write_bytes(b"RIFF")
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    runner = tmp_path / "kardome_runner"
-    runner.write_text("#!/bin/sh\necho\n", encoding="utf-8")
-    runner.chmod(0o755)
-    tpl = tmp_path / "t.json"
-    tpl.write_text("{}", encoding="utf-8")
     return LegacyKardomeStdoutExecutor(
         LegacyKardomeStdoutConfig(
-            runner_path=runner,
-            template_path=tpl,
+            runner_path=SK_KARDOME_RUNNER,
+            template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=ds,
             runtime_root=runtime,
             outputs_root=outputs,
@@ -140,15 +136,10 @@ def test_log_open_oserror_yields_failed_case(tmp_path: Path) -> None:
 
 def _make_executor(dataset_root: Path, tmp_path: Path) -> LegacyKardomeStdoutExecutor:
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    runner = tmp_path / "kardome_runner"
-    runner.write_text("#!/bin/sh\necho\n", encoding="utf-8")
-    runner.chmod(0o755)
-    tpl = tmp_path / "t.json"
-    tpl.write_text("{}", encoding="utf-8")
     return LegacyKardomeStdoutExecutor(
         LegacyKardomeStdoutConfig(
-            runner_path=runner,
-            template_path=tpl,
+            runner_path=SK_KARDOME_RUNNER,
+            template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=dataset_root,
             runtime_root=runtime,
             outputs_root=outputs,
@@ -219,14 +210,12 @@ def test_corrupt_manifest_logs_warning_and_proceeds(tmp_path: Path) -> None:
 
 def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> None:
     """Runner lacks execute bit (GCSFuse mount): only binary + .so copied, not inputs/ dir."""
-    # Simulate projects/sk/ structure: runner + libKardome.so + huge inputs/ subdir
     sk_dir = tmp_path / "sk"
     sk_dir.mkdir()
     runner = sk_dir / "kardome_runner"
-    runner.write_bytes(b"#!/bin/sh\n")
-    # Explicitly remove execute bit so os.access returns False
+    shutil.copy2(SK_KARDOME_RUNNER, runner)
+    shutil.copy2(SK_LIBKARDOME_SO, sk_dir / "libKardome.so")
     runner.chmod(0o644)
-    (sk_dir / "libKardome.so").write_bytes(b"ELF")
     inputs_dir = sk_dir / "inputs"
     inputs_dir.mkdir()
     (inputs_dir / "huge.wav").write_bytes(b"x" * 100)
@@ -235,13 +224,11 @@ def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> N
     ds.mkdir()
     (ds / "a.wav").write_bytes(b"RIFF")
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    tpl = tmp_path / "t.json"
-    tpl.write_text("{}", encoding="utf-8")
 
     ex = LegacyKardomeStdoutExecutor(
         LegacyKardomeStdoutConfig(
             runner_path=runner,
-            template_path=tpl,
+            template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=ds,
             runtime_root=runtime,
             outputs_root=outputs,
@@ -249,7 +236,6 @@ def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> N
         )
     )
 
-    # Capture the temp bundle directory contents while it still exists (before finally-cleanup)
     captured: dict[str, object] = {}
 
     def _mock_run(cmd: list[str], **_kwargs: object) -> object:
@@ -264,9 +250,66 @@ def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> N
         ex.run()
 
     assert captured, "subprocess.run was not called"
-    # Runner was copied to a temp location (not invoked from the original GCSFuse path)
     assert captured["runner_used"] != runner
-    # inputs/ must NOT have been copied — that would exhaust container disk
     assert not captured["inputs_exists"], "inputs/ must not be copied to temp"
-    # The shared library alongside the binary should be copied for RPATH/$ORIGIN resolution
     assert captured["so_exists"], "libKardome.so must be copied to temp"
+
+
+def test_gcsfuse_workaround_stages_external_deps_and_uses_local_ld_library_path(tmp_path: Path) -> None:
+    sk_dir = tmp_path / "sk"
+    sk_dir.mkdir()
+    runner = sk_dir / "kardome_runner"
+    shutil.copy2(SK_KARDOME_RUNNER, runner)
+    shutil.copy2(SK_LIBKARDOME_SO, sk_dir / "libKardome.so")
+    runner.chmod(0o644)
+
+    deps_dir = tmp_path / "shared-deps"
+    deps_dir.mkdir()
+    (deps_dir / "libonnxruntime.so.1").write_bytes(b"ELF")
+    (deps_dir / "libtensorflowlite_c.so").write_bytes(b"ELF")
+
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "a.wav").write_bytes(b"RIFF")
+    runtime, outputs, logs = _minimal_dirs(tmp_path)
+
+    ex = LegacyKardomeStdoutExecutor(
+        LegacyKardomeStdoutConfig(
+            runner_path=runner,
+            template_path=KARDOME_INPUT_TEMPLATE,
+            dataset_root=ds,
+            runtime_root=runtime,
+            outputs_root=outputs,
+            logs_root=logs,
+            deps_root=deps_dir,
+            runner_env={"LD_LIBRARY_PATH": "/system/lib:/usr/local/lib"},
+        )
+    )
+
+    captured: dict[str, object] = {}
+
+    def _mock_run(cmd: list[str], **kwargs: object) -> object:
+        runner_used = Path(cmd[0])
+        tmp_bundle_dir = runner_used.parent
+        captured["runner_used"] = runner_used
+        captured["deps_exists"] = (tmp_bundle_dir / "lib" / "libonnxruntime.so.1").exists()
+        captured["tflite_exists"] = (tmp_bundle_dir / "lib" / "libtensorflowlite_c.so").exists()
+        env = kwargs.get("env")
+        assert isinstance(env, dict)
+        captured["ld_library_path"] = cast(dict[str, Any], env)["LD_LIBRARY_PATH"]
+        return types.SimpleNamespace(returncode=0)
+
+    with patch.object(legacy_kardome.subprocess, "run", side_effect=_mock_run):
+        ex.run()
+
+    assert captured, "subprocess.run was not called"
+    assert captured["deps_exists"], "deps_root libraries must be copied to temp"
+    assert captured["tflite_exists"], "tensorflow lite dependency must be copied to temp"
+    runner_used = captured["runner_used"]
+    assert isinstance(runner_used, Path)
+    ld_paths = str(captured["ld_library_path"]).split(":")
+    assert ld_paths[0] == str(runner_used.parent.resolve())
+    assert ld_paths[1] == str((runner_used.parent / "lib").resolve())
+    assert str(deps_dir) not in ld_paths
+    assert "/system/lib" in ld_paths
+    assert "/usr/local/lib" in ld_paths

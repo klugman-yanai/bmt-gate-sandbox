@@ -1,0 +1,94 @@
+name: Setup BMT CLI
+description: >
+  Install kardome-bmt either via uv (uv run bmt) or a release bmt.pex (sets BMT_PEX_PATH).
+  When mode=pex and install_workspace=true, also runs uv sync so jobs can use uv run python -m tools.
+
+inputs:
+  mode:
+    description: "uv — full workspace via uv sync; pex — download bmt.pex from a GitHub Release"
+    required: false
+    default: "uv"
+  pex_tag:
+    description: Release tag containing bmt.pex (required when mode is pex)
+    required: false
+    default: ""
+  pex_repo:
+    description: >
+      owner/name of the repo that published bmt.pex. Leave empty to use this workflow's
+      repository (typical). Set to klugman-yanai/bmt-gcloud when workflows run from a fork
+      but releases live on upstream.
+    required: false
+    default: ""
+  python_version:
+    description: Python version for uv and/or PEX runtime
+    required: false
+    default: "3.12"
+  install_workspace:
+    description: >
+      When mode=pex, run uv sync after downloading PEX so uv run python -m tools works.
+      Ignored for mode=uv (uv sync always runs).
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Validate PEX inputs
+      if: ${{ inputs.mode == 'pex' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -z "${{ inputs.pex_tag }}" ]]; then
+          echo "::error::setup-bmt-cli: mode=pex requires pex_tag (e.g. vars.BMT_PEX_TAG)"
+          exit 1
+        fi
+
+    - name: Install uv and sync workspace (uv mode)
+      if: ${{ inputs.mode == 'uv' }}
+      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+      with:
+        version: "0.10.9"
+        python-version: ${{ inputs.python_version }}
+        enable-cache: true
+
+    - name: uv sync
+      if: ${{ inputs.mode == 'uv' }}
+      shell: bash
+      run: uv sync
+
+    - name: Setup Python for PEX
+      if: ${{ inputs.mode == 'pex' }}
+      uses: actions/setup-python@8d9ed9ac5c53483de85588ab95e47fc681b3c2f # v5.6.0
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Download bmt.pex
+      if: ${{ inputs.mode == 'pex' }}
+      uses: ./.github/actions/bmt-get-pex
+      with:
+        tag: ${{ inputs.pex_tag }}
+        repo: ${{ inputs.pex_repo != '' && inputs.pex_repo || github.repository }}
+        out-path: .local/bmt
+
+    - name: Install uv for workspace tools (PEX mode)
+      if: ${{ inputs.mode == 'pex' && inputs.install_workspace == 'true' }}
+      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+      with:
+        version: "0.10.9"
+        python-version: ${{ inputs.python_version }}
+        enable-cache: true
+
+    - name: uv sync for tools (PEX mode)
+      if: ${{ inputs.mode == 'pex' && inputs.install_workspace == 'true' }}
+      shell: bash
+      run: uv sync
+
+    - name: Export BMT_PEX_PATH
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "${{ inputs.mode }}" == "pex" ]]; then
+          echo "BMT_PEX_PATH=${GITHUB_WORKSPACE}/.local/bmt/bmt.pex" >> "$GITHUB_ENV"
+        else
+          echo "BMT_PEX_PATH=" >> "$GITHUB_ENV"
+        fi

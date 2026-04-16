@@ -42,7 +42,9 @@ def sync_directory_to_gcs(*, source_root: Path, destination_uri: str) -> None:
     # gcloud SDK 564+ uses a config flag rather than a per-command argument.
     env = {**__import__("os").environ, "CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED": "False"}
     command = [
-        _gcloud_binary(), "storage", "rsync",
+        _gcloud_binary(),
+        "storage",
+        "rsync",
         str(source_root),
         destination_uri,
         "--recursive",

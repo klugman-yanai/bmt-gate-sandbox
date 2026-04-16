@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "project": "sk",
+  "dataset": "false_alarms",
+  "bucket": "train-kws-202311-bmt-gate",
+  "prefix": "projects/sk/inputs/false_alarms",
+  "generated_at": "2026-04-15T11:29:55Z",
+  "files": [
+    {
+      "name": "SK_FA_A_0_D_2.6_H_70_S_50_T_none_N_0_E_up-002.wav",
+      "size_bytes": 0,
+      "sha256": "",
+      "updated": ""
+    },
+    {
+      "name": "SK_FA_A_0_D_2.6_H_70_S_60_T_none_N_0_E_up-005.wav",
+      "size_bytes": 0,
+      "sha256": "",
+      "updated": ""
+    },
+    {
+      "name": "lab_recording_TV_ON_single_speaker_short_speech_random_source.wav",
+      "size_bytes": 0,
+      "sha256": "",
+      "updated": ""
+    },
+    {
+      "name": "lab_recording_multiple_speakers_short_speech_random_sources.wav",
+      "size_bytes": 0,
+      "sha256": "",
+      "updated": ""
+    },
+    {
+      "name": "lab_recording_single_speaker_short_speech_random_source.wav",
+      "size_bytes": 0,
+      "sha256": "",
+      "updated": ""
+    },
+    {
+      "name": "sndflow_mic_2025_04_02_14_30_33-003.wav",
+      "size_bytes": 0,
+      "sha256": "",
+      "updated": ""
+    }
+  ]
+}

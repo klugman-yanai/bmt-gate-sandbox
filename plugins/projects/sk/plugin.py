@@ -94,12 +94,6 @@ class SkPlugin(BmtPlugin):
 
     def execute(self, context: ExecutionContext, prepared_assets: PreparedAssets) -> ExecutionResult:
         try:
-            runner_env: dict[str, str] = {}
-            if context.deps_root is not None and context.deps_root.is_dir():
-                existing = os.environ.get("LD_LIBRARY_PATH", "").strip()
-                runner_env["LD_LIBRARY_PATH"] = (
-                    f"{context.deps_root}:{existing}" if existing else str(context.deps_root)
-                )
             validated_parse = StdoutCounterParseConfig.model_validate(context.bmt_manifest.plugin_config)
             legacy = LegacyKardomeStdoutExecutor(
                 LegacyKardomeStdoutConfig(
@@ -112,7 +106,7 @@ class SkPlugin(BmtPlugin):
                     parsing=validated_parse.model_dump(mode="python", exclude_none=True),
                     enable_overrides=dict(context.bmt_manifest.plugin_config.get("enable_overrides", {})),
                     num_source_test=context.bmt_manifest.plugin_config.get("num_source_test"),
-                    runner_env=runner_env,
+                    deps_root=context.deps_root,
                 )
             )
 

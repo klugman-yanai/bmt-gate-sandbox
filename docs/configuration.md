@@ -191,6 +191,11 @@ These names are synced from Pulumi to GitHub **Variables** for normal use. See [
 | `BMT_TASK_STANDARD_JOB` | Repo var, local tools | Yes | |
 | `BMT_TASK_HEAVY_JOB` | Repo var, local tools | Yes | |
 | `BMT_STATUS_CONTEXT` | Repo var, CI, runtime | Optional | Default status context (e.g. `BMT Gate`) |
+| `BMT_CLI` | Repo var, CI | Optional | `uv` (default) or `pex` — use release `bmt.pex` instead of `uv run bmt` when set to `pex` |
+| `BMT_PEX_TAG` | Repo var, CI | Required if `BMT_CLI=pex` | GitHub Release tag that contains `bmt.pex` (e.g. `bmt-v0.1.0`) on the release repo |
+| `BMT_PEX_REPO` | Repo var, CI | Optional | `owner/name` for the repo that published `bmt.pex` (default: this repository). Set when CI runs on a fork but releases live on **klugman-yanai/bmt-gcloud** |
+
+**Production consumer repos** typically download **`bmt.pex`** from that upstream release in a workflow step (see **`.github/actions/bmt-get-pex`** in bmt-gcloud) instead of vendoring the full `ci/` tree for `uv run bmt`.
 
 ## Workflow handoff context (CI)
 

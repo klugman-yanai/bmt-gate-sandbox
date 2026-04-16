@@ -66,6 +66,16 @@ def test_handoff_does_not_use_ci_side_github_reporting() -> None:
     assert not (repo_root() / ".github" / "actions" / "bmt-start-runtime-reporting").exists()
 
 
+def test_pr_trigger_workflow_does_not_publish_placeholder_runner_artifacts() -> None:
+    trigger_pr = (repo_root() / ".github" / "workflows" / "trigger-ci-pr.yml").read_text(encoding="utf-8")
+
+    assert "Release build placeholder (bmt-gcloud)" in trigger_pr
+    assert "preset stage-release-runner" not in trigger_pr
+    assert "preset compute-info" not in trigger_pr
+    assert "Upload runner artifact for handoff" not in trigger_pr
+    assert ".github/actions/artifacts/upload-repo" not in trigger_pr
+
+
 def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
     build_test = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
     clang_format = (repo_root() / ".github" / "workflows" / "clang-format-auto-fix.yml").read_text(encoding="utf-8")

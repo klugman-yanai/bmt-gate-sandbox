@@ -46,16 +46,14 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install uv
-      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7
+    - name: Setup BMT CLI (uv or release PEX; uv sync when needed for tools)
+      uses: ./.github/actions/setup-bmt-cli
       with:
-        version: "0.10.9"
-        python-version: "3.12"
-        enable-cache: true
-
-    - name: Sync BMT uv environment
-      shell: bash
-      run: uv sync
+        mode: ${{ vars.BMT_CLI != '' && vars.BMT_CLI || 'uv' }}
+        pex_tag: ${{ vars.BMT_PEX_TAG }}
+        pex_repo: ${{ vars.BMT_PEX_REPO != '' && vars.BMT_PEX_REPO || github.repository }}
+        python_version: "3.12"
+        install_workspace: "true"
 
     - id: ctx
       shell: bash
@@ -118,4 +116,4 @@ runs:
       env:
         BMT_OUTPUT_FORMAT: bmt
         BMT_OUTPUT_KEY: runner_matrix
-      run: uv run bmt matrix parse-release-runners
+      run: bash .github/scripts/invoke-bmt.sh matrix parse-release-runners

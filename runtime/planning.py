@@ -24,12 +24,14 @@ class PlanOptions:
     allow_workspace_plugins: bool = False
 
 
-_FLAT_EXCLUDE: frozenset[str] = frozenset({
-    "project.json",
-    "runner_latest_meta.json",
-    "runner_meta.json",
-    "runner.slsa.json",
-})
+_FLAT_EXCLUDE: frozenset[str] = frozenset(
+    {
+        "project.json",
+        "runner_latest_meta.json",
+        "runner_meta.json",
+        "runner.slsa.json",
+    }
+)
 
 
 def _file_digest(path: Path) -> str:

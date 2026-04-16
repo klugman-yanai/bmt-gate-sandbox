@@ -1,5 +1,6 @@
 # Thin trigger — PRs to dev / ci/check-bmt-gate run full CI + BMT handoff.
 # Push-only build trigger lives in trigger-ci.yml.
+# For handoff-only tests without real runners/datasets, use internal/bmt-handoff-dev.yml (use_mock_runner: true).
 #
 # One snapshot + parallel release / non-release matrices (same graph as build-and-test-dev.yml);
 # BMT needs only build_release so it does not wait for non-release legs.
@@ -59,46 +60,9 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.checkout.outputs.release_presets) }}
         steps:
-            - name: Checkout source to build
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-              with:
-                  repository: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.repo.full_name || github.repository }}
-                  ref: ${{ (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && github.event.pull_request.head.sha || github.sha }}
-                  fetch-depth: 1
-                  submodules: false
-                  lfs: false
-                  persist-credentials: false
-
-            - name: Set up uv (BMT runner packaging)
-              uses: ./.github/actions/setup/uv-repo
-
-            - name: Stage release runner for BMT upload
-              env:
-                  MATRIX_CONFIGURE: ${{ matrix.configure }}
-              run: uv run bmt preset stage-release-runner
-
-            - name: Runner artifact paths
-              id: runner_artifact
-              env:
-                  MATRIX_CONFIGURE: ${{ matrix.configure }}
-              run: uv run bmt preset compute-info
-
-            - name: Upload runner artifact for handoff
-              uses: ./.github/actions/artifacts/upload-repo
-              with:
-                  name: runner-${{ steps.runner_artifact.outputs.preset }}
-                  path: |
-                      ${{ steps.runner_artifact.outputs.runners_dir }}/kardome_runner
-                      ${{ steps.runner_artifact.outputs.lib_dir }}/libKardome.so
-                  if-no-files-found: warn
-                  retention-days: "7"
-
-            - name: Append release build row to job summary
-              shell: bash
+            - name: Release build placeholder (bmt-gcloud)
               run: |
-                  {
-                    echo "- **${{ matrix.short }}** → \`runner-${{ steps.runner_artifact.outputs.preset }}\`"
-                  } >> "$GITHUB_STEP_SUMMARY"
+                  echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT uses the preseeded bucket runner."
 
     build_non_release:
         name: Build (non-release)

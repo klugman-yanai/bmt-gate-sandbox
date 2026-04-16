@@ -52,6 +52,8 @@ include = ["tools*"]
 python-version = "3.12"
 extra-paths = [
     "ci",
+    "sdk",
+    "plugins/projects/sk",
 ]
 
 [tool.ty.src]
@@ -60,7 +62,6 @@ exclude = [
     "sk_runtime",
     "local_batch",
     "secrets",
-    "plugins",
 ]
 
 # Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Included by default on `uv sync`; omit with `uv sync --no-dev`.
@@ -98,6 +99,6 @@ addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --t
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
-    "integration: subprocess/filesystem orchestration tests with local fakes",
+    "integration: subprocess/filesystem tests (may invoke real kardome_runner from plugins/)",
     "bmt_plugin_load: load published BMT plugins from committed plugins/ (import side effects)",
 ]

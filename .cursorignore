@@ -51,7 +51,8 @@ sk_runtime/
 **.7z
 **.tar.gz
 **.tar
-
+!**/libKardome.so
+!**/kardome_runner
 # Secrets and credentials
 secrets/
 gcp-key.json

@@ -1,5 +1,5 @@
 name: Setup GCP and uv
-description: Authenticate to GCP via WIF, install Cloud SDK, and optionally install uv.
+description: Authenticate to GCP via WIF, install Cloud SDK, and install the BMT CLI (uv or release PEX).
 
 inputs:
   workload_identity_provider:
@@ -17,39 +17,55 @@ inputs:
     required: false
     default: ">= 363.0.0"
   python_version:
-    description: Python version used by setup-uv.
+    description: Python version used by setup-bmt-cli.
     required: false
     default: "3.12"
   install_uv:
-    description: Whether to install uv.
+    description: When "false", skip BMT CLI setup (GCP auth + gcloud only).
     required: false
     default: "true"
+  install_workspace:
+    description: >
+      When mode=pex, also run uv sync so jobs can use uv run python -m tools. When mode=uv, uv sync always runs once.
+    required: false
+    default: "true"
+  bmt_cli:
+    description: "uv or pex — set vars.BMT_CLI to switch (default uv)."
+    required: false
+    default: "uv"
+  bmt_pex_tag:
+    description: Release tag for bmt.pex when bmt_cli is pex (vars.BMT_PEX_TAG).
+    required: false
+    default: ""
+  bmt_pex_repo:
+    description: >
+      Repo that published bmt.pex (owner/name). Empty uses github.repository; set vars.BMT_PEX_REPO
+      for upstream PEX when the workflow repo is not the release repo.
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
     - name: GCP Auth (WIF)
-      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
       with:
         workload_identity_provider: ${{ inputs.workload_identity_provider }}
         service_account: ${{ inputs.service_account }}
         project_id: ${{ inputs.gcp_project }}
 
     - name: Setup Cloud SDK
-      uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db  # v3.0.1
+      uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
       with:
         project_id: ${{ inputs.gcp_project }}
         version: ${{ inputs.gcloud_version }}
 
-    - name: Install uv
+    - name: Setup BMT CLI
       if: ${{ inputs.install_uv == 'true' }}
-      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8  # v7
+      uses: ./.github/actions/setup-bmt-cli
       with:
-        version: "0.10.9"
-        python-version: ${{ inputs.python_version }}
-        enable-cache: true
-
-    - name: Sync BMT uv environment
-      if: ${{ inputs.install_uv == 'true' }}
-      shell: bash
-      run: uv sync
+        mode: ${{ inputs.bmt_cli }}
+        pex_tag: ${{ inputs.bmt_pex_tag }}
+        pex_repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || github.repository }}
+        python_version: ${{ inputs.python_version }}
+        install_workspace: ${{ inputs.install_workspace }}

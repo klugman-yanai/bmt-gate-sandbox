@@ -47,12 +47,16 @@ runs:
         service_account: ${{ inputs.service_account }}
         gcp_project: ${{ inputs.gcp_project }}
         python_version: "3.12"
+        bmt_cli: ${{ vars.BMT_CLI != '' && vars.BMT_CLI || 'uv' }}
+        bmt_pex_tag: ${{ vars.BMT_PEX_TAG }}
 
     - id: list
       env:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
       shell: bash
-      run: uv run bmt handoff write-context && uv run bmt runner resolve-uploaded-projects
+      run: |
+        bash .github/scripts/invoke-bmt.sh handoff write-context
+        bash .github/scripts/invoke-bmt.sh runner resolve-uploaded-projects
 
     - id: filter
       shell: bash
@@ -60,7 +64,7 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         FULL_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED_PROJECTS: ${{ steps.list.outputs.accepted_projects }}
-      run: uv run bmt matrix filter-supported
+      run: bash .github/scripts/invoke-bmt.sh matrix filter-supported
 
     - name: Show matrix classification details
       shell: bash
@@ -68,7 +72,9 @@ runs:
         RUNNER_MATRIX: ${{ inputs.runner_matrix }}
         ACCEPTED: ${{ steps.list.outputs.accepted_projects }}
         FILTERED_MATRIX: ${{ steps.filter.outputs.matrix }}
-      run: uv run bmt handoff write-context && uv run bmt runner summarize-handshake
+      run: |
+        bash .github/scripts/invoke-bmt.sh handoff write-context
+        bash .github/scripts/invoke-bmt.sh runner summarize-handshake
 
     - id: route
       shell: bash

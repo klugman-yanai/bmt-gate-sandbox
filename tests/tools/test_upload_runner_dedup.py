@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 from kardome_bmt import gcs as gcs_module
 
 from ci.kardome_bmt.runner import RunnerManager, _sha256_file
+from tests.sk_runner_repo_paths import SK_KARDOME_RUNNER, SK_LIBKARDOME_SO
 
 pytestmark = pytest.mark.contract
 
@@ -20,8 +22,10 @@ def _write(path: Path, content: bytes) -> None:
 def _set_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
     runner_dir = tmp_path / "artifact" / "Runners"
     lib_dir = tmp_path / "artifact" / "Kardome"
-    _write(runner_dir / "kardome_runner", b"runner-binary-v1")
-    _write(lib_dir / "libKardome.so", b"lib-binary-v1")
+    runner_dir.mkdir(parents=True, exist_ok=True)
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(SK_KARDOME_RUNNER, runner_dir / "kardome_runner")
+    shutil.copy2(SK_LIBKARDOME_SO, lib_dir / "libKardome.so")
 
     monkeypatch.setenv("GCS_BUCKET", "bucket-a")
     monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
@@ -97,3 +101,23 @@ def test_upload_runner_uploads_only_changed_files(monkeypatch: pytest.MonkeyPatc
     assert any("kardome_runner" in u for u in joined)
     assert any("runner_meta.json" in u for u in joined)
     assert not any("libKardome.so" in u for u in joined)
+
+
+def test_upload_runner_rejects_empty_placeholder_artifacts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    runner_dir = tmp_path / "artifact" / "Runners"
+    lib_dir = tmp_path / "artifact" / "Kardome"
+    _write(runner_dir / "kardome_runner", b"")
+    _write(lib_dir / "libKardome.so", b"")
+
+    monkeypatch.setenv("GCS_BUCKET", "bucket-a")
+    monkeypatch.setenv("GCP_WIF_PROVIDER", "projects/1/locations/global/workloadIdentityPools/p/providers/p")
+    monkeypatch.setenv("GCP_SA_EMAIL", "bmt@example.iam.gserviceaccount.com")
+    monkeypatch.setenv("GCP_PROJECT", "proj")
+    monkeypatch.setenv("PROJECT", "sk")
+    monkeypatch.setenv("PRESET", "sk_gcc_release")
+    monkeypatch.setenv("SOURCE_REF", "abc123")
+    monkeypatch.setenv("RUNNER_DIR", str(runner_dir))
+    monkeypatch.setenv("LIB_DIR", str(lib_dir))
+
+    with pytest.raises(RuntimeError, match="placeholder artifact refused"):
+        RunnerManager.from_env().upload()

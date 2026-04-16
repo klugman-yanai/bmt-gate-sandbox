@@ -134,6 +134,8 @@ jobs:
   bmt_handoff:
     name: Handoff
     needs: [build_release]
+    # Match core-main gate (build-and-test.yml): PR eligibility uses base branch, not head branch.
+    # So feat/* → ci/check-bmt-gate runs handoff; forks stay excluded.
     if: >-
       (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
       && (
@@ -141,23 +143,21 @@ jobs:
         || github.event.pull_request.head.repo.full_name == github.repository
       )
       && (
-        contains(
-          fromJson('["dev","ci/check-bmt-gate"]'),
-          format(
-            '{0}',
-            (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
+        (
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+          && (
+            github.base_ref == 'dev'
+            || github.base_ref == 'ci/check-bmt-gate'
+            || startsWith(github.base_ref, 'test/')
           )
         )
-        || startsWith(
-          format(
-            '{0}',
-            (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
-            && github.event.pull_request.head.ref
-            || github.ref_name
-          ),
-          'test/check-bmt-gate'
+        || (
+          (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
+          && (
+            github.ref_name == 'dev'
+            || github.ref_name == 'ci/check-bmt-gate'
+            || startsWith(github.ref_name, 'test/')
+          )
         )
       )
     permissions:
