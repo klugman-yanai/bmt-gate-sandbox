@@ -136,11 +136,20 @@ jobs:
     needs: [build_release]
     # Match core-main gate (build-and-test.yml): PR eligibility uses base branch, not head branch.
     # So feat/* → ci/check-bmt-gate runs handoff; forks stay excluded.
+    #
+    # PRs into dev / ci/check-bmt-gate: trigger-ci-pr.yml already calls bmt-handoff.yml. Running
+    # handoff from this workflow too shares the same bmt-handoff concurrency key and cancels
+    # the other run ("higher priority waiting request"). Skip PR handoff here except for
+    # test/* bases (trigger-ci-pr does not listen on those PR branches).
     if: >-
       (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
       && (
         (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
         || github.event.pull_request.head.repo.full_name == github.repository
+      )
+      && (
+        (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
+        || startsWith(github.base_ref, 'test/')
       )
       && (
         (
