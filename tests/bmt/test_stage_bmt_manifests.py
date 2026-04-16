@@ -20,12 +20,11 @@ from pathlib import Path
 import pytest
 
 from runtime.models import BmtManifest, ProjectManifest, StageRuntimePaths, WorkflowRequest
-from runtime.planning import PlanOptions, build_plan
+from runtime.planning import _FLAT_EXCLUDE, PlanOptions, build_plan
 from runtime.plugin_loader import load_plugin
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _STAGE_ROOT = _REPO_ROOT / "plugins"
-_FLAT_EXCLUDE: frozenset[str] = frozenset({"project.json", "runner_latest_meta.json"})
 
 
 @dataclass(frozen=True, slots=True)

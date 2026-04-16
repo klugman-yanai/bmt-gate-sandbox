@@ -30,6 +30,8 @@ _FLAT_EXCLUDE: frozenset[str] = frozenset(
         "runner_latest_meta.json",
         "runner_meta.json",
         "runner.slsa.json",
+        # Repo/test contract — JSON under projects/<p>/ but not a BMT flat manifest (no bmt_id).
+        "runner_integration_contract.json",
     }
 )
 
