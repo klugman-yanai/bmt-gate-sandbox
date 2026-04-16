@@ -21,6 +21,18 @@ inputs:
     description: Whether to run setup-gcp-uv. Set to "false" when the caller already ran it in the same job.
     required: false
     default: "true"
+  bmt_cli:
+    description: BMT CLI mode (uv or pex); pass from caller workflow env.
+    required: false
+    default: "uv"
+  bmt_pex_tag:
+    description: Release tag for bmt.pex when bmt_cli is pex
+    required: false
+    default: ""
+  bmt_pex_repo:
+    description: owner/repo for PEX releases; empty uses github.repository in setup-gcp-uv
+    required: false
+    default: ""
 
 outputs:
   path:
@@ -47,8 +59,9 @@ runs:
         service_account: ${{ inputs.service_account }}
         gcp_project: ${{ inputs.gcp_project }}
         python_version: "3.12"
-        bmt_cli: ${{ vars.BMT_CLI != '' && vars.BMT_CLI || 'uv' }}
-        bmt_pex_tag: ${{ vars.BMT_PEX_TAG }}
+        bmt_cli: ${{ inputs.bmt_cli }}
+        bmt_pex_tag: ${{ inputs.bmt_pex_tag }}
+        bmt_pex_repo: ${{ inputs.bmt_pex_repo }}
 
     - id: list
       env:

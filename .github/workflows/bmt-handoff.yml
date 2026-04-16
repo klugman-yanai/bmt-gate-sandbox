@@ -131,6 +131,8 @@ env:
   BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
   # Optional: set vars.BMT_CLI=pex and vars.BMT_PEX_TAG (e.g. bmt-v0.1.0) to use release bmt.pex instead of uv run bmt.
   BMT_CLI_MODE: ${{ vars.BMT_CLI != '' && vars.BMT_CLI || 'uv' }}
+  BMT_PEX_TAG: ${{ vars.BMT_PEX_TAG }}
+  BMT_PEX_REPO: ${{ vars.BMT_PEX_REPO }}
 
 permissions:
   contents: read
@@ -173,6 +175,9 @@ jobs:
           head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
           head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
           pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
+          bmt_cli: ${{ env.BMT_CLI_MODE }}
+          bmt_pex_tag: ${{ env.BMT_PEX_TAG }}
+          bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
 
       - id: runner_artifacts_index
         env:
@@ -353,7 +358,8 @@ jobs:
           gcp_project: ${{ env.GCP_PROJECT }}
           python_version: "3.12"
           bmt_cli: ${{ env.BMT_CLI_MODE }}
-          bmt_pex_tag: ${{ vars.BMT_PEX_TAG }}
+          bmt_pex_tag: ${{ env.BMT_PEX_TAG }}
+          bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
 
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
@@ -364,6 +370,9 @@ jobs:
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
           setup_gcp: "false"
+          bmt_cli: ${{ env.BMT_CLI_MODE }}
+          bmt_pex_tag: ${{ env.BMT_PEX_TAG }}
+          bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
 
       - name: Emit dispatch context
         shell: bash

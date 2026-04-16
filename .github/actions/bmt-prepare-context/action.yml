@@ -19,6 +19,18 @@ inputs:
     description: PR number (if head_event is pull_request)
     required: false
     default: ""
+  bmt_cli:
+    description: BMT CLI mode (uv or pex); pass from workflow env (vars not allowed in composite).
+    required: false
+    default: "uv"
+  bmt_pex_tag:
+    description: Release tag for bmt.pex when bmt_cli is pex
+    required: false
+    default: ""
+  bmt_pex_repo:
+    description: owner/repo for PEX releases; empty lets setup-bmt-cli use github.repository
+    required: false
+    default: ""
 
 outputs:
   run_id:
@@ -49,9 +61,9 @@ runs:
     - name: Setup BMT CLI (uv or release PEX; uv sync when needed for tools)
       uses: ./.github/actions/setup-bmt-cli
       with:
-        mode: ${{ vars.BMT_CLI != '' && vars.BMT_CLI || 'uv' }}
-        pex_tag: ${{ vars.BMT_PEX_TAG }}
-        pex_repo: ${{ vars.BMT_PEX_REPO != '' && vars.BMT_PEX_REPO || github.repository }}
+        mode: ${{ inputs.bmt_cli }}
+        pex_tag: ${{ inputs.bmt_pex_tag }}
+        pex_repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || github.repository }}
         python_version: "3.12"
         install_workspace: "true"
 
