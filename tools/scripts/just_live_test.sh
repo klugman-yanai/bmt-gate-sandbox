@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# Full live-test pipeline: `just ship` → `git push` → workflow_dispatch on the
-# BMT pipeline workflow. Each phase is skippable; the trigger phase prompts for
-# confirmation unless --no-confirm is given.
+# Full live-test pipeline: `just ship` → `git push` → BMT pipeline trigger.
+# The trigger phase opens a PR against the BMT base branch (default
+# ci/check-bmt-gate); if a PR is already open for the current branch, the push
+# alone is enough to fire `Build + BMT (PR)` (trigger-ci-pr.yml → bmt-handoff
+# → Cloud Run) and the trigger phase reports the in-progress run instead.
+#
+# Each phase is skippable; the trigger phase prompts for confirmation unless
+# --no-confirm is given.
 #
 # Flags:
-#   --skip-ship      Skip `just ship` (test → preflight → deploy → image)
-#   --skip-push      Skip `git push --set-upstream origin <branch>`
-#   --skip-trigger   Skip `gh workflow run <workflow> --ref <branch>`
-#   --no-confirm     Skip the interactive trigger confirmation
-#   --dry-run        Print all actions; do not execute push/trigger; pass --dry-run to ship
-#   --force-image    Forwarded to `just ship --force-image`
-#   --workflow=NAME  Workflow filename to dispatch (default: build-and-test.yml)
-#   -h | --help      Print this help and exit
+#   --skip-ship       Skip `just ship` (test → preflight → deploy → image)
+#   --skip-push       Skip `git push --set-upstream origin <branch>`
+#   --skip-trigger    Skip the BMT pipeline trigger phase
+#   --no-confirm      Skip the interactive trigger confirmation
+#   --dry-run         Print all actions; do not execute push/trigger; pass --dry-run to ship
+#   --force-image     Forwarded to `just ship --force-image`
+#   --base=BRANCH     Base branch for `gh pr create` when no PR exists yet (default: ci/check-bmt-gate)
+#   --workflow=NAME   When set, dispatch this workflow via `gh workflow run --ref <branch>` instead of using a PR
+#                     (advanced; the default PR path is correct for bmt-gcloud's BMT pipeline)
+#   -h | --help       Print this help and exit
 set -euo pipefail
 
 SKIP_SHIP=0
@@ -20,7 +27,8 @@ SKIP_TRIGGER=0
 NO_CONFIRM=0
 DRY_RUN=0
 SHIP_ARGS=()
-WORKFLOW="${BMT_LIVE_TRIGGER_WORKFLOW:-build-and-test.yml}"
+WORKFLOW="${BMT_LIVE_TRIGGER_WORKFLOW:-}"
+BASE_BRANCH="${BMT_LIVE_TRIGGER_BASE:-ci/check-bmt-gate}"
 
 print_help() {
   sed -n '1,/^set -euo pipefail$/p' "$0" | sed 's/^# \{0,1\}//;1d;$d'
@@ -35,6 +43,7 @@ for arg in "$@"; do
     --dry-run) DRY_RUN=1; SHIP_ARGS+=("--dry-run") ;;
     --force-image) SHIP_ARGS+=("--force-image") ;;
     --workflow=*) WORKFLOW="${arg#--workflow=}" ;;
+    --base=*) BASE_BRANCH="${arg#--base=}" ;;
     -h|--help) print_help; exit 0 ;;
     *) printf 'unknown flag: %s (use --help)\n' "$arg" >&2; exit 64 ;;
   esac
@@ -44,7 +53,7 @@ if ! command -v just >/dev/null 2>&1; then
   echo "error: 'just' not on PATH" >&2; exit 127
 fi
 if [ "$SKIP_TRIGGER" -eq 0 ] && ! command -v gh >/dev/null 2>&1; then
-  echo "error: 'gh' not on PATH (needed for workflow trigger; pass --skip-trigger to bypass)" >&2; exit 127
+  echo "error: 'gh' not on PATH (needed for the trigger phase; pass --skip-trigger to bypass)" >&2; exit 127
 fi
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -53,7 +62,12 @@ HEAD_SHORT=$(git rev-parse --short HEAD)
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 note() { printf '  \033[2m%s\033[0m\n' "$*"; }
 
-bold "live-test • branch=${BRANCH} • head=${HEAD_SHORT} • workflow=${WORKFLOW}"
+trigger_label() {
+  if [ -n "$WORKFLOW" ]; then printf 'workflow_dispatch:%s' "$WORKFLOW"
+  else printf 'pr-to:%s' "$BASE_BRANCH"; fi
+}
+
+bold "live-test • branch=${BRANCH} • head=${HEAD_SHORT} • trigger=$(trigger_label)"
 phase() { [ "$1" -eq 0 ] && printf 'on' || printf 'skip'; }
 note "phases: ship=$(phase $SKIP_SHIP) | push=$(phase $SKIP_PUSH) | trigger=$(phase $SKIP_TRIGGER) | dry_run=$DRY_RUN"
 
@@ -75,24 +89,58 @@ else
   bold "[2/3] push: skipped"
 fi
 
+confirm_or_exit() {
+  [ "$NO_CONFIRM" -eq 1 ] && return 0
+  printf '  Confirm trigger %s on %s? [y/N] ' "$1" "$BRANCH"
+  read -r ans
+  case "$ans" in
+    y|Y|yes|YES) ;;
+    *) echo "  trigger declined."; bold "live-test stopped before trigger"; exit 0 ;;
+  esac
+}
+
+watch_hint() {
+  local sel="$1"
+  note "Watch with: gh run watch \$(gh run list --branch=${BRANCH} ${sel} --limit 1 --json databaseId -q '.[0].databaseId')"
+}
+
 if [ "$SKIP_TRIGGER" -eq 0 ]; then
-  bold "[3/3] gh workflow run ${WORKFLOW} --ref ${BRANCH}"
-  if [ "$DRY_RUN" -eq 1 ]; then
-    note "dry-run: not executed"
-  else
-    if [ "$NO_CONFIRM" -eq 0 ]; then
-      printf '  Confirm trigger of %s on %s? [y/N] ' "$WORKFLOW" "$BRANCH"
-      read -r ans
-      case "$ans" in
-        y|Y|yes|YES) ;;
-        *) echo "  trigger declined."; bold "live-test stopped before trigger"; exit 0 ;;
-      esac
+  if [ -n "$WORKFLOW" ]; then
+    bold "[3/3] gh workflow run ${WORKFLOW} --ref ${BRANCH}"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      note "dry-run: not executed"
+    else
+      confirm_or_exit "workflow_dispatch:${WORKFLOW}"
+      gh workflow run "$WORKFLOW" --ref "$BRANCH"
+      sleep 3
+      note "Latest runs for ${WORKFLOW} on ${BRANCH}:"
+      gh run list --workflow="$WORKFLOW" --branch="$BRANCH" --limit 3 || true
+      watch_hint "--workflow=${WORKFLOW}"
     fi
-    gh workflow run "$WORKFLOW" --ref "$BRANCH"
-    sleep 3
-    note "Latest runs for ${WORKFLOW} on ${BRANCH}:"
-    gh run list --workflow="$WORKFLOW" --branch="$BRANCH" --limit 3 || true
-    note "Watch with: gh run watch \$(gh run list --workflow=${WORKFLOW} --branch=${BRANCH} --limit 1 --json databaseId -q '.[0].databaseId')"
+  else
+    bold "[3/3] BMT pipeline trigger via PR (base=${BASE_BRANCH})"
+    PR_NUMBER=""
+    if [ "$DRY_RUN" -eq 0 ]; then
+      PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number' 2>/dev/null || true)
+    fi
+    if [ -n "$PR_NUMBER" ]; then
+      note "PR #${PR_NUMBER} already open for ${BRANCH}; the push above already fired Build + BMT (PR)."
+      sleep 3
+      note "Recent runs on ${BRANCH}:"
+      gh run list --branch="$BRANCH" --limit 5 || true
+      watch_hint ""
+    else
+      if [ "$DRY_RUN" -eq 1 ]; then
+        note "dry-run: would run 'gh pr create --base ${BASE_BRANCH} --head ${BRANCH} --fill'"
+      else
+        confirm_or_exit "PR open against ${BASE_BRANCH}"
+        gh pr create --base "$BASE_BRANCH" --head "$BRANCH" --fill
+        sleep 3
+        note "Recent runs on ${BRANCH}:"
+        gh run list --branch="$BRANCH" --limit 5 || true
+        watch_hint ""
+      fi
+    fi
   fi
 else
   bold "[3/3] trigger: skipped"
