@@ -57,6 +57,13 @@ typecheck section="all":
 ship *args:
     uv run python -m tools ship {{ args }}
 
+# Full live-test pipeline: just ship (test+preflight+deploy+image) -> git push -> gh workflow_dispatch.
+# Confirms before firing the workflow. Skip phases with --skip-ship / --skip-push / --skip-trigger,
+# bypass confirmation with --no-confirm, preview with --dry-run. See the script for all flags.
+[group('pre-push')]
+live-test *args:
+    bash tools/scripts/just_live_test.sh {{ args }}
+
 [group('pre-push')]
 test:
     uv sync
