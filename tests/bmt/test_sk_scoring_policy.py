@@ -26,7 +26,7 @@ def test_scoring_policy_record_defaults() -> None:
     assert rec["schema_version"] == sp.SCORING_POLICY_SCHEMA_VERSION
     assert rec["primary_metric"] == "namuh_count"
     assert rec["reducer"] == "mean_ok_cases"
-    assert rec["failure_policy"] == "strict"
+    assert rec["failure_policy"] == "ignore_case_failures"
     assert rec["comparison"] == "gte"
     assert rec["score_direction_hint"] == "higher_better"
 

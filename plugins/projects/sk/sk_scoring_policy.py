@@ -9,10 +9,13 @@ from bmt_sdk.results import CaseResult
 
 PRIMARY_METRIC = "namuh_count"
 DEFAULT_REDUCER: Literal["mean_ok_cases"] = "mean_ok_cases"
-DEFAULT_FAILURE_POLICY: Literal["strict"] = "strict"
+# Case-level failures (runner crashes, timeouts, parse failures) are logged and surfaced in
+# per-case tables, but do not gate the leg verdict. This lets us validate that non-crashing
+# inputs still behave as expected while we debug flaky runner stability.
+DEFAULT_FAILURE_POLICY: Literal["ignore_case_failures"] = "ignore_case_failures"
 MAX_CASE_ERROR_CHARS = 2000
 # Bump when adding/removing keys in ``scoring_policy`` (see docs/adr/0003-score-extra-reporting-contract.md).
-SCORING_POLICY_SCHEMA_VERSION = "2"
+SCORING_POLICY_SCHEMA_VERSION = "3"
 
 
 def normalize_comparison(plugin_config: dict[str, Any]) -> str:

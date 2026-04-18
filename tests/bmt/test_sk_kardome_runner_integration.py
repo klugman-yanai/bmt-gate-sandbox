@@ -95,9 +95,7 @@ def test_kardome_runner_executes_and_scores_aggregate() -> None:
 
         aggregate_mean_ok_cases = _import_sk_aggregate()
         agg = aggregate_mean_ok_cases(result.case_results)
-        expected = sum(float(r.metrics.get("namuh_count", 0.0)) for r in result.case_results) / len(
-            result.case_results
-        )
+        expected = sum(float(r.metrics.get("namuh_count", 0.0)) for r in result.case_results) / len(result.case_results)
         assert isinstance(agg, float)
         assert agg == pytest.approx(expected)
     finally:

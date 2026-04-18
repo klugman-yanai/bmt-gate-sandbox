@@ -37,6 +37,7 @@ REASON_LABELS: dict[str, str] = {
     "demo_force_pass": "forced pass override (demo mode)",
     "bootstrap_without_baseline": _BOOTSTRAP_FIRST_RUN,
     "runner_case_failures": "runner crashed on one or more test files",
+    "no_successful_cases": "runner crashed on all test files",
     "no_dataset_cases": "no test cases were produced (empty dataset or execution produced no rows)",
     "plugin_execute_failed": "the BMT plugin failed during execute (setup, imports, or orchestration)",
 }

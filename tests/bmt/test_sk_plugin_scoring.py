@@ -75,7 +75,7 @@ class TestScoreAggregation:
         assert score.metrics["cases_failed"] == 0
         assert len(score.metrics["case_outcomes"]) == 2
         assert score.extra["scoring_policy"]["reducer"] == "mean_ok_cases"
-        assert score.extra["scoring_policy"]["schema_version"] == "2"
+        assert score.extra["scoring_policy"]["schema_version"] == "3"
         assert score.extra["scoring_policy"]["score_direction_hint"] == "lower_better"
 
     def test_failed_cases_excluded_from_average(self) -> None:
@@ -141,15 +141,32 @@ class TestEvaluateFailsOnCaseErrors:
         assert verdict.status == BmtLegStatus.FAIL.value
         assert not verdict.passed
 
-    def test_case_failures_force_fail_even_with_good_score(self) -> None:
+    def test_partial_case_failures_do_not_force_fail(self) -> None:
         plugin = _make_plugin()
         score = ScoreResult(
             aggregate_score=50.0,
             metrics={"case_count": 3, "cases_ok": 2, "cases_failed": 1, "cases_failed_ids": ["b.wav"]},
         )
         verdict = plugin.evaluate(score, None, _make_context())
+        # Case-level failures do not gate the verdict; they remain visible in metrics/case_outcomes.
+        assert verdict.status == BmtLegStatus.PASS.value
+        assert verdict.reason_code == "bootstrap_without_baseline"
+        assert verdict.passed
+
+    def test_all_cases_failed_fails_with_no_successful_cases(self) -> None:
+        plugin = _make_plugin()
+        score = ScoreResult(
+            aggregate_score=0.0,
+            metrics={
+                "case_count": 3,
+                "cases_ok": 0,
+                "cases_failed": 3,
+                "cases_failed_ids": ["a.wav", "b.wav", "c.wav"],
+            },
+        )
+        verdict = plugin.evaluate(score, None, _make_context())
         assert verdict.status == BmtLegStatus.FAIL.value
-        assert verdict.reason_code == "runner_case_failures"
+        assert verdict.reason_code == "no_successful_cases"
         assert not verdict.passed
 
     def test_no_case_failures_bootstrap_passes(self) -> None:

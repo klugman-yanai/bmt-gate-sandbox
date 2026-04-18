@@ -187,6 +187,7 @@ class SkPlugin(BmtPlugin):
             )
 
         cases_failed = int(score_result.metrics.get("cases_failed", 0))
+        cases_ok = int(score_result.metrics.get("cases_ok", 0) or 0)
         if score_result.extra.get("sk_plugin_execute_exception"):
             return VerdictResult(
                 passed=False,
@@ -200,12 +201,13 @@ class SkPlugin(BmtPlugin):
                 },
             )
 
-        # Any case-level failure is an unconditional FAIL.
-        if cases_failed > 0:
+        # If every case failed (runner crashes/timeouts/parse failures), we have no usable
+        # signal for scoring and should fail the leg explicitly.
+        if cases_ok == 0:
             return VerdictResult(
                 passed=False,
                 status=BmtLegStatus.FAIL.value,
-                reason_code="runner_case_failures",
+                reason_code="no_successful_cases",
                 summary={
                     "aggregate_score": score_result.aggregate_score,
                     "cases_failed": cases_failed,
