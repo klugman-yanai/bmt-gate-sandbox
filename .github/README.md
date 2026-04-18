@@ -14,7 +14,7 @@ Root **`.github/workflows/*.yml`** (non-`internal/`): **`build-and-test-dev.yml`
 | **`workflows/bmt-handoff.yml`** | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`) |
 | **`workflows/clang-format-auto-fix.yml`** | C/C++ format automation on selected branches |
 | **`workflows/internal/bmt-handoff-dev.yml`** | `workflow_dispatch` wrapper: calls **`bmt-handoff.yml`** with **`use_mock_runner: true`** |
-| **`workflows/internal/build-kardome-bmt-pex.yml`** | On tag **`bmt-v*`**: build **`dist/bmt.pex`** and attach to the GitHub Release on **klugman-yanai/bmt-gcloud** |
+| **`workflows/build-kardome-bmt-pex.yml`** | On tag **`bmt-v*`**: build **`dist/bmt.pex`** and attach to the GitHub Release on **klugman-yanai/bmt-gcloud** (must be top-level so push-tag triggers it; subdirs of `.github/workflows/` are not scanned for triggers) |
 | **`workflows/internal/trigger-ci.yml`** | Manual: `gh workflow run` **build-and-test** on a chosen ref |
 | **`workflows/internal/bmt-image-build.yml`** | Packer image build; also on path-filtered `push` |
 | **`workflows/internal/trigger-image-build.yml`** | Manual: dispatch image build on a branch |

@@ -322,7 +322,7 @@ release-check:
     command -v actionlint >/dev/null 2>&1 || (echo Install actionlint >&2; exit 1)
     actionlint -config-file .github/actionlint.yaml \
       .github/workflows/bmt-handoff.yml \
-      .github/workflows/internal/build-kardome-bmt-pex.yml
+      .github/workflows/build-kardome-bmt-pex.yml
 
 # Self-contained bmt CLI for consumer CI (GitHub Release asset: bmt.pex on tag bmt-v*).
 [group('dev')]
