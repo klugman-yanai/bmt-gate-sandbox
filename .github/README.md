@@ -19,7 +19,7 @@ Root **`.github/workflows/*.yml`** (non-`internal/`): **`build-and-test-dev.yml`
 | **`workflows/internal/bmt-image-build.yml`** | Packer image build; also on path-filtered `push` |
 | **`workflows/internal/trigger-image-build.yml`** | Manual: dispatch image build on a branch |
 
-**BMT CLI:** `uv run bmt …` by default, or release **`bmt.pex`** when repo vars **`BMT_CLI=pex`** and **`BMT_PEX_TAG`** are set (see [`docs/configuration.md`](../docs/configuration.md)). Wrapper: [`.github/scripts/invoke-bmt.sh`](./scripts/invoke-bmt.sh). Package under **`ci/`** — see [`bmt/README.md`](bmt/README.md).
+**BMT CLI:** the canonical CI entry point is the release **`bmt.pex`**, downloaded by **[`setup-bmt-pex`](./actions/setup-bmt-pex/action.yml)** and invoked via **`"$BMT_PEX_PATH" …`**. Set repo var **`BMT_PEX_TAG`** (and **`BMT_PEX_REPO`** when the publishing repo is not the workflow repo). Self-CI image-build / dev-tooling workflows still use **`uv run`** + **[`setup-bmt-cli`](./actions/setup-bmt-cli/action.yml)** + **[`setup-gcp-uv`](./actions/setup-gcp-uv/action.yml)**, which sync the **`ci/`** workspace ([`bmt/README.md`](bmt/README.md)).
 
 ### Orchestrator image (`runtime/` → Cloud Run)
 
@@ -27,13 +27,31 @@ Changes under **`runtime/`** ship in the **`bmt-orchestrator`** container (`runt
 
 ## Production (Kardome-org/core-main)
 
-**Preferred:** In the production repo, add a step that uses **[`bmt-get-pex`](./actions/bmt-get-pex/action.yml)** (or an equivalent `gh release download`) to fetch **`bmt.pex`** from a **GitHub Release on [klugman-yanai/bmt-gcloud](https://github.com/klugman-yanai/bmt-gcloud)** (tags like **`bmt-v0.1.0`**). Run **`./bmt.pex`** with Python 3.12 on the runner, or wire **`vars.BMT_CLI=pex`** / **`vars.BMT_PEX_TAG`** if you reuse workflows from this repo.
+**Preferred (cross-repo, zero vendoring):** In the production repo, call the reusable workflow directly:
 
-You still need to **vendor** what GitHub cannot pull from another repo by magic:
+```yaml
+bmt-handoff:
+  needs: build-release
+  if: <gate>
+  uses: klugman-yanai/bmt-gcloud/.github/workflows/bmt-handoff.yml@${{ vars.BMT_PEX_TAG }}
+  with:
+    ci_run_id: ${{ github.run_id }}
+    head_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    head_branch: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+    head_event: ${{ github.event_name }}
+    pr_number: ${{ github.event_name == 'pull_request' && format('{0}', github.event.pull_request.number) || '' }}
+  secrets: inherit
+```
 
-1. **Reusable workflows and composites** — Copy or submodule **[`.github/workflows/bmt-handoff.yml`](./workflows/bmt-handoff.yml)** and **[`.github/actions/`](./actions/)** (and any caller like **`build-and-test.yml`**) into the production repo, **or** use `workflow_call` / `uses: org/repo/.github/...` if your org allows cross-repo reusable workflows.
-2. **Sparse / partial tree** — `bmt-handoff` may sparse-checkout **`runtime`**, **`ci`**, **`sdk`**, **`gcp/image`** (for fallback imports). Keep those paths consistent with this repo or adjust the checkout step.
-3. **Repo variables** — `GCS_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `GCP_PROJECT`, `CLOUD_RUN_REGION`, job names from Pulumi, etc. (see [`docs/configuration.md`](../docs/configuration.md)).
+The workflow is **PEX-only and caller-tree independent** — composite actions are fetched from this repo automatically at the pinned ref; nothing needs to be vendored. Each `build-release` matrix leg that produces a `runner-<preset>` artifact additionally uses **[`setup-bmt-pex`](./actions/setup-bmt-pex/action.yml)** to call `"$BMT_PEX_PATH" preset stage-release-runner` / `compute-info` before `actions/upload-artifact`.
+
+**Caller repo variables** (resolved in the caller's context):
+
+1. **`BMT_PEX_TAG`** — pinned release tag (e.g. `bmt-v0.3.0`); also used as the workflow @ref.
+2. **`BMT_PEX_REPO`** — owner/name of the PEX publishing repo. Optional during transition; defaults to `klugman-yanai/bmt-gcloud`.
+3. **GCP infra** — `GCS_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `GCP_PROJECT` (WIF target; see [`docs/configuration.md`](../docs/configuration.md)).
+
+Everything BMT-specific (CLOUD_RUN_REGION, BMT_STATUS_CONTEXT, status-check name, etc.) is defaulted via the reusable workflow's `inputs:` block and only needs an override when you want one.
 
 **`workflows/internal/*`** here is for **bmt-gcloud** testing only — not required on core-main unless you copy a specific template (e.g. **`trigger-ci.yml`** from **`scripts/release_templates/workflows/`**).
 
@@ -44,7 +62,7 @@ You still need to **vendor** what GitHub cannot pull from another repo by magic:
 ## This repo’s workflow layout
 
 - **workflows/** — **Root:** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**, **`trigger-ci-pr.yml`**. **`internal/`** — dev-only: handoff mock, PEX build, trigger-ci, bmt-image-build, trigger-image-build.
-- **actions/** — `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`, **`bmt-get-pex`**, `setup-bmt-cli`
+- **actions/** — `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, **`setup-bmt-pex`** (PEX-only; cross-repo callable), `setup-bmt-cli` + `setup-gcp-uv` (uv-mode for self-CI), `bmt-get-pex`
 - **`ci/`** — BMT CLI package ([`bmt/README.md`](bmt/README.md))
 
 ## Which workflow runs CI?

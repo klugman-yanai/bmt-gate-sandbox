@@ -1,9 +1,12 @@
 name: BMT Prepare
-description: Emit context, validate vars, parse release runners. Use in BMT handoff workflow.
+description: >
+  Emit context, validate vars, parse release runners. PEX-only and caller-tree
+  independent — safe to invoke from cross-repo callers via klugman-yanai/bmt-gcloud
+  reusable workflow.
 
 inputs:
   head_sha:
-    description: Head commit SHA to checkout
+    description: Head commit SHA under test
     required: true
   ci_run_id:
     description: CI workflow run ID (for artifact download)
@@ -19,22 +22,19 @@ inputs:
     description: PR number (if head_event is pull_request)
     required: false
     default: ""
-  bmt_cli:
-    description: BMT CLI mode (uv or pex); pass from workflow env (vars not allowed in composite).
-    required: false
-    default: "uv"
   bmt_pex_tag:
-    description: Release tag for bmt.pex when bmt_cli is pex
-    required: false
-    default: ""
+    description: Release tag for bmt.pex (vars.BMT_PEX_TAG)
+    required: true
   bmt_pex_repo:
-    description: owner/repo for PEX releases; empty lets setup-bmt-cli use github.repository
+    description: >
+      owner/repo for PEX releases. Empty defaults to klugman-yanai/bmt-gcloud
+      (override via vars.BMT_PEX_REPO once the publishing repo moves).
     required: false
     default: ""
 
 outputs:
   run_id:
-    description: BMT run ID emitted by emit-bmt-context
+    description: BMT run ID
     value: ${{ steps.ctx.outputs.run_id }}
   head_sha:
     description: Head commit SHA
@@ -58,14 +58,12 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Setup BMT CLI (uv or release PEX; uv sync when needed for tools)
-      uses: ./.github/actions/setup-bmt-cli
+    - name: Setup BMT CLI (release PEX, no uv)
+      uses: ./.github/actions/setup-bmt-pex
       with:
-        mode: ${{ inputs.bmt_cli }}
-        pex_tag: ${{ inputs.bmt_pex_tag }}
-        pex_repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || github.repository }}
+        tag: ${{ inputs.bmt_pex_tag }}
+        repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || 'klugman-yanai/bmt-gcloud' }}
         python_version: "3.12"
-        install_workspace: "true"
 
     - id: ctx
       shell: bash
@@ -128,4 +126,5 @@ runs:
       env:
         BMT_OUTPUT_FORMAT: bmt
         BMT_OUTPUT_KEY: runner_matrix
-      run: bash .github/scripts/invoke-bmt.sh matrix parse-release-runners
+      run: |
+        "$BMT_PEX_PATH" matrix parse-release-runners
