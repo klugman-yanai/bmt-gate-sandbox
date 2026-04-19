@@ -59,7 +59,7 @@ runs:
   using: composite
   steps:
     - name: Setup BMT CLI (release PEX, no uv)
-      uses: ./.github/actions/setup-bmt-pex
+      uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.1
       with:
         tag: ${{ inputs.bmt_pex_tag }}
         repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || 'klugman-yanai/bmt-gcloud' }}
