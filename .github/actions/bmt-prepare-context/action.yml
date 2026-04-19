@@ -59,7 +59,7 @@ runs:
   using: composite
   steps:
     - name: Setup BMT CLI (release PEX, no uv)
-      uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.1
+      uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.2
       with:
         tag: ${{ inputs.bmt_pex_tag }}
         repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || 'klugman-yanai/bmt-gcloud' }}
@@ -120,6 +120,32 @@ runs:
           exit 1
         fi
         echo "Proceeding with BMT"
+
+    # CMakePresets.json lives in the CALLER's repo (e.g. Kardome-org/core-main).
+    # bmt-handoff jobs run without actions/checkout to keep them lightweight, so we
+    # fetch the file from the caller's contents API at the exact head_sha. Same pattern
+    # as core-main's extract-presets job (independent of any caller-side checkout).
+    - name: Fetch CMakePresets.json from caller repo
+      shell: bash
+      env:
+        REPO: ${{ github.repository }}
+        REF: ${{ inputs.head_sha }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        url="https://api.github.com/repos/${REPO}/contents/CMakePresets.json?ref=${REF}"
+        for delay in 0 5 10 20; do
+          [[ "$delay" -gt 0 ]] && sleep "$delay"
+          curl -fsSL --connect-timeout 15 --max-time 60 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github.raw" \
+            "${url}" -o CMakePresets.json && break
+        done
+        if [[ ! -s CMakePresets.json ]]; then
+          echo "::error::Failed to fetch CMakePresets.json from ${REPO}@${REF}"
+          exit 1
+        fi
+        echo "::notice::Fetched CMakePresets.json from ${REPO}@${REF} ($(wc -c <CMakePresets.json) bytes)"
 
     - id: parse
       shell: bash
