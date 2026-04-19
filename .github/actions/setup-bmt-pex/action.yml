@@ -1,0 +1,63 @@
+name: Setup kardome-bmt PEX
+description: >
+  Self-contained PEX-only BMT CLI setup for cross-repo callers. Installs Python 3.12
+  (PEX runtime), downloads bmt.pex from a GitHub Release, and exports BMT_PEX_PATH for
+  downstream steps. The PEX bundles the full kardome-bmt CLI; nothing else from this
+  publishing repo is needed at runtime. Unlike setup-bmt-cli, this action does NOT run
+  uv sync, has no dependency on the caller's checkout, and is the canonical setup used
+  by bmt-handoff.yml when callers consume it cross-repo (e.g. Kardome-org/core-main).
+
+inputs:
+  tag:
+    description: Release tag containing bmt.pex (e.g. vars.BMT_PEX_TAG = bmt-v0.3.0)
+    required: true
+  repo:
+    description: >
+      owner/name of the repo that published bmt.pex. Defaults to klugman-yanai/bmt-gcloud;
+      override via vars.BMT_PEX_REPO once the publishing repo moves under Kardome-org.
+    required: false
+    default: klugman-yanai/bmt-gcloud
+  python_version:
+    description: Python version for the PEX runtime.
+    required: false
+    default: "3.12"
+  out_path:
+    description: Directory to place bmt.pex (relative to GITHUB_WORKSPACE).
+    required: false
+    default: ".local/bmt"
+  token:
+    description: Token with contents:read on the release repo (default github.token).
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -z "${{ inputs.tag }}" ]]; then
+          echo "::error::setup-bmt-pex: tag is required (set vars.BMT_PEX_TAG, e.g. bmt-v0.3.0)"
+          exit 1
+        fi
+
+    - name: Setup Python for PEX
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Download bmt.pex
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        out="${GITHUB_WORKSPACE}/${{ inputs.out_path }}"
+        mkdir -p "$out"
+        gh release download "${{ inputs.tag }}" \
+          -R "${{ inputs.repo }}" \
+          -p "bmt.pex" \
+          -D "$out"
+        chmod +x "$out/bmt.pex"
+        echo "BMT_PEX_PATH=${out}/bmt.pex" >> "$GITHUB_ENV"

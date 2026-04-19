@@ -36,7 +36,7 @@ inputs:
     description: GCP service account email for WIF
     required: true
   gcp_project:
-    description: Same as setup-gcp-uv gcp_project input (typically env.GCP_PROJECT).
+    description: GCP project ID; pass env.GCP_PROJECT (already authenticated via WIF in the caller job).
     required: true
   bmt_status_context:
     description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
@@ -122,8 +122,8 @@ runs:
         DISPATCH_HEAD_SHA: ${{ steps.x.outputs.dispatch_head_sha }}
         DISPATCH_PR_NUMBER: ${{ steps.x.outputs.dispatch_pr_number }}
       run: |
-        bash .github/scripts/invoke-bmt.sh handoff write-context
-        bash .github/scripts/invoke-bmt.sh handoff resolve-failure-context
+        "$BMT_PEX_PATH" handoff write-context
+        "$BMT_PEX_PATH" handoff resolve-failure-context
 
     - name: Classify failure reason
       id: reason

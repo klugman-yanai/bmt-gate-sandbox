@@ -122,6 +122,10 @@ concurrency:
 #   head_branch: inputs.head_branch || github.event.inputs.head_branch || github.ref_name
 #   ci_run_id:   inputs.ci_run_id || github.event.inputs.ci_run_id
 env:
+  # All vars.* below are evaluated in the CALLER's repository context. Cross-repo callers
+  # (e.g. Kardome-org/core-main) MUST set: GCS_BUCKET, GCP_WIF_PROVIDER, GCP_SA_EMAIL,
+  # GCP_PROJECT, BMT_PEX_TAG. Everything BMT-specific is defaulted via inputs below or
+  # via the kardome-bmt PEX itself.
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
@@ -129,8 +133,7 @@ env:
   # Defaults match docs/configuration.md and runtime/config/constants.py (DEFAULT_*).
   CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
   BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
-  # Optional: set vars.BMT_CLI=pex and vars.BMT_PEX_TAG (e.g. bmt-v0.1.0) to use release bmt.pex instead of uv run bmt.
-  BMT_CLI_MODE: ${{ vars.BMT_CLI != '' && vars.BMT_CLI || 'uv' }}
+  # PEX-only: kardome-bmt CLI is always the release PEX. No uv-mode dual track.
   BMT_PEX_TAG: ${{ vars.BMT_PEX_TAG }}
   BMT_PEX_REPO: ${{ vars.BMT_PEX_REPO }}
 
@@ -161,12 +164,9 @@ jobs:
       matrix_publish: ${{ steps.filter.outputs.matrix_publish }}
       matrix_publish_keys: ${{ steps.filter.outputs.matrix_publish_keys }}
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
-
+      # NOTE: no actions/checkout. Composite actions referenced via ./.github/actions/*
+      # are fetched automatically from THIS workflow's repo (klugman-yanai/bmt-gcloud@<ref>),
+      # independent of the caller's filesystem. PEX is the only runtime dependency.
       - id: prepare
         uses: ./.github/actions/bmt-prepare-context
         with:
@@ -175,7 +175,6 @@ jobs:
           head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
           head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
           pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
-          bmt_cli: ${{ env.BMT_CLI_MODE }}
           bmt_pex_tag: ${{ env.BMT_PEX_TAG }}
           bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
 
@@ -198,24 +197,18 @@ jobs:
             echo "ARTIFACTS_EOF"
           } >>"$GITHUB_OUTPUT"
 
-      - name: Setup GCP (WIF + gcloud only; BMT CLI installed in Prepare step)
-        uses: ./.github/actions/setup-gcp-uv
+      - name: GCP auth (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
-          install_uv: false
+          project_id: ${{ env.GCP_PROJECT }}
 
-      - name: Check bucket sync (advisory)
-        continue-on-error: true
-        env:
-          GCS_BUCKET: ${{ env.GCS_BUCKET }}
-        run: |
-          set +e
-          uv run python -m tools.remote.bucket_verify_runtime_seed_sync 2>&1 \
-            | sed 's/::error::/::warning::/g'
-          exit 0
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+          version: ">= 363.0.0"
 
       - id: filter
         env:
@@ -226,8 +219,8 @@ jobs:
           BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
           AVAILABLE_ARTIFACTS: ${{ steps.runner_artifacts_index.outputs.json }}
         run: |
-          bash .github/scripts/invoke-bmt.sh handoff write-context
-          bash .github/scripts/invoke-bmt.sh runner filter-upload-matrix
+          "$BMT_PEX_PATH" handoff write-context
+          "$BMT_PEX_PATH" runner filter-upload-matrix
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
@@ -249,23 +242,27 @@ jobs:
     env:
       BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
     steps:
-      - name: Checkout repo
+      - name: GCP auth (WIF)
         if: matrix.bmt_supported == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
-
-      - name: Setup GCP and uv
-        if: matrix.bmt_supported == 'true'
-        uses: ./.github/actions/setup-gcp-uv
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
-          bmt_cli: ${{ env.BMT_CLI_MODE }}
-          bmt_pex_tag: ${{ vars.BMT_PEX_TAG }}
+          project_id: ${{ env.GCP_PROJECT }}
+
+      - name: Setup Cloud SDK
+        if: matrix.bmt_supported == 'true'
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+          version: ">= 363.0.0"
+
+      - name: Setup BMT CLI (release PEX, no uv)
+        if: matrix.bmt_supported == 'true'
+        uses: ./.github/actions/setup-bmt-pex
+        with:
+          tag: ${{ env.BMT_PEX_TAG }}
+          repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
       - name: Download runner artifact from CI run
         if: matrix.bmt_supported == 'true'
@@ -300,14 +297,16 @@ jobs:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
           SOURCE_REF: ${{ needs.write_handoff_context.outputs.head_sha }}
-        run: bash .github/scripts/invoke-bmt.sh runner upload-to-gcs
+        run: |
+          "$BMT_PEX_PATH" runner upload-to-gcs
 
       - name: Mark uploaded for handoff
         if: matrix.bmt_supported == 'true'
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
-        run: bash .github/scripts/invoke-bmt.sh runner validate-in-repo
+        run: |
+          "$BMT_PEX_PATH" runner validate-in-repo
 
   start_bmt_workflow:
     name: Dispatch
@@ -339,40 +338,30 @@ jobs:
       bmt_final_state: ${{ steps.outcome.outputs.bmt_final_state }}
       bmt_recovery_used: ${{ steps.outcome.outputs.bmt_recovery_used }}
     steps:
-      - name: Checkout repo (for local actions)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
-          sparse-checkout: |
-            .github
-            runtime
-            ci
-            sdk
-
-      - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+      - name: GCP auth (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
-          bmt_cli: ${{ env.BMT_CLI_MODE }}
-          bmt_pex_tag: ${{ env.BMT_PEX_TAG }}
-          bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
+          project_id: ${{ env.GCP_PROJECT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+          version: ">= 363.0.0"
+
+      - name: Setup BMT CLI (release PEX, no uv)
+        uses: ./.github/actions/setup-bmt-pex
+        with:
+          tag: ${{ env.BMT_PEX_TAG }}
+          repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
         with:
           head_sha: ${{ needs.write_handoff_context.outputs.head_sha }}
           runner_matrix: ${{ needs.write_handoff_context.outputs.runner_matrix }}
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          setup_gcp: "false"
-          bmt_cli: ${{ env.BMT_CLI_MODE }}
-          bmt_pex_tag: ${{ env.BMT_PEX_TAG }}
-          bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
 
       - name: Emit dispatch context
         shell: bash
@@ -415,7 +404,7 @@ jobs:
           ACCEPTED_PROJECTS: ${{ steps.classify.outputs.accepted_projects }}
         run: |
           set -euo pipefail
-          bash .github/scripts/invoke-bmt.sh handoff validate-dataset-inputs
+          "$BMT_PEX_PATH" handoff validate-dataset-inputs
 
       - id: invoke-workflow
         shell: bash
@@ -431,8 +420,8 @@ jobs:
           BMT_USE_MOCK_RUNNER: ${{ inputs.use_mock_runner == true && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          bash .github/scripts/invoke-bmt.sh handoff write-context
-          bash .github/scripts/invoke-bmt.sh dispatch invoke-workflow
+          "$BMT_PEX_PATH" handoff write-context
+          "$BMT_PEX_PATH" dispatch invoke-workflow
 
       - name: Persist workflow execution snapshot
         if: steps.invoke-workflow.outcome == 'success'
@@ -505,36 +494,9 @@ jobs:
             echo "- diagnostics artifact: \`bmt-handoff-diagnostics-${{ github.run_id }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Checkout repo (for local actions)
-        if: steps.invoke-workflow.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          fetch-depth: 1
-          sparse-checkout: |
-            .github
-            runtime
-            ci
-            sdk
-
-      - uses: ./.github/actions/setup-gcp-uv
-        if: steps.invoke-workflow.outcome != 'success'
-        with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          gcp_project: ${{ env.GCP_PROJECT }}
-          python_version: "3.12"
-          bmt_cli: ${{ env.BMT_CLI_MODE }}
-          bmt_pex_tag: ${{ vars.BMT_PEX_TAG }}
-
-      - name: Set BMT constants for fallback
-        if: steps.invoke-workflow.outcome != 'success'
-        id: bmt-constants
-        run: |
-          STATUS_CONTEXT=$(uv run python -c "from runtime.config.constants import STATUS_CONTEXT; print(STATUS_CONTEXT)")
-          echo "status_context=$STATUS_CONTEXT" >> "$GITHUB_OUTPUT"
-          echo "BMT_STATUS_CONTEXT=$STATUS_CONTEXT" >> "$GITHUB_ENV"
-
+      # Failure fallback: GCP auth + PEX are still set up from earlier in this same job
+      # (steps above), so no re-checkout / re-setup is needed. STATUS_CONTEXT is taken
+      # from the workflow-level env (default 'BMT Gate', overridable via input).
       - name: Failure fallback
         if: steps.invoke-workflow.outcome != 'success'
         uses: ./.github/actions/bmt-failure-fallback
@@ -551,7 +513,7 @@ jobs:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
-          bmt_status_context: ${{ steps.bmt-constants.outputs.status_context }}
+          bmt_status_context: ${{ env.BMT_STATUS_CONTEXT }}
 
       - id: outcome
         run: |
