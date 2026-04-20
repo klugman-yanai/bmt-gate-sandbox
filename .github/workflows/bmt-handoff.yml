@@ -169,11 +169,11 @@ jobs:
       # NOTE: no actions/checkout. Composite actions are referenced via the repo-qualified
       # form `klugman-yanai/bmt-gcloud/.github/actions/*@<tag>` so they resolve against THIS
       # repo when called cross-repo (a `./` ref would resolve against the caller's filesystem,
-      # which fails). Pinned to bmt-v0.3.2 (the tag this commit is released as), self-referential;
+      # which fails). Pinned to bmt-v0.3.3 (the tag this commit is released as), self-referential;
       # bump in a coordinated commit when you cut the next release. PEX is the only runtime
       # dependency beyond these composites.
       - id: prepare
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-prepare-context@bmt-v0.3.2
+        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-prepare-context@bmt-v0.3.3
         with:
           ci_run_id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
           head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
@@ -280,7 +280,7 @@ jobs:
 
       - name: Setup BMT CLI (release PEX, no uv)
         if: matrix.upload_action == 'upload'
-        uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.2
+        uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3
         with:
           tag: ${{ env.BMT_PEX_TAG }}
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
@@ -408,13 +408,13 @@ jobs:
           version: ">= 363.0.0"
 
       - name: Setup BMT CLI (release PEX, no uv)
-        uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.2
+        uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3
         with:
           tag: ${{ env.BMT_PEX_TAG }}
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
       - id: classify
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-filter-handoff-matrix@bmt-v0.3.2
+        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-filter-handoff-matrix@bmt-v0.3.3
         with:
           head_sha: ${{ needs.write_handoff_context.outputs.head_sha }}
           runner_matrix: ${{ needs.write_handoff_context.outputs.runner_matrix }}
@@ -520,7 +520,7 @@ jobs:
 
       - name: Write dispatch summary (workflow execution confirmed)
         if: steps.invoke-workflow.outcome == 'success'
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-write-summary@bmt-v0.3.2
+        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-write-summary@bmt-v0.3.3
         with:
           mode: run_success
           repository: ${{ github.repository }}
@@ -555,7 +555,7 @@ jobs:
       # from the workflow-level env (default 'BMT Gate', overridable via input).
       - name: Failure fallback
         if: steps.invoke-workflow.outcome != 'success'
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-failure-fallback@bmt-v0.3.2
+        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-failure-fallback@bmt-v0.3.3
         with:
           handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
           setup_outputs: ${{ toJson(needs.write_handoff_context.outputs) }}
