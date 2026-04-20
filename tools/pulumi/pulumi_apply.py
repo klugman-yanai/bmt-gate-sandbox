@@ -147,6 +147,16 @@ def main() -> int:
         else:
             print("  Repo vars… (no changes, skipped)")
 
+    # Emit the stack fingerprint so the CI release workflow can record which
+    # Pulumi state was applied. Failure to compute it is not fatal — the
+    # release marker simply omits the field (release.yml warns but continues).
+    from tools.shared.release_fingerprints import emit_github_output, pulumi_stack_sha
+
+    stack_sha = pulumi_stack_sha(pulumi_dir(), STACK_NAME)
+    if stack_sha is not None:
+        print(f"PULUMI_STACK_SHA={stack_sha}")
+        emit_github_output("pulumi_stack_sha", stack_sha)
+
     if not verbose:
         success_panel(console, "Apply", "Stack up to date; repo vars synced.")
     return 0

@@ -30,9 +30,15 @@ def verify_runtime_seed() -> None:
 
 @app.command()
 def deploy() -> None:
-    """Sync gcp/stage to bucket root and verify runtime seed."""
+    """Sync gcp/stage to bucket root and verify runtime seed.
+
+    On success, emits ``plugins_sha`` (the git tree SHA of ``plugins/projects``
+    at HEAD) to ``$GITHUB_OUTPUT`` so the CI release workflow can record which
+    plugin state was deployed. Local runs print it for visibility only.
+    """
     from tools.remote.bucket_sync_runtime_seed import BucketSyncRuntimeSeed
     from tools.remote.bucket_verify_runtime_seed_sync import BucketVerifyRuntimeSeedSync
+    from tools.shared.release_fingerprints import emit_github_output, plugins_tree_sha
 
     bucket = bucket_from_env()
     console = step_console()
@@ -52,6 +58,11 @@ def deploy() -> None:
             step(console, label, ok=False)
             raise typer.Exit(rc)
         step(console, label, ok=True)
+
+    plugins_sha = plugins_tree_sha(Path(repo_root()))
+    if plugins_sha is not None:
+        print(f"PLUGINS_SHA={plugins_sha}")
+        emit_github_output("plugins_sha", plugins_sha)
     success_panel(console, "Deploy", "Runtime seed synced and verified.")
     raise typer.Exit(0)
 
