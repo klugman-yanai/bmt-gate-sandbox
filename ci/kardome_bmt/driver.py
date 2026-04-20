@@ -12,6 +12,7 @@ from kardome_bmt.actions import gh_error
 from kardome_bmt.handoff import HandoffManager
 from kardome_bmt.matrix import MatrixManager
 from kardome_bmt.preset import PresetManager
+from kardome_bmt.release_cli import app as release_app
 from kardome_bmt.runner import RunnerManager
 from kardome_bmt.workflow_dispatch import WorkflowDispatchManager
 
@@ -37,6 +38,8 @@ app.add_typer(dispatch_app, name="dispatch")
 
 preset_app = typer.Typer(help="Release preset staging.")
 app.add_typer(preset_app, name="preset")
+
+app.add_typer(release_app, name="release")
 
 
 @meta_app.command("load-env")

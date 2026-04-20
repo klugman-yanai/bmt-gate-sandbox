@@ -20,8 +20,20 @@ _IMAGE_BASE = "europe-west4-docker.pkg.dev/proj-x/my-repo/bmt-orchestrator"
 _FULL_SHA = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 
 
-def test_resolve_bmt_orchestrator_image_base_defaults(tmp_path: Path) -> None:
+def _isolate_resolver_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear env vars that ``resolve_bmt_orchestrator_image_base`` reads so the resolution chain is deterministic.
+
+    A developer's shell often exports these (matching repo defaults); without
+    clearing them, env wins over the tfvars path under test and the assertion
+    silently fails only on dev machines.
+    """
+    for var in ("GCP_PROJECT", "CLOUD_RUN_REGION", "ARTIFACT_REGISTRY_REPO"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_resolve_bmt_orchestrator_image_base_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Without tfvars, match Justfile fallbacks."""
+    _isolate_resolver_env(monkeypatch)
     (tmp_path / "infra" / "pulumi").mkdir(parents=True)
     assert (
         resolve_bmt_orchestrator_image_base(tmp_path)
@@ -29,7 +41,8 @@ def test_resolve_bmt_orchestrator_image_base_defaults(tmp_path: Path) -> None:
     )
 
 
-def test_resolve_bmt_orchestrator_image_base_from_tfvars(tmp_path: Path) -> None:
+def test_resolve_bmt_orchestrator_image_base_from_tfvars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _isolate_resolver_env(monkeypatch)
     pulumi_dir = tmp_path / "infra" / "pulumi"
     pulumi_dir.mkdir(parents=True)
     (pulumi_dir / "bmt.tfvars.json").write_text(
