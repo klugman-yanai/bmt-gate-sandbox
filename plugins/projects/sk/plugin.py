@@ -49,6 +49,23 @@ def _batch_command_timeout_sec() -> float:
     return float(min(sec, _BATCH_CMD_TIMEOUT_MAX_SEC))
 
 
+def _coerce_expected_channels(raw: Any) -> int | None:
+    """Coerce plugin_config["expected_channels"] to a positive int, else ``None``.
+
+    Missing/None/0/negative/non-numeric values all disable the channel gate. Keeps the
+    leg JSON forgiving while preventing nonsensical values (e.g. ``"four"``) from leaking
+    into the executor config.
+    """
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring non-integer plugin_config.expected_channels=%r", raw)
+        return None
+    return value if value > 0 else None
+
+
 def _resolve_batch_results_file(workspace_root: Path, results_relpath: str) -> Path | None:
     """Return resolved results file path if it exists under workspace_root, else None."""
     rel = str(results_relpath).strip()
@@ -107,6 +124,9 @@ class SkPlugin(BmtPlugin):
                     enable_overrides=dict(context.bmt_manifest.plugin_config.get("enable_overrides", {})),
                     num_source_test=context.bmt_manifest.plugin_config.get("num_source_test"),
                     deps_root=context.deps_root,
+                    expected_channels=_coerce_expected_channels(
+                        context.bmt_manifest.plugin_config.get("expected_channels")
+                    ),
                 )
             )
 

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- SK leg-level channel pre-flight: the `LegacyKardomeStdoutExecutor` now probes the first WAV's RIFF header once per leg and, when the declared `plugin_config.expected_channels` (set to `4` for SK's `false_alarms` and `false_rejects`) does not match, emits a single `_channel_mismatch_` case instead of running `kardome_runner` against an incompatible dataset. This replaces per-file `free(): invalid next size` heap-corruption crashes with a readable leg-level error (`channel_mismatch:expected=4:got=8:probe=<rel>`). WAV files are never converted — this is pure graceful failure.
+
 ## bmt-v0.3.3
 
 ### Added

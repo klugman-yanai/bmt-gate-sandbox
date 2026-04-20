@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -91,6 +92,28 @@ def _rewrite_json_paths_for_wav(config: dict[str, Any], wav_path: Path, output_p
     )
 
 
+_WAV_NUM_CHANNELS_OFFSET = 22
+_WAV_MIN_HEADER_BYTES = 24
+
+
+def _probe_wav_channels(wav_path: Path) -> int | None:
+    """Return the ``NumChannels`` field from a canonical RIFF/WAVE PCM header, or ``None``.
+
+    Reads at most 24 bytes and does not decode samples; a ``None`` return means the file is
+    too short, the RIFF/WAVE magic is absent, or a read error occurred. Callers treat
+    ``None`` as "probe inconclusive" and skip the channel gate rather than blocking the leg.
+    """
+    try:
+        with wav_path.open("rb") as fh:
+            header = fh.read(_WAV_MIN_HEADER_BYTES)
+    except OSError:
+        return None
+    if len(header) < _WAV_MIN_HEADER_BYTES or header[0:4] != b"RIFF" or header[8:12] != b"WAVE":
+        return None
+    (channels,) = struct.unpack_from("<H", header, _WAV_NUM_CHANNELS_OFFSET)
+    return int(channels) if channels > 0 else None
+
+
 def _subprocess_timeout_sec() -> float | None:
     raw = (os.environ.get(ENV_BMT_KARDOME_CASE_TIMEOUT_SEC) or "").strip()
     if not raw:
@@ -132,6 +155,11 @@ class LegacyKardomeStdoutConfig:
     num_source_test: int | None = None
     deps_root: Path | None = None
     runner_env: dict[str, str] = field(default_factory=dict)
+    # When set, probe the first wav's RIFF header once and fail the leg with a single
+    # ``_channel_mismatch_`` case if its ``NumChannels`` differs from this value. Project
+    # runners are built for a fixed mic count; mismatched inputs heap-corrupt the native
+    # side, so we reject them up front instead of spraying per-file crash logs.
+    expected_channels: int | None = None
 
 
 class LegacyKardomeStdoutExecutor:
@@ -347,7 +375,11 @@ class LegacyKardomeStdoutExecutor:
         counter_re = counter_pattern_from_parsing_dict(self.config.parsing)
         results: list[CaseResult] = []
         try:
-            for wav_path in sorted(self.config.dataset_root.rglob("*.wav")):
+            wavs = sorted(self.config.dataset_root.rglob("*.wav"))
+            mismatch = self._channel_mismatch_if_any(wavs)
+            if mismatch is not None:
+                return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=[mismatch])
+            for wav_path in wavs:
                 rel = wav_path.relative_to(self.config.dataset_root)
                 results.append(self._case_for_wav(wav_path, rel, template, counter_re, runner_path, runner_env))
         finally:
@@ -355,6 +387,40 @@ class LegacyKardomeStdoutExecutor:
                 shutil.rmtree(_tmp_runner_dir, ignore_errors=True)
 
         return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=results)
+
+    def _channel_mismatch_if_any(self, wavs: list[Path]) -> CaseResult | None:
+        """Probe the first wav once; return a failing CaseResult if its channel count differs.
+
+        Returns ``None`` when no ``expected_channels`` is declared, the dataset is empty, or
+        the probe is inconclusive (short/non-RIFF file). The first wav is treated as
+        representative — leg datasets are built homogeneous by convention.
+        """
+        expected = self.config.expected_channels
+        if expected is None or not wavs:
+            return None
+        first = wavs[0]
+        actual = _probe_wav_channels(first)
+        if actual is None:
+            logger.warning("Channel probe inconclusive for %s — skipping channel gate for this leg", first)
+            return None
+        if actual == expected:
+            return None
+        rel = first.relative_to(self.config.dataset_root).as_posix()
+        logger.error(
+            "Channel mismatch on first wav: expected=%d got=%d probe=%s — failing leg without running kardome_runner",
+            expected,
+            actual,
+            rel,
+        )
+        return CaseResult(
+            case_id="_channel_mismatch_",
+            input_path=first,
+            exit_code=-1,
+            status="failed",
+            metrics={},
+            artifacts={},
+            error=f"channel_mismatch:expected={expected}:got={actual}:probe={rel}",
+        )
 
     def _runner_env(self, runner_path: Path) -> dict[str, str]:
         env = dict(os.environ)
