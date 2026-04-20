@@ -65,9 +65,14 @@ REQUIRED_PATHS = (
     ".github/workflows/build-and-test.yml",
     DEFAULT_CONFIG_ROOT,
     "tools/scripts/hooks/pre-commit-sync-gcp.sh",
-    # SK BMT: native runner + lib (bucket URI projects/sk/kardome_runner); must not disappear in refactors.
+    # SK BMT: native runner (bucket URI projects/sk/kardome_runner) is tracked and
+    # must not disappear in refactors. libKardome.so is deliberately NOT in this
+    # list: it is gitignored globally (**/*.so) and produced by core-main's
+    # SK_gcc_Release build — a fresh CI checkout legitimately lacks it. The
+    # `tests/plugins/test_sk_runner_artifacts_present.py` invariant guards the
+    # developer working tree where the .so is required, using a skipif marker
+    # that sidesteps the check in clean checkouts.
     "plugins/projects/sk/kardome_runner",
-    "plugins/projects/sk/libKardome.so",
     "plugins/projects/sk/runner_integration_contract.json",
 )
 # gcp/stage (DEFAULT_STAGE_ROOT) is optional: populated by sync; not required to exist for policy pass.
