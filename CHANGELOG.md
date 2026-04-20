@@ -13,6 +13,7 @@
 
 ### Changed
 
+- `setup-bmt-pex` self-discovers its release tag from `github.action_ref` — invoking the action as `uses: .../setup-bmt-pex@bmt-v0.3.3` now downloads the `bmt-v0.3.3` PEX without any `with: tag: …` thread. Internal `BMT_PEX_TAG` env-var indirection removed from `bmt-handoff.yml` and `bmt-prepare-context`; a shape guard fails fast when the action is invoked via `@<sha>` or `@<branch>` so the `tag:` input stays available for cross-version testing. Consumer repos still set `vars.BMT_PEX_TAG` to pin the reusable-workflow `@ref`.
 - Unified `build-and-test-dev.yml` to handle both `push` and `pull_request` events with a single matrix, deleting `trigger-ci-pr.yml` and halving per-PR compute.
 - Commented out the deprecated `code-owner-enforcement.yml` in release templates; CODEOWNERS enforcement now lives in GitHub Branch Rulesets.
 - `e2e-test` plugin aligned with current `bmt_sdk.results` shapes.
