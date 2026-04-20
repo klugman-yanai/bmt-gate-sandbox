@@ -19,7 +19,12 @@ import pytest
 
 from runtime import legacy_kardome
 from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
-from tests.sk_runner_repo_paths import KARDOME_INPUT_TEMPLATE, SK_KARDOME_RUNNER, SK_LIBKARDOME_SO
+from tests.sk_runner_repo_paths import (
+    KARDOME_INPUT_TEMPLATE,
+    SK_KARDOME_RUNNER,
+    SK_LIBKARDOME_SO,
+    requires_sk_binaries,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -208,6 +213,7 @@ def test_corrupt_manifest_logs_warning_and_proceeds(tmp_path: Path) -> None:
     assert ex._check_manifest_completeness() == []
 
 
+@requires_sk_binaries
 def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> None:
     """Runner lacks execute bit (GCSFuse mount): only binary + .so copied, not inputs/ dir."""
     sk_dir = tmp_path / "sk"
@@ -255,6 +261,7 @@ def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> N
     assert captured["so_exists"], "libKardome.so must be copied to temp"
 
 
+@requires_sk_binaries
 def test_gcsfuse_workaround_stages_external_deps_and_uses_local_ld_library_path(tmp_path: Path) -> None:
     sk_dir = tmp_path / "sk"
     sk_dir.mkdir()

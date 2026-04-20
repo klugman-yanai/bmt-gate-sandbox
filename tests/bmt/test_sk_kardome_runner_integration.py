@@ -21,7 +21,13 @@ import pytest
 from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
 from runtime.stdout_counter_parse import StdoutCounterParseConfig
 from tests._support.minimal_wav import write_silence_wav
-from tests.sk_runner_repo_paths import KARDOME_INPUT_TEMPLATE, REPO_ROOT, SK_KARDOME_RUNNER, SK_LIBKARDOME_SO
+from tests.sk_runner_repo_paths import (
+    KARDOME_INPUT_TEMPLATE,
+    REPO_ROOT,
+    SK_KARDOME_RUNNER,
+    SK_LIBKARDOME_SO,
+    requires_sk_binaries,
+)
 
 _SK_PROJECT = REPO_ROOT / "plugins/projects/sk"
 _CONTRACT = _SK_PROJECT / "runner_integration_contract.json"
@@ -48,6 +54,7 @@ def _import_sk_aggregate():
 
 
 @pytest.mark.integration
+@requires_sk_binaries
 def test_kardome_runner_executes_and_scores_aggregate() -> None:
     assert SK_KARDOME_RUNNER.is_file() and SK_LIBKARDOME_SO.is_file()
 

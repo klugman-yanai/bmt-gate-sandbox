@@ -17,6 +17,7 @@ _ALLOWED_ROOT_WORKFLOW_YML = frozenset(
         "bmt-handoff.yml",
         "build-kardome-bmt-pex.yml",
         "clang-format-auto-fix.yml",
+        "release.yml",
     }
 )
 

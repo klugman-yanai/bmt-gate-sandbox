@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import pytest
 
-from tests.sk_runner_repo_paths import SK_KARDOME_RUNNER, SK_LIBKARDOME_SO
+from tests.sk_runner_repo_paths import SK_KARDOME_RUNNER, SK_LIBKARDOME_SO, requires_sk_binaries
 
 # Non-trivial size avoids an empty placeholder committed by mistake (real ELF >> this).
 _MIN_BYTES = 512
 
 
 @pytest.mark.unit
+@requires_sk_binaries
 def test_sk_kardome_runner_and_lib_present_and_nonempty() -> None:
     assert SK_KARDOME_RUNNER.is_file(), f"Missing SK runner binary: {SK_KARDOME_RUNNER}"
     assert SK_LIBKARDOME_SO.is_file(), f"Missing libKardome.so: {SK_LIBKARDOME_SO}"

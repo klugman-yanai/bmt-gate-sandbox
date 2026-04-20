@@ -9,9 +9,9 @@ import pytest
 from kardome_bmt import gcs as gcs_module
 
 from ci.kardome_bmt.runner import RunnerManager, _sha256_file
-from tests.sk_runner_repo_paths import SK_KARDOME_RUNNER, SK_LIBKARDOME_SO
+from tests.sk_runner_repo_paths import SK_KARDOME_RUNNER, SK_LIBKARDOME_SO, requires_sk_binaries
 
-pytestmark = pytest.mark.contract
+pytestmark = [pytest.mark.contract, requires_sk_binaries]
 
 
 def _write(path: Path, content: bytes) -> None:

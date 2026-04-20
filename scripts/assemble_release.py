@@ -41,6 +41,11 @@ PEM_NAME = "Kardome-org_core-main.pem"
 
 EXCLUDE_ACTIONS = {"check-image-up-to-date"}
 EXCLUDE_COPY = {"__pycache__", ".venv"}
+# Workflows that exist in .github/workflows/ but must NOT ship to consumer repos.
+# release.yml orchestrates bmt-gcloud's own four-surface CI-driven release flow
+# (see docs/superpowers/plans/2026-04-18-ci-driven-release.md); consumers pin
+# bmt.pex + composite actions at a tag and never trigger it themselves.
+EXCLUDE_ROOT_WORKFLOWS = {"release.yml"}
 
 # Authoritative clang-format lives at .github/workflows root; skip duplicate from templates/.
 SKIP_TEMPLATE_WORKFLOWS = frozenset({"clang-format-auto-fix.yml"})
@@ -110,6 +115,8 @@ def _copy_workflows() -> None:
 
     for wf in sorted((SRC / "workflows").glob("*.yml")):
         if wf.stem.endswith("-dev"):
+            continue
+        if wf.name in EXCLUDE_ROOT_WORKFLOWS:
             continue
         _copy(wf, workflows_dest / wf.name)
 
