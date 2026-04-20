@@ -80,6 +80,59 @@ def _write_matrix_output(f, name: str, value: dict[str, Any], heredoc_label: str
     f.write(f"{name}<<{heredoc_label}\n{body}\n{heredoc_label}\n")
 
 
+def _render_matrix_step_summary(
+    publish_include: list[dict[str, Any]],
+    no_bmt_include: list[dict[str, Any]],
+) -> str:
+    """Render one aggregated Markdown section for the Plan job's step summary.
+
+    Replaces per-leg ``$GITHUB_STEP_SUMMARY`` writes in the ``Publish`` and
+    ``No BMT`` matrix jobs with a single table, so the run summary stays
+    readable even with 12 release presets.
+    """
+    lines: list[str] = ["## BMT matrix", ""]
+
+    lines.append(f"### Publish ({len(publish_include)} leg(s))")
+    lines.append("")
+    if publish_include:
+        lines.append("| project | preset | action | reason |")
+        lines.append("| --- | --- | --- | --- |")
+        for row in publish_include:
+            project = str(row.get("project", ""))
+            preset = str(row.get("preset", ""))
+            action = str(row.get("upload_action", ""))
+            reason = str(row.get("skip_reason", "") or "")
+            lines.append(f"| {project} | {preset} | `{action}` | {reason} |")
+    else:
+        lines.append("_No supported BMT legs — nothing to dispatch._")
+    lines.append("")
+
+    lines.append(f"### No BMT ({len(no_bmt_include)} leg(s))")
+    lines.append("")
+    if no_bmt_include:
+        lines.append("| project | preset | reason |")
+        lines.append("| --- | --- | --- |")
+        for row in no_bmt_include:
+            project = str(row.get("project", ""))
+            preset = str(row.get("preset", ""))
+            reason = str(row.get("skip_reason", "") or "no cloud BMT plugin")
+            lines.append(f"| {project} | {preset} | {reason} |")
+    else:
+        lines.append("_All release presets are supported — no acknowledgement rows._")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _append_matrix_step_summary(markdown: str) -> None:
+    """Append to ``$GITHUB_STEP_SUMMARY`` when present; no-op locally."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
+    if not path:
+        return
+    with Path(path).open("a", encoding="utf-8") as f:
+        f.write(markdown)
+
+
 class RunnerManager:
     def __init__(self, cfg: BmtConfig, ctx: BmtContext | None) -> None:
         self._cfg = cfg
@@ -163,6 +216,7 @@ class RunnerManager:
             print(
                 "::notice::Filter upload matrix: BMT_SKIP_PUBLISH_RUNNERS=true — no publish jobs (runners assumed in bucket)."
             )
+            _append_matrix_step_summary(_render_matrix_step_summary([], []))
             return
         runner_matrix_raw = read_workflow_str(w, "runner_matrix", "RUNNER_MATRIX")
         head_sha = read_workflow_str(w, "head_sha", "HEAD_SHA")
@@ -258,6 +312,7 @@ class RunnerManager:
             f"{len(publish_include)} supported leg(s) ({n_upload} upload, {n_skip_in_gcs} already in GCS); "
             f"{len(no_bmt_include)} release preset(s) with no cloud BMT plugin."
         )
+        _append_matrix_step_summary(_render_matrix_step_summary(publish_include, no_bmt_include))
 
     def _classify_supported_leg(
         self,

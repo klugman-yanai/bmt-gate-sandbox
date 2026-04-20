@@ -254,17 +254,11 @@ jobs:
       BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
     steps:
       - name: Summarize action
+        # Log-only annotation; the aggregated matrix table lives in the Plan job
+        # summary to avoid N per-leg sections in the workflow run summary.
         shell: bash
         run: |
           echo "::notice::${{ matrix.project }}/${{ matrix.preset }}: upload_action=${{ matrix.upload_action }} ${{ matrix.skip_reason && format('({0})', matrix.skip_reason) || '' }}"
-          {
-            echo "### ${{ matrix.project }} / ${{ matrix.preset }}"
-            echo ""
-            echo "- action: \`${{ matrix.upload_action }}\`"
-            if [ -n "${{ matrix.skip_reason }}" ]; then
-              echo "- reason: \`${{ matrix.skip_reason }}\`"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: GCP auth (WIF)
         if: matrix.upload_action == 'upload'
@@ -348,15 +342,11 @@ jobs:
       matrix: ${{ fromJson(needs.write_handoff_context.outputs.matrix_no_bmt || '{"include":[]}') }}
     steps:
       - name: Acknowledge
+        # Log-only annotation; the aggregated matrix table in the Plan job
+        # summary covers all no-BMT rows in one section.
         shell: bash
         run: |
           echo "::notice::${{ matrix.project }}/${{ matrix.preset }}: no cloud BMT plugin — acknowledged, nothing to upload."
-          {
-            echo "### ${{ matrix.project }} / ${{ matrix.preset }}"
-            echo ""
-            echo "- action: \`no_bmt\`"
-            echo "- reason: \`${{ matrix.skip_reason || 'no cloud BMT plugin' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
 
   start_bmt_workflow:
     name: Dispatch

@@ -282,3 +282,68 @@ def test_skip_publish_runners_emits_empty_matrices(monkeypatch: pytest.MonkeyPat
     assert outputs["matrix_need_upload_keys"] == "[]"
     # matrix_no_bmt is present and empty as a shape guarantee.
     assert json.loads(outputs["matrix_no_bmt"])["include"] == []
+
+
+# --- aggregated matrix step summary ----------------------------------------
+# These guard the single source-of-truth for the run-summary matrix section.
+# Per-leg `$GITHUB_STEP_SUMMARY` writes in the `Publish` / `No BMT` matrix
+# jobs would otherwise spray N sections into the run summary; the renderer
+# below keeps it to one aggregated table.
+
+from kardome_bmt.runner import _render_matrix_step_summary  # noqa: E402
+
+
+def test_render_matrix_step_summary_both_sections() -> None:
+    md = _render_matrix_step_summary(
+        publish_include=[
+            {
+                "project": "sk",
+                "preset": "sk_gcc_release",
+                "upload_action": "skip_in_gcs",
+                "skip_reason": "runner in GCS (preseeded)",
+            }
+        ],
+        no_bmt_include=[
+            {"project": "hmtc", "preset": "hmtc_gcc_release", "skip_reason": "no cloud BMT plugin"},
+            {"project": "woven", "preset": "woven_gcc_release"},
+        ],
+    )
+    assert md.startswith("## BMT matrix\n")
+    assert "### Publish (1 leg(s))" in md
+    assert "| sk | sk_gcc_release | `skip_in_gcs` | runner in GCS (preseeded) |" in md
+    assert "### No BMT (2 leg(s))" in md
+    assert "| hmtc | hmtc_gcc_release | no cloud BMT plugin |" in md
+    assert "| woven | woven_gcc_release | no cloud BMT plugin |" in md
+
+
+def test_render_matrix_step_summary_empty_sections() -> None:
+    md = _render_matrix_step_summary(publish_include=[], no_bmt_include=[])
+    assert "### Publish (0 leg(s))" in md
+    assert "_No supported BMT legs — nothing to dispatch._" in md
+    assert "### No BMT (0 leg(s))" in md
+    assert "_All release presets are supported — no acknowledgement rows._" in md
+
+
+def test_filter_writes_single_aggregated_step_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """One invocation of `filter_upload_matrix` appends exactly one matrix section."""
+    monkeypatch.chdir(tmp_path)
+    _ensure_local_project_layout(tmp_path, "sk")
+    _setup_env(
+        monkeypatch,
+        tmp_path,
+        runner_matrix=_RUNNER_MATRIX_MIXED,
+        available_artifacts='["runner-sk_gcc_release"]',
+    )
+    summary_path = tmp_path / "step_summary.md"
+    summary_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
+    monkeypatch.setattr(gcs, "download_json", lambda _uri: (None, "404"))
+    monkeypatch.setattr(gcs, "object_exists", lambda _uri: False)
+    monkeypatch.setattr(gcs, "write_object", lambda _u, _b: None)
+
+    RunnerManager.from_env().filter_upload_matrix()
+
+    md = summary_path.read_text(encoding="utf-8")
+    assert md.count("## BMT matrix") == 1, md
+    assert "### Publish (" in md
+    assert "### No BMT (" in md
