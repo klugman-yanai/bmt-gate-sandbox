@@ -1,4 +1,15 @@
-"""GCS / stage validation for BMT dataset inputs."""
+"""GCS / stage validation for BMT dataset inputs.
+
+Optional pre-flight layer: projects that want fail-fast dataset validation
+can declare per-leg manifests at ``plugins/projects/<project>/bmts/<slug>/bmt.json``
+(fields: ``enabled``, ``inputs_prefix``). When present, this module confirms
+the declared GCS prefix has the expected ``.wav`` count (cross-checked against
+``dataset_manifest.json``) before Cloud Workflows dispatches.
+
+Projects without a ``bmts/`` dir are **not** misconfigured — the real BMT leg
+list is discovered from the project's Python plugin at plan time in Cloud Run.
+This validator simply logs a notice and moves on.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +18,7 @@ import os
 from pathlib import Path
 
 from kardome_bmt import gcs
-from kardome_bmt.actions import gh_notice, gh_warning
+from kardome_bmt.actions import gh_notice
 from kardome_bmt.config import BmtConfig
 
 
@@ -27,7 +38,10 @@ def validate_dataset_inputs(cfg: BmtConfig) -> None:
     for project in accepted_projects:
         bmts_dir = stage_root / "projects" / project / "bmts"
         if not bmts_dir.is_dir():
-            gh_warning(f"No bmts dir for project {project!r} at {bmts_dir}")
+            gh_notice(
+                f"{project}: no bmts/ manifest dir at {bmts_dir} — skipping pre-flight dataset "
+                "validation (leg list is discovered by the plugin at plan time in Cloud Run)."
+            )
             continue
         for bmt_json_path in sorted(bmts_dir.glob("*/bmt.json")):
             bmt_slug = bmt_json_path.parent.name

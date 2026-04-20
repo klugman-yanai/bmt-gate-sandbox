@@ -27,6 +27,27 @@ def _load_configure_presets(presets_file: Path) -> list[dict[str, Any]]:
 
 
 def _build_bmt_rows(presets: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+    """Build a release-runner matrix row per CMake preset.
+
+    Schema per row (minimal, non-redundant):
+
+    - ``project``     — slug matching ``plugins/projects/<project>/`` (lower-case).
+    - ``preset``      — CMake preset name, lower-case; canonical identity in the
+      handoff pipeline (used in artifact names, env vars, matrix keys).
+    - ``configure``   — CMake preset name, original case; required by
+      ``cmake --preset`` invocations in build workflows.
+    - ``runner_path`` — in-tree path to the built ``kardome_runner`` binary
+      (e.g. ``build/SK/gcc_Release/Runners/kardome_runner``).
+    - ``lib_path``    — in-tree path to the built ``libKardome.so`` shared
+      library (e.g. ``build/SK/gcc_Release/Kardome/libKardome.so``).
+
+    Notes:
+        The earlier schema carried ``bmt_id`` (exact duplicate of ``preset``)
+        and ``binary_dir`` (now split into ``runner_path`` / ``lib_path``);
+        both have been dropped. Runtime ``bmt_id`` (UUID per BMT leg in plugin
+        manifests) is an unrelated concept and lives on the plugin side, not
+        on the matrix row.
+    """
     include: list[dict[str, str]] = []
     for preset in presets:
         name = str(preset.get("name", "")).strip()
@@ -39,14 +60,14 @@ def _build_bmt_rows(presets: list[dict[str, Any]]) -> dict[str, list[dict[str, s
         binary_dir = str(preset.get("binaryDir", "")).replace("${sourceDir}/", "", 1)
         include.append(
             {
-                "configure": name,
-                "preset": name_lower,
                 "project": project,
-                "bmt_id": name_lower,
-                "binary_dir": binary_dir,
+                "preset": name_lower,
+                "configure": name,
+                "runner_path": f"{binary_dir}/Runners/kardome_runner" if binary_dir else "",
+                "lib_path": f"{binary_dir}/Kardome/libKardome.so" if binary_dir else "",
             }
         )
-    include.sort(key=lambda row: (row["project"], row["bmt_id"]))
+    include.sort(key=lambda row: (row["project"], row["preset"]))
     return {"include": include}
 
 
@@ -106,7 +127,7 @@ class MatrixManager:
         presets_file = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
         presets = _load_configure_presets(presets_file)
         rows = _build_bmt_rows(presets).get("include", [])
-        matrix = {"include": [{"project": str(r["project"]), "bmt_id": str(r["bmt_id"])} for r in rows]}
+        matrix = {"include": [{"project": str(r["project"]), "preset": str(r["preset"])} for r in rows]}
         if not matrix["include"]:
             gh_warning("No supported release runner rows found in CMake presets.")
         with Path(github_output).open("a", encoding="utf-8") as fh:
@@ -143,10 +164,9 @@ class MatrixManager:
             if project not in accepted_set:
                 continue
             row = dict(entry)
-            if not str(row.get("bmt_id", "")).strip():
-                row["bmt_id"] = (
-                    str(row.get("preset", "") or row.get("configure", "") or f"{project}_default").strip().lower()
-                    or f"{project}_default"
+            if not str(row.get("preset", "")).strip():
+                row["preset"] = (
+                    str(row.get("configure", "") or f"{project}_default").strip().lower() or f"{project}_default"
                 )
             filtered_include.append(row)
         filtered = {"include": filtered_include}
