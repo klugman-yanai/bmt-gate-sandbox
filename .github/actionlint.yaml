@@ -21,4 +21,8 @@ config-variables:
   # release tag from its own action_ref. The release template's actionlint
   # config still lists it for consumers.
   - BMT_PEX_REPO
+  # CI-driven release (.github/workflows/release.yml): container image
+  # repo in Artifact Registry. Defaults to 'bmt-images' via the workflow
+  # expression fallback; listing here keeps lint quiet when unset in vars.
+  - ARTIFACT_REGISTRY_REPO
 
