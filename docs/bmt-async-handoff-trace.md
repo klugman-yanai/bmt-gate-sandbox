@@ -26,4 +26,4 @@ After tasks write summaries, the coordinator aggregates and calls `runtime/githu
 
 ## 5. Cheap mock path (no runner / no datasets)
 
-Use `.github/workflows/internal/bmt-handoff-dev.yml`, which calls `bmt-handoff.yml` with `use_mock_runner: true`. For PR-shaped full CI without CMake in **this** repo, see `trigger-ci-pr.yml` (placeholder builds; relies on bucket state when `use_mock_runner` is false).
+Use `.github/workflows/internal/bmt-handoff-dev.yml`, which calls `bmt-handoff.yml` with `use_mock_runner: true`. For PR-shaped full CI without CMake in **this** repo, see `build-and-test-dev.yml` (placeholder builds + unified handoff; relies on bucket state when `use_mock_runner` is false).

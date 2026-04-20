@@ -16,13 +16,15 @@
 		"node_modules"
 	],
 	"extraPaths": [
-		"ci"
+		"ci",
+		"infra/pulumi"
 	],
 	"executionEnvironments": [
 		{
 			"root": ".",
 			"extraPaths": [
-				"ci"
+				"ci",
+				"infra/pulumi"
 			]
 		}
 	],

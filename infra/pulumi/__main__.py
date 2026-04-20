@@ -11,7 +11,7 @@ import pulumi
 import pulumi_gcp as gcp
 from workflow_template import github_app_secret_names, render_workflow_source
 
-cfg = pulumi_config.load_config()  # ty: ignore[unresolved-attribute]
+cfg = pulumi_config.load_config()
 
 artifact_registry = gcp.artifactregistry.Repository(
     "bmt-images",

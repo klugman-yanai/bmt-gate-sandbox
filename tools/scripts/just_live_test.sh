@@ -2,8 +2,8 @@
 # Full live-test pipeline: `just ship` → `git push` → BMT pipeline trigger.
 # The trigger phase opens a PR against the BMT base branch (default
 # ci/check-bmt-gate); if a PR is already open for the current branch, the push
-# alone is enough to fire `Build + BMT (PR)` (trigger-ci-pr.yml → bmt-handoff
-# → Cloud Run) and the trigger phase reports the in-progress run instead.
+# alone is enough to fire `CI` (build-and-test-dev.yml → bmt-handoff → Cloud
+# Run) and the trigger phase reports the in-progress run instead.
 #
 # Each phase is skippable; the trigger phase prompts for confirmation unless
 # --no-confirm is given.

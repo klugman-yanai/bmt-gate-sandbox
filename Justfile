@@ -329,6 +329,17 @@ release-check:
 build-pex:
     bash scripts/build_kardome_bmt_pex.sh
 
+# Drive the full SK pipeline locally over a curated 1-passer / 2-crasher WAV subset.
+# Validates the plugin tolerance flip without touching GCS / GitHub. See script header.
+[group('dev')]
+sk-local-pipeline *args:
+    uv run python tools/scripts/run_sk_local_pipeline.py {{ args }}
+
+# Run kardome_runner once with production-style JSON for diffing / parser work. See script header.
+[group('dev')]
+runner-one-wav *args:
+    uv run python tools/scripts/kardome_runner_one_wav_logged.py {{ args }}
+
 # -- Local CI ----------------------------------------------------------------
 
 # Default: workflow_dispatch on build-and-test.yml. For handoff or internal/trigger-ci, run act with -W yourself or see .github/README.md.

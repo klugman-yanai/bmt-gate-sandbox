@@ -29,9 +29,9 @@ def test_assemble_release_skip_secrets() -> None:
     wf = REPO / ".github-release" / "workflows"
     assert (wf / "bmt-handoff.yml").is_file()
     assert (wf / "build-and-test.yml").is_file()
+    assert (wf / "build-kardome-bmt-pex.yml").is_file()
     assert (wf / "clang-format-auto-fix.yml").is_file()
     assert (wf / "internal" / "trigger-ci.yml").is_file()
     assert (wf / "internal" / "code-owner-enforcement.yml").is_file()
     root_yml = list(wf.glob("*.yml"))
     assert len(root_yml) == 4, f"expected 4 root workflows, got {[p.name for p in root_yml]}"
-    assert (wf / "trigger-ci-pr.yml").is_file()

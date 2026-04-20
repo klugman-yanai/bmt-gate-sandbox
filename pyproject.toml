@@ -54,6 +54,7 @@ extra-paths = [
     "ci",
     "sdk",
     "plugins/projects/sk",
+    "infra/pulumi",
 ]
 
 [tool.ty.src]

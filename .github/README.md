@@ -4,12 +4,11 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 ## Workflow matrix (this repo)
 
-Root **`.github/workflows/*.yml`** (non-`internal/`): **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**, **`trigger-ci-pr.yml`**. Everything else is under **`internal/`** (dev/ops tooling). Optional templates for consumer repos (e.g. **`trigger-ci.yml`**) live under **`scripts/release_templates/workflows/`** as references — production no longer uses a generated **`.github-release/`** bundle.
+Root **`.github/workflows/*.yml`** (non-`internal/`): **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`build-kardome-bmt-pex.yml`**, **`clang-format-auto-fix.yml`**. Everything else is under **`internal/`** (dev/ops tooling). Optional templates for consumer repos (e.g. **`trigger-ci.yml`**) live under **`scripts/release_templates/workflows/`** as references — production no longer uses a generated **`.github-release/`** bundle.
 
 | Workflow | Purpose |
 | -------- | ------- |
-| **`workflows/build-and-test-dev.yml`** | **This repo’s CI** on `push` / `pull_request` (and `workflow_dispatch` / `workflow_call`); may call **`bmt-handoff.yml`** when `bmt_handoff.if` passes (see gate below) |
-| **`workflows/trigger-ci-pr.yml`** | **PR-only** CI + BMT for bases **`dev`** and **`ci/check-bmt-gate`**; calls **`bmt-handoff.yml`** so **`build-and-test-dev`** does not double-dispatch handoff on those PRs |
+| **`workflows/build-and-test-dev.yml`** | **This repo’s CI** on `push` / `pull_request` to **`dev`** / **`ci/check-bmt-gate`** / **`test/*`** (plus `workflow_dispatch` / `workflow_call`); one build matrix + one handoff per event, and calls **`bmt-handoff.yml`** when the gate passes |
 | **`workflows/build-and-test.yml`** | Reusable CI for **core-main** (and manual runs): `workflow_dispatch` + `workflow_call` only — thin **`trigger-ci.yml`** (template or copy) supplies `push` / `pull_request_target` |
 | **`workflows/bmt-handoff.yml`** | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`) |
 | **`workflows/clang-format-auto-fix.yml`** | C/C++ format automation on selected branches |
@@ -61,13 +60,13 @@ Everything BMT-specific (CLOUD_RUN_REGION, BMT_STATUS_CONTEXT, status-check name
 
 ## This repo’s workflow layout
 
-- **workflows/** — **Root:** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`clang-format-auto-fix.yml`**, **`trigger-ci-pr.yml`**. **`internal/`** — dev-only: handoff mock, PEX build, trigger-ci, bmt-image-build, trigger-image-build.
+- **workflows/** — **Root:** **`build-and-test-dev.yml`**, **`build-and-test.yml`**, **`bmt-handoff.yml`**, **`build-kardome-bmt-pex.yml`**, **`clang-format-auto-fix.yml`**. **`internal/`** — dev-only: handoff mock, trigger-ci, bmt-image-build, trigger-image-build.
 - **actions/** — `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, **`setup-bmt-pex`** (PEX-only; cross-repo callable), `setup-bmt-cli` + `setup-gcp-uv` (uv-mode for self-CI), `bmt-get-pex`
 - **`ci/`** — BMT CLI package ([`bmt/README.md`](bmt/README.md))
 
 ## Which workflow runs CI?
 
-- **bmt-gcloud (this repo):** **`build-and-test-dev.yml`** runs on `push` / `pull_request` / `workflow_dispatch` / `workflow_call` (branches `dev`, `ci/check-bmt-gate`, `test/*`). **`trigger-ci-pr.yml`** runs the same-style graph for **PRs** into **`dev`** and **`ci/check-bmt-gate`** only. Neither uses **`pull_request_target`**.
+- **bmt-gcloud (this repo):** **`build-and-test-dev.yml`** runs on `push` / `pull_request` / `workflow_dispatch` / `workflow_call` (branches `dev`, `ci/check-bmt-gate`, `test/*`). One workflow per event — no **`pull_request_target`**, no sibling PR trigger.
 - **Production (core-main):** Typically **`internal/trigger-ci.yml`** (from **`scripts/release_templates/workflows/trigger-ci.yml`**) on `push` / `pull_request_target` to **`dev`**, which **`workflow_call`s** **`build-and-test.yml`**. **`build-and-test.yml`** then calls **`bmt-handoff.yml`** when eligible.
 - **Manual / sandbox:** **`internal/trigger-ci.yml`** dispatches **`build-and-test.yml`** on an arbitrary ref.
 
@@ -93,7 +92,7 @@ Everything BMT-specific (CLOUD_RUN_REGION, BMT_STATUS_CONTEXT, status-check name
 | `workflow_dispatch` | Manual |
 | `workflow_call` | Reusable entry |
 
-**Job gate — `bmt_handoff`:** same fork rule as **`build-and-test.yml`**. **PRs into `dev` / `ci/check-bmt-gate`:** skipped here — **`trigger-ci-pr.yml`** already calls **`bmt-handoff.yml`**; running both would share the same **`bmt-handoff` concurrency** group and cancel the other run. **PRs with base `test/*`:** handoff runs from this workflow ( **`trigger-ci-pr.yml`** does not target those bases). **Push / `workflow_dispatch`:** handoff when **`ref_name`** is `dev`, `ci/check-bmt-gate`, or starts with **`test/`**. Checkouts use **`pull_request`** + head SHA when applicable.
+**Job gate — `bmt_handoff`:** same fork rule as **`build-and-test.yml`**. **PRs** (`pull_request`) into `dev`, `ci/check-bmt-gate`, or `test/*` fire handoff from this workflow. **Push / `workflow_dispatch`:** handoff when **`ref_name`** is `dev`, `ci/check-bmt-gate`, or starts with **`test/`**. Checkouts use **`pull_request`** + head SHA when applicable.
 
 ### `bmt-handoff.yml`
 
