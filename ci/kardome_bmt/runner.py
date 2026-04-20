@@ -246,17 +246,11 @@ class RunnerManager:
         path = Path(core.require_env("GITHUB_OUTPUT"))
         with path.open("a", encoding="utf-8") as f:
             _write_matrix_output(f, "matrix_need_upload", {"include": need_include}, "FILTER_EOF")
-            f.write(
-                f"matrix_need_upload_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in need_include])}\n"
-            )
+            f.write(f"matrix_need_upload_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in need_include])}\n")
             _write_matrix_output(f, "matrix_publish", {"include": publish_include}, "PUBLISH_EOF")
-            f.write(
-                f"matrix_publish_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in publish_include])}\n"
-            )
+            f.write(f"matrix_publish_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in publish_include])}\n")
             _write_matrix_output(f, "matrix_no_bmt", {"include": no_bmt_include}, "NOBMT_EOF")
-            f.write(
-                f"matrix_no_bmt_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in no_bmt_include])}\n"
-            )
+            f.write(f"matrix_no_bmt_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in no_bmt_include])}\n")
         n_upload = sum(1 for e in publish_include if e.get("upload_action") == "upload")
         n_skip_in_gcs = sum(1 for e in publish_include if e.get("upload_action") == "skip_in_gcs")
         print(
@@ -283,14 +277,16 @@ class RunnerManager:
         """
         payload = _runner_meta_in_gcs(root, project, preset)
         if payload is not None:
-            use_gcs = (
-                preseeded or not artifact_set or str(payload.get("source_ref", "")).strip() == head_sha
-            )
+            use_gcs = preseeded or not artifact_set or str(payload.get("source_ref", "")).strip() == head_sha
             if use_gcs:
                 reason = (
                     "preseeded"
                     if preseeded
-                    else ("no GitHub artifacts from caller" if not artifact_set else f"meta source_ref matches {head_sha[:7]}")
+                    else (
+                        "no GitHub artifacts from caller"
+                        if not artifact_set
+                        else f"meta source_ref matches {head_sha[:7]}"
+                    )
                 )
                 return "skip_in_gcs", f"runner in GCS ({reason})"
 

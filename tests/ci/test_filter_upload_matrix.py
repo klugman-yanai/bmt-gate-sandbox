@@ -141,9 +141,7 @@ def test_sk_skip_in_gcs_when_no_artifacts_and_runner_binary_in_gcs_old_layout(
     assert any("_workflow/uploaded/99999/sk.json" in u for u in written)
 
 
-def test_sk_upload_when_no_artifacts_and_no_runner_in_gcs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_sk_upload_when_no_artifacts_and_no_runner_in_gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """No GitHub artifacts AND nothing in GCS → sk is `upload` (real push required)."""
     monkeypatch.chdir(tmp_path)
     _ensure_local_project_layout(tmp_path, "sk")
@@ -164,9 +162,7 @@ def test_sk_upload_when_no_artifacts_and_no_runner_in_gcs(
     assert "upload_action" not in need["include"][0], "need_upload entries are UI-field-free"
 
 
-def test_sk_skip_in_gcs_when_old_layout_meta_matches_sha(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_sk_skip_in_gcs_when_old_layout_meta_matches_sha(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """runner_latest_meta.json at old layout still triggers `skip_in_gcs` when caller has artifacts."""
     monkeypatch.chdir(tmp_path)
     _ensure_local_project_layout(tmp_path, "sk")
@@ -196,9 +192,7 @@ def test_sk_skip_in_gcs_when_old_layout_meta_matches_sha(
     assert any("sk.json" in u for u in written)
 
 
-def test_sk_skip_in_gcs_via_local_repo_meta(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_sk_skip_in_gcs_via_local_repo_meta(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Local plugins/projects/sk/runner_latest_meta.json serves as a last-resort recognition of a configured runner."""
     monkeypatch.chdir(tmp_path)
     _ensure_local_project_layout(tmp_path, "sk")
@@ -222,9 +216,7 @@ def test_sk_skip_in_gcs_via_local_repo_meta(
     assert any("_workflow/uploaded/99999/sk.json" in u for u in written)
 
 
-def test_meta_sha_match_still_classified_skip_in_gcs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_meta_sha_match_still_classified_skip_in_gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """meta.source_ref matching HEAD_SHA → skip_in_gcs (regression guard for previous fast-path)."""
     monkeypatch.chdir(tmp_path)
     _ensure_local_project_layout(tmp_path, "sk")
@@ -250,9 +242,7 @@ def test_meta_sha_match_still_classified_skip_in_gcs(
     assert any("sk.json" in u for u in written)
 
 
-def test_mixed_matrix_splits_supported_and_no_bmt(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_mixed_matrix_splits_supported_and_no_bmt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A mixed matrix yields one sk row in matrix_publish and two rows in matrix_no_bmt."""
     monkeypatch.chdir(tmp_path)
     _ensure_local_project_layout(tmp_path, "sk")
@@ -279,9 +269,7 @@ def test_mixed_matrix_splits_supported_and_no_bmt(
         assert row["upload_action"] == "no_bmt"
 
 
-def test_skip_publish_runners_emits_empty_matrices(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_skip_publish_runners_emits_empty_matrices(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """BMT_SKIP_PUBLISH_RUNNERS=1 short-circuits to empty matrices including matrix_no_bmt."""
     monkeypatch.chdir(tmp_path)
     out = _setup_env(monkeypatch, tmp_path)
