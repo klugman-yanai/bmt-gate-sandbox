@@ -70,7 +70,7 @@ def test_matrix_command_ignores_unrelated_env(repo_root: Path, tmp_path: Path) -
 def test_filter_supported_matrix_success(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     runner_matrix = {"include": [{"project": "sk"}, {"project": "missing"}]}
-    full_matrix = {"include": [{"project": "sk", "bmt_id": "sk-bmt"}]}
+    full_matrix = {"include": [{"project": "sk", "preset": "sk_gcc_release"}]}
     result = _run(
         "matrix",
         "filter-supported",
@@ -86,13 +86,13 @@ def test_filter_supported_matrix_success(repo_root: Path, tmp_path: Path) -> Non
     outputs = read_github_output(github_output)
     matrix = decode_output_json(outputs, "matrix")
     assert outputs.get("has_legs") == "true"
-    assert matrix["include"] == [{"project": "sk", "bmt_id": "sk-bmt"}]
+    assert matrix["include"] == [{"project": "sk", "preset": "sk_gcc_release"}]
 
 
 def test_filter_supported_matrix_fails_when_no_uploaded_supported_projects(repo_root: Path, tmp_path: Path) -> None:
     github_output = tmp_path / "github_output.txt"
     runner_matrix = {"include": [{"project": "sk"}]}
-    full_matrix = {"include": [{"project": "sk", "bmt_id": "sk-bmt"}]}
+    full_matrix = {"include": [{"project": "sk", "preset": "sk_gcc_release"}]}
     result = _run(
         "matrix",
         "filter-supported",
