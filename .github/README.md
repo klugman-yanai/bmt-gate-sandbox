@@ -18,7 +18,7 @@ Root **`.github/workflows/*.yml`** (non-`internal/`): **`build-and-test-dev.yml`
 | **`workflows/internal/bmt-image-build.yml`** | Packer image build; also on path-filtered `push` |
 | **`workflows/internal/trigger-image-build.yml`** | Manual: dispatch image build on a branch |
 
-**BMT CLI:** the canonical CI entry point is the release **`bmt.pex`**, downloaded by **[`setup-bmt-pex`](./actions/setup-bmt-pex/action.yml)** and invoked via **`"$BMT_PEX_PATH" …`**. Set repo var **`BMT_PEX_TAG`** (and **`BMT_PEX_REPO`** when the publishing repo is not the workflow repo). Self-CI image-build / dev-tooling workflows still use **`uv run`** + **[`setup-bmt-cli`](./actions/setup-bmt-cli/action.yml)** + **[`setup-gcp-uv`](./actions/setup-gcp-uv/action.yml)**, which sync the **`ci/`** workspace ([`bmt/README.md`](bmt/README.md)).
+**BMT CLI:** the canonical CI entry point is the release **`bmt.pex`**, downloaded by **[`setup-bmt-pex`](./actions/setup-bmt-pex/action.yml)** and invoked via **`"$BMT_PEX_PATH" …`**. `setup-bmt-pex` **self-discovers** the release tag from its own `github.action_ref`, so `uses: .../setup-bmt-pex@bmt-v0.3.3` downloads the `bmt-v0.3.3` PEX — one pin, one source of truth, no `BMT_PEX_TAG` indirection inside workflows. Consumers still set repo var **`BMT_PEX_TAG`** (and **`BMT_PEX_REPO`** when the publishing repo is not the workflow repo) to pin the reusable-workflow **`@ref`**. Self-CI image-build / dev-tooling workflows still use **`uv run`** + **[`setup-bmt-cli`](./actions/setup-bmt-cli/action.yml)** + **[`setup-gcp-uv`](./actions/setup-gcp-uv/action.yml)**, which sync the **`ci/`** workspace ([`bmt/README.md`](bmt/README.md)).
 
 ### Orchestrator image (`runtime/` → Cloud Run)
 
@@ -46,7 +46,7 @@ The workflow is **PEX-only and caller-tree independent** — composite actions a
 
 **Caller repo variables** (resolved in the caller's context):
 
-1. **`BMT_PEX_TAG`** — pinned release tag (e.g. `bmt-v0.3.0`); also used as the workflow @ref.
+1. **`BMT_PEX_TAG`** — pinned release tag (e.g. `bmt-v0.3.3`); used as the reusable-workflow `@ref` in the example above. `setup-bmt-pex` inside the workflow bundle self-discovers its own tag, so this var is a consumer-side pin only (it is **not** referenced inside this repo's workflows).
 2. **`BMT_PEX_REPO`** — owner/name of the PEX publishing repo. Optional during transition; defaults to `klugman-yanai/bmt-gcloud`.
 3. **GCP infra** — `GCS_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `GCP_PROJECT` (WIF target; see [`docs/configuration.md`](../docs/configuration.md)).
 

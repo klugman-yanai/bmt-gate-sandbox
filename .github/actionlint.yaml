@@ -15,6 +15,10 @@ config-variables:
   - BMT_EXPECTED_BASE_IMAGE_FAMILY
   - BMT_EXPECTED_BASE_IMAGE_PROJECT
   - BMT_CLI
-  - BMT_PEX_TAG
+  # BMT_PEX_TAG is consumer-facing only (used to pin the reusable workflow
+  # @ref, e.g. `uses: .../bmt-handoff.yml@${{ vars.BMT_PEX_TAG }}`). It is not
+  # referenced by any workflow in this repo — setup-bmt-pex self-discovers the
+  # release tag from its own action_ref. The release template's actionlint
+  # config still lists it for consumers.
   - BMT_PEX_REPO
 

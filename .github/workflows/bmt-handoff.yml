@@ -124,8 +124,14 @@ concurrency:
 env:
   # All vars.* below are evaluated in the CALLER's repository context. Cross-repo callers
   # (e.g. Kardome-org/core-main) MUST set: GCS_BUCKET, GCP_WIF_PROVIDER, GCP_SA_EMAIL,
-  # GCP_PROJECT, BMT_PEX_TAG. Everything BMT-specific is defaulted via inputs below or
-  # via the kardome-bmt PEX itself.
+  # GCP_PROJECT. Everything BMT-specific is defaulted via inputs below or via the
+  # kardome-bmt PEX itself.
+  #
+  # BMT_PEX_TAG is intentionally NOT in this env block. The composite actions
+  # below self-discover their PEX release via `github.action_ref` on setup-bmt-pex
+  # (so `@bmt-v0.3.3` action code downloads the `bmt-v0.3.3` PEX — one pin, one
+  # source of truth). Consumers still set `vars.BMT_PEX_TAG` to pin the REUSABLE
+  # WORKFLOW `@ref` (e.g. `uses: .../bmt-handoff.yml@${{ vars.BMT_PEX_TAG }}`).
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
@@ -133,8 +139,6 @@ env:
   # Defaults match docs/configuration.md and runtime/config/constants.py (DEFAULT_*).
   CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
   BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
-  # PEX-only: kardome-bmt CLI is always the release PEX. No uv-mode dual track.
-  BMT_PEX_TAG: ${{ vars.BMT_PEX_TAG }}
   BMT_PEX_REPO: ${{ vars.BMT_PEX_REPO }}
 
 permissions:
@@ -180,7 +184,6 @@ jobs:
           head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
           head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
           pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
-          bmt_pex_tag: ${{ env.BMT_PEX_TAG }}
           bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
 
       - id: runner_artifacts_index
@@ -280,9 +283,9 @@ jobs:
 
       - name: Setup BMT CLI (release PEX, no uv)
         if: matrix.upload_action == 'upload'
+        # tag self-discovered from github.action_ref (bmt-v0.3.3)
         uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3
         with:
-          tag: ${{ env.BMT_PEX_TAG }}
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
       - name: Download runner artifact from CI run
@@ -408,9 +411,9 @@ jobs:
           version: ">= 363.0.0"
 
       - name: Setup BMT CLI (release PEX, no uv)
+        # tag self-discovered from github.action_ref (bmt-v0.3.3)
         uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3
         with:
-          tag: ${{ env.BMT_PEX_TAG }}
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
       - id: classify

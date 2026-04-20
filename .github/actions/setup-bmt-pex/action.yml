@@ -9,8 +9,14 @@ description: >
 
 inputs:
   tag:
-    description: Release tag containing bmt.pex (e.g. vars.BMT_PEX_TAG = bmt-v0.3.0)
-    required: true
+    description: >-
+      Release tag containing bmt.pex. Defaults to this action's own ref, so
+      `uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3`
+      self-discovers `bmt-v0.3.3` for the download. Override only for cross-
+      version testing. When invoking via `@<sha>` or `@<branch>` (not a release
+      tag) you must pass `tag:` explicitly.
+    required: false
+    default: ${{ github.action_ref }}
   repo:
     description: >
       owner/name of the repo that published bmt.pex. Defaults to klugman-yanai/bmt-gcloud;
@@ -37,8 +43,17 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if [[ -z "${{ inputs.tag }}" ]]; then
-          echo "::error::setup-bmt-pex: tag is required (set vars.BMT_PEX_TAG, e.g. bmt-v0.3.0)"
+        tag="${{ inputs.tag }}"
+        if [[ -z "$tag" ]]; then
+          echo "::error::setup-bmt-pex: tag is required; could not self-discover from github.action_ref ('${{ github.action_ref }}'). Pass `with: tag: bmt-v0.3.x` explicitly."
+          exit 1
+        fi
+        # Self-discovery via github.action_ref only works when invoked at a
+        # release tag (`bmt-v*`). If someone called this action at @<sha> or
+        # @<branch>, action_ref is not a release tag and `gh release download`
+        # will fail with a confusing 404. Guard here with a clear message.
+        if [[ "$tag" != bmt-v* ]]; then
+          echo "::error::setup-bmt-pex: resolved tag '$tag' is not a bmt-v* release tag. If you invoked this action via @<sha> or @<branch>, pass `with: tag: bmt-v0.3.x` explicitly."
           exit 1
         fi
 
