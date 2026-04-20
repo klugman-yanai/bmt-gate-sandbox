@@ -1,4 +1,8 @@
-"""Matrix: build matrix from CMake presets, filter supported, parse release runners."""
+"""Matrix: build matrix from CMake presets, filter supported, parse release runners.
+
+Also hosts capability + plan emission (see :mod:`kardome_bmt.capability`) as the
+platform-owned alternative to caller-side ``bmt/<KEY>/run-bmt.sh`` heuristics.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from kardome_bmt import capability as _cap
 from kardome_bmt import core
 from kardome_bmt.actions import gh_notice, gh_warning
 
@@ -190,3 +195,57 @@ class MatrixManager:
             include = payload.get("include", []) if isinstance(payload, dict) else []
             gh_notice(f"Runner matrix: {payload_json}")
             print(f"Parsed BMT release rows: {len(include)}")
+
+
+def _write_json(payload: str, out: Path | None, github_output_key: str | None) -> None:
+    """Emit ``payload`` to file, to GITHUB_OUTPUT, and/or stdout.
+
+    The three sinks are independent so callers can combine them (e.g. write
+    a file *and* populate a step output in the same invocation).
+    """
+    wrote_somewhere = False
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(payload + "\n", encoding="utf-8")
+        wrote_somewhere = True
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output and github_output_key:
+        with Path(github_output).open("a", encoding="utf-8") as fh:
+            fh.write(f"{github_output_key}={payload}\n")
+        wrote_somewhere = True
+    if not wrote_somewhere:
+        print(payload)
+
+
+def emit_capability(
+    *,
+    plugins_root: Path,
+    platform_release: str,
+    out: Path | None = None,
+    github_output_key: str | None = None,
+) -> _cap.CapabilityManifest:
+    """Build a capability manifest and emit its JSON."""
+    manifest = _cap.build_capability_manifest(plugins_root, platform_release)
+    payload = manifest.model_dump_json()
+    _write_json(payload, out, github_output_key)
+    return manifest
+
+
+def emit_plan(
+    *,
+    presets_file: Path,
+    capability_source: _cap.CapabilityManifest | Path,
+    commit: str | None = None,
+    out: Path | None = None,
+    github_output_key: str | None = None,
+) -> _cap.Plan:
+    """Project ``presets_file`` onto capability manifest → plan JSON."""
+    capability = (
+        capability_source
+        if isinstance(capability_source, _cap.CapabilityManifest)
+        else _cap.load_capability_manifest(capability_source)
+    )
+    plan = _cap.build_plan(presets_file, capability, commit=commit)
+    payload = plan.model_dump_json()
+    _write_json(payload, out, github_output_key)
+    return plan

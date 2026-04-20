@@ -3,17 +3,24 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
+from typing import Annotated
 
 import typer
 
-from kardome_bmt import config
+from kardome_bmt import capability as capability_mod
+from kardome_bmt import config, matrix
 from kardome_bmt.actions import gh_error
 from kardome_bmt.handoff import HandoffManager
 from kardome_bmt.matrix import MatrixManager
 from kardome_bmt.preset import PresetManager
 from kardome_bmt.runner import RunnerManager
 from kardome_bmt.workflow_dispatch import WorkflowDispatchManager
+
+DEFAULT_PLUGINS_ROOT = Path("plugins/projects")
+DEFAULT_PRESETS_FILE = Path("CMakePresets.json")
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -61,6 +68,114 @@ def matrix_filter_supported() -> None:
 def matrix_parse_release_runners() -> None:
     """Parse CMakePresets for CI or BMT runner rows."""
     MatrixManager.from_env().parse_release_runners()
+
+
+@matrix_app.command("capability")
+def matrix_capability(
+    plugins_root: Annotated[
+        Path,
+        typer.Option(
+            "--plugins-root",
+            help="Platform plugin directory (source of truth for supported projects).",
+        ),
+    ] = DEFAULT_PLUGINS_ROOT,
+    platform_release: Annotated[
+        str,
+        typer.Option(
+            "--platform-release",
+            help="Platform release tag (e.g. bmt-v0.3.2). Falls back to $BMT_PLATFORM_RELEASE or 'dev'.",
+        ),
+    ] = "",
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Write JSON to this path (otherwise stdout)."),
+    ] = None,
+    github_output_key: Annotated[
+        str | None,
+        typer.Option(
+            "--github-output-key",
+            help="If set and $GITHUB_OUTPUT is present, append key=<json>.",
+        ),
+    ] = None,
+) -> None:
+    """Emit the platform capability manifest (bmt.capability/v1).
+
+    Single source of truth for "which projects can the BMT platform test?".
+    Consumers call ``bmt matrix plan`` to project their CMakePresets onto it.
+    """
+    release = platform_release.strip() or os.environ.get("BMT_PLATFORM_RELEASE", "").strip() or "dev"
+    matrix.emit_capability(
+        plugins_root=plugins_root,
+        platform_release=release,
+        out=out,
+        github_output_key=github_output_key,
+    )
+
+
+@matrix_app.command("plan")
+def matrix_plan(
+    presets: Annotated[
+        Path,
+        typer.Option(
+            "--presets",
+            help="Caller's CMakePresets.json to project onto the capability manifest.",
+        ),
+    ] = DEFAULT_PRESETS_FILE,
+    capability: Annotated[
+        Path | None,
+        typer.Option(
+            "--capability",
+            help="Path to a capability manifest JSON. If omitted, --plugins-root is scanned live.",
+        ),
+    ] = None,
+    plugins_root: Annotated[
+        Path,
+        typer.Option(
+            "--plugins-root",
+            help="Plugin directory (used only when --capability is not supplied).",
+        ),
+    ] = DEFAULT_PLUGINS_ROOT,
+    platform_release: Annotated[
+        str,
+        typer.Option(
+            "--platform-release",
+            help="Platform release tag recorded in plan output (when scanning live).",
+        ),
+    ] = "",
+    commit: Annotated[
+        str,
+        typer.Option("--commit", help="Caller commit SHA to embed in the plan."),
+    ] = "",
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Write JSON to this path (otherwise stdout)."),
+    ] = None,
+    github_output_key: Annotated[
+        str | None,
+        typer.Option(
+            "--github-output-key",
+            help="If set and $GITHUB_OUTPUT is present, append key=<json>.",
+        ),
+    ] = None,
+) -> None:
+    """Project caller presets onto capability → 3-bucket build plan (bmt.plan/v1).
+
+    Buckets:
+      * ``publish``      — host-release presets whose project has a BMT plugin.
+      * ``acknowledged`` — host-release presets with no platform plugin.
+      * ``nonrelease``   — debug, cross-compile, and other non-release presets.
+    """
+    release = platform_release.strip() or os.environ.get("BMT_PLATFORM_RELEASE", "").strip() or "dev"
+    capability_source: capability_mod.CapabilityManifest | Path = (
+        capability if capability is not None else capability_mod.build_capability_manifest(plugins_root, release)
+    )
+    matrix.emit_plan(
+        presets_file=presets,
+        capability_source=capability_source,
+        commit=commit.strip() or None,
+        out=out,
+        github_output_key=github_output_key,
+    )
 
 
 @runner_app.command("upload")
