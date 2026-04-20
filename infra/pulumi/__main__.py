@@ -115,10 +115,6 @@ def _job(
     )
 
 
-cloud_run_image_transfer_uri = (
-    f"{cfg.cloud_run_region}-docker.pkg.dev/{cfg.gcp_project}/{cfg.artifact_registry_repo}/bmt-transfer"
-)
-
 cloud_run_job_control = _job(
     "bmt-control",
     job_name="bmt-control",
@@ -140,36 +136,16 @@ cloud_run_job_heavy = _job(
     memory=cfg.cloud_run_memory_heavy,
 )
 
-cloud_run_job_dataset_transfer = gcp.cloudrunv2.Job(
-    "bmt-dataset-transfer",
-    name="bmt-dataset-transfer",
-    location=cfg.cloud_run_region,
-    project=cfg.gcp_project,
-    launch_stage="GA",
-    template=gcp.cloudrunv2.JobTemplateArgs(
-        task_count=1,
-        template=gcp.cloudrunv2.JobTemplateTemplateArgs(
-            service_account=job_runner_sa.email,
-            timeout=f"{cfg.cloud_run_task_timeout_sec}s",
-            max_retries=0,
-            containers=[
-                gcp.cloudrunv2.JobTemplateTemplateContainerArgs(
-                    image=f"{cloud_run_image_transfer_uri}:latest",
-                    envs=[
-                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(name="GCS_BUCKET", value=cfg.gcs_bucket),
-                        gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(name="GCP_PROJECT", value=cfg.gcp_project),
-                        _secret_env("BMT_DRIVE_CLIENT_ID"),
-                        _secret_env("BMT_DRIVE_CLIENT_SECRET"),
-                        _secret_env("BMT_DRIVE_REFRESH_TOKEN"),
-                    ],
-                    resources=gcp.cloudrunv2.JobTemplateTemplateContainerResourcesArgs(
-                        limits={"cpu": cfg.cloud_run_cpu_standard, "memory": cfg.cloud_run_memory_standard}
-                    ),
-                )
-            ],
-        ),
-    ),
-)
+# DORMANT (2026-04-20): `bmt-dataset-transfer` Cloud Run Job + its invoker IAM
+# + `cloud_run_image_transfer_uri` were declared here for a partially-implemented
+# Google Drive dataset transfer feature. The job was never deployed to GCP and
+# no workflow dispatches it. Declarations removed to avoid phantom drift in the
+# Pulumi state import exercise
+# (docs/superpowers/plans/2026-04-20-pulumi-state-import.md).
+# Revival: restore this block + the export below + re-add `bmt-transfer` Docker
+# image build; see `tools/remote/bucket_upload_dataset._dispatch_drive_transfer_job`.
+# Note: the three BMT_DRIVE_* secrets (empty shells) DO exist on GCP and are
+# still managed by the secret loop below — they will be imported normally.
 
 # OAuth2 credentials for Google Drive access (rclone inside the transfer Cloud Run job).
 # SA key creation is blocked by org policy; these secrets are populated manually after deploy:
@@ -197,17 +173,6 @@ for _name in _drive_oauth_secret_names:
         role="roles/secretmanager.secretAccessor",
         member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
     )
-
-gcp.cloudrunv2.JobIamMember(
-    "developer-invokes-transfer-job",
-    name=cloud_run_job_dataset_transfer.name,
-    location=cfg.cloud_run_region,
-    project=cfg.gcp_project,
-    role="roles/run.jobsExecutorWithOverrides",
-    member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
-)
-
-pulumi.export("cloud_run_job_dataset_transfer", cloud_run_job_dataset_transfer.name)
 
 workflow_source = render_workflow_source(
     template_path=Path(__file__).parent / "workflow.yaml",

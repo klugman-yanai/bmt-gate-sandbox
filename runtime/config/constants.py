@@ -101,6 +101,12 @@ ENV_CLOUD_RUN_REGION = "CLOUD_RUN_REGION"
 ENV_BMT_CONTROL_JOB = "BMT_CONTROL_JOB"
 ENV_BMT_TASK_STANDARD_JOB = "BMT_TASK_STANDARD_JOB"
 ENV_BMT_TASK_HEAVY_JOB = "BMT_TASK_HEAVY_JOB"
+# DORMANT (2026-04-20): Google Drive dataset transfer is a partially-implemented
+# feature. The underlying Cloud Run Job (`bmt-dataset-transfer`) was never
+# deployed and the GitHub repo variable is not required. Name reserved for
+# future revival. Revival checklist:
+#   docs/superpowers/plans/2026-04-20-pulumi-state-import.md  (section "Dormant")
+#   tools/remote/bucket_upload_dataset._dispatch_drive_transfer_job
 ENV_BMT_DATASET_TRANSFER_JOB = "BMT_DATASET_TRANSFER_JOB"
 ENV_BMT_STATUS_CONTEXT = "BMT_STATUS_CONTEXT"
 ENV_BMT_WORKFLOW_EXECUTION_URL = "BMT_WORKFLOW_EXECUTION_URL"
@@ -117,5 +123,8 @@ PULUMI_KEY_CLOUD_RUN_REGION = "cloud_run_region"
 PULUMI_KEY_CLOUD_RUN_JOB_CONTROL = "cloud_run_job_control"
 PULUMI_KEY_CLOUD_RUN_JOB_STANDARD = "cloud_run_job_standard"
 PULUMI_KEY_CLOUD_RUN_JOB_HEAVY = "cloud_run_job_heavy"
+# DORMANT (2026-04-20): paired with ENV_BMT_DATASET_TRANSFER_JOB above.
+# No longer exported by Pulumi program; revival restores the export in
+# infra/pulumi/__main__.py.
 PULUMI_KEY_CLOUD_RUN_JOB_DATASET_TRANSFER = "cloud_run_job_dataset_transfer"
 PULUMI_KEY_GCP_WIF_PROVIDER = "gcp_wif_provider"
