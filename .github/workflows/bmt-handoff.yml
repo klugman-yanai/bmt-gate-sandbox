@@ -358,11 +358,18 @@ jobs:
   start_bmt_workflow:
     name: Dispatch
     needs: [write_handoff_context, publish_runners, acknowledge_no_bmt]
+    # Negative gate is more robust than positive: when a needed job's matrix
+    # expands to zero rows (e.g. the released PEX hasn't yet learned to write
+    # `matrix_no_bmt_keys`), GH may report `needs.<job>.result` as the empty
+    # string rather than `'skipped'`, which silently fails an `== 'skipped'`
+    # check. Block only on explicit failure / cancellation.
     if: >-
       !cancelled()
       && needs.write_handoff_context.result == 'success'
-      && (needs['publish_runners'].result == 'success' || needs['publish_runners'].result == 'skipped')
-      && (needs['acknowledge_no_bmt'].result == 'success' || needs['acknowledge_no_bmt'].result == 'skipped')
+      && needs['publish_runners'].result != 'failure'
+      && needs['publish_runners'].result != 'cancelled'
+      && needs['acknowledge_no_bmt'].result != 'failure'
+      && needs['acknowledge_no_bmt'].result != 'cancelled'
     runs-on: ubuntu-22.04
     permissions:
       contents: read
