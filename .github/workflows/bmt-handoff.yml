@@ -163,6 +163,8 @@ jobs:
       matrix_need_upload_keys: ${{ steps.filter.outputs.matrix_need_upload_keys }}
       matrix_publish: ${{ steps.filter.outputs.matrix_publish }}
       matrix_publish_keys: ${{ steps.filter.outputs.matrix_publish_keys }}
+      matrix_no_bmt: ${{ steps.filter.outputs.matrix_no_bmt }}
+      matrix_no_bmt_keys: ${{ steps.filter.outputs.matrix_no_bmt_keys }}
     steps:
       # NOTE: no actions/checkout. Composite actions are referenced via the repo-qualified
       # form `klugman-yanai/bmt-gcloud/.github/actions/*@<tag>` so they resolve against THIS
@@ -227,7 +229,10 @@ jobs:
 
       - name: Workflow summary notice
         run: echo "::notice::Workflow validates and dispatches to cloud runtime, then exits; final BMT verdict is reported asynchronously via commit status/check."
-  # Download runner-* artifacts from the CI run and upload to GCS (checksum-aware skip in bmt runner upload).
+  # Publish supported BMT runner binaries to GCS. Every matrix row is a supported leg;
+  # `upload_action == 'upload'` gates the real upload steps, `skip_in_gcs` rows render
+  # as a visible green "Skipped (already in GCS)" summary so the UI always shows the
+  # project-in-cloud legs even when the bucket runner is fresh.
   publish_runners:
     name: Publish
     needs: write_handoff_context
@@ -245,8 +250,21 @@ jobs:
     env:
       BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
     steps:
+      - name: Summarize action
+        shell: bash
+        run: |
+          echo "::notice::${{ matrix.project }}/${{ matrix.preset }}: upload_action=${{ matrix.upload_action }} ${{ matrix.skip_reason && format('({0})', matrix.skip_reason) || '' }}"
+          {
+            echo "### ${{ matrix.project }} / ${{ matrix.preset }}"
+            echo ""
+            echo "- action: \`${{ matrix.upload_action }}\`"
+            if [ -n "${{ matrix.skip_reason }}" ]; then
+              echo "- reason: \`${{ matrix.skip_reason }}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: GCP auth (WIF)
-        if: matrix.bmt_supported == 'true'
+        if: matrix.upload_action == 'upload'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
@@ -254,21 +272,21 @@ jobs:
           project_id: ${{ env.GCP_PROJECT }}
 
       - name: Setup Cloud SDK
-        if: matrix.bmt_supported == 'true'
+        if: matrix.upload_action == 'upload'
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
           project_id: ${{ env.GCP_PROJECT }}
           version: ">= 363.0.0"
 
       - name: Setup BMT CLI (release PEX, no uv)
-        if: matrix.bmt_supported == 'true'
+        if: matrix.upload_action == 'upload'
         uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.2
         with:
           tag: ${{ env.BMT_PEX_TAG }}
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
       - name: Download runner artifact from CI run
-        if: matrix.bmt_supported == 'true'
+        if: matrix.upload_action == 'upload'
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: runner-${{ matrix.preset }}
@@ -278,7 +296,7 @@ jobs:
           run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
 
       - name: Normalize layout for bmt runner upload
-        if: matrix.bmt_supported == 'true'
+        if: matrix.upload_action == 'upload'
         run: |
           set -euo pipefail
           mkdir -p artifact/Runners artifact/Kardome
@@ -295,7 +313,7 @@ jobs:
           fi
 
       - name: Upload runner to GCS
-        if: matrix.bmt_supported == 'true'
+        if: matrix.upload_action == 'upload'
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
@@ -304,20 +322,47 @@ jobs:
           "$BMT_PEX_PATH" runner upload-to-gcs
 
       - name: Mark uploaded for handoff
-        if: matrix.bmt_supported == 'true'
+        if: matrix.upload_action == 'upload'
         env:
           PROJECT: ${{ matrix.project }}
           PRESET: ${{ matrix.preset }}
         run: |
           "$BMT_PEX_PATH" runner validate-in-repo
 
+  # Parallel, informational-only node: one visible green row per release preset
+  # that has no cloud BMT plugin. Keeps the full matrix visible in the UI without
+  # turning unsupported legs into red failures or silencing them entirely.
+  acknowledge_no_bmt:
+    name: No BMT
+    needs: write_handoff_context
+    if: needs.write_handoff_context.outputs.matrix_no_bmt_keys != '[]'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJson(needs.write_handoff_context.outputs.matrix_no_bmt || '{"include":[]}') }}
+    steps:
+      - name: Acknowledge
+        shell: bash
+        run: |
+          echo "::notice::${{ matrix.project }}/${{ matrix.preset }}: no cloud BMT plugin — acknowledged, nothing to upload."
+          {
+            echo "### ${{ matrix.project }} / ${{ matrix.preset }}"
+            echo ""
+            echo "- action: \`no_bmt\`"
+            echo "- reason: \`${{ matrix.skip_reason || 'no cloud BMT plugin' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   start_bmt_workflow:
     name: Dispatch
-    needs: [write_handoff_context, publish_runners]
+    needs: [write_handoff_context, publish_runners, acknowledge_no_bmt]
     if: >-
       !cancelled()
       && needs.write_handoff_context.result == 'success'
       && (needs['publish_runners'].result == 'success' || needs['publish_runners'].result == 'skipped')
+      && (needs['acknowledge_no_bmt'].result == 'success' || needs['acknowledge_no_bmt'].result == 'skipped')
     runs-on: ubuntu-22.04
     permissions:
       contents: read
