@@ -74,6 +74,12 @@ def _require_nonempty_file(path: Path, *, label: str) -> None:
         raise RuntimeError(f"{label} is empty (placeholder artifact refused): {path}")
 
 
+def _write_matrix_output(f, name: str, value: dict[str, Any], heredoc_label: str) -> None:
+    """Emit a heredoc-wrapped matrix output for ``$GITHUB_OUTPUT``."""
+    body = json.dumps(value, separators=(",", ":"))
+    f.write(f"{name}<<{heredoc_label}\n{body}\n{heredoc_label}\n")
+
+
 class RunnerManager:
     def __init__(self, cfg: BmtConfig, ctx: BmtContext | None) -> None:
         self._cfg = cfg
@@ -123,28 +129,37 @@ class RunnerManager:
         print(f"Marked project {project} as validated for handoff -> {marker_uri}")
 
     def filter_upload_matrix(self) -> None:
+        """Classify every release preset into one of three UI buckets.
+
+        Outputs three matrices that the workflow renders as two parallel job nodes:
+
+        - ``matrix_publish``  — supported BMT legs (one row per preset with an
+          ``upload_action`` field: ``upload`` means a real GCS push is needed;
+          ``skip_in_gcs`` means the runner is already in the bucket so the job
+          only records "Skipped (already in GCS)" for visibility).
+        - ``matrix_no_bmt``   — release presets the cloud runtime has no BMT
+          plugin for; rendered as an informational "Acknowledged (no BMT)"
+          parallel matrix, never red.
+        - ``matrix_need_upload`` (back-compat) — subset of ``matrix_publish``
+          where ``upload_action == 'upload'``. Downstream readers that only
+          care about real uploads keep working unchanged.
+        """
         w = self._w()
         skip_publish = read_workflow_str(w, "bmt_skip_publish_runners", "BMT_SKIP_PUBLISH_RUNNERS").lower() in (
             "1",
             "true",
             "yes",
         )
+        empty: dict[str, Any] = {"include": []}
         if skip_publish:
-            out: dict[str, Any] = {"include": []}
             path = Path(core.require_env("GITHUB_OUTPUT"))
             with path.open("a", encoding="utf-8") as f:
-                matrix_need_upload_str = f"""matrix_need_upload<<FILTER_EOF
-{json.dumps(out)}
-FILTER_EOF
-"""
-                f.write(matrix_need_upload_str)
+                _write_matrix_output(f, "matrix_need_upload", empty, "FILTER_EOF")
                 f.write("matrix_need_upload_keys=[]\n")
-                matrix_publish_str = f"""matrix_publish<<PUBLISH_EOF
-{json.dumps(out)}
-PUBLISH_EOF
-"""
-                f.write(matrix_publish_str)
+                _write_matrix_output(f, "matrix_publish", empty, "PUBLISH_EOF")
                 f.write("matrix_publish_keys=[]\n")
+                _write_matrix_output(f, "matrix_no_bmt", empty, "NOBMT_EOF")
+                f.write("matrix_no_bmt_keys=[]\n")
             print(
                 "::notice::Filter upload matrix: BMT_SKIP_PUBLISH_RUNNERS=true — no publish jobs (runners assumed in bucket)."
             )
@@ -177,9 +192,9 @@ PUBLISH_EOF
         }
         root = core.workflow_runtime_root()
         run_id = github_run_id
-        need_include: list[dict[str, Any]] = []
         publish_include: list[dict[str, Any]] = []
-        projects_written = set()
+        no_bmt_include: list[dict[str, Any]] = []
+        projects_written: set[str] = set()
         for entry in include:
             if not isinstance(entry, dict):
                 continue
@@ -187,93 +202,113 @@ PUBLISH_EOF
             preset = str(entry.get("preset", "")).strip()
             if not project or not preset:
                 continue
-            supported = "true" if _project_has_bmt_stage_layout(project) else "false"
-            payload = _runner_meta_in_gcs(root, project, preset)
-            if payload is not None:
-                # Use GCS runner when: explicitly preseeded, SHA matches, OR no GitHub
-                # artifacts are available (this repo doesn't build runners).
-                use_gcs = preseeded or not artifact_set or str(payload.get("source_ref", "")).strip() == head_sha
-                if use_gcs:
-                    if project not in projects_written:
-                        marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
-                        try:
-                            gcs.write_object(marker_uri, "{}")
-                        except gcs.GcsError as e:
-                            gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
-                        projects_written.add(project)
-                    reason = (
-                        "preseeded"
-                        if preseeded
-                        else ("no GitHub artifacts" if not artifact_set else f"ref {head_sha[:7]}")
-                    )
-                    print(
-                        f"::notice::Skip upload for {project}/{preset}: runner in GCS ({reason}) (will show as Skipped)."
-                    )
-                    continue
-            # No GitHub artifacts provided — caller doesn't build runners).
-            # Fall back: check if the runner binary itself already exists in GCS
-            # (new layout: projects/{project}/kardome_runner;
-            #  old layout: {project}/runners/{preset}/kardome_runner).
-            if not artifact_set:
-                binary_exists = False
-                for binary_uri in (
-                    f"{root}/projects/{project}/kardome_runner",
-                    f"{root}/{project}/runners/{preset}/kardome_runner",
-                ):
-                    try:
-                        if gcs.object_exists(binary_uri):
-                            binary_exists = True
-                            break
-                    except gcs.GcsError:
-                        pass
-                if binary_exists:
-                    if project not in projects_written:
-                        marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
-                        try:
-                            gcs.write_object(marker_uri, "{}")
-                        except gcs.GcsError as e:
-                            gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
-                        projects_written.add(project)
-                    print(
-                        f"::notice::No artifact list; runner binary in GCS for {project}/{preset}: "
-                        "using bucket runner (will show as Skipped)."
-                    )
-                    continue
-            if artifact_set and f"runner-{preset}" not in artifact_set:
-                print(
-                    f"::notice::Skip upload for {project}/{preset}: artifact not in available list (will show as Skipped)."
-                )
+            supported = _project_has_bmt_stage_layout(project)
+
+            if not supported:
+                row = cast(dict[str, Any], dict(entry))
+                row["bmt_supported"] = "false"
+                row["upload_action"] = "no_bmt"
+                row["skip_reason"] = "no cloud BMT plugin"
+                no_bmt_include.append(row)
                 continue
+
+            action, reason = self._classify_supported_leg(
+                root=root,
+                project=project,
+                preset=preset,
+                head_sha=head_sha,
+                preseeded=preseeded,
+                artifact_set=artifact_set,
+            )
+            if action == "skip_in_gcs" and project not in projects_written:
+                marker_uri = f"{root}/_workflow/uploaded/{run_id}/{project}.json"
+                try:
+                    gcs.write_object(marker_uri, "{}")
+                except gcs.GcsError as e:
+                    gh_warning(f"Could not write uploaded marker {marker_uri}: {e}")
+                projects_written.add(project)
+
             row = cast(dict[str, Any], dict(entry))
-            row["bmt_supported"] = supported
+            row["bmt_supported"] = "true"
+            row["upload_action"] = action
+            row["skip_reason"] = reason
             publish_include.append(row)
-            if supported == "true":
-                need_include.append(dict(entry))
-        out = {"include": need_include}
-        pub = {"include": publish_include}
-        out_json = json.dumps(out, separators=(",", ":"))
-        pub_json = json.dumps(pub, separators=(",", ":"))
+            print(
+                f"::notice::{project}/{preset}: bmt_supported=true upload_action={action}"
+                + (f" ({reason})" if reason else "")
+            )
+
+        need_include = [
+            {k: v for k, v in e.items() if k not in ("bmt_supported", "upload_action", "skip_reason")}
+            for e in publish_include
+            if e.get("upload_action") == "upload"
+        ]
         path = Path(core.require_env("GITHUB_OUTPUT"))
         with path.open("a", encoding="utf-8") as f:
-            matrix_need_upload_str = f"""matrix_need_upload<<FILTER_EOF
-{out_json}
-FILTER_EOF
-"""
-            f.write(matrix_need_upload_str)
-            keys = [f"{e['project']}|{e['preset']}" for e in need_include]
-            f.write(f"matrix_need_upload_keys={json.dumps(keys)}\n")
-            matrix_publish_str = f"""matrix_publish<<PUBLISH_EOF
-{pub_json}
-PUBLISH_EOF
-"""
-            f.write(matrix_publish_str)
-            pub_keys = [f"{e['project']}|{e['preset']}" for e in publish_include]
-            f.write(f"matrix_publish_keys={json.dumps(pub_keys)}\n")
+            _write_matrix_output(f, "matrix_need_upload", {"include": need_include}, "FILTER_EOF")
+            f.write(
+                f"matrix_need_upload_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in need_include])}\n"
+            )
+            _write_matrix_output(f, "matrix_publish", {"include": publish_include}, "PUBLISH_EOF")
+            f.write(
+                f"matrix_publish_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in publish_include])}\n"
+            )
+            _write_matrix_output(f, "matrix_no_bmt", {"include": no_bmt_include}, "NOBMT_EOF")
+            f.write(
+                f"matrix_no_bmt_keys={json.dumps([f'{e["project"]}|{e["preset"]}' for e in no_bmt_include])}\n"
+            )
+        n_upload = sum(1 for e in publish_include if e.get("upload_action") == "upload")
+        n_skip_in_gcs = sum(1 for e in publish_include if e.get("upload_action") == "skip_in_gcs")
         print(
-            f"::notice::Filter upload matrix: {len(need_include)} publish job(s) for supported BMT; "
-            f"{len(publish_include)} total artifact leg(s); "
-            f"{len(include) - len(publish_include)} already on GCS or no artifact (will show as Skipped)."
+            f"::notice::Filter upload matrix: "
+            f"{len(publish_include)} supported leg(s) ({n_upload} upload, {n_skip_in_gcs} already in GCS); "
+            f"{len(no_bmt_include)} release preset(s) with no cloud BMT plugin."
         )
+
+    def _classify_supported_leg(
+        self,
+        *,
+        root: str,
+        project: str,
+        preset: str,
+        head_sha: str,
+        preseeded: bool,
+        artifact_set: set[str],
+    ) -> tuple[str, str]:
+        """Decide whether a supported leg needs to upload or can reuse what's in GCS.
+
+        Returns ``(upload_action, skip_reason)`` — action is ``"upload"`` or
+        ``"skip_in_gcs"``; reason is a short human-readable explanation that the
+        workflow job surfaces so every matrix row has content.
+        """
+        payload = _runner_meta_in_gcs(root, project, preset)
+        if payload is not None:
+            use_gcs = (
+                preseeded or not artifact_set or str(payload.get("source_ref", "")).strip() == head_sha
+            )
+            if use_gcs:
+                reason = (
+                    "preseeded"
+                    if preseeded
+                    else ("no GitHub artifacts from caller" if not artifact_set else f"meta source_ref matches {head_sha[:7]}")
+                )
+                return "skip_in_gcs", f"runner in GCS ({reason})"
+
+        if not artifact_set:
+            for binary_uri in (
+                f"{root}/projects/{project}/kardome_runner",
+                f"{root}/{project}/runners/{preset}/kardome_runner",
+            ):
+                try:
+                    if gcs.object_exists(binary_uri):
+                        return "skip_in_gcs", "runner binary in GCS (no artifact list)"
+                except gcs.GcsError:
+                    pass
+
+        if artifact_set and f"runner-{preset}" not in artifact_set:
+            return "skip_in_gcs", f"no runner-{preset} artifact in caller run"
+
+        return "upload", ""
 
     def upload(self) -> None:
         self._cfg.require_gcp()

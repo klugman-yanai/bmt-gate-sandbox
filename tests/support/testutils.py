@@ -57,8 +57,8 @@ def assert_github_matrix_include_shape(matrix: dict[str, Any]) -> None:
             raise TypeError("matrix include entry must be an object")
         if "project" not in entry:
             raise AssertionError("matrix entry missing 'project'")
-        if "bmt_id" not in entry:
-            raise AssertionError("matrix entry missing 'bmt_id'")
+        if "preset" not in entry:
+            raise AssertionError("matrix entry missing 'preset'")
 
 
 def assert_matrix_projects_subset(matrix: dict[str, Any], allowed: set[str]) -> None:

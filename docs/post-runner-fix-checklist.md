@@ -132,6 +132,44 @@ Once the runner is fixed and the smoke PR is merged into core-main
 - [ ] Re-dispatch `bmt-pex-smoke.yml` on core-main `dev` and
   `bmt-handoff-dev.yml` on bmt-gcloud `dev` to validate.
 
+## 4b. Manifest-vs-rglob discovery gap (latent)
+
+While diagnosing the `test_8ch_sine.wav` SIGABRT (see
+[Kardome-org/core-main#273](https://github.com/Kardome-org/core-main/pull/273)
+for the runner-side guard), we found that Cloud Run's input
+enumeration uses `rglob("*.wav")` over the dataset prefix:
+
+```
+runtime/legacy_kardome.py:350
+    for wav_path in sorted(self.config.dataset_root.rglob("*.wav")):
+```
+
+This is **independent** of `dataset_manifest.json` — the manifest is
+authoritative for `git clone` clients (it pins the dataset shape) and
+for the pre-flight count check in
+`ci/kardome_bmt/handoff_dataset.py`, but the actual BMT leg gets
+*every* `*.wav` under the prefix, manifest or not. Concretely: the
+sine artifact had been uploaded to
+`gs://train-kws-202311-bmt-gate/projects/sk/inputs/false_alarms/`
+out-of-band (no manifest entry) and was silently joining every SK
+`false_alarms` run, which is how it ended up crashing the runner.
+
+The bucket-side fix was an `gcloud storage rm` of the orphan file;
+the runtime change to make discovery manifest-driven is bigger and
+worth doing on its own.
+
+- [ ] Replace the `rglob("*.wav")` in `runtime/legacy_kardome.py`
+  with `InputFileRegistry.from_manifest(...)` (already exists at
+  `tools/shared/dataset_manifest.py`). Reject WAVs found in the
+  prefix that aren't in the manifest, with a clear log line.
+- [ ] Add a layout-policy test that fails CI when a WAV exists in
+  GCS under `projects/<p>/inputs/<dataset>/` without a corresponding
+  `files[]` entry in `dataset_manifest.json` (catches the same class
+  of orphan upload at validation time).
+- [ ] Document the contract in `docs/architecture.md` so future
+  dataset-uploader tooling knows the manifest is the source of
+  truth, not the prefix listing.
+
 ## 5. Cleanup / parking lot
 
 These are pure ergonomics; do them only if they're paying for

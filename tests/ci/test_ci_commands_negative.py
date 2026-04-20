@@ -41,7 +41,7 @@ def test_matrix_contract_rejects_empty_include(tmp_path: Path) -> None:
 
 def test_matrix_contract_rejects_missing_project_field(tmp_path: Path) -> None:
     github_output = tmp_path / "missing-project.txt"
-    github_output.write_text('matrix={"include": [{"bmt_id": "test"}]}', encoding="utf-8")
+    github_output.write_text('matrix={"include": [{"preset": "test"}]}', encoding="utf-8")
     outputs = read_github_output(github_output)
     matrix = decode_output_json(outputs, "matrix")
     with pytest.raises(AssertionError, match="project"):
@@ -51,7 +51,7 @@ def test_matrix_contract_rejects_missing_project_field(tmp_path: Path) -> None:
 def test_matrix_contract_rejects_filter_leakage(tmp_path: Path) -> None:
     github_output = tmp_path / "filter-leak.txt"
     github_output.write_text(
-        'matrix={"include": [{"project": "sk", "bmt_id": "test1"}, {"project": "continental", "bmt_id": "test2"}]}',
+        'matrix={"include": [{"project": "sk", "preset": "test1"}, {"project": "continental", "preset": "test2"}]}',
         encoding="utf-8",
     )
     outputs = read_github_output(github_output)
