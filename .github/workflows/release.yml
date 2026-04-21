@@ -87,12 +87,22 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          fetch-depth: 2
+          # Full history so dorny/paths-filter can resolve `github.event.before`
+          # for any-size push (single- or multi-commit). With a shallow checkout
+          # paths-filter falls back to "all files added" when the base ref is
+          # unreachable, which silently runs every job on every push.
+          fetch-depth: 0
 
       - name: Path filter
         id: filter
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
+          # Compare against the most recent commit on the same branch before the
+          # push (i.e. `github.event.before`). Without this, the action defaults
+          # to the repo's default branch (main) which we don't fetch — that path
+          # silently classifies every file as added and runs every job. See
+          # https://github.com/dorny/paths-filter#detect-changes-against-previous-commit-for-long-lived-branches
+          base: ${{ github.ref }}
           filters: |
             runtime:
               - 'runtime/**'
