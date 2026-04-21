@@ -193,12 +193,15 @@ jobs:
       matrix_no_bmt: ${{ steps.filter.outputs.matrix_no_bmt }}
       matrix_no_bmt_keys: ${{ steps.filter.outputs.matrix_no_bmt_keys }}
     steps:
-      # NOTE: no actions/checkout. Composite actions are referenced via the repo-qualified
-      # form `klugman-yanai/bmt-gcloud/.github/actions/*@<tag>` so they resolve against THIS
-      # repo when called cross-repo (a `./` ref would resolve against the caller's filesystem,
-      # which fails). Pinned to bmt-v0.3.3 (the tag this commit is released as), self-referential;
-      # bump in a coordinated commit when you cut the next release. PEX is the only runtime
-      # dependency beyond these composites.
+      # NOTE: the Plan job does not checkout the full caller tree up front — `bmt-prepare-context`
+      # only fetches `CMakePresets.json` via the API so `parse-release-runners` can emit
+      # `RUNNER_MATRIX`. Before `runner filter-upload-matrix`, we still need
+      # `plugins/projects/<project>/` on disk so `_project_has_bmt_stage_layout()` can see
+      # `project.json` / `bmts/` (see `ci/kardome_bmt/runner.py`). Without that, every preset
+      # is misclassified as `no_bmt` and SK never appears in the Publish matrix. The sparse
+      # checkout below materializes only `plugins/projects/` under `_layout_probe/` and symlinks
+      # it into the workspace root, leaving `.local/bmt/` from `setup-bmt-pex` untouched
+      # (`actions/checkout` uses `path:` so it does not clobber the job workspace).
       - id: prepare
         uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-prepare-context@bmt-v0.3.3
         with:
@@ -240,6 +243,30 @@ jobs:
         with:
           project_id: ${{ env.GCP_PROJECT }}
           version: ">= 363.0.0"
+
+      - name: Stage plugins/projects for BMT layout probe
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.prepare.outputs.head_sha }}
+          fetch-depth: 1
+          path: _layout_probe
+          sparse-checkout: |
+            plugins/projects
+          sparse-checkout-cone-mode: true
+
+      - name: Symlink plugins/projects into workspace root
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe="${GITHUB_WORKSPACE}/_layout_probe/plugins/projects"
+          if [[ -d "$probe" ]]; then
+            mkdir -p plugins
+            rm -rf "${GITHUB_WORKSPACE}/plugins/projects" 2>/dev/null || true
+            ln -sfn "$probe" "${GITHUB_WORKSPACE}/plugins/projects"
+          else
+            echo "::notice::No plugins/projects in sparse checkout at $probe — filter-upload-matrix uses repo layout probe only when the caller mirrors bmt-gcloud."
+          fi
 
       # Drift guard (Phase B.3 of docs/superpowers/plans/2026-04-18-ci-driven-release.md).
       # Opt-in: when a caller (typically bmt-gcloud's own release.yml after its `mark`
