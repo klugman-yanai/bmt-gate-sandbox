@@ -66,6 +66,27 @@ def _coerce_expected_channels(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
+def _coerce_forced_wav_path_keys_exclude(raw: Any) -> frozenset[str]:
+    """Coerce plugin_config["forced_wav_path_keys_exclude"] to a frozenset of upper-case keys.
+
+    Accepts a list / tuple / set of strings. Anything else (including a bare string) logs
+    a warning and falls back to the empty set — the manifest is treated as "don't exclude
+    anything", i.e. the historical forced-rewrite behavior is preserved.
+    """
+    if raw is None:
+        return frozenset()
+    if not isinstance(raw, list | tuple | set | frozenset):
+        logger.warning("Ignoring non-sequence plugin_config.forced_wav_path_keys_exclude=%r", raw)
+        return frozenset()
+    keys: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            logger.warning("Ignoring non-string entry in forced_wav_path_keys_exclude: %r", item)
+            continue
+        keys.add(item.strip().upper())
+    return frozenset(keys)
+
+
 def _resolve_batch_results_file(workspace_root: Path, results_relpath: str) -> Path | None:
     """Return resolved results file path if it exists under workspace_root, else None."""
     rel = str(results_relpath).strip()
@@ -126,6 +147,9 @@ class SkPlugin(BmtPlugin):
                     deps_root=context.deps_root,
                     expected_channels=_coerce_expected_channels(
                         context.bmt_manifest.plugin_config.get("expected_channels")
+                    ),
+                    forced_wav_path_keys_exclude=_coerce_forced_wav_path_keys_exclude(
+                        context.bmt_manifest.plugin_config.get("forced_wav_path_keys_exclude")
                     ),
                 )
             )

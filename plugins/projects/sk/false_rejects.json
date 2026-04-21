@@ -13,6 +13,7 @@
     "counter_pattern": "Hi NAMUH counter = (\\d+)",
     "num_source_test": 0,
     "expected_channels": 8,
+    "forced_wav_path_keys_exclude": ["REF_PATH"],
     "enable_overrides": {
       "KWS_CONFIG.KWS_ENABLE": true,
       "BIOMETRICS_CONFIG.BIO_ENABLE": false

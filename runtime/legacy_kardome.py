@@ -72,7 +72,20 @@ def _walk_and_rewrite_paths(node: Any, wav_value: str, protected_keys: set[str])
             node[key] = wav_value
 
 
-def _rewrite_json_paths_for_wav(config: dict[str, Any], wav_path: Path, output_path: Path) -> None:
+def _rewrite_json_paths_for_wav(
+    config: dict[str, Any],
+    wav_path: Path,
+    output_path: Path,
+    forced_key_excludes: frozenset[str] = frozenset(),
+) -> None:
+    """Rewrite ``*_PATH`` entries in the runner input so they point at the current case's WAV.
+
+    ``forced_key_excludes`` lets a manifest opt specific keys out of the forced WAV-path
+    rewrite (and the placeholder-based walk). The excluded keys keep their template value,
+    which is how SK asks the harness to leave ``REF_PATH`` at the dummy placeholder so
+    ``tinywav_open_read`` fails with ``is_ref == -1`` and the C-side refs channel guard
+    short-circuits instead of refusing to run every 8-channel WAV against a 2-ref buffer.
+    """
     wav_value = str(wav_path.resolve())
     output_value = str(output_path.resolve())
 
@@ -82,14 +95,14 @@ def _rewrite_json_paths_for_wav(config: dict[str, Any], wav_path: Path, output_p
         config["USER_OUTPUT_PATH"] = output_value
 
     for key in _FORCED_WAV_PATH_KEYS:
+        if key in forced_key_excludes:
+            continue
         if key in config:
             config[key] = wav_value
 
-    _walk_and_rewrite_paths(
-        config,
-        wav_value,
-        {"MICS_PATH", "KARDOME_OUTPUT_PATH", "USER_OUTPUT_PATH"},
-    )
+    protected: set[str] = {"MICS_PATH", "KARDOME_OUTPUT_PATH", "USER_OUTPUT_PATH"}
+    protected.update(forced_key_excludes)
+    _walk_and_rewrite_paths(config, wav_value, protected)
 
 
 _WAV_NUM_CHANNELS_OFFSET = 22
@@ -160,6 +173,11 @@ class LegacyKardomeStdoutConfig:
     # runners are built for a fixed mic count; mismatched inputs heap-corrupt the native
     # side, so we reject them up front instead of spraying per-file crash logs.
     expected_channels: int | None = None
+    # Keys from ``_FORCED_WAV_PATH_KEYS`` that this leg wants *excluded* from the per-case
+    # WAV-path rewrite. Used by SK to keep ``REF_PATH`` pointed at the dummy placeholder so
+    # the runner's refs channel guard short-circuits (``is_ref == -1``) instead of refusing
+    # to run every case because ``num_of_refs * 3`` can't hold an 8-channel mics WAV.
+    forced_wav_path_keys_exclude: frozenset[str] = frozenset()
 
 
 class LegacyKardomeStdoutExecutor:
@@ -181,7 +199,12 @@ class LegacyKardomeStdoutExecutor:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         cfg = copy.deepcopy(template)
-        _rewrite_json_paths_for_wav(cfg, wav_path, output_path)
+        _rewrite_json_paths_for_wav(
+            cfg,
+            wav_path,
+            output_path,
+            forced_key_excludes=self.config.forced_wav_path_keys_exclude,
+        )
         if self.config.num_source_test is not None:
             cfg["NUM_SOURCE_TEST"] = int(self.config.num_source_test)
         for dotted_key, value in self.config.enable_overrides.items():
