@@ -11,7 +11,7 @@
     "keyword": "NAMUH",
     "counter_pattern": "Hi NAMUH counter = (\\d+)",
     "num_source_test": 0,
-    "expected_channels": 4,
+    "expected_channels": 8,
     "enable_overrides": {
       "KWS_CONFIG.KWS_ENABLE": true,
       "BIOMETRICS_CONFIG.BIO_ENABLE": false

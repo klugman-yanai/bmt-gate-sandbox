@@ -4,7 +4,11 @@
 
 ### Added
 
-- SK leg-level channel pre-flight: the `LegacyKardomeStdoutExecutor` now probes the first WAV's RIFF header once per leg and, when the declared `plugin_config.expected_channels` (set to `4` for SK's `false_alarms` and `false_rejects`) does not match, emits a single `_channel_mismatch_` case instead of running `kardome_runner` against an incompatible dataset. This replaces per-file `free(): invalid next size` heap-corruption crashes with a readable leg-level error (`channel_mismatch:expected=4:got=8:probe=<rel>`). WAV files are never converted — this is pure graceful failure.
+- SK leg-level channel pre-flight: the `LegacyKardomeStdoutExecutor` now probes the first WAV's RIFF header once per leg and, when the declared `plugin_config.expected_channels` does not match, emits a single `_channel_mismatch_` case instead of running `kardome_runner` against an incompatible dataset. This replaces per-file `free(): invalid next size` heap-corruption crashes with a readable leg-level error (`channel_mismatch:expected=N:got=M:probe=<rel>`). WAV files are never converted — this is pure graceful failure.
+
+### Changed
+
+- SK `expected_channels` bumped from `4` to `8` in both `false_alarms.json` and `false_rejects.json` to match the 8-channel datasets already staged in the bucket and the SK runner/libKardome.so rebuilt from `core-main/SK_gcc_Release`. The pre-flight is now aligned with the data reality and passes through to real runner execution instead of short-circuiting every SK leg at the gate. The regression guard `test_committed_sk_leg_configs_declare_*_channels` was renamed and its assertion flipped accordingly.
 
 ## bmt-v0.3.3
 

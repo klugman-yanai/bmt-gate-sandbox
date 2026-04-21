@@ -173,12 +173,24 @@ def test_unreadable_first_wav_is_not_blocking(tmp_path: Path) -> None:
     assert len(result.case_results) == 2
 
 
-def test_committed_sk_leg_configs_declare_four_channels() -> None:
-    """SK runner is built for a fixed 4-mic layout; the leg JSON must keep it in sync
-    so 8-channel datasets fail fast at pre-flight instead of heap-corrupting the native side."""
+def test_committed_sk_leg_configs_declare_eight_channels() -> None:
+    """SK datasets in the bucket are 8-channel; the leg JSON must keep the pre-flight
+    declaration aligned so the runner receives matching inputs instead of tripping a
+    channel-mismatch short-circuit.
+
+    Historical note: these manifests declared ``expected_channels=4`` while the
+    bucket datasets were 8-channel, which (by design) made every SK leg short-circuit
+    to a ``_channel_mismatch_`` failure before `kardome_runner` ever executed — the
+    pre-flight's intended behaviour for genuine mismatches, but not a runnable
+    pipeline. Once the SK runner/libKardome.so rebuilt from
+    ``core-main/SK_gcc_Release`` was confirmed to accept 8-channel inputs, the
+    declaration was bumped to 8 to match the bucket's dataset reality. Flip both
+    this assertion and the JSON fields together if/when the mic count changes in
+    the runner again.
+    """
     import json as _json
 
     repo_root = Path(__file__).resolve().parents[2]
     for leg in ("false_alarms", "false_rejects"):
         data = _json.loads((repo_root / "plugins/projects/sk" / f"{leg}.json").read_text(encoding="utf-8"))
-        assert data["plugin_config"].get("expected_channels") == 4, leg
+        assert data["plugin_config"].get("expected_channels") == 8, leg
