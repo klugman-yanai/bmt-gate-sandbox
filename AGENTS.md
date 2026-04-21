@@ -8,7 +8,7 @@ Short guidance for **Codex** and other agents in **bmt-gcloud**.
 
 ## Where to read first
 
-- **[CLAUDE.md](CLAUDE.md)** — Full workspace rules (tools layout, time/clocks, testing, CI entrypoints, architecture summary, **shell CLI preferences**)
+- **[CLAUDE.md](CLAUDE.md)** — Full workspace rules (tools layout, time/clocks, testing, CI entrypoints, architecture summary, **shell CLI preferences**). Includes **PR-first BMT**: open a PR into `ci/check-bmt-gate` to trigger and review the full pipeline; do not treat direct `push` as the default substitute.
 - **[docs/README.md](docs/README.md)** — Task and role index
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Setup, lint, tests, PR expectations
 - **[docs/architecture.md](docs/architecture.md)** — Canonical pipeline description (diagrams + maintainer deep dive)

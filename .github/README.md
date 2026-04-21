@@ -8,7 +8,7 @@ Root **`.github/workflows/*.yml`** (non-`internal/`): **`build-and-test-dev.yml`
 
 | Workflow | Purpose |
 | -------- | ------- |
-| **`workflows/build-and-test-dev.yml`** | **This repo’s CI** on `push` / `pull_request` to **`dev`** / **`ci/check-bmt-gate`** / **`test/*`** (plus `workflow_dispatch` / `workflow_call`); one build matrix + one handoff per event, and calls **`bmt-handoff.yml`** when the gate passes |
+| **`workflows/build-and-test-dev.yml`** | **This repo’s CI** on `push` / `pull_request` to **`dev`** / **`ci/check-bmt-gate`** / **`test/*`** (plus `workflow_dispatch` / `workflow_call`); one build matrix + one handoff per event, and calls **`bmt-handoff.yml`** when the gate passes. **Intended path for BMT:** open a **PR** into `ci/check-bmt-gate` so the full handoff + cloud BMT + BMT Gate run against the PR head with normal GitHub review UI; `push` remains so merges (and bots) still land CI after merge. |
 | **`workflows/build-and-test.yml`** | Reusable CI for **core-main** (and manual runs): `workflow_dispatch` + `workflow_call` only — thin **`trigger-ci.yml`** (template or copy) supplies `push` / `pull_request_target` |
 | **`workflows/bmt-handoff.yml`** | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`) |
 | **`workflows/clang-format-auto-fix.yml`** | C/C++ format automation on selected branches |
@@ -66,7 +66,7 @@ Everything BMT-specific (CLOUD_RUN_REGION, BMT_STATUS_CONTEXT, status-check name
 
 ## Which workflow runs CI?
 
-- **bmt-gcloud (this repo):** **`build-and-test-dev.yml`** runs on `push` / `pull_request` / `workflow_dispatch` / `workflow_call` (branches `dev`, `ci/check-bmt-gate`, `test/*`). One workflow per event — no **`pull_request_target`**, no sibling PR trigger.
+- **bmt-gcloud (this repo):** **`build-and-test-dev.yml`** runs on `push` / `pull_request` / `workflow_dispatch` / `workflow_call` (branches `dev`, `ci/check-bmt-gate`, `test/*`). One workflow per event — no **`pull_request_target`**, no sibling PR trigger. **Use a PR into `ci/check-bmt-gate` as the default way to trigger and inspect the full BMT pipeline** (Checks tab, PR annotations); rely on `push` for post-merge continuity, not as the primary substitute for a PR when you are validating a change.
 - **Production (core-main):** Typically **`internal/trigger-ci.yml`** (from **`scripts/release_templates/workflows/trigger-ci.yml`**) on `push` / `pull_request_target` to **`dev`**, which **`workflow_call`s** **`build-and-test.yml`**. **`build-and-test.yml`** then calls **`bmt-handoff.yml`** when eligible.
 - **Manual / sandbox:** **`internal/trigger-ci.yml`** dispatches **`build-and-test.yml`** on an arbitrary ref.
 

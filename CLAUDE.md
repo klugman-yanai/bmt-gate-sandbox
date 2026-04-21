@@ -18,6 +18,8 @@ Three long-lived branches: `main`, `dev`, `ci/check-bmt-gate`.
 
 New work always branches from and PRs to `ci/check-bmt-gate`.
 
+**BMT pipeline entry (this repo):** Treat a **pull request into `ci/check-bmt-gate` as the primary trigger** for full pre-merge BMT validation (GitHub Checks on the PR head, Handoff, cloud workflow, BMT Gate on that SHA). `push` to `ci/check-bmt-gate` still runs the same `build-and-test-dev.yml` graph after a merge or automation — that is required because merging a PR fires `push`, not a new `pull_request` — but **do not use direct push alone as the default way to exercise BMT** when a PR would give the intended review surface and the same pipeline.
+
 ## Project overview
 
 **bmt-gcloud** provides a **realistic path to test production BMT CI** against **real GCS** (and GCP), not mocks. The supported execution model is:
