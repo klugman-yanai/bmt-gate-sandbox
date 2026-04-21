@@ -3,7 +3,8 @@
   "enabled": true,
   "runner": {
     "uri": "projects/sk/kardome_runner",
-    "deps_prefix": "projects/shared/dependencies"
+    "deps_prefix": "projects/shared/dependencies",
+    "template_path": "runtime/assets/sk_kardome_input_template.json"
   },
   "plugin_config": {
     "comparison": "gte",
