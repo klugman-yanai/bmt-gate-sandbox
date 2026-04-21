@@ -99,6 +99,40 @@ def test_unused_bmt_runner_env_action_is_removed() -> None:
     assert not (repo_root() / ".github" / "actions" / "bmt-runner-env").exists()
 
 
+def test_handoff_declares_opt_in_release_marker_verification() -> None:
+    """Phase B.3 of the CI-driven release plan: Plan job must verify the release
+    marker before dispatching cloud work, but only when the caller opts in via
+    the ``release_git_sha`` input.
+
+    Guards against three regressions at once:
+
+    1. The input is declared on BOTH ``workflow_dispatch`` and ``workflow_call``
+       (cross-repo callers invoke via ``workflow_call``; same-repo debug via
+       ``workflow_dispatch``).
+    2. The verify step is guarded by ``if: … != ''`` so cross-repo callers that
+       don't pass the input keep today's behaviour (they rely on pinned
+       ``vars.BMT_PEX_TAG`` as their contract, not our bucket marker).
+    3. The step runs BEFORE ``steps.filter`` — a stale marker must short-circuit
+       the matrix build, not race it.
+    """
+    handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
+
+    assert handoff.count("release_git_sha:") == 2, (
+        "expected `release_git_sha:` declared in BOTH workflow_dispatch.inputs and workflow_call.inputs; "
+        "found " + str(handoff.count("release_git_sha:"))
+    )
+
+    assert "Verify release marker" in handoff
+    assert "release verify" in handoff
+    assert "(inputs.release_git_sha || github.event.inputs.release_git_sha) != ''" in handoff
+
+    verify_idx = handoff.index("Verify release marker")
+    filter_idx = handoff.index("- id: filter")
+    assert verify_idx < filter_idx, (
+        "Verify step must precede the filter step so stale markers short-circuit the matrix."
+    )
+
+
 def test_local_composite_action_paths_resolve() -> None:
     """Every `uses: ./.github/actions/...` reference must have a matching action.yml on disk."""
     github = repo_root() / ".github"

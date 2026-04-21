@@ -46,6 +46,19 @@ on:
         required: false
         type: string
         default: "BMT Gate"
+      release_git_sha:
+        description: >
+          Optional. When non-empty, the Plan job asserts that
+          gs://$GCS_BUCKET/_state/release.json.git_sha equals this value before
+          dispatching cloud work, and fails fast with a ::error:: annotation on
+          mismatch or missing marker. Empty (default) preserves legacy
+          behaviour for cross-repo callers (e.g. Kardome-org/core-main) whose
+          github.sha does not correspond to a bmt-gcloud release marker. The
+          bmt-gcloud release.yml workflow passes its own github.sha here after
+          the `mark` job writes the marker, closing the deployment-drift gap.
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       ci_run_id:
@@ -96,6 +109,16 @@ on:
         required: false
         type: string
         default: "BMT Gate"
+      release_git_sha:
+        description: >
+          Optional. When non-empty, the Plan job asserts that
+          gs://$GCS_BUCKET/_state/release.json.git_sha equals this value before
+          dispatching cloud work, and fails fast with a ::error:: annotation on
+          mismatch or missing marker. See the workflow_dispatch input of the
+          same name for full semantics.
+        required: false
+        type: string
+        default: ""
     outputs:
       bmt_gate_passed:
         description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
@@ -217,6 +240,25 @@ jobs:
         with:
           project_id: ${{ env.GCP_PROJECT }}
           version: ">= 363.0.0"
+
+      # Drift guard (Phase B.3 of docs/superpowers/plans/2026-04-18-ci-driven-release.md).
+      # Opt-in: when a caller (typically bmt-gcloud's own release.yml after its `mark`
+      # job succeeds) passes `release_git_sha`, we assert that the bucket's
+      # `_state/release.json` marker was written for that commit before we let any
+      # cloud dispatch proceed. A mismatch means release.yml did not complete for the
+      # code under test, so the Cloud Run image / GCS plugins / Pulumi state downstream
+      # jobs are about to consume could be stale — refuse to dispatch with an
+      # actionable ::error::. Cross-repo callers (e.g. Kardome-org/core-main) don't
+      # pass this input; they rely on the pinned `vars.BMT_PEX_TAG` + reusable-workflow
+      # `@ref` as their contract, so the step is a no-op for them.
+      - name: Verify release marker (opt-in drift guard)
+        if: ${{ (inputs.release_git_sha || github.event.inputs.release_git_sha) != '' }}
+        env:
+          GCS_BUCKET: ${{ env.GCS_BUCKET }}
+          GITHUB_SHA: ${{ inputs.release_git_sha || github.event.inputs.release_git_sha }}
+        run: |
+          set -euo pipefail
+          "$BMT_PEX_PATH" release verify
 
       - id: filter
         env:
