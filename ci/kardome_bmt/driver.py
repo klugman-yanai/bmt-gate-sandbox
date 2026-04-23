@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Annotated
 
 import typer
 
@@ -142,13 +143,16 @@ def handoff_write_summary() -> None:
 
 @dispatch_app.command("invoke-workflow")
 def dispatch_invoke_workflow(
-    force_pass: bool = typer.Option(
-        False,
-        "--force-pass",
-        help="If Workflows dispatch fails, still exit 0 after writing GITHUB_OUTPUT (escape hatch). "
-        "Also enabled when env BMT_FORCE_PASS or KARDOME_BMT_FORCE_PASS is truthy.",
-        envvar="BMT_FORCE_PASS",
-    ),
+    *,
+    force_pass: Annotated[
+        bool,
+        typer.Option(
+            "--force-pass",
+            help="If Workflows dispatch fails, still exit 0 after writing GITHUB_OUTPUT (escape hatch). "
+            "Also enabled when env BMT_FORCE_PASS or KARDOME_BMT_FORCE_PASS is truthy.",
+            envvar="BMT_FORCE_PASS",
+        ),
+    ] = False,
 ) -> None:
     """Start Google Workflow execution for BMT handoff."""
     fp = bool(force_pass or is_truthy_env_value(os.environ.get("KARDOME_BMT_FORCE_PASS")))

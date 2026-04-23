@@ -289,11 +289,12 @@ class SkPlugin(BmtPlugin):
         # reason so Checks/summaries stay visible for triage.
         case_outcomes = score_result.metrics.get("case_outcomes")
         aggregate = float(score_result.aggregate_score or 0.0)
-        gte_all_zero_kw_warn = comparison == "gte" and cases_ok > 0 and (
-            _all_ok_cases_have_zero_namuh(case_outcomes)
-            or (
-                aggregate == 0.0
-                and (not isinstance(case_outcomes, list) or len(case_outcomes) == 0)
+        gte_all_zero_kw_warn = (
+            comparison == "gte"
+            and cases_ok > 0
+            and (
+                _all_ok_cases_have_zero_namuh(case_outcomes)
+                or (aggregate == 0.0 and (not isinstance(case_outcomes, list) or len(case_outcomes) == 0))
             )
         )
         if gte_all_zero_kw_warn and baseline is None:

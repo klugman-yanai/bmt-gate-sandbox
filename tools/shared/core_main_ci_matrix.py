@@ -24,7 +24,9 @@ def load_presets(core_main_root: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def classify_build_presets(doc: dict[str, Any], repo_root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def classify_build_presets(
+    doc: dict[str, Any], repo_root: Path
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     configure_by_name = {preset["name"]: preset for preset in doc.get("configurePresets", [])}
     base_names = sorted(
         [

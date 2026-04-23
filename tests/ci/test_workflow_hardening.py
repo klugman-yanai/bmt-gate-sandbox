@@ -155,8 +155,7 @@ def test_handoff_declares_force_pass_on_both_triggers() -> None:
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
     n = handoff.count("force_pass:")
     assert n == 2, (
-        "expected `force_pass:` declared in BOTH workflow_dispatch.inputs and workflow_call.inputs; "
-        f"found {n}"
+        f"expected `force_pass:` declared in BOTH workflow_dispatch.inputs and workflow_call.inputs; found {n}"
     )
 
 

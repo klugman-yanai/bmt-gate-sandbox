@@ -44,7 +44,7 @@ def run_matrix(
     if strict_only:
         entries = [e for e in entries if not e["soft_fail"]]
     if max_builds is not None:
-        entries = entries[: max_builds]
+        entries = entries[:max_builds]
 
     print(
         f"Matrix: release_bmt={len(rb)} release_no_bmt={len(rnb)} nonrelease={len(nr)} "
