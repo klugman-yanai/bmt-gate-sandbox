@@ -50,8 +50,9 @@ runs:
           exit 1
         fi
         if [[ "$tag" == "bmt-handoff" ]]; then
+          # gh: pass jq as a single --jq=… flag; `--jq -r '.[]'` makes gh treat `.[]` as a subcommand.
           tag=$(gh release list --repo "$repo" --exclude-drafts --limit 150 \
-            --json tagName --jq -r '.[].tagName' \
+            --json tagName --jq='.[].tagName' \
             | grep -E '^bmt-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
           if [[ -z "$tag" ]]; then
             echo "::error::setup-bmt-pex: could not resolve rolling ref bmt-handoff to a semver bmt-v* release on $repo"
