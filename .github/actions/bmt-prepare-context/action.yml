@@ -27,6 +27,13 @@ inputs:
       owner/repo for PEX releases. Empty defaults to klugman-yanai/bmt-gcloud.
     required: false
     default: ""
+  bmt_pex_tag:
+    description: >
+      Release tag for bmt.pex (must be bmt-v* or the rolling alias bmt-handoff).
+      Required when this composite is nested: github.action_ref is empty there, so
+      setup-bmt-pex cannot self-discover. Default bmt-handoff resolves to latest semver.
+    required: false
+    default: bmt-handoff
 
 outputs:
   run_id:
@@ -55,11 +62,11 @@ runs:
   using: composite
   steps:
     - name: Setup BMT CLI (release PEX, no uv)
-      # tag: defaults to github.action_ref on setup-bmt-pex, which resolves to
-      # this action's own tag (e.g. bmt-v0.3.3). One pin, one source of truth.
+      # Nested composites get an empty github.action_ref; setup-bmt-pex needs an explicit tag.
       uses: ./.github/actions/setup-bmt-pex
       with:
         repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || 'klugman-yanai/bmt-gcloud' }}
+        tag: ${{ inputs.bmt_pex_tag }}
         python_version: "3.12"
 
     - id: ctx
