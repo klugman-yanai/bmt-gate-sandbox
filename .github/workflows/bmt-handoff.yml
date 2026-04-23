@@ -189,9 +189,9 @@ env:
   # Region, status context, PEX repo, and force_pass come from workflow_call / workflow_dispatch
   # inputs only (declare them in the caller `with:` block — no repo vars).
   #
-  # PEX version: setup-bmt-pex resolves `github.action_ref` (or rolling tag
-  # `bmt-handoff` → latest `bmt-v*`). Consumers pin only the reusable workflow ref,
-  # e.g. `uses: .../bmt-handoff.yml@bmt-handoff` (rolling) or `@bmt-v0.3.4` (strict).
+  # PEX version: `setup-bmt-pex` needs an explicit `tag` when invoked as
+  # `uses: ./.github/actions/setup-bmt-pex` (github.action_ref is empty for repo-local
+  # actions). Handoff passes `bmt-handoff` → latest `bmt-v*` (see action.yml).
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
@@ -416,10 +416,10 @@ jobs:
 
       - name: Setup BMT CLI (release PEX, no uv)
         if: matrix.upload_action == 'upload'
-        # tag self-discovered from github.action_ref (bmt-v0.3.3)
         uses: ./.github/actions/setup-bmt-pex
         with:
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
+          tag: bmt-handoff
 
       - name: Download runner artifact from CI run
         if: matrix.upload_action == 'upload'
@@ -552,10 +552,10 @@ jobs:
           version: ">= 363.0.0"
 
       - name: Setup BMT CLI (release PEX, no uv)
-        # tag self-discovered from github.action_ref (bmt-v0.3.3)
         uses: ./.github/actions/setup-bmt-pex
         with:
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
+          tag: bmt-handoff
 
       - id: classify
         uses: ./.github/actions/bmt-filter-handoff-matrix
