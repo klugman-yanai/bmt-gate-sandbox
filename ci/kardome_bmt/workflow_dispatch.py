@@ -95,9 +95,7 @@ class WorkflowDispatchManager:
                 execution_name=execution_name,
             )
 
-            write_github_output(
-                github_output, "accepted_projects", json.dumps(accepted_projects, separators=(",", ":"))
-            )
+            write_github_output(github_output, "accepted_projects", payload["accepted_projects_json"])
             write_github_output(github_output, "workflow_execution_name", execution_name)
             write_github_output(github_output, "workflow_execution_url", execution_url)
             write_github_output(github_output, "workflow_execution_state", execution_state or "UNKNOWN")
@@ -110,9 +108,7 @@ class WorkflowDispatchManager:
                 "BMT_FORCE_PASS / --force-pass: dispatch failed but exiting 0 so the Actions step "
                 f"succeeds. Error was: {exc}"
             )
-            write_github_output(
-                github_output, "accepted_projects", json.dumps(accepted_projects, separators=(",", ":"))
-            )
+            write_github_output(github_output, "accepted_projects", payload["accepted_projects_json"])
             write_github_output(github_output, "workflow_execution_name", "")
             write_github_output(github_output, "workflow_execution_url", "")
             write_github_output(github_output, "workflow_execution_state", "FORCED_PASS_NOT_DISPATCHED")
