@@ -230,6 +230,17 @@ jobs:
       matrix_no_bmt: ${{ steps.filter.outputs.matrix_no_bmt }}
       matrix_no_bmt_keys: ${{ steps.filter.outputs.matrix_no_bmt_keys }}
     steps:
+      # Local composites (`./.github/actions/...`) must exist before `uses:` resolves them.
+      # Keep this minimal: full tree comes later under `_layout_probe/` for `plugins/projects/`.
+      - name: Checkout (.github actions + composites)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ env.BMT_RESOLVED_HEAD_SHA }}
+          fetch-depth: 1
+          sparse-checkout: |
+            .github
+          sparse-checkout-cone-mode: true
       # NOTE: the Plan job does not checkout the full caller tree up front — `bmt-prepare-context`
       # only fetches `CMakePresets.json` via the API so `parse-release-runners` can emit
       # `RUNNER_MATRIX`. Before `runner filter-upload-matrix`, we still need
