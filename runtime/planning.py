@@ -107,7 +107,6 @@ def build_plan(*, runtime: StageRuntimePaths, options: PlanOptions) -> Execution
         run_context=options.request.run_context,
         accepted_projects=sorted(accepted_projects),
         status_context=options.request.status_context,
-        use_mock_runner=options.request.use_mock_runner,
         standard_task_count=standard_task_count,
         heavy_task_count=heavy_task_count,
         legs=legs,

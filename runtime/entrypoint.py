@@ -23,6 +23,7 @@ from runtime.artifacts import (
     now_iso,
     plan_path,
     prune_snapshots,
+    read_existing_current_pointer_ids,
     read_existing_last_passing,
     summary_path,
     verdict_result_path,
@@ -38,7 +39,6 @@ from runtime.config.constants import (
     ENV_GCS_BUCKET,
     STATUS_CONTEXT,
 )
-from runtime.config.env_parse import is_truthy_env_value
 from runtime.execution import execute_leg
 from runtime.github_reporting import (
     ensure_reporting_metadata_for_plan,
@@ -152,8 +152,6 @@ def _workflow_request_from_env(*, workflow_run_id: str) -> WorkflowRequest:
         run_context=(os.environ.get("BMT_RUN_CONTEXT") or "ci").strip(),
         accepted_projects=[str(project).strip() for project in accepted_projects if str(project).strip()],
         status_context=(os.environ.get(ENV_BMT_STATUS_CONTEXT) or STATUS_CONTEXT).strip(),
-        # Default off: real plugin/runner unless env explicitly opts in (CI sets this from workflows only when requested).
-        use_mock_runner=is_truthy_env_value(os.environ.get("BMT_USE_MOCK_RUNNER")),
     )
 
 
@@ -351,11 +349,15 @@ def run_coordinator_mode(*, workflow_run_id: str, stage_root: Path | None = None
         for leg, summary in zip(plan.legs, summaries, strict=True):
             results_root = runtime.stage_root / leg.results_path
             previous_last_passing = read_existing_last_passing(results_root)
+            prior_latest, prior_last = read_existing_current_pointer_ids(results_root)
             last_passing = summary.run_id if leg_status_is_pass(summary.status) else previous_last_passing
             write_current_pointer(results_root=results_root, run_id=summary.run_id, last_passing_run_id=last_passing)
-            keep_run_ids = {summary.run_id}
+            keep_run_ids: set[str] = {summary.run_id}
             if last_passing:
                 keep_run_ids.add(last_passing)
+            for ref in (prior_latest, prior_last):
+                if ref:
+                    keep_run_ids.add(ref)
             prune_snapshots(results_root=results_root, keep_run_ids=keep_run_ids)
         publish_final_results(plan=plan, summaries=summaries, runtime=runtime)
         meta = load_optional_reporting_metadata(stage_root=runtime.stage_root, workflow_run_id=workflow_run_id)

@@ -40,6 +40,7 @@ from runtime.github.presentation import (
     LiveLinks,
     ProgressBmtRow,
     StartedCommentView,
+    case_outcomes_from_metrics,
     human_reason,
 )
 from runtime.github.reporting import GitHubReporter
@@ -543,6 +544,9 @@ def _progress_view(
                     aggregate_score=summary.score.aggregate_score,
                     execution_mode_used=summary.execution_mode_used,
                     cases_detail=_cases_detail_from_metrics(summary.score.metrics),
+                    score_direction_label=_score_direction_label_from_summary(summary),
+                    score_extra=dict(summary.score.extra),
+                    case_outcomes=case_outcomes_from_metrics(dict(summary.score.metrics)),
                 )
             )
             completed_count += 1
@@ -581,6 +585,18 @@ def _cases_detail_from_metrics(metrics: dict[str, object]) -> str:
     return f"{cases_ok}/{case_count} ok"
 
 
+def _score_direction_label_from_summary(summary: LegSummary) -> str:
+    vs = summary.verdict_summary.get("score_direction_label")
+    if isinstance(vs, str) and vs.strip():
+        return vs.strip()
+    sp = summary.score.extra.get("scoring_policy")
+    if isinstance(sp, dict):
+        sl = sp.get("score_direction_label")
+        if isinstance(sl, str) and sl.strip():
+            return sl.strip()
+    return ""
+
+
 def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     for summary in summaries:
@@ -615,6 +631,8 @@ def _final_view(
                 execution_mode_used=summary.execution_mode_used,
                 cases_detail=_cases_detail_from_metrics(summary.score.metrics),
                 score_extra=dict(summary.score.extra),
+                score_direction_label=_score_direction_label_from_summary(summary),
+                case_outcomes=case_outcomes_from_metrics(dict(summary.score.metrics)),
             )
             for summary in summaries
         ],

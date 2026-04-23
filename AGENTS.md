@@ -4,7 +4,7 @@ Short guidance for **Codex** and other agents in **bmt-gcloud**.
 
 ## What this repo is
 
-**bmt-gcloud** implements the **BMT Cloud Run** pipeline: GitHub Actions → **Google Workflows** → **Cloud Run** jobs, with **GCS** for plans, summaries, and results. The bucket mirrors **`gcp/stage`**; **`gcp/image`** is image-baked runtime code.
+**bmt-gcloud** implements the **BMT Cloud Run** pipeline: GitHub Actions → **Google Workflows** → **Cloud Run** jobs, with **GCS** for plans, summaries, and results. The bucket mirrors **`gcp/stage`**; **`runtime/`** is the image-baked **`bmt-runtime`** code.
 
 ## Where to read first
 
@@ -12,6 +12,7 @@ Short guidance for **Codex** and other agents in **bmt-gcloud**.
 - **[docs/README.md](docs/README.md)** — Task and role index
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Setup, lint, tests, PR expectations
 - **[docs/architecture.md](docs/architecture.md)** — Canonical pipeline description (diagrams + maintainer deep dive)
+- **[docs/adding-a-project.md](docs/adding-a-project.md)** — Scaffold flow plus **SK** as the reference plugin / extension pattern
 
 Implementation plans for agents in this workspace may live under **`.cursor/plans/`**.
 

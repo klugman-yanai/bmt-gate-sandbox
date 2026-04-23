@@ -4,9 +4,8 @@ Everything in this list is **deliberately deferred** until the
 `kardome_runner` SIGSEGV in `plugins/projects/sk` is fixed (or the
 runner is replaced). Until then the pipeline runs in
 **runner-tolerant** mode: the SK plugin treats per-WAV crashes as
-soft failures, the BMT Gate ruleset is in **evaluate** mode on
-`dev`, and Kardome-org/core-main's BMT pipeline still runs the
-legacy `bmt/` flow rather than the PEX path.
+soft failures, and the BMT Gate ruleset posture on **`dev`** should
+stay conservative until real WAV runs are green (see §0).
 
 The pieces below are not "TODOs" — they are validated, opt-in
 switches that go live once a green real-runner BMT run exists.
@@ -14,16 +13,15 @@ switches that go live once a green real-runner BMT run exists.
 ## 0. Confirm the runner is actually fixed
 
 Before flipping anything, the SK plugin must produce a green BMT
-result on **real WAVs** (no `use_mock_runner: true`).
+result on **real WAVs** via the normal handoff path.
 
-- [ ] `just sk-local-pipeline` against the curated 1-passer / N-crasher
-  WAV subset returns 0 crashes (or all crashes are intentional and
-  the verdict is still `pass`).
-- [ ] Open a feature PR into `ci/check-bmt-gate` so `trigger-ci-pr.yml`
-  fires `bmt-handoff.yml` **without** `use_mock_runner`. Both legs
-  (`false_alarms`, `false_rejects`) finish with `status: pass` and a
-  reason code other than `bootstrap_without_baseline` once the second
-  run completes.
+- [ ] Open a feature PR into `ci/check-bmt-gate` so CI
+  fires `bmt-handoff.yml` with real runners and datasets. Both legs
+  (`false_alarms`, `false_rejects`) finish with `status: pass` and
+  healthy metrics in **`latest.json`** / **`ci_verdict.json`** (today
+  many plugins still see **`bootstrap_without_baseline`** until they
+  load a prior **`ScoreResult`** from GCS themselves or the harness
+  starts passing one in).
 - [ ] Spot-check `gs://$GCS_BUCKET/projects/sk/results/.../current.json`
   for a real metric payload (non-zero `summary` fields,
   non-`mock_runner` `runner_id`).
@@ -104,12 +102,13 @@ Today:
 Once the runner is fixed and the smoke PR is merged into core-main
 `dev`:
 
-- [ ] Set repo vars on **Kardome-org/core-main**:
+- [ ] Set repo vars on **Kardome-org/core-main** (WIF + bucket only; pin handoff via `uses: …@bmt-handoff` or `@bmt-v*`):
 
   ```bash
-  gh variable set BMT_CLI       --repo Kardome-org/core-main --body pex
-  gh variable set BMT_PEX_TAG   --repo Kardome-org/core-main --body bmt-v0.2.0
-  gh variable set BMT_PEX_REPO  --repo Kardome-org/core-main --body klugman-yanai/bmt-gcloud
+  gh variable set GCS_BUCKET           --repo Kardome-org/core-main --body '<bucket>'
+  gh variable set GCP_PROJECT          --repo Kardome-org/core-main --body '<project>'
+  gh variable set GCP_SA_EMAIL          --repo Kardome-org/core-main --body '<sa>@...iam.gserviceaccount.com'
+  gh variable set GCP_WIF_PROVIDER     --repo Kardome-org/core-main --body 'projects/.../locations/.../workloadIdentityPools/.../providers/...'
   ```
 
 - [ ] Replace `bmt.yml`'s sparse-checkout + shell pipeline with a
@@ -127,10 +126,9 @@ Once the runner is fixed and the smoke PR is merged into core-main
 
 - [ ] Push tag `bmt-v<next>` on `klugman-yanai/bmt-gcloud` →
   `build-kardome-bmt-pex.yml` builds and attaches `bmt.pex`.
-- [ ] Bump `BMT_PEX_TAG` on **bmt-gcloud** and **core-main** repo
-  vars (in lock-step).
+- [ ] Bump the consumer `uses: …/bmt-handoff.yml@<ref>` pin (or rely on `@bmt-handoff` rolling tag).
 - [ ] Re-dispatch `bmt-pex-smoke.yml` on core-main `dev` and
-  `bmt-handoff-dev.yml` on bmt-gcloud `dev` to validate.
+  exercise handoff on bmt-gcloud `dev` (e.g. `gh workflow run bmt-handoff.yml`) to validate.
 
 ## 4b. Manifest-vs-rglob discovery gap (latent)
 
@@ -140,7 +138,7 @@ for the runner-side guard), we found that Cloud Run's input
 enumeration uses `rglob("*.wav")` over the dataset prefix:
 
 ```
-runtime/legacy_kardome.py:350
+runtime/kardome_runparams.py
     for wav_path in sorted(self.config.dataset_root.rglob("*.wav")):
 ```
 
@@ -158,7 +156,7 @@ The bucket-side fix was an `gcloud storage rm` of the orphan file;
 the runtime change to make discovery manifest-driven is bigger and
 worth doing on its own.
 
-- [ ] Replace the `rglob("*.wav")` in `runtime/legacy_kardome.py`
+- [ ] Replace the `rglob("*.wav")` in `runtime/kardome_runparams.py`
   with `InputFileRegistry.from_manifest(...)` (already exists at
   `tools/shared/dataset_manifest.py`). Reject WAVs found in the
   prefix that aren't in the manifest, with a clear log line.
@@ -175,16 +173,7 @@ worth doing on its own.
 These are pure ergonomics; do them only if they're paying for
 their own maintenance:
 
-- [ ] Delete `bmt-handoff-dev.yml` once the gate is enforced and
-  the mock-runner end-to-end is no longer the primary debugging
-  tool. (Until then it's the cheapest way to exercise the GHA →
-  Workflows → Cloud Run plumbing without touching the runner.)
-- [ ] Move `tools/scripts/run_sk_local_pipeline.py` and
-  `tools/scripts/kardome_runner_one_wav_logged.py` under
-  `tools/local/` if they survive the runner fix as ongoing
-  maintenance tools (today they live under `tools/scripts/` because
-  that's where ad-hoc dev helpers landed during the runner-crash
-  triage).
+_(none currently)_
 
 ## Reference
 
@@ -192,5 +181,4 @@ their own maintenance:
 - Configuration / repo vars: [docs/configuration.md](configuration.md)
 - Workflow inventory: [.github/README.md](../.github/README.md)
 - Branch-protection helper: [tools/scripts/configure_branch_protection.sh](../tools/scripts/configure_branch_protection.sh)
-- Mock-runner handoff: [.github/workflows/bmt-handoff-dev.yml](../.github/workflows/bmt-handoff-dev.yml)
 - Consumer-side smoke (core-main): `~/dev/kardome/core-main/.github/workflows/bmt-pex-smoke.yml`

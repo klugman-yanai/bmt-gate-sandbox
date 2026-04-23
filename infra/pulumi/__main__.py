@@ -141,7 +141,7 @@ cloud_run_job_heavy = _job(
 # Google Drive dataset transfer feature. The job was never deployed to GCP and
 # no workflow dispatches it. Declarations removed to avoid phantom drift in the
 # Pulumi state import exercise
-# (docs/superpowers/plans/2026-04-20-pulumi-state-import.md).
+# (docs/configuration.md — Pulumi / GitHub vars alignment).
 # Revival: restore this block + the export below + re-add `bmt-transfer` Docker
 # image build; see `tools/remote/bucket_upload_dataset._dispatch_drive_transfer_job`.
 # Note: the three BMT_DRIVE_* secrets (empty shells) DO exist on GCP and are

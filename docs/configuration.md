@@ -93,12 +93,12 @@ Three places touch the same logical settings; they stay consistent as follows:
 | Layer | Role | Source of values |
 |-------|------|-------------------|
 | **`infra/pulumi/config.py`** | Pulumi only. Loads `bmt.tfvars.json`, defines `InfraConfig` (gcp_project, gcs_bucket, service_account, cloud_run_region, gcp_wif_provider, etc.). | `infra/pulumi/bmt.tfvars.json` |
-| **`.github/bmt/ci/config.py`** | CI only. Builds `BmtConfig` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
-| **`gcp/image/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
+| **`ci/kardome_bmt/config.py`** | CI only. Builds `BmtConfig` from **env** (no file). Used when workflows run. | GitHub repo variables (and workflow env); values ultimately from Pulumi sync or manual. |
+| **`runtime/config/constants.py`** | Code constants only (no loading). Defaults that must match across Pulumi and CI. | Hardcoded (e.g. `DEFAULT_CLOUD_RUN_REGION = "europe-west4"`). |
 
 **Overlap:** The same settings (bucket, project, SA, WIF, region, job names) appear in Pulumi config (file) and CI config (env). The flow is: **bmt.tfvars.json → Pulumi → `just pulumi` syncs to GitHub vars → workflow env → CI config.** So the single source of truth for infra values is `bmt.tfvars.json`; CI reads what was synced.
 
-**Pulumi consistency:** `infra/pulumi/config.py` uses defaults that match `gcp/image/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
+**Pulumi consistency:** `infra/pulumi/config.py` uses defaults that match `runtime/config/constants.py` (e.g. `cloud_run_region = "europe-west4"` with a comment to keep it in sync). Required keys are enforced in Pulumi config; the repo-vars contract lists which vars the workflow requires (including `GCP_WIF_PROVIDER`).
 
 **`GCP_WIF_PROVIDER`:** Required in `bmt.tfvars.json` as `gcp_wif_provider` and synced by Pulumi like the other GCP_* vars. The handoff workflow needs it for OIDC auth.
 
@@ -123,13 +123,13 @@ Published staged control-plane content lives under:
 
 The repo is a uv workspace with two active packages:
 
-- `bmt` under [`.github/bmt`](.github/bmt)
-- `bmt-runtime` under [`gcp/image`](gcp/image)
+- `kardome-bmt` under [`ci/`](../ci) ([`ci/README.md`](../ci/README.md))
+- `bmt-runtime` under [`runtime/`](../runtime)
 
 Run a specific member with:
 
 ```bash
-uv run --package bmt …
+uv run --package kardome-bmt …
 uv run --package bmt-runtime …
 ```
 
@@ -137,7 +137,7 @@ That command runs Pulumi and then syncs its outputs to GitHub repo variables. So
 
 ## Environment variable reference
 
-This document inventories **process environment** and closely related names used across GitHub Actions, the `bmt` CI package (`.github/bmt/ci`), Cloud Run runtime (`gcp/image`), and local `tools/` scripts. It complements the high-level flow in [Centralized config and repo variables](#centralized-config-and-repo-variables) above.
+This document inventories **process environment** and closely related names used across GitHub Actions, the **`kardome-bmt`** package (`ci/kardome_bmt/`), Cloud Run runtime (`runtime/`), and local `tools/` scripts. It complements the high-level flow in [Centralized config and repo variables](#centralized-config-and-repo-variables) above.
 
 **Secrets:** Never commit secrets. Repo **Variables** are not encrypted; use **Secrets** for tokens and keys.
 
@@ -154,7 +154,7 @@ New work should not add more of these patterns; refactors that touch them should
 | New parallel names for the same fact | Operator confusion | One name per layer; consolidate aliases in code (see GitHub App module) |
 | New undocumented `BMT_*` for local tools | Hard to discover | Typer options with `envvar=` (e.g. `tools bucket upload-runner --help`) |
 | Duplicating infra values already in `bmt.tfvars.json` | Drift vs Pulumi | `just pulumi` / repo variables |
-| Constants as env | False configurability | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
+| Constants as env | False configurability | [runtime/config/constants.py](../runtime/config/constants.py) |
 
 ## GitHub Actions precedence
 
@@ -171,8 +171,8 @@ Official behavior: [GitHub Docs — Workflow syntax](https://docs.github.com/en/
 | --------- | -------- |
 | GitHub repo variables (Pulumi-synced) | [tools/repo/vars_contract.py](../tools/repo/vars_contract.py) |
 | Aggregated contract (contexts) | [tools/shared/env_contract.py](../tools/shared/env_contract.py) |
-| CI typed settings (`BmtConfig`) | [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) |
-| `ENV_*` string constants | [gcp/image/config/constants.py](../gcp/image/config/constants.py) |
+| CI typed settings (`BmtConfig`) | [ci/kardome_bmt/config.py](../ci/kardome_bmt/config.py) |
+| `ENV_*` string constants | [runtime/config/constants.py](../runtime/config/constants.py) |
 | Infra file (not process env) | `infra/pulumi/bmt.tfvars.json` via [infra/pulumi/config.py](../infra/pulumi/config.py) |
 
 ## Infra and CI (`BmtConfig` / repo vars)
@@ -190,16 +190,17 @@ These names are synced from Pulumi to GitHub **Variables** for normal use. See [
 | `BMT_CONTROL_JOB` | Repo var, local tools | Yes | Cloud Run job name |
 | `BMT_TASK_STANDARD_JOB` | Repo var, local tools | Yes | |
 | `BMT_TASK_HEAVY_JOB` | Repo var, local tools | Yes | |
-| `BMT_STATUS_CONTEXT` | Repo var, CI, runtime | Optional | Default status context (e.g. `BMT Gate`) |
-| `BMT_CLI` | Repo var, CI | Optional | `uv` (default) or `pex` — use release `bmt.pex` instead of `uv run bmt` when set to `pex` |
-| `BMT_PEX_TAG` | Repo var, consumer CI | Required in **consumer** repos (e.g. `Kardome-org/core-main`) to pin the reusable-workflow `@ref` | Pins `uses: .../bmt-handoff.yml@${{ vars.BMT_PEX_TAG }}`. `bmt-gcloud`'s own workflows do **not** read this var — `setup-bmt-pex` self-discovers the release tag from its own `github.action_ref` |
-| `BMT_PEX_REPO` | Repo var, CI | Optional | `owner/name` for the repo that published `bmt.pex` (default: this repository). Set when CI runs on a fork but releases live on **klugman-yanai/bmt-gcloud** |
+| `BMT_STATUS_CONTEXT` | Repo var, CI, runtime (non-handoff) | Optional | Default status context (e.g. `BMT Gate`). **Reusable `bmt-handoff.yml` callers:** pass `bmt_status_context` via job `with:` (not a repo var). |
+| `BMT_CLI` | Repo var, CI | Optional | `uv` (default) or `pex` — use release `bmt.pex` instead of `uv run kardome-bmt` when set to `pex` |
+| `BMT_PEX_TAG` | Repo var, consumer CI | **Optional** for handoff | Prefer a **literal ref** on the reusable workflow: `uses: .../bmt-handoff.yml@bmt-handoff` (rolling) or `@bmt-v0.3.4` (pinned). Legacy: some repos still pin via `vars.BMT_PEX_TAG`; not required for new integrations. |
 
-**Production consumer repos** typically download **`bmt.pex`** from that upstream release in a workflow step (see **`.github/actions/bmt-get-pex`** in bmt-gcloud) instead of vendoring the full `ci/` tree for `uv run bmt`.
+**Consumer `workflow_call`:** pin `uses: …/bmt-handoff.yml@bmt-handoff` (or `@bmt-v*`), set job `permissions:` as documented, and pass **`with:`** for `cloud_run_region`, `bmt_status_context`, `bmt_pex_repo`, and `force_pass` (declare values in the caller YAML — no repo vars for those). Omit other inputs when handoff runs in the same workflow as the `runner-*` upload; those resolve from the caller `github` context. **Repo vars** still required on the caller: `GCS_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `GCP_PROJECT`.
+
+**Production consumer repos** typically download **`bmt.pex`** from that upstream release in a workflow step (see **`.github/actions/setup-bmt-pex`** in bmt-gcloud) instead of vendoring the full `ci/` tree for `uv run kardome-bmt`.
 
 ## Workflow handoff context (CI)
 
-Read by `context_from_env` / `WorkflowContext` in [.github/bmt/ci/config.py](../.github/bmt/ci/config.py) (`_WORKFLOW_CONTEXT_ENV_KEYS`). Typical sources: workflow `env`, prior step outputs, and Actions built-ins.
+Read by `context_from_env` / `WorkflowContext` in [ci/kardome_bmt/config.py](../ci/kardome_bmt/config.py) (`_WORKFLOW_CONTEXT_ENV_KEYS`). Typical sources: workflow `env`, prior step outputs, and Actions built-ins.
 
 | Name | Purpose (summary) |
 | ---- | ------------------- |
@@ -231,7 +232,7 @@ Read by `context_from_env` / `WorkflowContext` in [.github/bmt/ci/config.py](../
 | `TARGET_URL` | Target URL |
 | `TRIGGER_WRITTEN` | Trigger written |
 
-Additional names used by handoff / matrix code without being in `_WORKFLOW_CONTEXT_ENV_KEYS` include `GITHUB_OUTPUT`, `GITHUB_ENV`, `GITHUB_STEP_SUMMARY`, `GITHUB_TOKEN`, `FILTERED_MATRIX_JSON`, `GITHUB_SHA`, and orchestration flags such as `ORCH_*` read in [.github/bmt/ci/handoff.py](../.github/bmt/ci/handoff.py).
+Additional names used by handoff / matrix code without being in `_WORKFLOW_CONTEXT_ENV_KEYS` include `GITHUB_OUTPUT`, `GITHUB_ENV`, `GITHUB_STEP_SUMMARY`, `GITHUB_TOKEN`, `FILTERED_MATRIX_JSON`, `GITHUB_SHA`, and orchestration flags such as `ORCH_*` read in [ci/kardome_bmt/handoff.py](../ci/kardome_bmt/handoff.py).
 
 ## Pipeline mapping: Actions → Cloud Run
 
@@ -246,7 +247,7 @@ Workflows pass run metadata into Google Workflows and then into Cloud Run. **Nam
 | Run context | `RUN_CONTEXT` | `BMT_RUN_CONTEXT` |
 | Accepted projects JSON | (in workflow argument) | `BMT_ACCEPTED_PROJECTS_JSON` |
 
-`GITHUB_REPOSITORY` is shared. See [.github/bmt/ci/workflow_dispatch.py](../.github/bmt/ci/workflow_dispatch.py) and [gcp/image/runtime/entrypoint.py](../gcp/image/runtime/entrypoint.py).
+`GITHUB_REPOSITORY` is shared. See [ci/kardome_bmt/workflow_dispatch.py](../ci/kardome_bmt/workflow_dispatch.py) and [runtime/entrypoint.py](../runtime/entrypoint.py).
 
 ## GitHub App and tooling aliases
 
@@ -285,7 +286,7 @@ Secrets for production paths are listed in [Required Manual GitHub Configuration
 
 ## Boolean env strings
 
-Flags such as `BMT_USE_MOCK_RUNNER` and `tools.shared.env.get_bool` treat these as true (case-insensitive, stripped): `1`, `true`, `yes`. Implementation: [gcp/image/config/env_parse.py](../gcp/image/config/env_parse.py) (`is_truthy_env_value`).
+Flags such as `BMT_SKIP_PUBLISH_RUNNERS` and `tools.shared.env.get_bool` treat these as true (case-insensitive, stripped): `1`, `true`, `yes`. Implementation: [runtime/config/env_parse.py](../runtime/config/env_parse.py) (`is_truthy_env_value`).
 
 ## Regenerating the machine-oriented inventory
 
@@ -318,12 +319,12 @@ rg "os\.environ\.get\\('[A-Z0-9_]+'" -g '*.py' --glob '!gcp/stage/**'
 After `uv sync` (includes optional dev tools):
 
 ```bash
-uv run vulture gcp/image/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
+uv run vulture runtime/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
 ```
 
 ```bash
 uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 \
-  gcp/image/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py .github/bmt/ci/workflow_dispatch.py
+  runtime/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py ci/kardome_bmt/workflow_dispatch.py
 ```
 
 Or use `just doctor` from the repo root.

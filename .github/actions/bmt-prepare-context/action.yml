@@ -24,8 +24,7 @@ inputs:
     default: ""
   bmt_pex_repo:
     description: >
-      owner/repo for PEX releases. Empty defaults to klugman-yanai/bmt-gcloud
-      (override via vars.BMT_PEX_REPO once the publishing repo moves).
+      owner/repo for PEX releases. Empty defaults to klugman-yanai/bmt-gcloud.
     required: false
     default: ""
 
@@ -58,7 +57,7 @@ runs:
     - name: Setup BMT CLI (release PEX, no uv)
       # tag: defaults to github.action_ref on setup-bmt-pex, which resolves to
       # this action's own tag (e.g. bmt-v0.3.3). One pin, one source of truth.
-      uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3
+      uses: ../setup-bmt-pex
       with:
         repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || 'klugman-yanai/bmt-gcloud' }}
         python_version: "3.12"
@@ -110,11 +109,11 @@ runs:
           exit 1
         fi
         missing=()
-        for var in GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT CLOUD_RUN_REGION; do
+        for var in GCS_BUCKET GCP_WIF_PROVIDER GCP_SA_EMAIL GCP_PROJECT; do
           [[ -n "${!var:-}" ]] || missing+=("$var")
         done
         if [[ ${#missing[@]} -gt 0 ]]; then
-          echo "::error::Missing required repo vars: ${missing[*]}"
+          echo "::error::Missing required configuration (repo vars): ${missing[*]}"
           exit 1
         fi
         echo "Proceeding with BMT"

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 import typer
@@ -15,6 +16,7 @@ from kardome_bmt.preset import PresetManager
 from kardome_bmt.release_cli import app as release_app
 from kardome_bmt.runner import RunnerManager
 from kardome_bmt.workflow_dispatch import WorkflowDispatchManager
+from runtime.config.env_parse import is_truthy_env_value
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -139,9 +141,18 @@ def handoff_write_summary() -> None:
 
 
 @dispatch_app.command("invoke-workflow")
-def dispatch_invoke_workflow() -> None:
+def dispatch_invoke_workflow(
+    force_pass: bool = typer.Option(
+        False,
+        "--force-pass",
+        help="If Workflows dispatch fails, still exit 0 after writing GITHUB_OUTPUT (escape hatch). "
+        "Also enabled when env BMT_FORCE_PASS or KARDOME_BMT_FORCE_PASS is truthy.",
+        envvar="BMT_FORCE_PASS",
+    ),
+) -> None:
     """Start Google Workflow execution for BMT handoff."""
-    WorkflowDispatchManager.from_env().invoke()
+    fp = bool(force_pass or is_truthy_env_value(os.environ.get("KARDOME_BMT_FORCE_PASS")))
+    WorkflowDispatchManager.from_env().invoke(force_pass=fp)
 
 
 @preset_app.command("stage-release-runner")

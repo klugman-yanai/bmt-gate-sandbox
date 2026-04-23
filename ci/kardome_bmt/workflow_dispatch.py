@@ -7,11 +7,10 @@ import os
 from typing import TypedDict
 
 from runtime.config.constants import DEFAULT_WORKFLOW_NAME, ENV_GCP_PROJECT, ENV_GCS_BUCKET
-from runtime.config.env_parse import is_truthy_env_value
 from runtime.github.reporting import workflow_execution_console_url
 
 from kardome_bmt import config, core
-from kardome_bmt.actions import write_github_output
+from kardome_bmt.actions import gh_warning, write_github_output
 from kardome_bmt.config import BmtConfig
 from kardome_bmt.workflows_api import start_execution
 
@@ -30,8 +29,6 @@ class WorkflowDispatchInvokePayload(TypedDict):
     accepted_projects: list[str]
     accepted_projects_json: str
     status_context: str
-    use_mock_runner: bool
-    use_mock_runner_str: str
 
 
 def _accepted_projects(filtered_matrix_json: str) -> list[str]:
@@ -59,7 +56,7 @@ class WorkflowDispatchManager:
     def from_env(cls) -> WorkflowDispatchManager:
         return cls(config.get_config())
 
-    def invoke(self) -> None:
+    def invoke(self, *, force_pass: bool = False) -> None:
         cfg = self._cfg
         github_output = core.require_env("GITHUB_OUTPUT")
         filtered_matrix_json = core.require_env("FILTERED_MATRIX_JSON")
@@ -67,8 +64,6 @@ class WorkflowDispatchManager:
         if not accepted_projects:
             raise RuntimeError("No accepted projects were present in FILTERED_MATRIX_JSON")
 
-        # Mock runner is off unless CI explicitly sets BMT_USE_MOCK_RUNNER (see bmt-handoff.yml).
-        use_mock = is_truthy_env_value(os.environ.get("BMT_USE_MOCK_RUNNER"))
         payload: WorkflowDispatchInvokePayload = {
             "workflow_run_id": core.workflow_run_id(),
             "bucket": cfg.gcs_bucket or core.require_env(ENV_GCS_BUCKET),
@@ -81,29 +76,41 @@ class WorkflowDispatchManager:
             "accepted_projects": accepted_projects,
             "accepted_projects_json": json.dumps(accepted_projects, separators=(",", ":")),
             "status_context": cfg.bmt_status_context,
-            "use_mock_runner": use_mock,
-            "use_mock_runner_str": "true" if use_mock else "false",
         }
-        execution = start_execution(
-            project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
-            region=cfg.cloud_run_region,
-            workflow_name=DEFAULT_WORKFLOW_NAME,
-            argument=payload,
-        )
-        execution_name = str(execution.get("name") or "").strip()
-        execution_state = str(execution.get("state") or "").strip()
-        if not execution_name:
-            raise RuntimeError("Workflow execution response did not include a name")
-        execution_url = workflow_execution_console_url(
-            project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
-            region=cfg.cloud_run_region,
-            workflow_name=DEFAULT_WORKFLOW_NAME,
-            execution_name=execution_name,
-        )
+        try:
+            execution = start_execution(
+                project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
+                region=cfg.cloud_run_region,
+                workflow_name=DEFAULT_WORKFLOW_NAME,
+                argument=payload,
+            )
+            execution_name = str(execution.get("name") or "").strip()
+            execution_state = str(execution.get("state") or "").strip()
+            if not execution_name:
+                raise RuntimeError("Workflow execution response did not include a name")
+            execution_url = workflow_execution_console_url(
+                project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
+                region=cfg.cloud_run_region,
+                workflow_name=DEFAULT_WORKFLOW_NAME,
+                execution_name=execution_name,
+            )
 
-        write_github_output(github_output, "accepted_projects", json.dumps(accepted_projects, separators=(",", ":")))
-        write_github_output(github_output, "workflow_execution_name", execution_name)
-        write_github_output(github_output, "workflow_execution_url", execution_url)
-        write_github_output(github_output, "workflow_execution_state", execution_state or "UNKNOWN")
-        write_github_output(github_output, "dispatch_confirmed", "true")
-        write_github_output(github_output, "dispatch_reason", "ok_workflow_execution_started")
+            write_github_output(github_output, "accepted_projects", json.dumps(accepted_projects, separators=(",", ":")))
+            write_github_output(github_output, "workflow_execution_name", execution_name)
+            write_github_output(github_output, "workflow_execution_url", execution_url)
+            write_github_output(github_output, "workflow_execution_state", execution_state or "UNKNOWN")
+            write_github_output(github_output, "dispatch_confirmed", "true")
+            write_github_output(github_output, "dispatch_reason", "ok_workflow_execution_started")
+        except Exception as exc:
+            if not force_pass:
+                raise
+            gh_warning(
+                "BMT_FORCE_PASS / --force-pass: dispatch failed but exiting 0 so the Actions step "
+                f"succeeds. Error was: {exc}"
+            )
+            write_github_output(github_output, "accepted_projects", json.dumps(accepted_projects, separators=(",", ":")))
+            write_github_output(github_output, "workflow_execution_name", "")
+            write_github_output(github_output, "workflow_execution_url", "")
+            write_github_output(github_output, "workflow_execution_state", "FORCED_PASS_NOT_DISPATCHED")
+            write_github_output(github_output, "dispatch_confirmed", "false")
+            write_github_output(github_output, "dispatch_reason", "bmt_force_pass_suppressed_error")

@@ -23,7 +23,7 @@ sequenceDiagram
 
 ## Runtime contract
 
-The active runtime is [`gcp/image/bmt`](gcp/image/bmt).
+The active runtime is the **`bmt-runtime`** workspace package ([`runtime/`](../runtime)); Cloud Run invokes [`runtime.entrypoint`](../runtime/entrypoint.py).
 
 - `plan` reads enabled manifests and writes `triggers/plans/<workflow_run_id>.json`
 - `task` reads the frozen plan and executes exactly one leg selected by `CLOUD_RUN_TASK_INDEX`
@@ -34,7 +34,7 @@ The active runtime is [`gcp/image/bmt`](gcp/image/bmt).
 
 - bucket root mirrors [`gcp/stage`](gcp/stage)
 - published manifests live under `projects/<project>/...`
-- immutable plugins live under `projects/<project>/plugins/<plugin>/sha256-<digest>/...`
+- published **assets** (templates, digests, etc.) may live under `projects/<project>/plugins/<plugin>/sha256-<digest>/...`; the Python **`BmtPlugin`** is always loaded from `projects/<project>/plugin.py` on the stage tree (see `runtime/plugin_loader.py`)
 - datasets live extracted under `projects/<project>/inputs/<dataset>/...`
 
 Canonical runtime artifacts:
@@ -46,6 +46,8 @@ Canonical runtime artifacts:
 - `projects/<project>/results/<bmt_slug>/current.json`
 
 ## Contributor model
+
+For **local execution, logs, and plugin work** without reading the diagrams below, see **[developer-workflow.md](developer-workflow.md)**.
 
 - author in [`gcp/stage/projects/<project>/plugin_workspaces`](gcp/stage)
 - publish immutable plugin bundles with `just publish-bmt`
@@ -71,8 +73,8 @@ The old VM watcher, root orchestrator, and per-project `bmt_manager.py` inherita
 1. GitHub CI builds the code and uploads the test program (**runner**) to Google Cloud Storage (GCS).
 2. CI starts a test job in **Google Cloud Run** and finishes immediately. It doesn't wait for the tests to finish.
 3. Cloud Run executes the runner against a fixed set of audio files and calculates **NAMUH scores** (an audio quality metric).
-4. Cloud Run compares these new scores against the **baseline** (the scores from the last successful run).
-5. Cloud Run posts a **pass/fail** result back to the GitHub PR. A PR cannot merge until BMT passes.
+4. Each **task** runs the project **plugin** (`prepare` → `execute` → `score` → `evaluate`). Regression vs a prior run is **plugin-defined** (the harness passes `baseline=None` unless the plugin loads a prior snapshot itself).
+5. The **coordinator** updates **`current.json`** (latest / last passing pointers) and posts **pass/fail** back to GitHub. Whether a PR can merge depends on **branch protection** and the **BMT Gate** check.
 
 ### Key terms
 
@@ -83,7 +85,7 @@ The old VM watcher, root orchestrator, and per-project `bmt_manager.py` inherita
 | **leg** | A single test case (one project combined with one BMT configuration). |
 | **slug** | A short, URL-safe name for a BMT test suite (e.g., `false_rejects`). It is used in GCS directory paths. |
 | **snapshot** | All the outputs from a single test run (scores, pass/fail status, and logs). |
-| **baseline** | The snapshot from the last successful test run. New scores are compared against this. |
+| **baseline** | Prior run scores or aggregates a **plugin** may load (for example from GCS) to decide regression; pointers in **`current.json`** track which snapshot was last passing. |
 | **GCS** | Google Cloud Storage. Used as a shared storage layer between GitHub CI and Cloud Run. |
 | **run_id** | The unique ID of the GitHub Actions workflow. It groups all GCS files together for a single CI run. |
 
@@ -252,10 +254,10 @@ flowchart TD
 | Stage | What it does |
 | --- | --- |
 | **Plan** | Reads project settings from GCS, partitions the test cases into standard or heavy workloads, and writes a test plan file. |
-| **Task jobs** | Each job handles one test leg independently. It invokes the plugin, runs the runner, and **evaluates** the leg (including score vs baseline) inside the plugin. It captures NAMUH scores and logs, saves a snapshot to GCS, writes `triggers/progress/` and `triggers/summaries/`, and calls `publish_progress` for the Check Run. Standard and heavy tasks run in parallel. |
+| **Task jobs** | Each job handles one test leg independently. It invokes the plugin, runs the runner, and **evaluates** the leg inside the plugin (see `runtime/execution.py`: `baseline` is `None` unless the plugin loads prior scores). It captures NAMUH scores and logs, saves a snapshot to GCS, writes `triggers/progress/` and `triggers/summaries/`, and calls `publish_progress` for the Check Run. Standard and heavy tasks run in parallel. |
 | **Coordinator** | Runs after the Workflow has finished all task jobs. It loads each **leg summary** from GCS, reads the prior **`last_passing`** pointer from `current.json`, **updates** `current.json` and prunes old snapshots, posts the final GitHub payload (`publish_final_results`), then **deletes** ephemeral `triggers/` files for this run (`cleanup_ephemeral_triggers`). It does **not** re-run scoring; comparison already happened in the task. |
 
-> **Understanding `current.json`:** This file acts as a pointer. It stores the `run_id` of the `latest` run and the `last_passing` run. **Baseline comparison for gating** happens during each **task** (plugin `evaluate` using the prior `last_passing` snapshot). The **coordinator** only merges **leg outcomes** into new pointer values and prunes snapshots.
+> **Understanding `current.json`:** This file acts as a pointer. It stores the `run_id` of the `latest` run and the `last_passing` run. **Regression vs a prior snapshot** is up to each **plugin** (read GCS in `prepare`/`score`/`evaluate` if you need it); the default harness does not inject a `ScoreResult` baseline. The **coordinator** merges **leg outcomes** into new pointer values and prunes snapshots.
 > **GitHub Check Runs:** After the plan is written to GCS, the **plan job** creates an in-progress Check Run (GitHub App) and writes `triggers/reporting/{run_id}.json` with `check_run_id`, `workflow_execution_url` (from `BMT_WORKFLOW_EXECUTION_URL`, set by the parent GCP Workflow from built-in env vars), and `started_at`. Task jobs call `publish_progress` to update that Check Run; the coordinator finalizes it. If GitHub is unavailable, the job logs a warning and BMT still runs; **commit status** and **PR comment** remain the primary pass/fail signals.
 
 ---
@@ -292,7 +294,7 @@ flowchart TD
 │       ├── mock_kardome_runner     # ⚙️ Compiled runner binary
 │       └── results/
 │           └── slug/
-│               ├── current.json    # Run pointer (baseline)
+│               ├── current.json    # Run pointer (latest / last_passing)
 │               └── snapshots/
 │                   └── run_id/     # One snapshot per execution
 │                       ├── latest.json       # Full score details
@@ -322,7 +324,7 @@ If you need to trace where a file is written and read across the architecture, u
 | `triggers/progress/{run_id}/…` | Task jobs (per leg) | Same task’s `publish_progress` (reads for Check Run body); not read by GitHub directly |
 | `triggers/summaries/{run_id}/…` | Task jobs | Coordinator loads each leg summary |
 | `results/{slug}/snapshots/{run_id}/` | Task Jobs | Coordinator, Local Dev Tools |
-| `results/{slug}/current.json` | Coordinator | Next run (baseline), Local Dev Tools |
+| `results/{slug}/current.json` | Coordinator | Next run (plugins may use for regression), Local Dev Tools |
 | `log-dumps/{run_id}.txt` | Coordinator (on failure) | Developers (via signed URL in PR comment) |
 | `triggers/reporting/{run_id}.json` | Plan job (after `triggers/plans/…`) | Task jobs (`publish_progress`), coordinator (`finalize_check_run`); deleted after coordinator succeeds |
 
@@ -332,7 +334,7 @@ If you need to trace where a file is written and read across the architecture, u
 
 ### 1. Purpose and scope
 
-**BMT** is an automated quality gate for audio-related models: a **runner** processes a fixed dataset; scores (e.g. NAMUH counters) are compared to a **baseline** from the last successful run. A PR or protected branch cannot merge until the gate passes.
+**BMT** is an automated quality gate for audio-related models: a **runner** processes a fixed dataset; **plugins** turn raw execution into scores and a pass/fail verdict (optionally using prior snapshots or **`current.json`** if they load them). A PR or protected branch cannot merge until **branch protection** and the **BMT Gate** check agree.
 
 **Scope of this document:**
 
@@ -358,7 +360,7 @@ The design **trades** a single long-lived worker for **horizontal parallelism**,
 | ----- | ---- |
 | **GitHub Actions** | Build, test, upload runner artifacts, validate config, **start** a Workflows execution, **exit** without waiting for BMT completion. |
 | **Google Cloud Workflows** | Orchestrates **plan** job, **N task** jobs (standard/heavy profiles), then **coordinator**; encodes barriers between stages. |
-| **Cloud Run Jobs** | Run the packaged runtime (`gcp/image/bmt`): plan mode, task mode (one leg per index), coordinator mode, dataset-import, etc. |
+| **Cloud Run Jobs** | Run the packaged **`bmt-runtime`** image (`runtime/`): plan mode, task mode (one leg per index), coordinator mode, dataset-import, etc. |
 | **GCS** | Shared **artifact store** and **coordination plane**: plans, progress, summaries, reporting metadata, snapshots, pointers, log dumps. |
 | **GitHub API** | Commit status, Check Runs, optional comments; authenticated via **GitHub App** installation tokens from the runtime. |
 
@@ -372,7 +374,7 @@ The high-level sequence matches [architecture.md](architecture.md):
 
 1. Actions authenticates to GCP (OIDC / WIF), then calls the **Workflow Executions API** to start the named workflow with a JSON **argument** (correlation id, repo metadata, etc.).
 2. **Plan** job: reads enabled BMT manifests under the stage layout, partitions legs (e.g. standard vs heavy), writes **`triggers/plans/<workflow_run_id>.json`**, and may create **in-progress** Check Run metadata under **`triggers/reporting/`**.
-3. **Task** jobs: each job reads the frozen plan, selects **one leg** via `CLOUD_RUN_TASK_INDEX`, runs the plugin and runner, **evaluates** against baseline (using prior **`current.json`** / snapshots), writes **snapshots** and **leg summaries** under **`triggers/summaries/`**, updates progress, and calls **`publish_progress`** for the Check Run.
+3. **Task** jobs: each job reads the frozen plan, selects **one leg** via `CLOUD_RUN_TASK_INDEX`, runs the plugin and runner, **evaluates** inside the plugin (no framework-injected baseline unless the plugin reads **`current.json`** / snapshots itself), writes **snapshots** and **leg summaries** under **`triggers/summaries/`**, updates progress, and calls **`publish_progress`** for the Check Run.
 4. **Coordinator** job: loads **all** leg summaries, updates **`current.json`** per results root, **prunes** snapshots not retained by the pointer, **finalizes** GitHub (status / Check Run / optional PR comment), **deletes** ephemeral `triggers/` objects for the run.
 
 Detailed diagrams and step tables: [Pipeline diagrams, glossary, and handoff](#pipeline-diagrams-glossary-and-handoff) (above).
@@ -383,13 +385,13 @@ The **`bmt-handoff.yml`** workflow (callable / dispatch) performs prerequisite c
 
 ### 4.3 Gating semantics
 
-**Baseline comparison and per-leg pass/fail** are intended to occur in the **task** (plugin `evaluate`). The **coordinator** merges **leg outcomes** into new pointer values and **does not re-score**. If task and coordinator disagree on what “done” means (e.g. missing summary treated as failure — §11.1), GitHub and GCS can reflect different stories.
+**Per-leg pass/fail** is decided in the **task** (plugin `evaluate`). The **coordinator** merges **leg outcomes** into new pointer values and **does not re-score**. If task and coordinator disagree on what “done” means (e.g. missing summary treated as failure — §11.1), GitHub and GCS can reflect different stories.
 
 ---
 
-### 5. Runtime contract (`gcp/image/bmt`)
+### 5. Runtime contract (`runtime/`)
 
-The active runtime lives under [`gcp/image/bmt`](../gcp/image/bmt) (see [architecture.md](architecture.md)).
+The active runtime lives under [`runtime/`](../runtime) (package **`bmt-runtime`**; entry [`runtime.entrypoint`](../runtime/entrypoint.py)).
 
 | Mode | Responsibility |
 | ---- | ---------------- |
@@ -405,7 +407,7 @@ The old **VM watcher / root orchestrator / per-project `bmt_manager`** stack is 
 ### 6. Storage model
 
 - **Bucket root** mirrors [`gcp/stage`](../gcp/stage) (see [architecture.md](architecture.md)).
-- **Immutable** plugin bundles: `projects/<project>/plugins/<plugin>/sha256-<digest>/...`
+- **Published plugin assets** (optional): `projects/<project>/plugins/<plugin>/sha256-<digest>/...` (templates, digests, etc.); Python plugins load from `projects/<project>/plugin.py`
 - **Datasets:** `projects/<project>/inputs/<dataset>/...`
 - **Results:** `projects/<project>/results/<bmt_slug>/` with **`current.json`** and **`snapshots/<run_id>/`**
 
@@ -437,7 +439,7 @@ GCS is **not** a transactional database. The system relies on:
 2. **Explicit staging:** Plan → parallel tasks → coordinator yields clear ownership and audit artifacts (frozen plan, per-leg summaries).
 3. **Horizontal scaling:** One task per leg, with **standard** vs **heavy** job profiles, avoids a single bottleneck process.
 4. **Auditable inputs:** The plan file answers “what was scheduled for this workflow run?”
-5. **Separation of packages:** `.github/bmt/ci/` (CI CLI and handoff), `gcp/image/runtime/` (orchestration), `tools/` (local dev) map to different deployment surfaces.
+5. **Separation of packages:** `ci/kardome_bmt/` (PEX / `kardome-bmt` CLI and handoff), `runtime/` (Cloud Run orchestration), `tools/` (local dev) map to different deployment surfaces.
 6. **Security direction:** WIF from Actions to GCP; GitHub App + short-lived tokens at runtime — **when fully wired**, avoids long-lived keys in CI.
 
 ---
@@ -448,7 +450,7 @@ This is a **conceptual** map, not a literal package layout.
 
 | Layer | Contents |
 | ----- | -------- |
-| **Domain core** | Leg evaluation: load inputs, run runner/plugin, parse scores, compare to baseline, produce **leg verdict** and snapshot payloads. |
+| **Domain core** | Leg evaluation: load inputs, run runner/plugin, parse scores, plugin `evaluate` → **leg verdict** and snapshot payloads. |
 | **Inbound ports** | Workflow/task invocation (env: `BMT_WORKFLOW_RUN_ID`, `CLOUD_RUN_TASK_INDEX`, profile), frozen **plan** JSON, BMT manifests. |
 | **Outbound ports** | **Object store** (read/write plans, summaries, snapshots, pointers), **GitHub** (checks, status), **secrets** (App key via Secret Manager), **logging/metrics**. |
 | **Adapters** | `gcs` helpers in CI; runtime artifact writers/readers; `github_reporting` / PyGithub wrappers; Workflows API client. |
@@ -467,7 +469,7 @@ This is a **conceptual** map, not a literal package layout.
 ### 10.2 Contract fragility
 
 - Changes to **plan**, **summary**, or **pointer** shapes require coordinated updates across **Workflows**, Cloud Run images, and possibly **CI** validators.
-- **Duplication** of trigger/path logic between `.github/bmt/ci/`, `gcp/image/runtime/artifacts.py`, and `tools/shared/trigger_uris.py` (parity often **asserted in comments**, not enforced by a single module) increases **drift risk**.
+- **Duplication** of trigger/path logic between `ci/kardome_bmt/`, `runtime/artifacts.py`, and `tools/shared/trigger_uris.py` (parity often **asserted in comments**, not enforced by a single module) increases **drift risk**.
 
 ### 10.3 Operational surface area
 
@@ -483,9 +485,9 @@ This is a **conceptual** map, not a literal package layout.
 
 ### 11.1 Duplicate `results_path` / pointer collision
 
-**`build_plan()`** (`gcp/image/runtime/planning.py`) appends one **`PlanLeg` per enabled manifest** but does **not** enforce uniqueness of **`results_path`** across legs.
+**`build_plan()`** (`runtime/planning.py`) appends one **`PlanLeg` per enabled manifest** but does **not** enforce uniqueness of **`results_path`** across legs.
 
-The **coordinator** (`run_coordinator_mode` in `gcp/image/runtime/entrypoint.py`) loops each leg and, for each:
+The **coordinator** (`run_coordinator_mode` in `runtime/entrypoint.py`) loops each leg and, for each:
 
 - Resolves **`results_root = stage_root / leg.results_path`**
 - Reads/writes **`current.json`** and **prunes snapshots** under that root
@@ -507,46 +509,31 @@ That conflates:
 
 ### 11.3 GitHub outcome can diverge from GCS
 
-**`gcp/image/runtime/github_reporting.py`** uses **`except Exception`** in several places (e.g. **`create_started_check_run`**, finalize paths). **Transient** GitHub API errors can leave **Checks or status stale** while **GCS** already reflects the true BMT outcome.
+**`runtime/github_reporting.py`** uses **`except Exception`** in several places (e.g. **`create_started_check_run`**, finalize paths). **Transient** GitHub API errors can leave **Checks or status stale** while **GCS** already reflects the true BMT outcome.
 
 **Mitigation direction:** Structured retries with backoff, **non-zero exit** or explicit **reconciliation** when finalization fails, **metrics** on finalize failures.
 
 ### 11.4 `object_exists` swallows infrastructure errors
 
-In **`.github/bmt/ci/gcs.py`**, **`object_exists`** catches **any** `Exception` and returns **`False`**:
+**`ci/kardome_bmt/gcs.py` — `object_exists`:** the implementation raises **`GcsError`** on infrastructure failures instead of returning **`False`**, so callers can distinguish **missing object** from **auth / quota / network** errors. Prefer the same pattern for new GCS helpers.
 
-```106:115:/home/yanai/sandbox/bmt-gcloud/.github/bmt/ci/gcs.py
-def object_exists(uri: str) -> bool:
-    """Return True if the GCS object exists."""
-    try:
-        bucket_name, path = parse_gs_uri(uri)
-        client = _get_client()
-        bucket = client.bucket(bucket_name)
-        blob = bucket.blob(path)
-        return blob.exists()
-    except Exception:
-        return False
-```
-
-Callers cannot distinguish **“object missing”** from **auth failure, quota, or network error** — leading to **wrong control-flow** (e.g. skip upload, wrong branch).
-
-**Mitigation direction:** Let **`NotFound` / false** be distinct from **`GcsError`** for other failures.
+**Mitigation direction (historical):** Any helper that maps **all** exceptions to “missing” should be fixed or avoided — it hides **auth failure** as a false negative.
 
 ### 11.5 Workflows dispatch: single HTTP attempt
 
-**`start_execution`** in **`.github/bmt/ci/workflows_api.py`** performs a **single** `POST` with a fixed timeout. Transient **5xx/429** can fail the handoff. Retries require **care** (idempotency, duplicate execution ids) if added.
+**`start_execution`** in **`ci/kardome_bmt/workflows_api.py`** performs a **single** `POST` with a fixed timeout. Transient **5xx/429** can fail the handoff. Retries require **care** (idempotency, duplicate execution ids) if added.
 
-### 11.6 CI ↔ `gcp.image` import coupling
+### 11.6 CI ↔ runtime import coupling
 
-**`.github/bmt/ci/core.py`** (and related modules) import **`gcp.image.config`** and related symbols. Refactors under **`gcp/image/config`** can break **`uv run bmt`** without a **stable, narrow** interface.
+**`ci/kardome_bmt/core.py`** (and related modules) import **`runtime.config`** symbols shared with Cloud Run. Refactors under **`runtime/config/`** can break **`uv run kardome-bmt`** and the image without a **stable, narrow** interface.
 
 ### 11.7 Broad exception handling elsewhere
 
-Patterns such as **`except Exception`** in **`ci/github.py`**, **`download_json`** / **`load_context_from_file`** in **`ci/config.py`**, and runtime reporting **collapse** error types and can **hide** validation failures.
+Patterns such as **`except Exception`** in **`ci/kardome_bmt/github.py`**, **`download_json`** / **`load_context_from_file`** in **`ci/kardome_bmt/config.py`**, and runtime reporting **collapse** error types and can **hide** validation failures.
 
 ### 11.8 Large orchestration modules
 
-**`gcp/image/runtime/entrypoint.py`** centralizes multiple modes; CI **handoff** aggregates many steps. This **concentrates** failure modes and can make **unit test coverage** uneven for rare branches.
+**`runtime/entrypoint.py`** centralizes multiple modes; CI **handoff** aggregates many steps. This **concentrates** failure modes and can make **unit test coverage** uneven for rare branches.
 
 ---
 
@@ -590,10 +577,10 @@ The **full backlog** (why + recommendations per issue) lives in **[plans/bmt-wea
 | -------- | ---- | --------- |
 | P0 | Enforce **unique `results_path`** per plan (or namespace pointers) | Prevents silent cross-leg corruption. |
 | P1 | **Distinct reason codes** for missing summary vs runner failure | Correct operations and debugging. |
-| P1 | **Fix `object_exists`** (and similar) to surface non-404 errors | Prevents wrong CI branches on infra failure. |
+| P1 | **Audit GCS helpers** for “catch-all → missing” semantics (`object_exists` in `ci/kardome_bmt/gcs.py` is fixed) | Prevents wrong CI branches on infra failure. |
 | P2 | **Retry/backoff** for Workflows start + GitHub finalize with clear idempotency rules | Reduces flaky handoff and split-brain. |
 | P2 | **Centralize** path/URI builders and critical JSON schemas | Reduces contract drift. |
-| P3 | Introduce a **thin stable API** between CI package and `gcp.image` config | Safer refactors. |
+| P3 | Keep **`ci/kardome_bmt/bmt_constants.py`** as the narrow CI boundary over **`runtime.config`** | Safer refactors. |
 
 ---
 

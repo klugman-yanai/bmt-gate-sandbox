@@ -73,7 +73,7 @@ just add-bmt myproject my_second_bmt
 
 `gcp/stage/projects/myproject/bmts/my_second_bmt/bmt.json`
 
-The scaffold fills `inputs_prefix`, `results_prefix`, and `outputs_prefix`. Adjust if your layout differs; keep `plugin_ref` as a workspace ref until you publish.
+The scaffold fills `inputs_prefix`, `results_prefix`, and `outputs_prefix`. Adjust if your layout differs. The manifest may carry **`plugin_ref`** for bookkeeping; the Cloud Run loader always imports **`projects/<project>/plugin.py`** (see `runtime/plugin_loader.py`).
 
 ### 3. Publish
 
@@ -94,7 +94,7 @@ Set `"enabled": true` in that `bmt.json`, then `just deploy` (or your usual sync
 ## Plugin code (reminder)
 
 - Work in `gcp/stage/projects/<project>/plugin_workspaces/<plugin>/`.
-- Published manifests should point at immutable bundles under `projects/<project>/plugins/<plugin>/sha256-<digest>/...` after publish.
+- **`just publish-bmt`** copies assets into **`projects/<project>/plugins/<plugin>/sha256-<digest>/...`** for versioned non-Python files (templates, digests). **`plugin.py`** must still live at **`projects/<project>/plugin.py`** on the synced stage tree — that is what the image imports.
 
 ---
 
@@ -105,8 +105,25 @@ Set `"enabled": true` in that `bmt.json`, then `just deploy` (or your usual sync
 
 ---
 
+## SK as the reference implementation (extendible design)
+
+The **SK Kardome benchmark** under **`plugins/projects/sk/`** is the repo’s worked example of the plugin model—copy its shape when adding a new project, then replace scoring and runner wiring:
+
+| Piece | Role |
+| ----- | ---- |
+| **`plugin.py`** | `BmtPlugin`: `prepare` / `execute` / `score` / `verdict`; wires `AdaptiveKardomeExecutor` (batch JSON probe → `KardomeRunparamsExecutor` per-case fallback). |
+| **`sk_scoring_policy.py`** | Declares comparison direction, aggregates, and reason codes the gate understands. |
+| **`false_alarms.json` / `false_rejects.json`** | Flat BMT manifests: `plugin_config`, `execution.policy`, `runner.template_path`, `forced_wav_path_keys_exclude`, etc. |
+| **`runner_integration_contract.json`** | Repo-local contract for tests: which manifest supplies stdout vs per-case metrics JSON parsing (see `tests/sk_runner_repo_paths.py`). |
+| **`runtime/kardome_runparams.py`** (image) | Builds per-case JSON calib paths for `kardome_runner`; **numeric SK preset** lives in core-main **`run_params_SK.c`**, not in giant JSON blobs. |
+| **`runtime/kardome_case_metrics.py`** (image) | Filenames and JSON keys the image reads next to `USER_OUTPUT_PATH`. Match what your runner writes (see that module). |
+
+**Core-main alignment:** Extend **`Runners/params/src/run_params_SK.c`** for behaviour changes; extend **`sanity_tests.c`** (or the SK runner entrypoint your build uses) to **write structured BMT JSON** so the framework’s plugin path stays stable. See **`docs/kardome_runner_SK_runtime.md`** for the split between JSON paths and C run params.
+
+---
+
 ## Do not use for new work
 
-- New `gcp/image/projects/<project>/bmt_manager.py` files
+- New per-project `bmt_manager.py` trees under obsolete `gcp/image/` layouts
 - Restoring `bmt_jobs.json`-style flows
 - Old trigger-file / VM-era patterns

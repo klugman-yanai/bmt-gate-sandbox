@@ -39,8 +39,8 @@ inputs:
     default: ""
   bmt_pex_repo:
     description: >
-      Repo that published bmt.pex (owner/name). Empty uses github.repository; set vars.BMT_PEX_REPO
-      for upstream PEX when the workflow repo is not the release repo.
+      Repo that published bmt.pex (owner/name). Empty uses github.repository; set this input when
+      the workflow repo is not the release repo.
     required: false
     default: ""
 

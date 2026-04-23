@@ -42,6 +42,30 @@ inputs:
     description: Failure reason when mode is failure
     required: false
     default: ""
+  workflow_execution_url:
+    description: Console URL for the Google Workflow execution (success path)
+    required: false
+    default: ""
+  workflow_execution_state:
+    description: Initial workflow execution state from the invoke API
+    required: false
+    default: ""
+  classify_outcome:
+    description: GitHub Actions outcome for the classify step (failure summaries)
+    required: false
+    default: ""
+  invoke_outcome:
+    description: GitHub Actions outcome for the invoke-workflow step (failure summaries)
+    required: false
+    default: ""
+  dispatch_reason:
+    description: kardome-bmt dispatch reason string when invoke ran
+    required: false
+    default: ""
+  diagnostics_artifact:
+    description: Diagnostics artifact name (default bmt-handoff-diagnostics-<run_id>)
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -60,6 +84,23 @@ runs:
         GCP_PROJECT: ${{ inputs.gcp_project }}
         GCS_BUCKET: ${{ inputs.gcs_bucket }}
         FAILURE_REASON: ${{ inputs.failure_reason }}
+        WORKFLOW_EXECUTION_URL: ${{ inputs.workflow_execution_url }}
+        WORKFLOW_EXECUTION_STATE: ${{ inputs.workflow_execution_state }}
+        CLASSIFY_OUTCOME: ${{ inputs.classify_outcome }}
+        INVOKE_OUTCOME: ${{ inputs.invoke_outcome }}
+        DISPATCH_REASON: ${{ inputs.dispatch_reason }}
+        DIAGNOSTICS_ARTIFACT: ${{ inputs.diagnostics_artifact }}
       run: |
+        set -euo pipefail
         "$BMT_PEX_PATH" handoff write-context
         "$BMT_PEX_PATH" handoff write-summary
+        # Older bmt.pex releases omit the GCP console link in the Markdown summary.
+        # Append once when the URL is known and the summary does not already link to GCP.
+        if [[ -n "${WORKFLOW_EXECUTION_URL:-}" ]] && [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          if ! grep -qF 'console.cloud.google.com' "$GITHUB_STEP_SUMMARY"; then
+            {
+              echo ""
+              echo "> **GCP workflow:** [open execution](${WORKFLOW_EXECUTION_URL}) (state: ${WORKFLOW_EXECUTION_STATE:-unknown})"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+        fi

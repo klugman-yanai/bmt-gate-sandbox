@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from runtime.legacy_kardome import _rewrite_json_paths_for_wav
+from runtime.kardome_runparams import _rewrite_json_paths_for_wav
 
 pytestmark = pytest.mark.unit
 

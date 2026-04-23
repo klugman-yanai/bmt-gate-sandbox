@@ -189,3 +189,45 @@ class TestEvaluateFailsOnCaseErrors:
         verdict = plugin.evaluate(score, baseline, _make_context(comparison="lte"))
         assert verdict.status == BmtLegStatus.PASS.value
         assert verdict.reason_code == "score_within_tolerance"
+
+    def test_gte_all_zero_namuh_passes_with_warning_bootstrap(self) -> None:
+        """Higher-better legs: all-zero NAMUH still passes so the PR is not blocked (warn only)."""
+        plugin = _make_plugin()
+        ex = _exec_result(_case("a.wav", 0.0), _case("b.wav", 0.0))
+        score = plugin.score(ex, None, _make_context(comparison="gte"))
+        assert score.aggregate_score == 0.0
+        verdict = plugin.evaluate(score, None, _make_context(comparison="gte"))
+        assert verdict.status == BmtLegStatus.PASS.value
+        assert verdict.reason_code == "all_zero_keyword_hits_warn"
+        assert verdict.passed
+        assert "warning" in verdict.summary
+
+    def test_gte_aggregate_zero_without_case_outcomes_passes_with_warn(self) -> None:
+        """Missing per-case rows but aggregate 0 + gte still gets the warn pass (bootstrap)."""
+        plugin = _make_plugin()
+        score = ScoreResult(
+            aggregate_score=0.0,
+            metrics={"case_count": 2, "cases_ok": 2, "cases_failed": 0, "cases_failed_ids": []},
+        )
+        verdict = plugin.evaluate(score, None, _make_context(comparison="gte"))
+        assert verdict.status == BmtLegStatus.PASS.value
+        assert verdict.reason_code == "all_zero_keyword_hits_warn"
+        assert verdict.passed
+
+    def test_gte_mixed_zero_nonzero_bootstrap_passes(self) -> None:
+        plugin = _make_plugin()
+        ex = _exec_result(_case("a.wav", 0.0), _case("b.wav", 3.0))
+        score = plugin.score(ex, None, _make_context(comparison="gte"))
+        assert score.aggregate_score == 1.5
+        verdict = plugin.evaluate(score, None, _make_context(comparison="gte"))
+        assert verdict.passed
+        assert verdict.reason_code == "bootstrap_without_baseline"
+
+    def test_lte_all_zero_bootstrap_still_passes(self) -> None:
+        """False-alarms style (lower better): perfect zeros remain a valid bootstrap PASS."""
+        plugin = _make_plugin()
+        ex = _exec_result(_case("a.wav", 0.0), _case("b.wav", 0.0))
+        score = plugin.score(ex, None, _make_context(comparison="lte"))
+        verdict = plugin.evaluate(score, None, _make_context(comparison="lte"))
+        assert verdict.passed
+        assert verdict.reason_code == "bootstrap_without_baseline"

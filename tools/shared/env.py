@@ -2,7 +2,7 @@
 
 Use get(), require(), get_bool() for one-off env reads. For structured config
 (e.g. CI/GCP) the codebase uses pydantic-settings BaseSettings (e.g. BmtConfig
-in .github/bmt/ci/config.py), which loads from env and optional .env.
+in ci/kardome_bmt/config.py), which loads from env and optional .env.
 """
 
 from __future__ import annotations

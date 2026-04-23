@@ -15,8 +15,8 @@ tests/
     testutils.py     # GITHUB_OUTPUT helpers and matrix contract assertions
     repo_policy.py   # SAMPLE_PROJECT, repo_stage_bmt_manifest — centralises hardcoded paths
   _support/          # Legacy shims — re-export from tests.support (backward compat only)
-  ci/                # CI-layer tests (.github/bmt/ci/)
-  bmt/               # BMT runtime tests (gcp/image/runtime/)
+  ci/                # CI-layer tests (`ci/kardome_bmt/`)
+  bmt/               # BMT runtime tests (`runtime/`)
   gcp/               # GCP value-type / domain tests
   github/            # GitHub presentation / check rendering tests
   infra/             # Infrastructure alignment tests
@@ -61,13 +61,12 @@ Every test module sets `pytestmark` (or per-test marks) so `pytest -m "unit or c
 
 **Plugins (see [pyproject.toml](../pyproject.toml)):** `pytest-socket` blocks network unless a test opts in; `pytest-mock` is available for the `mocker` fixture but the suite often uses `monkeypatch`. **`pytest-randomly`** randomizes order; flaky failures usually indicate shared state bugs.
 
-## Three concepts called "mock"
+## Two concepts called "mock"
 
 These are distinct:
 
 1. **`FakeGcsStore`** — in-memory GCS; used for contract tests that write/read plans and results.
 2. **`MagicMock` / `monkeypatch`** — Python-level function replacement for unit-isolating specific callsites.
-3. **`BMT_USE_MOCK_RUNNER` / `use_mock_runner`** — Cloud Run runtime flag that substitutes a synthetic runner score for the real `kardome_runner` binary. Dev-only; not present in production workflows.
 
 ## Using shared support
 

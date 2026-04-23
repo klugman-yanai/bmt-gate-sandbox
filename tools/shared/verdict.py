@@ -1,7 +1,7 @@
 """Shared GCS/verdict helpers for polling and aggregating BMT verdicts.
 
 Used by tools/wait_verdicts. Uses gcloud CLI only (no google-cloud-storage)
-so tools/ does not depend on .github/bmt CLI.
+so tools/ does not depend on the kardome-bmt CLI.
 """
 
 from __future__ import annotations

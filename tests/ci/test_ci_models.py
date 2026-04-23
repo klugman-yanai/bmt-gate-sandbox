@@ -1,4 +1,4 @@
-"""Tests for .github/bmt/ci/core.py — pure functions only, no I/O."""
+"""Tests for ci/kardome_bmt/core.py — pure functions only, no I/O."""
 
 import pytest
 

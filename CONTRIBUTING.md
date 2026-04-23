@@ -46,9 +46,9 @@ Re-running `just setup` on an already-configured machine is safe and fast — ea
 
 ---
 
-**Workspace:** the repo root is a **uv workspace** with one lockfile. Member packages include **`bmt`** (under `.github/bmt`) and **`bmt-runtime`** (`gcp/image`). Run commands in a member’s context with `uv run --package bmt …` or `uv run --package bmt-runtime …`; list members with `uv workspace list`.
+**Workspace:** the repo root is a **uv workspace** with one lockfile. Member packages include **`kardome-bmt`** (`ci/`), **`bmt-runtime`** (`runtime/`), and **`bmt-sdk`** (`sdk/`). Run commands in a member’s context with `uv run --package kardome-bmt …` or `uv run --package bmt-runtime …`; list members with `uv workspace list`.
 
-**CLIs:** CI/driver commands use **`uv run bmt`** (console scripts from the `bmt` member). Contributor tooling uses **`uv run python -m tools`** (Typer). The root package does not define a separate `[project.scripts]` alias for `tools`—one entrypoint keeps docs and PATH predictable.
+**CLIs:** CI/driver commands use **`uv run kardome-bmt`** (the `ci` package also installs a legacy **`bmt`** console alias). Contributor tooling uses **`uv run python -m tools`** (Typer). The root package does not define a separate `[project.scripts]` alias for `tools`—one entrypoint keeps docs and PATH predictable.
 
 **`uv sync`:** includes the **`dev`** dependency group by default (**ruff**, **pytest**, **prek**, **PyJWT** for GitHub App helpers, etc.) and installs this workspace in editable mode. Use `uv sync --no-dev` only when you explicitly want to drop dev tooling. A separate `uv pip install -e .` is not required for normal work.
 
@@ -82,7 +82,7 @@ uv run prek install -t pre-push -f
 | **ruff check** | Lint with auto-fix where safe (`ruff check --fix`). |
 | **ruff format** | Format Python. |
 | **gcp/ bucket sync check** | If you changed `gcp/`, verifies stage matches the bucket (or set `SKIP_SYNC_VERIFY=1` when intentional). |
-| **image-build warning** | Reminder when **infra/packer/** or **gcp/image/** change. |
+| **image-build warning** | Reminder when **infra/packer/** or **`runtime/`** (Dockerfile) change. |
 
 ### On `git push` (pre-push stage)
 
@@ -130,7 +130,7 @@ Short version: `just add-project <slug>` → edit under `gcp/stage/projects/<slu
 
 ## Local layout (contributor)
 
-- [`gcp/image`](gcp/image) — Image-baked framework and runtime
+- [`runtime/`](runtime) — Image-baked orchestration (`bmt-runtime`)
 - [`gcp/stage`](gcp/stage) — Editable staged mirror of bucket manifests, plugins, assets
 - [`gcp/mnt`](gcp/mnt) — Optional read-only bucket mount for inspection
 - Dataset archives may live anywhere; `just upload-data` takes an explicit path
@@ -164,7 +164,7 @@ Focused subset while iterating:
 uv run python -m pytest tests/bmt tests/ci tests/infra tests/tools -q
 ```
 
-**Smoke:** `uv run bmt --help`, `uv run bmt handoff write-context --help`, `uv run python -m tools repo show-env` and `uv run python -m tools repo validate` when touching those areas.
+**Smoke:** `uv run kardome-bmt --help`, `uv run kardome-bmt handoff write-context --help`, `uv run python -m tools repo show-env` and `uv run python -m tools repo validate` when touching those areas.
 
 **Integration boundary (mental model):** publish staged plugin → upload dataset → invoke Workflow (CI or manual) → `triggers/plans/<workflow_run_id>.json` → task summaries → coordinator writes `current.json`.
 
@@ -187,12 +187,13 @@ uv run python -m pytest tests/ -q
 just test
 ```
 
-Optional: `uv run python -m tools repo validate`, `uv run bmt handoff write-context --help`.
+Optional: `uv run python -m tools repo validate`, `uv run kardome-bmt handoff write-context --help`.
 
 ---
 
 ## Docs
 
+- **Local BMT / runner / plugin loop (no full pipeline):** [docs/developer-workflow.md](docs/developer-workflow.md)
 - Index: [docs/README.md](docs/README.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - If you change behavior, env vars, or bucket layout, update README / CLAUDE.md / the relevant doc in the same PR when practical.
@@ -203,10 +204,10 @@ Optional: `uv run python -m tools repo validate`, `uv run bmt handoff write-cont
 
 ## E2E / mock CI
 
-Exercise handoff via `gh workflow run` on `bmt-handoff.yml` with mock-runner options as documented in workflow inputs and `.github/README.md`.
+Exercise handoff via `gh workflow run` on `bmt-handoff.yml` as documented in workflow inputs and `.github/README.md`.
 
 ---
 
 ## Maintainer-heavy areas
 
-Big changes to orchestration or GitHub reporting may touch `gcp/image/runtime/`, `.github/bmt/ci/`, or `tools/repo/gh_repo_vars.py`—call that out in the PR.
+Big changes to orchestration or GitHub reporting may touch `runtime/`, `ci/kardome_bmt/`, or `tools/repo/gh_repo_vars.py`—call that out in the PR.

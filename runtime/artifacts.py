@@ -7,6 +7,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 from whenever import Instant
@@ -216,17 +217,36 @@ def load_optional_reporting_metadata(*, stage_root: Path, workflow_run_id: str) 
     return ReportingMetadata.model_validate(payload)
 
 
-def read_existing_last_passing(results_root: Path) -> str | None:
+def _read_current_json_payload(results_root: Path) -> dict[str, Any] | None:
     pointer_path = results_root / "current.json"
     if not pointer_path.is_file():
         return None
     try:
-        payload = json.loads(pointer_path.read_text(encoding="utf-8"))
+        raw = json.loads(pointer_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         logger.warning("%s contains invalid JSON; treating as no baseline", pointer_path)
         return None
+    return raw if isinstance(raw, dict) else None
+
+
+def read_existing_last_passing(results_root: Path) -> str | None:
+    payload = _read_current_json_payload(results_root)
+    if payload is None:
+        return None
     last_passing = payload.get("last_passing")
     return str(last_passing).strip() if isinstance(last_passing, str) and str(last_passing).strip() else None
+
+
+def read_existing_current_pointer_ids(results_root: Path) -> tuple[str | None, str | None]:
+    """Return ``(latest, last_passing)`` from ``current.json`` when present (stripped strings)."""
+    payload = _read_current_json_payload(results_root)
+    if payload is None:
+        return None, None
+    latest_raw = payload.get("latest")
+    last_raw = payload.get("last_passing")
+    latest = str(latest_raw).strip() if isinstance(latest_raw, str) and str(latest_raw).strip() else None
+    last_passing = str(last_raw).strip() if isinstance(last_raw, str) and str(last_raw).strip() else None
+    return latest, last_passing
 
 
 def write_current_pointer(*, results_root: Path, run_id: str, last_passing_run_id: str | None) -> None:

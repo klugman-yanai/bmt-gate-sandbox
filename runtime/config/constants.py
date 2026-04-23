@@ -105,7 +105,7 @@ ENV_BMT_TASK_HEAVY_JOB = "BMT_TASK_HEAVY_JOB"
 # feature. The underlying Cloud Run Job (`bmt-dataset-transfer`) was never
 # deployed and the GitHub repo variable is not required. Name reserved for
 # future revival. Revival checklist:
-#   docs/superpowers/plans/2026-04-20-pulumi-state-import.md  (section "Dormant")
+#   infra/README.md + docs/configuration.md (Pulumi / release integration).
 #   tools/remote/bucket_upload_dataset._dispatch_drive_transfer_job
 ENV_BMT_DATASET_TRANSFER_JOB = "BMT_DATASET_TRANSFER_JOB"
 ENV_BMT_STATUS_CONTEXT = "BMT_STATUS_CONTEXT"
@@ -113,6 +113,14 @@ ENV_BMT_WORKFLOW_EXECUTION_URL = "BMT_WORKFLOW_EXECUTION_URL"
 ENV_BMT_FAILURE_REASON = "BMT_FAILURE_REASON"
 # Per-WAV subprocess timeout for kardome_runner (seconds). Unset or <=0 = no timeout.
 ENV_BMT_KARDOME_CASE_TIMEOUT_SEC = "BMT_KARDOME_CASE_TIMEOUT_SEC"
+
+# Minimum wall-clock interval between GitHub Check Run ``output`` updates driven by
+# ``publish_progress`` when periodic mid-leg publishing is enabled. ``0`` means the
+# current runtime only publishes on **milestones** (each leg start + that leg's completion).
+# PR comment copy reads this default and ``ENV_BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC`` so
+# operator-facing text stays aligned with deployment configuration.
+ENV_BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC = "BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC"
+BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC_DEFAULT = 0
 
 # Pulumi config keys (bmt.tfvars.json) that map to repo vars
 PULUMI_KEY_GCS_BUCKET = "gcs_bucket"

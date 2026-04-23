@@ -82,3 +82,12 @@ gcp-key.json
 
 # Claude Code local settings (machine-specific paths)
 .claude/settings.local.json
+
+# Local SK runner drop under temp/ (core-main build artifacts — never commit)
+temp/kardome_runner
+temp/libKardome.so
+# Ad-hoc scratch trees under temp/ (datasets, smoke batch outputs)
+temp/false_rejects/
+temp/smoke_fr_*/
+# Optional local scratch (historical pipeline experiments)
+temp/sk_local_pipeline/

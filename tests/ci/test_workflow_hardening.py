@@ -14,6 +14,11 @@ _LOCAL_COMPOSITE_USES = re.compile(
     r"^\s*uses:\s+\./\.github/actions/([^@\s#]+)",
     re.MULTILINE,
 )
+# `uses: ../sibling-action` from `.github/actions/<dir>/action.yml` → `.github/actions/sibling-action`
+_ACTION_REL_SIBLING_USES = re.compile(
+    r"^\s*uses:\s+\.\./([^@\s#]+)",
+    re.MULTILINE,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -110,8 +115,8 @@ def test_handoff_declares_opt_in_release_marker_verification() -> None:
        (cross-repo callers invoke via ``workflow_call``; same-repo debug via
        ``workflow_dispatch``).
     2. The verify step is guarded by ``if: … != ''`` so cross-repo callers that
-       don't pass the input keep today's behaviour (they rely on pinned
-       ``vars.BMT_PEX_TAG`` as their contract, not our bucket marker).
+       don't pass the input keep today's behaviour (they rely on a pinned
+       reusable-workflow ``@ref``, not our bucket marker).
     3. The step runs BEFORE ``steps.filter`` — a stale marker must short-circuit
        the matrix build, not race it.
     """
@@ -133,6 +138,37 @@ def test_handoff_declares_opt_in_release_marker_verification() -> None:
     )
 
 
+def test_handoff_uses_repo_relative_composite_actions() -> None:
+    handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
+    assert "uses: ./.github/actions/setup-bmt-pex" in handoff
+    assert "klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@" not in handoff
+
+
+def test_handoff_resolves_caller_context_when_inputs_omitted() -> None:
+    handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
+    assert "BMT_RESOLVED_CI_RUN_ID:" in handoff
+    assert "github.run_id" in handoff
+    assert "Require ci_run_id for direct workflow_dispatch" in handoff
+
+
+def test_handoff_declares_force_pass_on_both_triggers() -> None:
+    handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
+    n = handoff.count("force_pass:")
+    assert n == 2, (
+        "expected `force_pass:` declared in BOTH workflow_dispatch.inputs and workflow_call.inputs; "
+        f"found {n}"
+    )
+
+
+def test_handoff_declares_bmt_pex_repo_on_both_triggers() -> None:
+    handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
+    n = handoff.count("bmt_pex_repo:")
+    assert n >= 2, (
+        "expected `bmt_pex_repo` input in workflow_dispatch and workflow_call (plus optional step `with:`); "
+        f"found {n} occurrences"
+    )
+
+
 def test_local_composite_action_paths_resolve() -> None:
     """Every `uses: ./.github/actions/...` reference must have a matching action.yml on disk."""
     github = repo_root() / ".github"
@@ -146,6 +182,15 @@ def test_local_composite_action_paths_resolve() -> None:
                 missing.append(
                     f"{path.relative_to(repo_root())}: uses …/{rel} → missing {action_yml.relative_to(repo_root())}"
                 )
+        if "/actions/" in str(path) and path.name == "action.yml":
+            for sibling in _ACTION_REL_SIBLING_USES.findall(text):
+                name = sibling.strip().rstrip("/")
+                action_yml = github / "actions" / name / "action.yml"
+                if not action_yml.is_file():
+                    missing.append(
+                        f"{path.relative_to(repo_root())}: uses ../{name} → missing "
+                        f"{action_yml.relative_to(repo_root())}"
+                    )
     assert not missing, "Broken local action references:\n" + "\n".join(missing)
 
 

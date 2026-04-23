@@ -15,7 +15,7 @@ missing marker means ``release.yml`` did not complete for this commit and the
 cloud pipeline would otherwise be running against stale artifacts — the
 assertion fails loud with an actionable message.
 
-See ``docs/superpowers/plans/2026-04-18-ci-driven-release.md`` for the full
+See ``docs/architecture.md`` and ``.github/workflows/release.yml`` for the full
 architecture.
 """
 
@@ -43,7 +43,7 @@ MARKER_PATH = "_state/release.json"
 _REMEDIATION = (
     "The `release.yml` workflow is the sole producer of this marker; "
     "a missing or stale marker means release.yml did not complete for this commit. "
-    "See docs/superpowers/plans/2026-04-18-ci-driven-release.md."
+    "See docs/architecture.md and .github/workflows/release.yml."
 )
 
 

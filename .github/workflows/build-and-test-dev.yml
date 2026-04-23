@@ -170,11 +170,7 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/bmt-handoff.yml
     with:
-      ci_run_id: ${{ github.run_id }}
-      head_sha: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.sha || github.sha }}
-      head_branch: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.ref || github.ref_name }}
-      head_event: ${{ github.event_name }}
-      pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && format('{0}', github.event.pull_request.number) || '' }}
-      use_mock_runner: false
-      cloud_run_region: ${{ vars.CLOUD_RUN_REGION }}
-      bmt_status_context: ${{ vars.BMT_STATUS_CONTEXT }}
+      cloud_run_region: europe-west4
+      bmt_status_context: BMT Gate
+      bmt_pex_repo: klugman-yanai/bmt-gcloud
+      force_pass: false

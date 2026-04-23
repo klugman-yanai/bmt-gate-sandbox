@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import html
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from runtime.config import constants as runtime_constants
 from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from runtime.config.status import CheckConclusion
 from runtime.github.duration_format import format_duration_seconds
@@ -19,7 +22,6 @@ CHECK_TITLE_PASS = "PASS"
 CHECK_TITLE_FAIL = "FAIL"
 EM_DASH = "—"
 MISSING_SCORE = "—"
-MOCK_SCORE_PLACEHOLDER = "— (mock)"
 UNKNOWN_SHORT_SHA = "unknown"
 _ETA_UNKNOWN = "unknown"
 # GitHub check run API caps annotations per request; overflow remains in Markdown.
@@ -40,6 +42,7 @@ REASON_LABELS: dict[str, str] = {
     "no_successful_cases": "runner crashed on all test files",
     "no_dataset_cases": "no test cases were produced (empty dataset or execution produced no rows)",
     "plugin_execute_failed": "the BMT plugin failed during execute (setup, imports, or orchestration)",
+    "all_zero_keyword_hits_warn": "all keyword-hit counters were zero (warning only — PR not blocked)",
 }
 
 
@@ -82,8 +85,12 @@ class ProgressBmtRow:
     aggregate_score: float | None = None
     execution_mode_used: str = ""
     cases_detail: str = ""
-    #: From ``score.extra.scoring_policy`` / verdict; used with arrows in the Avg. column; empty when unknown or mock.
+    #: From ``score.extra.scoring_policy`` / verdict; used with arrows in the Avg. column; empty when unknown.
     score_direction_label: str = ""
+    #: Mirrors :attr:`LegSummary.score.extra` for completed legs (avg. column hints).
+    score_extra: dict[str, Any] = field(default_factory=dict)
+    #: From ``metrics.case_outcomes`` when the leg has finished and the plugin recorded per-file rows.
+    case_outcomes: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +141,31 @@ class CheckFinalView:
     bmts: list[FinalBmtRow]
 
 
+def check_run_tab_refresh_hint_bullet() -> str:
+    """PR-comment bullet describing how often the BMT Gate check body is published.
+
+    Uses :data:`runtime.config.constants.BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC_DEFAULT`
+    and optional override ``ENV_BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC`` so copy stays
+    accurate when publish cadence changes.
+    """
+    raw = (os.environ.get(runtime_constants.ENV_BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC) or "").strip()
+    interval = runtime_constants.BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC_DEFAULT
+    if raw:
+        try:
+            parsed = int(raw, 10)
+        except ValueError:
+            parsed = -1
+        if parsed >= 0:
+            interval = parsed
+    if interval > 0:
+        every = format_duration_seconds(interval)
+        return f"- **Checks tab:** live run detail is published at most every **{every}** while BMT legs are in flight."
+    return (
+        "- **Checks tab:** live run detail is published when **each leg starts** and again when **that leg finishes** "
+        "(milestone updates only, not on a fixed timer)."
+    )
+
+
 def render_started_pr_comment(view: StartedCommentView) -> str:
     short_sha = view.head_sha[:7] or UNKNOWN_SHORT_SHA
     lines = [
@@ -148,6 +180,7 @@ def render_started_pr_comment(view: StartedCommentView) -> str:
     if view.links.workflow_execution_url:
         lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
     lines.append(f"- Detailed progress: see the **{CHECK_COPY_GATE}** check")
+    lines.append(check_run_tab_refresh_hint_bullet())
     return "\n".join(lines)
 
 
@@ -166,6 +199,7 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
         ]
         if view.links.workflow_execution_url:
             lines.insert(-1, f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
+        lines.append(check_run_tab_refresh_hint_bullet())
         return "\n".join(lines)
 
     lines = [
@@ -182,6 +216,7 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
     if view.links.log_dump_url:
         lines.append(f"- Failure log dump: [3-day link]({view.links.log_dump_url})")
     lines.append(f"- Full details: see the **{CHECK_COPY_GATE}** check")
+    lines.append(check_run_tab_refresh_hint_bullet())
     if view.failed_bmts:
         lines.extend(["", "Failed BMTs:"])
         lines.extend(f"- `{bmt}`: {reason}" for bmt, reason in view.failed_bmts)
@@ -266,16 +301,13 @@ def how_to_read_this_run_markdown(rows: list[FinalBmtRow]) -> str:
 def _score_cell_for_check(
     *,
     aggregate_score: float | None,
-    execution_mode_used: str,
     leg_done: bool,
     score_extra: dict[str, Any] | None = None,
     score_direction_label: str = "",
 ) -> str:
-    """Format the Avg. column for GitHub Checks (avoid misleading 0.00 for mock runs)."""
+    """Format the Avg. column for GitHub Checks (avoid misleading 0.00 when score is unavailable)."""
     if score_extra and score_extra.get("unavailable"):
         return MISSING_SCORE
-    if execution_mode_used == "mock":
-        return MOCK_SCORE_PLACEHOLDER
     if leg_done and aggregate_score is not None:
         cell = f"{aggregate_score:.2f}"
         suffix = _avg_column_direction_suffix(score_extra, score_direction_label)
@@ -313,11 +345,11 @@ def _progress_table_markdown(view: CheckProgressView) -> str:
     ]
     for row in view.bmts:
         leg_done = row.status in (BmtLegStatus.PASS.value, BmtLegStatus.FAIL.value)
+        score_extra = row.score_extra if row.has_completed_summary else None
         score_s = _score_cell_for_check(
             aggregate_score=row.aggregate_score,
-            execution_mode_used=row.execution_mode_used,
             leg_done=leg_done,
-            score_extra=None,
+            score_extra=score_extra,
             score_direction_label=row.score_direction_label,
         )
         lines.append(
@@ -345,7 +377,6 @@ def _final_check_table_markdown(view: CheckFinalView) -> str:
     for row in view.bmts:
         score_s = _score_cell_for_check(
             aggregate_score=row.aggregate_score,
-            execution_mode_used=row.execution_mode_used,
             leg_done=True,
             score_extra=row.score_extra,
             score_direction_label=row.score_direction_label,
@@ -368,6 +399,171 @@ def _final_check_table_markdown(view: CheckFinalView) -> str:
     return "\n".join(lines)
 
 
+_RESERVED_CASE_KEYS = frozenset({"case_id", "status", "error", "log_name"})
+
+
+def _cases_ok_detail_from_metrics_dict(metrics: dict[str, Any]) -> str:
+    cases_ok = metrics.get("cases_ok")
+    case_count = metrics.get("case_count")
+    if cases_ok is None or case_count is None:
+        return ""
+    return f"{cases_ok}/{case_count} ok"
+
+
+def case_outcomes_from_metrics(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalized ``metrics.case_outcomes`` rows for Checks and digests."""
+    raw = metrics.get("case_outcomes")
+    if not isinstance(raw, list):
+        return []
+    return [c for c in raw if isinstance(c, dict)]
+
+
+def _primary_metric_header_and_key(score_extra: dict[str, Any]) -> tuple[str, str]:
+    sp = score_extra.get("scoring_policy")
+    if isinstance(sp, dict):
+        pm = sp.get("primary_metric")
+        key = str(pm).strip() if isinstance(pm, str) else ""
+        if key:
+            hints = sp.get("reporting_hints")
+            if isinstance(hints, dict):
+                msl = hints.get("metric_short_label")
+                if isinstance(msl, str) and msl.strip():
+                    return msl.strip(), key
+            return key, key
+    return ("Score", "")
+
+
+def _first_numeric_metric_key(case: dict[str, Any]) -> str:
+    for k, v in case.items():
+        if k in _RESERVED_CASE_KEYS:
+            continue
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            return str(k)
+    return ""
+
+
+def _format_metric_cell(v: object) -> str:
+    if isinstance(v, bool):
+        return _md_table_cell(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        s = f"{v:.6f}".rstrip("0").rstrip(".")
+        return s or "0"
+    return MISSING_SCORE if v is None else _md_table_cell(v)
+
+
+def _case_metric_cell(case: dict[str, Any], metric_key: str) -> str:
+    if metric_key:
+        return _format_metric_cell(case.get(metric_key))
+    fk = _first_numeric_metric_key(case)
+    if not fk:
+        return MISSING_SCORE
+    return _format_metric_cell(case.get(fk))
+
+
+def _case_status_display(status: object) -> str:
+    s = str(status).strip().lower()
+    if s == _CASE_OUTCOME_STATUS_PASSED:
+        return "pass"
+    if s in ("failed", "fail", "failure", "error", "timeout"):
+        return "fail"
+    return _md_table_cell(status)
+
+
+def _collapsible_leg_file_table(
+    *,
+    project: str,
+    bmt: str,
+    cases_detail: str,
+    aggregate_score: float | None,
+    score_extra: dict[str, Any],
+    score_direction_label: str,
+    case_outcomes: list[dict[str, Any]],
+    leg_done: bool,
+) -> str:
+    if not case_outcomes:
+        return ""
+    header_label, metric_key = _primary_metric_header_and_key(score_extra)
+    if not metric_key and case_outcomes:
+        metric_key = _first_numeric_metric_key(case_outcomes[0])
+        if metric_key and header_label == "Score":
+            header_label = metric_key
+    avg_s = _score_cell_for_check(
+        aggregate_score=aggregate_score,
+        leg_done=leg_done,
+        score_extra=score_extra,
+        score_direction_label=score_direction_label,
+    )
+    parts = [f"{project}/{bmt}"]
+    if cases_detail.strip():
+        parts.append(cases_detail.strip())
+    parts.append(f"avg {avg_s}")
+    dir_lab = (score_direction_label or "").strip()
+    if dir_lab:
+        parts.append(f"({dir_lab})")
+    summary_plain = " · ".join(parts)
+    lines = [
+        "<details>",
+        f"<summary>{html.escape(summary_plain)}</summary>",
+        "",
+        f"| File | Status | {header_label} | Error | Log |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for c in case_outcomes:
+        cid = _md_table_cell(c.get("case_id", ""))
+        st = _case_status_display(c.get("status"))
+        metric_col = _case_metric_cell(c, metric_key)
+        err = _md_table_cell(c.get("error", ""))
+        logn = _md_table_cell(c.get("log_name", ""))
+        lines.append(f"| {cid} | {st} | {metric_col} | {err} | {logn} |")
+    lines.append("</details>")
+    return "\n".join(lines)
+
+
+def per_leg_file_scores_collapsible_markdown(rows: list[FinalBmtRow]) -> str:
+    """One ``<details>`` block per leg with a Markdown table of per-file scores."""
+    blocks: list[str] = []
+    for row in rows:
+        block = _collapsible_leg_file_table(
+            project=row.project,
+            bmt=row.bmt,
+            cases_detail=row.cases_detail,
+            aggregate_score=row.aggregate_score,
+            score_extra=row.score_extra,
+            score_direction_label=row.score_direction_label,
+            case_outcomes=row.case_outcomes,
+            leg_done=True,
+        )
+        if block:
+            blocks.append(block)
+    return "\n\n".join(blocks).strip()
+
+
+def per_leg_file_scores_collapsible_markdown_progress(view: CheckProgressView) -> str:
+    """Per-leg ``<details>`` for legs that already finished (progress check updates)."""
+    blocks: list[str] = []
+    for row in view.bmts:
+        if not row.has_completed_summary:
+            continue
+        leg_done = row.status in (BmtLegStatus.PASS.value, BmtLegStatus.FAIL.value)
+        block = _collapsible_leg_file_table(
+            project=row.project,
+            bmt=row.bmt,
+            cases_detail=row.cases_detail,
+            aggregate_score=row.aggregate_score,
+            score_extra=row.score_extra,
+            score_direction_label=row.score_direction_label,
+            case_outcomes=row.case_outcomes,
+            leg_done=leg_done,
+        )
+        if block:
+            blocks.append(block)
+    return "\n\n".join(blocks).strip()
+
+
 def render_progress_check_output(view: CheckProgressView) -> CheckRunOutput:
     """Return check output: skimmable ``summary``, full BMT table in ``text`` (GitHub Checks API)."""
     summary_lines = [
@@ -379,12 +575,14 @@ def render_progress_check_output(view: CheckProgressView) -> CheckRunOutput:
     ]
     if view.links.workflow_execution_url:
         summary_lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
-    summary_lines.append("- A short context note for each BMT (metrics and ↑/↓) appears when the run completes.")
+    summary_lines.append("- Expand **Per-file scores** for each finished leg to see every test file.")
     table = _progress_table_markdown(view)
+    legs_md = per_leg_file_scores_collapsible_markdown_progress(view)
+    text = f"{table}\n\n### Per-file scores\n\n{legs_md}" if legs_md.strip() else table
     return {
         "title": f"BMT Running: {view.completed_count}/{view.total_count} complete",
         "summary": "\n".join(summary_lines),
-        "text": table,
+        "text": text,
     }
 
 
@@ -429,24 +627,6 @@ def github_check_annotations_from_final_rows(rows: list[FinalBmtRow]) -> list[di
     return out
 
 
-def per_case_failure_markdown(rows: list[FinalBmtRow]) -> str:
-    """Markdown tables for cases that did not pass (execution failures stay visible)."""
-    blocks: list[str] = []
-    for row in rows:
-        failed = [c for c in row.case_outcomes if c.get("status") != _CASE_OUTCOME_STATUS_PASSED]
-        if not failed:
-            continue
-        blocks.append(f"#### `{row.project}` / `{row.bmt}`")
-        lines = ["| Case | Error | Log |", "| --- | --- | --- |"]
-        for c in failed:
-            cid = _md_table_cell(c.get("case_id", ""))
-            err = _md_table_cell(c.get("error", ""))
-            logn = _md_table_cell(c.get("log_name", ""))
-            lines.append(f"| {cid} | {err} | {logn} |")
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks).strip()
-
-
 def multi_leg_score_scope_markdown(row_count: int) -> str:
     """Fallback scope line; prefer :func:`run_context_blurb_markdown` when ``FinalBmtRow`` data exists."""
     if row_count <= 1:
@@ -471,8 +651,7 @@ def _final_bmt_row_from_summary_dict(d: dict[str, Any]) -> FinalBmtRow:
     score: dict[str, Any] = score_raw if isinstance(score_raw, dict) else {}
     metrics_raw = score.get("metrics")
     metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
-    raw_cases = metrics.get("case_outcomes")
-    case_outcomes = [c for c in raw_cases if isinstance(c, dict)] if isinstance(raw_cases, list) else []
+    case_outcomes = case_outcomes_from_metrics(metrics)
     extra_raw = score.get("extra")
     extra: dict[str, Any] = dict(extra_raw) if isinstance(extra_raw, dict) else {}
     agg = score.get("aggregate_score")
@@ -485,7 +664,7 @@ def _final_bmt_row_from_summary_dict(d: dict[str, Any]) -> FinalBmtRow:
         reason_code=str(d.get("reason_code", "")),
         duration_sec=d.get("duration_sec") if isinstance(d.get("duration_sec"), int) else None,
         execution_mode_used=str(d.get("execution_mode_used", "")),
-        cases_detail="",
+        cases_detail=_cases_ok_detail_from_metrics_dict(metrics),
         score_extra=extra,
         score_direction_label=str(d.get("score_direction_label", "")),
         case_outcomes=case_outcomes,
@@ -542,9 +721,9 @@ def render_final_check_output(view: CheckFinalView) -> CheckRunOutput:
         if scope_md:
             text_parts.append(scope_md.rstrip())
     text_parts.append(_final_check_table_markdown(view))
-    failure_md = per_case_failure_markdown(view.bmts)
-    if failure_md:
-        text_parts.extend(["", "### Per-case failures", "", failure_md])
+    file_scores_md = per_leg_file_scores_collapsible_markdown(view.bmts)
+    if file_scores_md:
+        text_parts.extend(["", "### Per-file scores", "", file_scores_md])
     annotations = github_check_annotations_from_final_rows(view.bmts)
     out: dict[str, Any] = {
         "title": f"BMT Complete: {CHECK_TITLE_PASS if is_success else CHECK_TITLE_FAIL}",

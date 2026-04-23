@@ -4,7 +4,7 @@
 #   - push tag bmt-v*  → release must exist for the tag (--verify-tag).
 #   - workflow_dispatch → pass release_tag; release is created at the workflow commit if missing.
 #
-# After publish: set repo vars BMT_CLI=pex and BMT_PEX_TAG=<same tag> so handoff uses bmt-get-pex.
+# After publish: this workflow also updates the rolling git tag `bmt-handoff` (consumer `uses:` ref).
 # Local: `just build-pex` → `./dist/bmt.pex --help` (Python 3.12 on PATH).
 name: Build kardome-bmt PEX
 
@@ -70,3 +70,24 @@ jobs:
               --notes "${NOTES}" \
               --target "${GITHUB_SHA}"
           fi
+
+      - name: Point bmt-handoff tag at this release (consumer one-liner ref)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "${TAG}" =~ ^bmt-v ]]; then
+            exit 0
+          fi
+          sha="${GITHUB_SHA}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/bmt-handoff" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/bmt-handoff" -f sha="${sha}" -F force=true
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref=refs/tags/bmt-handoff -f sha="${sha}"
+          fi
+          echo "::notice::Updated refs/tags/bmt-handoff → ${sha} (use uses: .../bmt-handoff.yml@bmt-handoff in consumer repos)"

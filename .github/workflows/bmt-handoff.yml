@@ -1,24 +1,29 @@
 name: BMT Cloud Jobs Handoff
-run-name: "BMT Cloud Jobs Handoff • ${{ inputs.head_branch || github.event.inputs.head_branch }} • ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}"
+run-name: "BMT Cloud Jobs Handoff • ${{ inputs.head_branch || github.event.inputs.head_branch || (github.event.pull_request && github.event.pull_request.head.ref) || github.head_ref || github.ref_name }} • ${{ inputs.head_sha || github.event.inputs.head_sha || (github.event.pull_request && github.event.pull_request.head.sha) || github.sha }}"
 
 on:
   workflow_dispatch:
     inputs:
       ci_run_id:
         description: >
-          GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
-          Used to download runner artifacts from that run.
-        required: true
+          GitHub run ID of the workflow that produced runner-* artifacts (e.g. build-and-test).
+          Required for workflow_dispatch (validated at runtime). For workflow_call, omit to use
+          the caller workflow run_id.
+        required: false
         type: string
+        default: ""
       head_sha:
-        description: "Full commit SHA that BMT will run against (the ref under test)."
-        required: true
+        description: >
+          Commit under test. Optional when using workflow_call (defaults to PR head or github.sha).
+        required: false
         type: string
+        default: ""
       head_branch:
         description: >
-          Branch name containing head_sha; used for run list, status checks, and display.
-        required: true
+          Branch under test. Optional when using workflow_call (defaults to PR head ref or ref_name).
+        required: false
         type: string
+        default: ""
       head_event:
         description: "Event that triggered the caller: push or pull_request."
         required: false
@@ -29,6 +34,13 @@ on:
         required: false
         type: string
         default: ""
+      force_pass:
+        description: >
+          When true, handoff exits green even if dispatch fails (runs invoke-workflow --force-pass).
+          Does not change cloud BMT verdict or GCS. Pass explicitly from the caller workflow (no repo var).
+        required: false
+        type: boolean
+        default: false
       available_artifacts:
         description: >
           Optional. JSON array of runner-* artifact names. When empty or "[]" (default), Plan lists
@@ -37,15 +49,21 @@ on:
         type: string
         default: "[]"
       cloud_run_region:
-        description: GCP region for Cloud Run (manual runs; CI callers should pass vars.CLOUD_RUN_REGION).
+        description: GCP region for Cloud Run jobs (pass from caller workflow; default here is unused when empty).
         required: false
         type: string
-        default: "europe-west4"
+        default: ""
       bmt_status_context:
-        description: GitHub check/status context name for the BMT gate.
+        description: GitHub commit status context name (pass from caller workflow).
         required: false
         type: string
-        default: "BMT Gate"
+        default: ""
+      bmt_pex_repo:
+        description: >
+          owner/repo publishing bmt.pex releases. Empty defaults to klugman-yanai/bmt-gcloud inside prepare.
+        required: false
+        type: string
+        default: ""
       release_git_sha:
         description: >
           Optional. When non-empty, the Plan job asserts that
@@ -63,19 +81,24 @@ on:
     inputs:
       ci_run_id:
         description: >
-          GitHub run ID of the workflow that triggered this dispatch workflow (e.g. build-and-test).
-          Used to download runner artifacts from that run.
-        required: true
+          Caller run_id listing runner-* artifacts. Omit when the handoff job runs in the same
+          workflow as the build (defaults to github.run_id).
+        required: false
         type: string
+        default: ""
       head_sha:
-        description: "Full commit SHA that BMT will run against (the ref under test)."
-        required: true
+        description: >
+          Commit under test. Omit for workflow_call to default from github.event.pull_request or
+          github.sha.
+        required: false
         type: string
+        default: ""
       head_branch:
         description: >
-          Branch name containing head_sha; used for run list, status checks, and display.
-        required: true
+          Branch under test. Omit for workflow_call to default from the PR head or ref_name.
+        required: false
         type: string
+        default: ""
       head_event:
         description: "Event that triggered the caller: push or pull_request."
         required: false
@@ -93,22 +116,28 @@ on:
         required: false
         type: string
         default: "[]"
-      use_mock_runner:
+      force_pass:
         description: >
-          Opt-in only: mock kardome_runner BMT for project sk. Default off.
+          When true, bmt_gate_passed is true even if dispatch fails (invoke-workflow --force-pass).
+          Pass from caller workflow only (no repo var).
         required: false
         type: boolean
         default: false
       cloud_run_region:
-        description: GCP region for Cloud Run jobs (callers pass vars.CLOUD_RUN_REGION; empty uses default below).
+        description: GCP region for Cloud Run (caller workflow `with:`).
         required: false
         type: string
-        default: "europe-west4"
+        default: ""
       bmt_status_context:
-        description: GitHub check/status context name for the BMT gate.
+        description: Commit status context name (caller workflow `with:`).
         required: false
         type: string
-        default: "BMT Gate"
+        default: ""
+      bmt_pex_repo:
+        description: owner/repo for bmt.pex releases (caller workflow `with:`; empty → klugman-yanai/bmt-gcloud).
+        required: false
+        type: string
+        default: ""
       release_git_sha:
         description: >
           Optional. When non-empty, the Plan job asserts that
@@ -121,13 +150,17 @@ on:
         default: ""
     outputs:
       bmt_gate_passed:
-        description: "True when dispatch to cloud runtime is confirmed (async execution continues outside this workflow)."
+        description: >
+          True when dispatch is confirmed, or when force_pass input enables the escape hatch
+          (may be true without a cloud execution).
         value: ${{ jobs.start_bmt_workflow.outputs.bmt_gate_passed }}
       bmt_dispatch_confirmed:
         description: "True when trigger dispatch to cloud runtime is confirmed."
         value: ${{ jobs.start_bmt_workflow.outputs.bmt_dispatch_confirmed }}
       bmt_final_state:
-        description: "Dispatch pipeline terminal state for this workflow (dispatched_async or dispatch_failed)."
+        description: >
+          Terminal state: dispatched_async, dispatch_failed, or forced_pass_dispatch_failed when
+          force_pass is set without a confirmed execution.
         value: ${{ jobs.start_bmt_workflow.outputs.bmt_final_state }}
       bmt_recovery_used:
         description: "True if context/dispatch failed and recovery fallback path ran."
@@ -137,32 +170,36 @@ on:
         value: ${{ jobs.start_bmt_workflow.outputs.bmt_recovery_used }}
 
 concurrency:
-  group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || github.ref_name || github.sha }}
+  group: bmt-${{ github.repository }}-${{ inputs.head_branch || github.event.inputs.head_branch || (github.event.pull_request && github.event.pull_request.head.ref) || github.head_ref || github.ref_name || github.sha }}
   cancel-in-progress: true
 
-# Canonical input resolution (workflow_dispatch + workflow_call). Use these expressions when passing ref/run-id to steps:
-#   head_sha:    inputs.head_sha || github.event.inputs.head_sha || github.sha
-#   head_branch: inputs.head_branch || github.event.inputs.head_branch || github.ref_name
-#   ci_run_id:   inputs.ci_run_id || github.event.inputs.ci_run_id
+# Resolved ref/run-id for workflow_dispatch + workflow_call (omit inputs on workflow_call to use caller github.*).
 env:
-  # All vars.* below are evaluated in the CALLER's repository context. Cross-repo callers
-  # (e.g. Kardome-org/core-main) MUST set: GCS_BUCKET, GCP_WIF_PROVIDER, GCP_SA_EMAIL,
-  # GCP_PROJECT. Everything BMT-specific is defaulted via inputs below or via the
-  # kardome-bmt PEX itself.
+  BMT_RESOLVED_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id || github.run_id }}
+  BMT_RESOLVED_HEAD_SHA: ${{ inputs.head_sha || github.event.inputs.head_sha || (github.event.pull_request && github.event.pull_request.head.sha) || github.sha }}
+  BMT_RESOLVED_HEAD_BRANCH: ${{ inputs.head_branch || github.event.inputs.head_branch || (github.event.pull_request && github.event.pull_request.head.ref) || github.head_ref || github.ref_name }}
+  BMT_RESOLVED_HEAD_EVENT: ${{ inputs.head_event || github.event.inputs.head_event || github.event_name }}
+  BMT_RESOLVED_PR_NUMBER: ${{ inputs.pr_number || github.event.inputs.pr_number || (github.event.pull_request && format('{0}', github.event.pull_request.number)) || '' }}
+  BMT_FORCE_PASS_RESOLVED: >-
+    ${{
+      (inputs.force_pass == true || github.event.inputs.force_pass == 'true') && 'true' || 'false'
+    }}
+  # vars.* below are evaluated in the CALLER repository. Cross-repo callers MUST set:
+  # GCS_BUCKET, GCP_WIF_PROVIDER, GCP_SA_EMAIL, GCP_PROJECT.
+  # Region, status context, PEX repo, and force_pass come from workflow_call / workflow_dispatch
+  # inputs only (declare them in the caller `with:` block — no repo vars).
   #
-  # BMT_PEX_TAG is intentionally NOT in this env block. The composite actions
-  # below self-discover their PEX release via `github.action_ref` on setup-bmt-pex
-  # (so `@bmt-v0.3.3` action code downloads the `bmt-v0.3.3` PEX — one pin, one
-  # source of truth). Consumers still set `vars.BMT_PEX_TAG` to pin the REUSABLE
-  # WORKFLOW `@ref` (e.g. `uses: .../bmt-handoff.yml@${{ vars.BMT_PEX_TAG }}`).
+  # PEX version: setup-bmt-pex resolves `github.action_ref` (or rolling tag
+  # `bmt-handoff` → latest `bmt-v*`). Consumers pin only the reusable workflow ref,
+  # e.g. `uses: .../bmt-handoff.yml@bmt-handoff` (rolling) or `@bmt-v0.3.4` (strict).
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
   GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
   GCP_PROJECT: ${{ vars.GCP_PROJECT }}
   # Defaults match docs/configuration.md and runtime/config/constants.py (DEFAULT_*).
-  CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || 'europe-west4' }}
-  BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || 'BMT Gate' }}
-  BMT_PEX_REPO: ${{ vars.BMT_PEX_REPO }}
+  CLOUD_RUN_REGION: ${{ inputs.cloud_run_region || github.event.inputs.cloud_run_region || 'europe-west4' }}
+  BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context || github.event.inputs.bmt_status_context || 'BMT Gate' }}
+  BMT_PEX_REPO: ${{ inputs.bmt_pex_repo || github.event.inputs.bmt_pex_repo || '' }}
 
 permissions:
   contents: read
@@ -202,21 +239,31 @@ jobs:
       # checkout below materializes only `plugins/projects/` under `_layout_probe/` and symlinks
       # it into the workspace root, leaving `.local/bmt/` from `setup-bmt-pex` untouched
       # (`actions/checkout` uses `path:` so it does not clobber the job workspace).
+      - name: Require ci_run_id for direct workflow_dispatch
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cid="${{ github.event.inputs.ci_run_id }}"
+          if [[ -z "${cid// }" ]]; then
+            echo "::error::workflow_dispatch requires input ci_run_id (Actions run_id that uploaded runner-* artifacts)."
+            exit 1
+          fi
       - id: prepare
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-prepare-context@bmt-v0.3.3
+        uses: ./.github/actions/bmt-prepare-context
         with:
-          ci_run_id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
-          head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha || github.sha }}
-          head_branch: ${{ inputs.head_branch || github.event.inputs.head_branch }}
-          head_event: ${{ inputs.head_event || github.event.inputs.head_event || 'push' }}
-          pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
+          ci_run_id: ${{ env.BMT_RESOLVED_CI_RUN_ID }}
+          head_sha: ${{ env.BMT_RESOLVED_HEAD_SHA }}
+          head_branch: ${{ env.BMT_RESOLVED_HEAD_BRANCH }}
+          head_event: ${{ env.BMT_RESOLVED_HEAD_EVENT }}
+          pr_number: ${{ env.BMT_RESOLVED_PR_NUMBER }}
           bmt_pex_repo: ${{ env.BMT_PEX_REPO }}
 
       - id: runner_artifacts_index
         env:
           GH_TOKEN: ${{ github.token }}
           OVERRIDE: ${{ inputs.available_artifacts }}
-          CI_RUN: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+          CI_RUN: ${{ env.BMT_RESOLVED_CI_RUN_ID }}
         run: |
           set -euo pipefail
           if [[ -n "${OVERRIDE}" && "${OVERRIDE}" != "[]" ]]; then
@@ -268,7 +315,8 @@ jobs:
             echo "::notice::No plugins/projects in sparse checkout at $probe — filter-upload-matrix uses repo layout probe only when the caller mirrors bmt-gcloud."
           fi
 
-      # Drift guard (Phase B.3 of docs/superpowers/plans/2026-04-18-ci-driven-release.md).
+      # Drift guard: assert bucket ``_state/release.json`` matches the commit under test
+      # (see docs/architecture.md and ci/kardome_bmt/release_marker.py).
       # Opt-in: when a caller (typically bmt-gcloud's own release.yml after its `mark`
       # job succeeds) passes `release_git_sha`, we assert that the bucket's
       # `_state/release.json` marker was written for that commit before we let any
@@ -276,7 +324,7 @@ jobs:
       # code under test, so the Cloud Run image / GCS plugins / Pulumi state downstream
       # jobs are about to consume could be stale — refuse to dispatch with an
       # actionable ::error::. Cross-repo callers (e.g. Kardome-org/core-main) don't
-      # pass this input; they rely on the pinned `vars.BMT_PEX_TAG` + reusable-workflow
+      # pass this input; they rely on the reusable-workflow @ref (e.g. @bmt-handoff or @bmt-v*)
       # `@ref` as their contract, so the step is a no-op for them.
       - name: Verify release marker (opt-in drift guard)
         if: ${{ (inputs.release_git_sha || github.event.inputs.release_git_sha) != '' }}
@@ -293,7 +341,7 @@ jobs:
           RUNNER_MATRIX: ${{ steps.prepare.outputs.runner_matrix }}
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+          BMT_CI_RUN_ID: ${{ env.BMT_RESOLVED_CI_RUN_ID }}
           AVAILABLE_ARTIFACTS: ${{ steps.runner_artifacts_index.outputs.json }}
         run: |
           "$BMT_PEX_PATH" handoff write-context
@@ -320,7 +368,7 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJson(needs.write_handoff_context.outputs.matrix_publish || '{"include":[]}') }}
     env:
-      BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+      BMT_CI_RUN_ID: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id || github.run_id }}
     steps:
       - name: Summarize action
         # Log-only annotation; the aggregated matrix table lives in the Plan job
@@ -347,7 +395,7 @@ jobs:
       - name: Setup BMT CLI (release PEX, no uv)
         if: matrix.upload_action == 'upload'
         # tag self-discovered from github.action_ref (bmt-v0.3.3)
-        uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3
+        uses: ./.github/actions/setup-bmt-pex
         with:
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
@@ -359,7 +407,7 @@ jobs:
           path: artifact-download
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}
+          run-id: ${{ env.BMT_RESOLVED_CI_RUN_ID }}
 
       - name: Normalize layout for bmt runner upload
         if: matrix.upload_action == 'upload'
@@ -471,52 +519,17 @@ jobs:
 
       - name: Setup BMT CLI (release PEX, no uv)
         # tag self-discovered from github.action_ref (bmt-v0.3.3)
-        uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3
+        uses: ./.github/actions/setup-bmt-pex
         with:
           repo: ${{ env.BMT_PEX_REPO != '' && env.BMT_PEX_REPO || 'klugman-yanai/bmt-gcloud' }}
 
       - id: classify
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-filter-handoff-matrix@bmt-v0.3.3
+        uses: ./.github/actions/bmt-filter-handoff-matrix
         with:
           head_sha: ${{ needs.write_handoff_context.outputs.head_sha }}
           runner_matrix: ${{ needs.write_handoff_context.outputs.runner_matrix }}
 
-      - name: Emit dispatch context
-        shell: bash
-        env:
-          FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix || '{"include":[]}' }}
-        run: |
-          set -euo pipefail
-          {
-            echo "## BMT Handoff Context"
-            echo ""
-            echo "- Head SHA: \`${{ needs.write_handoff_context.outputs.head_sha }}\`"
-            echo "- Head branch: \`${{ needs.write_handoff_context.outputs.head_branch }}\`"
-            echo "- Head event: \`${{ needs.write_handoff_context.outputs.head_event }}\`"
-            echo "- PR number: \`${{ needs.write_handoff_context.outputs.pr_number || 'n/a' }}\`"
-            echo "- Run context: \`${{ needs.write_handoff_context.outputs.run_context }}\`"
-            echo "- Classify path: \`${{ steps.classify.outputs.path || 'unknown' }}\`"
-            echo "- Has legs: \`${{ steps.classify.outputs.has_legs || 'false' }}\`"
-            echo "- Accepted projects: \`${{ steps.classify.outputs.accepted_projects || '[]' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo ""
-            echo "<details><summary>Filtered matrix (JSON)</summary>"
-            echo ""
-            echo '```json'
-            if printf '%s' "$FILTERED_MATRIX_JSON" | jq -e . >/dev/null 2>&1; then
-              printf '%s' "$FILTERED_MATRIX_JSON" | jq .
-            else
-              printf '%s' "$FILTERED_MATRIX_JSON"
-            fi
-            echo ""
-            echo '```'
-            echo ""
-            echo "</details>"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Validate dataset inputs (fail fast if no .wav files in GCS)
-        if: ${{ inputs.use_mock_runner != true }}
         env:
           GCS_BUCKET: ${{ env.GCS_BUCKET }}
           ACCEPTED_PROJECTS: ${{ steps.classify.outputs.accepted_projects }}
@@ -534,15 +547,19 @@ jobs:
           HEAD_BRANCH: ${{ needs.write_handoff_context.outputs.head_branch }}
           PR_NUMBER: ${{ needs.write_handoff_context.outputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          # Only explicit boolean true enables mock (matches build-and-test strict pass-through).
-          BMT_USE_MOCK_RUNNER: ${{ inputs.use_mock_runner == true && 'true' || 'false' }}
         run: |
           set -euo pipefail
           "$BMT_PEX_PATH" handoff write-context
-          "$BMT_PEX_PATH" dispatch invoke-workflow
+          if [[ "${{ env.BMT_FORCE_PASS_RESOLVED }}" == "true" ]]; then
+            "$BMT_PEX_PATH" dispatch invoke-workflow --force-pass
+          else
+            "$BMT_PEX_PATH" dispatch invoke-workflow
+          fi
 
       - name: Persist workflow execution snapshot
-        if: steps.invoke-workflow.outcome == 'success'
+        if: >-
+          steps.invoke-workflow.outcome == 'success'
+          && steps.invoke-workflow.outputs.dispatch_confirmed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -558,19 +575,6 @@ jobs:
             echo "workflow_execution_path=.local/diagnostics/workflow-execution.json"
           } > .local/diagnostics/manifest.txt
 
-      - name: Append runtime health snapshot
-        if: steps.invoke-workflow.outcome == 'success'
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo ""
-            echo "## Runtime Health Snapshot"
-            echo ""
-            echo "- workflow execution: \`${{ steps.invoke-workflow.outputs.workflow_execution_name }}\`"
-            echo "- workflow state: \`${{ steps.invoke-workflow.outputs.workflow_execution_state || 'UNKNOWN' }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Upload diagnostics artifact
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
@@ -581,8 +585,10 @@ jobs:
           retention-days: 7
 
       - name: Write dispatch summary (workflow execution confirmed)
-        if: steps.invoke-workflow.outcome == 'success'
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-write-summary@bmt-v0.3.3
+        if: >-
+          steps.invoke-workflow.outcome == 'success'
+          && steps.invoke-workflow.outputs.dispatch_confirmed == 'true'
+        uses: ./.github/actions/bmt-write-summary
         with:
           mode: run_success
           repository: ${{ github.repository }}
@@ -594,30 +600,19 @@ jobs:
           handshake_ok: "true"
           gcp_project: ${{ env.GCP_PROJECT }}
           gcs_bucket: ${{ env.GCS_BUCKET }}
-
-      - name: Append dispatch status summary
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo ""
-            echo "## Dispatch Status"
-            echo ""
-            echo "- classify: \`${{ steps.classify.outcome || 'n/a' }}\`"
-            echo "- workflow invoke: \`${{ steps.invoke-workflow.outcome || 'n/a' }}\`"
-            echo "- dispatch_confirmed: \`${{ steps.invoke-workflow.outputs.dispatch_confirmed || 'false' }}\`"
-            echo "- dispatch_reason: \`${{ steps.invoke-workflow.outputs.dispatch_reason || '' }}\`"
-            echo "- workflow_execution_name: \`${{ steps.invoke-workflow.outputs.workflow_execution_name || '' }}\`"
-            echo "- diagnostics artifact: \`bmt-handoff-diagnostics-${{ github.run_id }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          workflow_execution_url: ${{ steps.invoke-workflow.outputs.workflow_execution_url }}
+          workflow_execution_state: ${{ steps.invoke-workflow.outputs.workflow_execution_state || 'UNKNOWN' }}
+          dispatch_reason: ${{ steps.invoke-workflow.outputs.dispatch_reason || '' }}
+          diagnostics_artifact: bmt-handoff-diagnostics-${{ github.run_id }}
 
       # Failure fallback: GCP auth + PEX are still set up from earlier in this same job
       # (steps above), so no re-checkout / re-setup is needed. STATUS_CONTEXT is taken
       # from the workflow-level env (default 'BMT Gate', overridable via input).
       - name: Failure fallback
-        if: steps.invoke-workflow.outcome != 'success'
-        uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-failure-fallback@bmt-v0.3.3
+        if: >-
+          steps.invoke-workflow.outcome != 'success'
+          && env.BMT_FORCE_PASS_RESOLVED != 'true'
+        uses: ./.github/actions/bmt-failure-fallback
         with:
           handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
           setup_outputs: ${{ toJson(needs.write_handoff_context.outputs) }}
@@ -625,17 +620,42 @@ jobs:
           classify_result: ${{ steps.classify.outcome || 'failure' }}
           handoff_result: ${{ steps.invoke-workflow.outcome || 'failure' }}
           accepted_projects: ${{ steps.invoke-workflow.outputs.accepted_projects || steps.classify.outputs.accepted_projects || '[]' }}
-          dispatch_head_sha: ${{ inputs.head_sha || github.event.inputs.head_sha }}
-          dispatch_pr_number: ${{ inputs.pr_number || github.event.inputs.pr_number }}
+          dispatch_head_sha: ${{ needs.write_handoff_context.outputs.head_sha }}
+          dispatch_pr_number: ${{ needs.write_handoff_context.outputs.pr_number }}
           fallback_ref: ${{ github.sha }}
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
           gcp_project: ${{ env.GCP_PROJECT }}
           bmt_status_context: ${{ env.BMT_STATUS_CONTEXT }}
+          dispatch_reason: ${{ steps.invoke-workflow.outputs.dispatch_reason || '' }}
+          workflow_execution_url: ${{ steps.invoke-workflow.outputs.workflow_execution_url || '' }}
+          workflow_execution_state: ${{ steps.invoke-workflow.outputs.workflow_execution_state || '' }}
 
       - id: outcome
+        env:
+          HANDOFF_FORCE_PASS: ${{ env.BMT_FORCE_PASS_RESOLVED }}
+        shell: bash
         run: |
-          if [[ "${{ steps.invoke-workflow.outcome }}" == "success" ]]; then
+          set -euo pipefail
+          invoke_result="${{ steps.invoke-workflow.outcome }}"
+          disp="${{ steps.invoke-workflow.outputs.dispatch_confirmed }}"
+          if [[ "$HANDOFF_FORCE_PASS" == "true" ]]; then
+            if [[ "$invoke_result" == "success" && "$disp" == "true" ]]; then
+              {
+                echo "bmt_gate_passed=true"
+                echo "bmt_dispatch_confirmed=true"
+                echo "bmt_final_state=dispatched_async"
+                echo "bmt_recovery_used=false"
+              } >> "$GITHUB_OUTPUT"
+            else
+              {
+                echo "bmt_gate_passed=true"
+                echo "bmt_dispatch_confirmed=false"
+                echo "bmt_final_state=forced_pass_dispatch_failed"
+                echo "bmt_recovery_used=true"
+              } >> "$GITHUB_OUTPUT"
+            fi
+          elif [[ "$invoke_result" == "success" && "$disp" == "true" ]]; then
             {
               echo "bmt_gate_passed=true"
               echo "bmt_dispatch_confirmed=true"
@@ -650,6 +670,15 @@ jobs:
               echo "bmt_recovery_used=true"
             } >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Forced pass notice (no confirmed cloud dispatch)
+        if: >-
+          always()
+          && env.BMT_FORCE_PASS_RESOLVED == 'true'
+          && steps.outcome.outputs.bmt_dispatch_confirmed != 'true'
+        shell: bash
+        run: |
+          echo "::warning::BMT handoff force pass is set: job is green without a confirmed Workflows execution; cloud BMT was not started from this handoff."
 
       - name: Fail job when BMT did not pass
         if: steps.outcome.outputs.bmt_gate_passed != 'true'

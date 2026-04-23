@@ -43,7 +43,7 @@ EXCLUDE_ACTIONS = {"check-image-up-to-date"}
 EXCLUDE_COPY = {"__pycache__", ".venv"}
 # Workflows that exist in .github/workflows/ but must NOT ship to consumer repos.
 # release.yml orchestrates bmt-gcloud's own four-surface CI-driven release flow
-# (see docs/superpowers/plans/2026-04-18-ci-driven-release.md); consumers pin
+# (see docs/architecture.md / release.yml); consumers pin
 # bmt.pex + composite actions at a tag and never trigger it themselves.
 EXCLUDE_ROOT_WORKFLOWS = {"release.yml"}
 
@@ -210,7 +210,7 @@ def _generate_manifest(provenance: dict, *, skip_secrets: bool) -> None:
         "| `workflows/*.yml` | `.github/workflows/` root only (excl. `*-dev.yml`) |\n"
         "| `workflows/internal/*.yml` | `scripts/release_templates/workflows/*.yml` (excl. duplicate `clang-format-auto-fix.yml`) |\n"
         "| `actions/*/action.yml` | `.github/actions/` (`check-image-up-to-date` excluded) |\n"
-        "| `bmt/ci/` | `.github/bmt/ci/` |\n"
+        "| `bmt/ci/` | `ci/kardome_bmt/` (legacy bundle path under `.github-release/`) |\n"
         f"{pem_row}"
         "| `actionlint.yaml` | `scripts/release_templates/actionlint.yaml` |\n\n"
         "## Deploy\n\n"

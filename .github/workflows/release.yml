@@ -19,7 +19,7 @@ name: Release
 # invoke the handoff — the existing path stays authoritative until Phase C
 # cutover. Observe two+ green runs here before flipping.
 #
-# See docs/superpowers/plans/2026-04-18-ci-driven-release.md.
+# See docs/architecture.md and docs/configuration.md (release marker + consumer pinning).
 
 on:
   push:
@@ -293,7 +293,7 @@ jobs:
   #
   # The fix is a bulk `pulumi import` exercise run from an admin workstation,
   # followed by drift reconciliation so `pulumi preview` is a clean no-op.
-  # Tracked in docs/superpowers/plans/2026-04-20-pulumi-state-import.md.
+  # Operational import backlog (infra/README.md, docs/configuration.md).
   # Once that lands, Phase 3.2 re-introduces this job.
   #
   # In the interim: `pulumi_stack_sha` in the release marker is null. That's
@@ -386,7 +386,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           RELEASE_IMAGE_DIGEST: ${{ needs.image.outputs.image_digest }}
           RELEASE_PLUGINS_SHA: ${{ needs.plugins.outputs.plugins_sha }}
-          RELEASE_PULUMI_STACK_SHA: ""  # descoped; see docs/superpowers/plans/2026-04-20-pulumi-state-import.md
+          RELEASE_PULUMI_STACK_SHA: ""  # descoped until Pulumi runs from CI again (infra/README.md).
           RELEASE_PEX_TAG: ${{ steps.pex_tag.outputs.pex_tag }}
         run: uv run kardome-bmt release mark
 

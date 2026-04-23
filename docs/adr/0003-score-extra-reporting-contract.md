@@ -6,7 +6,7 @@ Accepted (2026-03-23)
 
 ## Context
 
-BMT legs produce [`LegSummary`](../../gcp/image/runtime/models.py) with [`ScorePayload`](../../gcp/image/runtime/models.py): `aggregate_score`, `metrics`, and `extra`. Multiple projects and BMTs can coexist; each [`BmtPlugin`](../../gcp/image/runtime/sdk/plugin.py) may attach **plugin-specific** metadata for GitHub Checks and GCS snapshots.
+BMT legs produce [`LegSummary`](../../runtime/models.py) with [`ScorePayload`](../../runtime/models.py): `aggregate_score`, `metrics`, and `extra`. Multiple projects and BMTs can coexist; each [`BmtPlugin`](../../sdk/bmt_sdk/plugin.py) may attach **plugin-specific** metadata for GitHub Checks and GCS snapshots.
 
 The presentation layer must stay **generic**: it should branch on **declared structure** in `extra`, not on `project` or `bmt_slug`.
 
@@ -37,9 +37,9 @@ The presentation layer must stay **generic**: it should branch on **declared str
 ## Consequences
 
 - New plugins SHOULD document their `extra` / `metrics` shapes (short appendix or follow-up ADR).
-- GitHub Checks output MUST respect API size limits; [`github_checks`](../gcp/image/github/github_checks.py) clamps UTF-8 byte length for `summary` / `text`.
+- GitHub Checks output MUST respect API size limits; [`github_checks`](../../runtime/github/github_checks.py) clamps UTF-8 byte length for `summary` / `text`.
 
 ## References
 
 - [`docs/architecture.md`](../architecture.md) — pipeline and storage
-- [`gcp/image/github/presentation.py`](../../gcp/image/github/presentation.py) — Check Run Markdown
+- [`runtime/github/presentation.py`](../../runtime/github/presentation.py) — Check Run Markdown

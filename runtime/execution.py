@@ -12,7 +12,6 @@ from bmt_sdk.models import (
     RunnerConfigView,
 )
 
-from runtime.config.bmt_domain_status import BmtLegStatus
 from runtime.models import (
     BmtManifest,
     ExecutionPlan,
@@ -55,20 +54,7 @@ def _make_project_view(p: ProjectManifest) -> ProjectManifestView:
 
 
 def execute_leg(*, plan: ExecutionPlan, leg: PlanLeg, runtime: StageRuntimePaths) -> LegSummary:
-    use_mock = plan.use_mock_runner
     del plan
-    if use_mock:
-        return LegSummary(
-            project=leg.project,
-            bmt_slug=leg.bmt_slug,
-            bmt_id=leg.bmt_id,
-            run_id=leg.run_id,
-            status=BmtLegStatus.PASS.value,
-            reason_code="bootstrap_without_baseline",
-            plugin_ref=leg.plugin_ref,
-            execution_mode_used="mock",
-            score=ScorePayload(aggregate_score=0.0),
-        )
     manifest_path = runtime.stage_root / leg.manifest_path
     # Use from_flat_file for flat-layout manifests (any non-bmt.json file)
     # so path-derived fields (project, bmt_slug, prefixes) are filled in.

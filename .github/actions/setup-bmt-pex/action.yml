@@ -10,17 +10,15 @@ description: >
 inputs:
   tag:
     description: >-
-      Release tag containing bmt.pex. Defaults to this action's own ref, so
-      `uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.3`
-      self-discovers `bmt-v0.3.3` for the download. Override only for cross-
-      version testing. When invoking via `@<sha>` or `@<branch>` (not a release
-      tag) you must pass `tag:` explicitly.
+      Release tag containing bmt.pex. Defaults to github.action_ref (the ref that
+      loaded this action). Special case: ref `bmt-handoff` resolves to the latest
+      semver `bmt-v*` release on `repo`. For `@<sha>` or `@<branch>` when action_ref
+      is not `bmt-v*` or `bmt-handoff`, pass `tag: bmt-v0.3.x` explicitly.
     required: false
     default: ${{ github.action_ref }}
   repo:
     description: >
-      owner/name of the repo that published bmt.pex. Defaults to klugman-yanai/bmt-gcloud;
-      override via vars.BMT_PEX_REPO once the publishing repo moves under Kardome-org.
+      owner/name of the repo that published bmt.pex. Defaults to klugman-yanai/bmt-gcloud when empty.
     required: false
     default: klugman-yanai/bmt-gcloud
   python_version:
@@ -41,21 +39,33 @@ runs:
   steps:
     - name: Validate inputs
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
+        repo="${{ inputs.repo }}"
         tag="${{ inputs.tag }}"
         if [[ -z "$tag" ]]; then
-          echo "::error::setup-bmt-pex: tag is required; could not self-discover from github.action_ref ('${{ github.action_ref }}'). Pass `with: tag: bmt-v0.3.x` explicitly."
+          echo "::error::setup-bmt-pex: tag is required; could not self-discover from github.action_ref ('${{ github.action_ref }}'). Pass \`with: tag: bmt-v0.3.x\` explicitly."
           exit 1
         fi
-        # Self-discovery via github.action_ref only works when invoked at a
-        # release tag (`bmt-v*`). If someone called this action at @<sha> or
-        # @<branch>, action_ref is not a release tag and `gh release download`
-        # will fail with a confusing 404. Guard here with a clear message.
+        if [[ "$tag" == "bmt-handoff" ]]; then
+          tag=$(gh release list --repo "$repo" --exclude-drafts --limit 150 \
+            --json tagName --jq -r '.[].tagName' \
+            | grep -E '^bmt-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          if [[ -z "$tag" ]]; then
+            echo "::error::setup-bmt-pex: could not resolve rolling ref bmt-handoff to a semver bmt-v* release on $repo"
+            exit 1
+          fi
+          echo "::notice::setup-bmt-pex: resolved bmt-handoff → ${tag} for PEX download"
+        fi
         if [[ "$tag" != bmt-v* ]]; then
-          echo "::error::setup-bmt-pex: resolved tag '$tag' is not a bmt-v* release tag. If you invoked this action via @<sha> or @<branch>, pass `with: tag: bmt-v0.3.x` explicitly."
+          echo "::error::setup-bmt-pex: tag '$tag' is not a bmt-v* release tag after resolution. If you invoked this action via @<sha> or @<branch>, pass \`with: tag: bmt-v0.3.x\` explicitly."
           exit 1
         fi
+        {
+          echo "BMT_PEX_DOWNLOAD_TAG=${tag}"
+        } >> "$GITHUB_ENV"
 
     - name: Setup Python for PEX
       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -70,7 +80,7 @@ runs:
         set -euo pipefail
         out="${GITHUB_WORKSPACE}/${{ inputs.out_path }}"
         mkdir -p "$out"
-        gh release download "${{ inputs.tag }}" \
+        gh release download "${BMT_PEX_DOWNLOAD_TAG}" \
           -R "${{ inputs.repo }}" \
           -p "bmt.pex" \
           -D "$out"

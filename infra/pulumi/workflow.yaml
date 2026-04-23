@@ -55,8 +55,6 @@ main:
                               value: ${args.accepted_projects_json}
                             - name: BMT_STATUS_CONTEXT
                               value: ${default(map.get(args, "status_context"), "BMT Gate")}
-                            - name: BMT_USE_MOCK_RUNNER
-                              value: ${default(map.get(args, "use_mock_runner_str"), "false")}
                             - name: BMT_WORKFLOW_EXECUTION_URL
                               value: ${workflow_console_url}
                 result: plan_job_execution

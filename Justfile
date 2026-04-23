@@ -19,7 +19,7 @@ tools *args:
 [group('validate')]
 doctor:
     uv run vulture runtime/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
-    uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 runtime/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py ci/ci/workflow_dispatch.py
+    uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 runtime/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py ci/kardome_bmt/workflow_dispatch.py
 
 [group('validate')]
 typecheck section="all":
@@ -330,17 +330,6 @@ release-check:
 build-pex:
     bash scripts/build_kardome_bmt_pex.sh
 
-# Drive the full SK pipeline locally over a curated 1-passer / 2-crasher WAV subset.
-# Validates the plugin tolerance flip without touching GCS / GitHub. See script header.
-[group('dev')]
-sk-local-pipeline *args:
-    uv run python tools/scripts/run_sk_local_pipeline.py {{ args }}
-
-# Run kardome_runner once with production-style JSON for diffing / parser work. See script header.
-[group('dev')]
-runner-one-wav *args:
-    uv run python tools/scripts/kardome_runner_one_wav_logged.py {{ args }}
-
 # -- Local CI ----------------------------------------------------------------
 
 # Default: workflow_dispatch on build-and-test.yml. For handoff or internal/trigger-ci, run act with -W yourself or see .github/README.md.
@@ -377,7 +366,22 @@ docker-run-test *args:
 docker-push:
     bash tools/scripts/just_docker_push.sh
 
-# -- E2E Tests ---------------------------------------------------------------
+# -- E2E / debug ---------------------------------------------------------------
+
+# Print gs:// URIs for SK batch-probe raw logs (stdout/stderr/meta) after a Cloud Run task.
+# Requires GCS_BUCKET. Example: `just sk-print-batch-probe-logs 12345-false_rejects false_rejects`
+[group('debug')]
+sk-print-batch-probe-logs run_id bmt_slug="false_rejects":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${GCS_BUCKET:?set GCS_BUCKET to your train bucket}"
+    R="{{ run_id }}"
+    S="{{ bmt_slug }}"
+    P="gs://${GCS_BUCKET}/projects/sk/results/${S}/snapshots/${R}/logs"
+    echo "stdout : ${P}/batch_probe.stdout.log"
+    echo "stderr : ${P}/batch_probe.stderr.log"
+    echo "meta   : ${P}/batch_probe.meta.txt"
+    echo "view   : gcloud storage cat \"${P}/batch_probe.stdout.log\""
 
 # Placeholder: previous recipe mixed invalid Just syntax (@printf multiline, finally:). Restore from git history if needed.
 e2e-test-cloud-run:

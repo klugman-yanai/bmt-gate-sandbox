@@ -39,13 +39,25 @@ inputs:
     description: GCP project ID; pass env.GCP_PROJECT (already authenticated via WIF in the caller job).
     required: true
   bmt_status_context:
-    description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
+    description: Status check name for branch protection (e.g. BMT Gate). Pass from caller workflow env.
     required: false
     default: "BMT Gate"
   accepted_projects:
     description: JSON array of cloud job subtask project names from classify (e.g. ["sk"])
     required: false
     default: "[]"
+  dispatch_reason:
+    description: kardome-bmt dispatch reason when invoke produced outputs
+    required: false
+    default: ""
+  workflow_execution_url:
+    description: GCP console URL when invoke partially recorded an execution
+    required: false
+    default: ""
+  workflow_execution_state:
+    description: Workflow execution state when known
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -145,7 +157,7 @@ runs:
 
     - name: Write handoff summary (failure)
       if: always()
-      uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-write-summary@bmt-v0.3.3
+      uses: ./.github/actions/bmt-write-summary
       with:
         mode: failure
         repository: ${{ github.repository }}
@@ -158,4 +170,10 @@ runs:
         failure_reason: ${{ steps.reason.outputs.reason }}
         gcp_project: ${{ inputs.gcp_project }}
         gcs_bucket: ${{ env.GCS_BUCKET }}
+        classify_outcome: ${{ inputs.classify_result }}
+        invoke_outcome: ${{ inputs.handoff_result }}
+        dispatch_reason: ${{ inputs.dispatch_reason }}
+        workflow_execution_url: ${{ inputs.workflow_execution_url }}
+        workflow_execution_state: ${{ inputs.workflow_execution_state }}
+        diagnostics_artifact: bmt-handoff-diagnostics-${{ github.run_id }}
 

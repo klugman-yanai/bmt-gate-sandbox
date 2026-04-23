@@ -55,6 +55,47 @@ def validate_layout() -> None:
     raise typer.Exit(0)
 
 
+@app.command("core-main-build-matrix")
+def core_main_build_matrix(
+    repo: Annotated[Path, typer.Argument(help="core-main checkout with CMakePresets.json.")],
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print matrix JSON (same shape as CI extract-presets)."),
+    ] = False,
+    do_build: Annotated[
+        bool,
+        typer.Option(
+            "--build",
+            help="Run cmake configure and build for each row.",
+        ),
+    ] = False,
+    strict_only: Annotated[
+        bool,
+        typer.Option(
+            "--strict-only",
+            help="Only rows that are not soft_fail in CI.",
+        ),
+    ] = False,
+    max_builds: Annotated[
+        int | None,
+        typer.Option("--max", help="Max rows after filters."),
+    ] = None,
+) -> None:
+    """List or build the core-main CMake preset matrix (see core-main build-and-test workflow)."""
+    from tools.repo.core_main_matrix_runner import print_matrix_json, run_matrix
+
+    if not repo.is_dir():
+        typer.echo(f"Not a directory: {repo}", err=True)
+        raise typer.Exit(2)
+    if not (repo / "CMakePresets.json").is_file():
+        typer.echo(f"Missing CMakePresets.json under {repo}", err=True)
+        raise typer.Exit(2)
+    if as_json:
+        print_matrix_json(repo)
+        raise typer.Exit(0)
+    raise typer.Exit(run_matrix(repo, build=do_build, strict_only=strict_only, max_builds=max_builds))
+
+
 @app.command("core-main-workflows")
 def core_main_workflows(
     path: Annotated[

@@ -5,7 +5,7 @@ Each function is side-effect-free and returns either a string fingerprint or
 ``None`` should be fatal). The workflow composes the fingerprints into a single
 ``gs://$BUCKET/_state/release.json`` via the ``bmt release mark`` CLI.
 
-See ``docs/superpowers/plans/2026-04-18-ci-driven-release.md``.
+See ``docs/architecture.md`` (handoff + release marker) and ``.github/workflows/release.yml``.
 """
 
 from __future__ import annotations

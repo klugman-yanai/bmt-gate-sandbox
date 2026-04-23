@@ -34,7 +34,7 @@ The design **trades** a single long-lived worker for **horizontal parallelism**,
 | ----- | ---- |
 | **GitHub Actions** | Build, test, upload runner artifacts, validate config, **start** a Workflows execution, **exit** without waiting for BMT completion. |
 | **Google Cloud Workflows** | Orchestrates **plan** job, **N task** jobs (standard/heavy profiles), then **coordinator**; encodes barriers between stages. |
-| **Cloud Run Jobs** | Run the packaged runtime (`gcp/image/bmt`): plan mode, task mode (one leg per index), coordinator mode, dataset-import, etc. |
+| **Cloud Run Jobs** | Run the packaged **`bmt-runtime`** image (`runtime/`): plan mode, task mode (one leg per index), coordinator mode, dataset-import, etc. |
 | **GCS** | Shared **artifact store** and **coordination plane**: plans, progress, summaries, reporting metadata, snapshots, pointers, log dumps. |
 | **GitHub API** | Commit status, Check Runs, optional comments; authenticated via **GitHub App** installation tokens from the runtime. |
 
@@ -48,7 +48,7 @@ The high-level sequence matches [architecture.md](architecture.md):
 
 1. Actions authenticates to GCP (OIDC / WIF), then calls the **Workflow Executions API** to start the named workflow with a JSON **argument** (correlation id, repo metadata, etc.).
 2. **Plan** job: reads enabled BMT manifests under the stage layout, partitions legs (e.g. standard vs heavy), writes **`triggers/plans/<workflow_run_id>.json`**, and may create **in-progress** Check Run metadata under **`triggers/reporting/`**.
-3. **Task** jobs: each job reads the frozen plan, selects **one leg** via `CLOUD_RUN_TASK_INDEX`, runs the plugin and runner, **evaluates** against baseline (using prior **`current.json`** / snapshots), writes **snapshots** and **leg summaries** under **`triggers/summaries/`**, updates progress, and calls **`publish_progress`** for the Check Run.
+3. **Task** jobs: each job reads the frozen plan, selects **one leg** via `CLOUD_RUN_TASK_INDEX`, runs the plugin and runner, **evaluates** inside the plugin (framework passes `baseline=None` unless the plugin loads prior data), writes **snapshots** and **leg summaries** under **`triggers/summaries/`**, updates progress, and calls **`publish_progress`** for the Check Run.
 4. **Coordinator** job: loads **all** leg summaries, updates **`current.json`** per results root, **prunes** snapshots not retained by the pointer, **finalizes** GitHub (status / Check Run / optional PR comment), **deletes** ephemeral `triggers/` objects for the run.
 
 Detailed diagrams and step tables: [pipeline-dag.md](pipeline-dag.md).
@@ -59,13 +59,13 @@ The **`bmt-handoff.yml`** workflow (callable / dispatch) performs prerequisite c
 
 ### 4.3 Gating semantics
 
-**Baseline comparison and per-leg pass/fail** are intended to occur in the **task** (plugin `evaluate`). The **coordinator** merges **leg outcomes** into new pointer values and **does not re-score**. If task and coordinator disagree on what “done” means (e.g. missing summary treated as failure — §11.1), GitHub and GCS can reflect different stories.
+**Per-leg pass/fail** is decided in the **task** (plugin `evaluate`). The **coordinator** merges **leg outcomes** into new pointer values and **does not re-score**. If task and coordinator disagree on what “done” means (e.g. missing summary treated as failure — §11.1), GitHub and GCS can reflect different stories.
 
 ---
 
-## 5. Runtime contract (`gcp/image/bmt`)
+## 5. Runtime contract (`runtime/`)
 
-The active runtime lives under [`gcp/image/bmt`](../gcp/image/bmt) (see [architecture.md](architecture.md)).
+The active runtime lives under [`runtime/`](../runtime) (package **`bmt-runtime`**; see [architecture.md](architecture.md)).
 
 | Mode | Responsibility |
 | ---- | ---------------- |
@@ -81,7 +81,7 @@ The old **VM watcher / root orchestrator / per-project `bmt_manager`** stack is 
 ## 6. Storage model
 
 - **Bucket root** mirrors [`gcp/stage`](../gcp/stage) (see [architecture.md](architecture.md)).
-- **Immutable** plugin bundles: `projects/<project>/plugins/<plugin>/sha256-<digest>/...`
+- **Published plugin assets** (optional): `projects/<project>/plugins/<plugin>/sha256-<digest>/...`; Python **`BmtPlugin`** code loads from `projects/<project>/plugin.py`
 - **Datasets:** `projects/<project>/inputs/<dataset>/...`
 - **Results:** `projects/<project>/results/<bmt_slug>/` with **`current.json`** and **`snapshots/<run_id>/`**
 
@@ -113,7 +113,7 @@ GCS is **not** a transactional database. The system relies on:
 2. **Explicit staging:** Plan → parallel tasks → coordinator yields clear ownership and audit artifacts (frozen plan, per-leg summaries).
 3. **Horizontal scaling:** One task per leg, with **standard** vs **heavy** job profiles, avoids a single bottleneck process.
 4. **Auditable inputs:** The plan file answers “what was scheduled for this workflow run?”
-5. **Separation of packages:** `.github/bmt/ci/` (CI CLI and handoff), `gcp/image/runtime/` (orchestration), `tools/` (local dev) map to different deployment surfaces.
+5. **Separation of packages:** `ci/kardome_bmt/` (PEX / `kardome-bmt` CLI and handoff), `runtime/` (Cloud Run orchestration), `tools/` (local dev) map to different deployment surfaces.
 6. **Security direction:** WIF from Actions to GCP; GitHub App + short-lived tokens at runtime — **when fully wired**, avoids long-lived keys in CI.
 
 ---
@@ -124,7 +124,7 @@ This is a **conceptual** map, not a literal package layout.
 
 | Layer | Contents |
 | ----- | -------- |
-| **Domain core** | Leg evaluation: load inputs, run runner/plugin, parse scores, compare to baseline, produce **leg verdict** and snapshot payloads. |
+| **Domain core** | Leg evaluation: load inputs, run runner/plugin, parse scores, plugin `evaluate` → **leg verdict** and snapshot payloads. |
 | **Inbound ports** | Workflow/task invocation (env: `BMT_WORKFLOW_RUN_ID`, `CLOUD_RUN_TASK_INDEX`, profile), frozen **plan** JSON, BMT manifests. |
 | **Outbound ports** | **Object store** (read/write plans, summaries, snapshots, pointers), **GitHub** (checks, status), **secrets** (App key via Secret Manager), **logging/metrics**. |
 | **Adapters** | `gcs` helpers in CI; runtime artifact writers/readers; `github_reporting` / PyGithub wrappers; Workflows API client. |
@@ -143,7 +143,7 @@ This is a **conceptual** map, not a literal package layout.
 ### 10.2 Contract fragility
 
 - Changes to **plan**, **summary**, or **pointer** shapes require coordinated updates across **Workflows**, Cloud Run images, and possibly **CI** validators.
-- **Duplication** of trigger/path logic between `.github/bmt/ci/`, `gcp/image/runtime/artifacts.py`, and `tools/shared/trigger_uris.py` (parity often **asserted in comments**, not enforced by a single module) increases **drift risk**.
+- **Duplication** of trigger/path logic between `ci/kardome_bmt/`, `runtime/artifacts.py`, and `tools/shared/trigger_uris.py` (parity often **asserted in comments**, not enforced by a single module) increases **drift risk**.
 
 ### 10.3 Operational surface area
 
@@ -159,9 +159,9 @@ This is a **conceptual** map, not a literal package layout.
 
 ### 11.1 Duplicate `results_path` / pointer collision
 
-**`build_plan()`** (`gcp/image/runtime/planning.py`) appends one **`PlanLeg` per enabled manifest** but does **not** enforce uniqueness of **`results_path`** across legs.
+**`build_plan()`** (`runtime/planning.py`) appends one **`PlanLeg` per enabled manifest** but does **not** enforce uniqueness of **`results_path`** across legs.
 
-The **coordinator** (`run_coordinator_mode` in `gcp/image/runtime/entrypoint.py`) loops each leg and, for each:
+The **coordinator** (`run_coordinator_mode` in `runtime/entrypoint.py`) loops each leg and, for each:
 
 - Resolves **`results_root = stage_root / leg.results_path`**
 - Reads/writes **`current.json`** and **prunes snapshots** under that root
@@ -183,7 +183,7 @@ That conflates:
 
 ### 11.3 GitHub outcome can diverge from GCS
 
-**`gcp/image/runtime/github_reporting.py`** catches `GithubException` (not broad `Exception`) but
+**`runtime/github_reporting.py`** catches `GithubException` (not broad `Exception`) but
 without retry — a single transient GitHub API error on `finalize_check_run` silently logs a warning
 and moves on. **GCS** will already reflect the true BMT outcome while **GitHub Checks** may remain
 stale.
@@ -192,7 +192,7 @@ stale.
 
 ### 11.4 `object_exists` swallows infrastructure errors — RESOLVED
 
-**Status: Fixed.** The implementation in **`.github/bmt/ci/gcs.py`** now raises `GcsError` for
+**Status: Fixed.** The implementation in **`ci/kardome_bmt/gcs.py`** now raises `GcsError` for
 all non-404 failures, not `False`. Callers see `GcsError` on auth failure, quota, or network
 error — distinct from `False` for a legitimate missing object.
 
@@ -200,11 +200,11 @@ Current implementation (`gcs.py:107–122`):
 
 ```python
 def object_exists(uri: str) -> bool:
-    “””Return True if the GCS object exists.
+    """Return True if the GCS object exists.
 
     Raises :exc:`ValueError` for invalid ``gs://`` URIs. Propagates :exc:`GcsError` on
-    GCS/network/auth failures so callers do not treat infrastructure errors as “missing”.
-    “””
+    GCS/network/auth failures so callers do not treat infrastructure errors as "missing".
+    """
     try:
         bucket_name, path = parse_gs_uri(uri)
         client = _get_client()
@@ -214,7 +214,7 @@ def object_exists(uri: str) -> bool:
     except ValueError:
         raise
     except Exception as exc:
-        raise GcsError(f”Failed to check existence of {uri}: {exc}”) from exc
+        raise GcsError(f"Failed to check existence of {uri}: {exc}") from exc
 ```
 
 ### 11.5 Workflows dispatch: retry on safe transient errors — RESOLVED
@@ -224,20 +224,17 @@ on `ConnectionError`, HTTP 429, and HTTP 503 — conditions where the server pro
 start an execution. Timeout and HTTP 500 are still not retried (ambiguous: server may have
 processed the request, retrying risks duplicate executions).
 
-### 11.6 CI ↔ `gcp.image` import coupling — RESOLVED
+### 11.6 CI ↔ runtime import coupling — RESOLVED
 
-**Status: Fixed.** All `gcp.image.config.*` imports in the CI layer are now routed through
-**`.github/bmt/ci/bmt_constants.py`** — a thin re-export facade. Refactors under `gcp/image/config/`
-only require updating `bmt_constants.py`; callers in `core.py`, `workflow_dispatch.py`, etc. are
-insulated from internal renames.
+**Status: Fixed.** CI imports shared symbols through **`ci/kardome_bmt/bmt_constants.py`**, a thin re-export over **`runtime.config`**. Refactors under `runtime/config/` should update `bmt_constants.py` so `core.py`, `workflow_dispatch.py`, and similar callers keep a stable boundary.
 
 ### 11.7 Broad exception handling elsewhere
 
-Patterns such as **`except Exception`** in **`ci/github.py`**, **`download_json`** / **`load_context_from_file`** in **`ci/config.py`**, and runtime reporting **collapse** error types and can **hide** validation failures.
+Patterns such as **`except Exception`** in **`ci/kardome_bmt/github.py`**, **`download_json`** / **`load_context_from_file`** in **`ci/kardome_bmt/config.py`**, and runtime reporting **collapse** error types and can **hide** validation failures.
 
 ### 11.8 Large orchestration modules
 
-**`gcp/image/runtime/entrypoint.py`** centralizes multiple modes; CI **handoff** aggregates many steps. This **concentrates** failure modes and can make **unit test coverage** uneven for rare branches.
+**`runtime/entrypoint.py`** centralizes multiple modes; CI **handoff** aggregates many steps. This **concentrates** failure modes and can make **unit test coverage** uneven for rare branches.
 
 ---
 
@@ -258,7 +255,7 @@ See [configuration.md](configuration.md) for variable and secret names.
 
 Canonical runtime description: [architecture.md](architecture.md) (Workflows + Cloud Run; VM stack removed).
 
-**AGENTS.md**, **CLAUDE.md**, and the **docs hub** are maintained to match **Workflows + Cloud Run** (see [architecture.md](architecture.md)). If you find leftover VM-era wording in any file, treat it as a bug and fix or remove it (except historical notes under `docs/archive/`).
+**AGENTS.md**, **CLAUDE.md**, and the **docs hub** are maintained to match **Workflows + Cloud Run** (see [architecture.md](architecture.md)). If you find leftover VM-era wording in any file, treat it as a bug and fix or remove it.
 
 ---
 

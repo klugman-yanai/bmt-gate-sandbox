@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from runtime.config.bmt_domain_status import BmtLegStatus
 from runtime.github.presentation import (
     CheckFinalView,
     CheckProgressView,
@@ -10,6 +11,7 @@ from runtime.github.presentation import (
     LiveLinks,
     ProgressBmtRow,
     StartedCommentView,
+    check_run_tab_refresh_hint_bullet,
     multi_leg_score_scope_markdown,
     render_final_check_output,
     render_final_pr_comment,
@@ -37,8 +39,19 @@ def test_render_started_pr_comment_is_short_and_human_readable() -> None:
         in rendered
     )
     assert "Detailed progress: see the **BMT Gate** check" in rendered
+    assert "**Checks tab:**" in rendered
+    assert "milestone" in rendered.lower()
     assert "<details>" not in rendered
     assert "| Project |" not in rendered
+
+
+def test_check_run_tab_refresh_hint_respects_interval_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    from runtime.config import constants as c
+
+    monkeypatch.setenv(c.ENV_BMT_CHECK_RUN_DETAIL_PUBLISH_INTERVAL_SEC, "45")
+    hint = check_run_tab_refresh_hint_bullet()
+    assert "45s" in hint
+    assert "at most every" in hint
 
 
 def test_render_final_success_pr_comment_stays_brief() -> None:
@@ -58,6 +71,7 @@ def test_render_final_success_pr_comment_stays_brief() -> None:
         in rendered
     )
     assert "- Full details: see the **BMT Gate** check" in rendered
+    assert "**Checks tab:**" in rendered
     assert "Failed BMTs:" not in rendered
     assert "| Project |" not in rendered
 
@@ -78,6 +92,8 @@ def test_render_final_failure_pr_comment_lists_failed_bmts_without_table() -> No
     assert "## BMT Failed" in rendered
     assert "One or more BMTs failed for `fedcba9`." in rendered
     assert "- Failure log dump: [3-day link](https://example.test/log-dump)" in rendered
+    assert "- Full details: see the **BMT Gate** check" in rendered
+    assert "**Checks tab:**" in rendered
     assert "Failed BMTs:" in rendered
     assert "- `false_rejects`: score dropped below baseline" in rendered
     assert "- `false_alarms`: the runner timed out" in rendered
@@ -111,11 +127,43 @@ def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     assert "- Elapsed: `2m 5s`" in output["summary"]
     assert "- ETA: `5m 0s`" in output["summary"]
     assert "| Project |" not in output["summary"]
-    assert "context note" in output["summary"].lower()
+    assert "per-file scores" in output["summary"].lower()
     text = output.get("text") or ""
     assert "| Project | BMT | Status | Avg. | Tests | Duration |" in text
     assert "| sk | false_rejects | Complete | 12.34 | — | 1m 1s |" in text
     assert "| sk | false_alarms | Running | — | — | — |" in text
+    assert "### Per-file scores" not in text
+
+
+def test_render_progress_check_output_includes_per_file_when_leg_finished() -> None:
+    output = render_progress_check_output(
+        CheckProgressView(
+            completed_count=1,
+            total_count=1,
+            elapsed_sec=1,
+            eta_sec=None,
+            links=LiveLinks(workflow_execution_url=""),
+            bmts=[
+                ProgressBmtRow(
+                    project="sk",
+                    bmt="false_rejects",
+                    status=BmtLegStatus.PASS.value,
+                    has_completed_summary=True,
+                    aggregate_score=1.0,
+                    cases_detail="1/1 ok",
+                    score_direction_label="lower better",
+                    score_extra={"scoring_policy": {"primary_metric": "namuh_count"}},
+                    case_outcomes=[
+                        {"case_id": "f.wav", "status": "ok", "namuh_count": 1.0, "error": "", "log_name": "f.log"},
+                    ],
+                ),
+            ],
+        )
+    )
+    text = output.get("text") or ""
+    assert "### Per-file scores" in text
+    assert "<details>" in text
+    assert "f.wav" in text
 
 
 def test_render_final_check_output_includes_score_scope_when_multiple_legs() -> None:
@@ -265,7 +313,8 @@ def test_render_final_check_output_unavailable_score_not_shown_as_numeric() -> N
     assert "| sk | false_alarms | FAIL | 0.00 |" not in final_text
 
 
-def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> None:
+def test_render_final_check_output_pass_with_zero_score_shows_numeric() -> None:
+    """Completed pass legs show 0.00 when aggregate score is zero (real runner/plugin path)."""
     output = render_final_check_output(
         CheckFinalView(
             state="success",
@@ -278,12 +327,12 @@ def test_render_final_check_output_mock_runner_shows_placeholder_not_zero() -> N
                     aggregate_score=0.0,
                     reason_code="bootstrap_without_baseline",
                     duration_sec=1,
-                    execution_mode_used="mock",
+                    execution_mode_used="plugin",
                 ),
             ],
         )
     )
-    assert "| sk | false_rejects | PASS | — (mock) | — |" in (output.get("text") or "")
+    assert "| sk | false_rejects | PASS | 0.00 | — |" in (output.get("text") or "")
 
 
 def test_human_reason_runner_case_failures() -> None:
@@ -304,7 +353,7 @@ def test_human_reason_plugin_execute_failed() -> None:
     assert "execute" in human_reason("plugin_execute_failed").lower()
 
 
-def test_render_final_check_output_per_case_failures_and_annotations() -> None:
+def test_render_final_check_output_per_file_scores_collapsible_and_annotations() -> None:
     output = render_final_check_output(
         CheckFinalView(
             state="failure",
@@ -317,7 +366,13 @@ def test_render_final_check_output_per_case_failures_and_annotations() -> None:
                     aggregate_score=2.0,
                     reason_code="runner_case_failures",
                     duration_sec=10,
-                    cases_detail="5/6 passed",
+                    cases_detail="5/6 ok",
+                    score_extra={
+                        "scoring_policy": {
+                            "primary_metric": "namuh_count",
+                            "score_direction_hint": "lower_better",
+                        }
+                    },
                     score_direction_label="lower better",
                     case_outcomes=[
                         {
@@ -332,14 +387,47 @@ def test_render_final_check_output_per_case_failures_and_annotations() -> None:
             ],
         )
     )
-    per_case_text = output.get("text") or ""
-    assert "### Per-case failures" in per_case_text
-    assert "bad.wav" in per_case_text
-    assert "runner_exit_139" in per_case_text
-    assert "2.00 ↓" in per_case_text
+    text_body = output.get("text") or ""
+    assert "### Per-file scores" in text_body
+    assert "<details>" in text_body
+    assert "</details>" in text_body
+    assert "bad.wav" in text_body
+    assert "runner_exit_139" in text_body
+    assert "2.00 ↓" in text_body
+    assert "namuh_count" in text_body
+    assert "### Per-case failures" not in text_body
     assert "annotations" in output
     assert output["annotations"][0]["path"].startswith("bmt/sk/false_alarms/")
     assert output["annotations"][0]["annotation_level"] == "failure"
+
+
+def test_render_final_check_output_per_file_scores_two_files() -> None:
+    output = render_final_check_output(
+        CheckFinalView(
+            state="success",
+            links=LiveLinks(workflow_execution_url="https://example.test/wf"),
+            bmts=[
+                FinalBmtRow(
+                    project="sk",
+                    bmt="false_rejects",
+                    status="pass",
+                    aggregate_score=1.5,
+                    reason_code="score_lte_last",
+                    duration_sec=3,
+                    cases_detail="2/2 ok",
+                    score_extra={"scoring_policy": {"primary_metric": "namuh_count"}},
+                    score_direction_label="lower better",
+                    case_outcomes=[
+                        {"case_id": "a.wav", "status": "ok", "namuh_count": 1.0, "error": "", "log_name": "a.log"},
+                        {"case_id": "b.wav", "status": "ok", "namuh_count": 2.0, "error": "", "log_name": "b.log"},
+                    ],
+                ),
+            ],
+        )
+    )
+    text_body = output.get("text") or ""
+    assert text_body.count("<details>") == 1
+    assert "a.wav" in text_body and "b.wav" in text_body
 
 
 def test_github_check_annotations_cap_at_50() -> None:

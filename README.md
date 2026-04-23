@@ -49,6 +49,7 @@ There is **no** supported legacy VM-only path for current production.
 
 | I want to… | Start here |
 | ---------- | ---------- |
+| **Local run / logs / plugin dev** | [docs/developer-workflow.md](docs/developer-workflow.md) |
 | **Doc index** | [docs/README.md](docs/README.md) |
 | **Architecture** | [docs/architecture.md](docs/architecture.md) |
 | **Configuration / env** | [docs/configuration.md](docs/configuration.md) |
@@ -67,10 +68,11 @@ See **[docs/configuration.md](docs/configuration.md)** and **[infra/README.md](i
 
 | Path | Role |
 | ---- | ---- |
-| `gcp/image` | Runtime baked into the Cloud Run image |
+| `runtime/` | Cloud Run image (`bmt-runtime`); entry `runtime.entrypoint` |
+| `ci/` | `kardome-bmt` CLI (handoff, matrix, workflows client) |
 | `gcp/stage` | Editable mirror of bucket-shaped content |
 | `gcp/mnt` | Optional local bucket mount for inspection |
-| `.github` | Workflows, `uv run bmt` CLI |
+| `.github` | Workflows and composite actions |
 | `tools/` | Contributor CLI (`uv run python -m tools`) |
 | `infra/` | Pulumi, image build |
 | `tests/` | Pytest |

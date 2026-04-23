@@ -15,7 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 SK_KARDOME_RUNNER = REPO_ROOT / "plugins/projects/sk/kardome_runner"
 SK_LIBKARDOME_SO = REPO_ROOT / "plugins/projects/sk/libKardome.so"
-KARDOME_INPUT_TEMPLATE = REPO_ROOT / "runtime/assets/kardome_input_template.json"
+# Must match ``plugins/projects/sk/*.json`` ``runner.template_path`` (SK false_alarms / rejects).
+KARDOME_INPUT_TEMPLATE = REPO_ROOT / "runtime/assets/sk_kardome_input_template.json"
 
 
 # libKardome.so is gitignored globally (**/*.so) so a fresh CI checkout lacks

@@ -85,7 +85,6 @@ class WorkflowRequest(BaseModel):
     run_context: str = "ci"
     accepted_projects: list[str] = Field(default_factory=list)
     status_context: str = "BMT Gate"
-    use_mock_runner: bool = False
 
 
 class PlanLeg(BaseModel):
@@ -118,7 +117,6 @@ class ExecutionPlan(BaseModel):
     run_context: str = "ci"
     accepted_projects: list[str] = Field(default_factory=list)
     status_context: str = "BMT Gate"
-    use_mock_runner: bool = False
     standard_task_count: int = 0
     heavy_task_count: int = 0
     legs: list[PlanLeg]

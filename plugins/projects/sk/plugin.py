@@ -5,7 +5,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from bmt_sdk import BmtPlugin
 from bmt_sdk.context import ExecutionContext
@@ -18,6 +18,7 @@ from bmt_sdk.results import (
 )
 from pydantic import ValidationError
 from sk_scoring_policy import (
+    PRIMARY_METRIC,
     aggregate_mean_ok_cases,
     build_case_outcomes,
     scoring_policy_record,
@@ -26,10 +27,33 @@ from sk_scoring_policy import (
 from runtime.config.bmt_domain_status import BmtLegStatus
 from runtime.kardome import AdaptiveKardomeExecutor
 from runtime.kardome_batch_results import KardomeBatchFile
-from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
+from runtime.kardome_runparams import KardomeRunparamsConfig, KardomeRunparamsExecutor
 from runtime.stdout_counter_parse import StdoutCounterParseConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _all_ok_cases_have_zero_namuh(case_outcomes: object) -> bool:
+    """True when every ``status == \"ok\"`` row has ``namuh_count == 0`` (false_rejects / gte triage)."""
+    if not isinstance(case_outcomes, list) or not case_outcomes:
+        return False
+    ok_rows: list[dict[str, Any]] = []
+    for o in case_outcomes:
+        if isinstance(o, dict):
+            row = cast(dict[str, Any], o)
+            if row.get("status") == "ok":
+                ok_rows.append(row)
+    if not ok_rows:
+        return False
+    for row in ok_rows:
+        try:
+            v = float(row.get(PRIMARY_METRIC, 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return False
+        if v != 0.0:
+            return False
+    return True
+
 
 _BATCH_CMD_TIMEOUT_DEFAULT_SEC = 6 * 3600
 _BATCH_CMD_TIMEOUT_MAX_SEC = 7 * 24 * 3600
@@ -133,8 +157,8 @@ class SkPlugin(BmtPlugin):
     def execute(self, context: ExecutionContext, prepared_assets: PreparedAssets) -> ExecutionResult:
         try:
             validated_parse = StdoutCounterParseConfig.model_validate(context.bmt_manifest.plugin_config)
-            legacy = LegacyKardomeStdoutExecutor(
-                LegacyKardomeStdoutConfig(
+            per_case = KardomeRunparamsExecutor(
+                KardomeRunparamsConfig(
                     runner_path=prepared_assets.runner_path or self._require_runner(context),
                     template_path=(Path.cwd() / context.bmt_manifest.runner.template_path).resolve(),
                     dataset_root=context.dataset_root,
@@ -158,7 +182,7 @@ class SkPlugin(BmtPlugin):
                 execution_policy=context.bmt_manifest.execution.policy,
                 run_batch=lambda: self._run_batch_probe(context, prepared_assets),
                 parse_batch=lambda p: self._parse_batch_json(p, context.workspace_root),
-                run_legacy=legacy.run,
+                run_legacy=per_case.run,
             ).run()
         except Exception as exc:
             logger.exception("SK plugin execute failed for bmt=%s", context.bmt_manifest.bmt_slug)
@@ -260,6 +284,36 @@ class SkPlugin(BmtPlugin):
                 },
             )
 
+        # Higher-better legs (false_rejects): all NAMUH zeros usually mean a broken or
+        # mis-tuned runner, but we **do not block the PR** — pass with an explicit warning
+        # reason so Checks/summaries stay visible for triage.
+        case_outcomes = score_result.metrics.get("case_outcomes")
+        aggregate = float(score_result.aggregate_score or 0.0)
+        gte_all_zero_kw_warn = comparison == "gte" and cases_ok > 0 and (
+            _all_ok_cases_have_zero_namuh(case_outcomes)
+            or (
+                aggregate == 0.0
+                and (not isinstance(case_outcomes, list) or len(case_outcomes) == 0)
+            )
+        )
+        if gte_all_zero_kw_warn and baseline is None:
+            return VerdictResult(
+                passed=True,
+                status=BmtLegStatus.PASS.value,
+                reason_code="all_zero_keyword_hits_warn",
+                summary={
+                    "aggregate_score": score_result.aggregate_score,
+                    "cases_ok": cases_ok,
+                    "cases_failed": cases_failed,
+                    "cases_failed_ids": score_result.metrics.get("cases_failed_ids", []),
+                    "warning": (
+                        "Every passing case reported NAMUH 0 on a higher-is-better leg — "
+                        "likely a runner or metrics bug; baseline not compared. PR not blocked."
+                    ),
+                    **direction,
+                },
+            )
+
         if baseline is None:
             return VerdictResult(
                 passed=True,
@@ -303,6 +357,11 @@ class SkPlugin(BmtPlugin):
             for part in batch_command
         ]
         timeout_sec = _batch_command_timeout_sec()
+        logs_root = context.logs_root
+        logs_root.mkdir(parents=True, exist_ok=True)
+        stdout_log = logs_root / "batch_probe.stdout.log"
+        stderr_log = logs_root / "batch_probe.stderr.log"
+        meta_log = logs_root / "batch_probe.meta.txt"
         try:
             proc = subprocess.run(
                 command,
@@ -312,15 +371,27 @@ class SkPlugin(BmtPlugin):
                 text=True,
                 timeout=timeout_sec,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             logger.warning("Batch runner timed out after %s s; command=%s", timeout_sec, command)
+            meta_log.write_text(
+                f"status=timeout\nseconds={timeout_sec}\ncommand={command!r}\n{exc}\n",
+                encoding="utf-8",
+            )
+            stdout_log.write_text("", encoding="utf-8")
+            stderr_log.write_text("", encoding="utf-8")
             return None
+        stdout_log.write_text(proc.stdout or "", encoding="utf-8")
+        stderr_log.write_text(proc.stderr or "", encoding="utf-8")
+        meta_log.write_text(
+            f"exit_code={proc.returncode}\ncommand={command!r}\ncwd={context.workspace_root}\n",
+            encoding="utf-8",
+        )
         if proc.returncode != 0:
             logger.warning(
-                "Batch runner failed (exit %d); stdout: %s; stderr: %s",
+                "Batch runner failed (exit %d); see %s and %s (full output on disk)",
                 proc.returncode,
-                proc.stdout[:2000],
-                proc.stderr[:2000],
+                stdout_log,
+                stderr_log,
             )
             return None
         batch_path = _resolve_batch_results_file(context.workspace_root, results_relpath)

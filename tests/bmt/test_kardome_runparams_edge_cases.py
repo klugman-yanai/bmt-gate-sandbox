@@ -1,4 +1,4 @@
-"""Unit tests for graceful failures in LegacyKardomeStdoutExecutor.
+"""Unit tests for graceful failures in KardomeRunparamsExecutor.
 
 Uses the real ``plugins/projects/sk/kardome_runner`` and ``libKardome.so`` plus
 ``runtime/assets/kardome_input_template.json``—the same benchmark bundle the pipeline
@@ -17,8 +17,8 @@ from unittest.mock import patch
 
 import pytest
 
-from runtime import legacy_kardome
-from runtime.legacy_kardome import LegacyKardomeStdoutConfig, LegacyKardomeStdoutExecutor
+from runtime import kardome_runparams
+from runtime.kardome_runparams import KardomeRunparamsConfig, KardomeRunparamsExecutor
 from tests.sk_runner_repo_paths import (
     KARDOME_INPUT_TEMPLATE,
     SK_KARDOME_RUNNER,
@@ -42,8 +42,8 @@ def test_dataset_not_directory_returns_single_failed_case(tmp_path: Path) -> Non
     bad = tmp_path / "not_a_dir"
     bad.write_text("x", encoding="utf-8")
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    ex = LegacyKardomeStdoutExecutor(
-        LegacyKardomeStdoutConfig(
+    ex = KardomeRunparamsExecutor(
+        KardomeRunparamsConfig(
             runner_path=SK_KARDOME_RUNNER,
             template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=bad,
@@ -64,8 +64,8 @@ def test_invalid_template_json_returns_single_failed_case(tmp_path: Path) -> Non
     runtime, outputs, logs = _minimal_dirs(tmp_path)
     tpl = tmp_path / "bad.json"
     tpl.write_text("{not json", encoding="utf-8")
-    ex = LegacyKardomeStdoutExecutor(
-        LegacyKardomeStdoutConfig(
+    ex = KardomeRunparamsExecutor(
+        KardomeRunparamsConfig(
             runner_path=SK_KARDOME_RUNNER,
             template_path=tpl,
             dataset_root=ds,
@@ -80,13 +80,13 @@ def test_invalid_template_json_returns_single_failed_case(tmp_path: Path) -> Non
     assert "template_load_failed" in result.case_results[0].error
 
 
-def _executor_with_one_wav(tmp_path: Path) -> LegacyKardomeStdoutExecutor:
+def _executor_with_one_wav(tmp_path: Path) -> KardomeRunparamsExecutor:
     ds = tmp_path / "ds"
     ds.mkdir()
     (ds / "a.wav").write_bytes(b"RIFF")
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    return LegacyKardomeStdoutExecutor(
-        LegacyKardomeStdoutConfig(
+    return KardomeRunparamsExecutor(
+        KardomeRunparamsConfig(
             runner_path=SK_KARDOME_RUNNER,
             template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=ds,
@@ -103,7 +103,7 @@ def test_subprocess_timeout_yields_failed_case(tmp_path: Path) -> None:
     def _boom(*_a, **_k):
         raise subprocess.TimeoutExpired(cmd="runner", timeout=1)
 
-    with patch.object(legacy_kardome.subprocess, "run", side_effect=_boom):
+    with patch.object(kardome_runparams.subprocess, "run", side_effect=_boom):
         result = ex.run()
     assert len(result.case_results) == 1
     assert "timeout" in result.case_results[0].error.lower()
@@ -111,7 +111,7 @@ def test_subprocess_timeout_yields_failed_case(tmp_path: Path) -> None:
 
 def test_subprocess_oserror_yields_failed_case(tmp_path: Path) -> None:
     ex = _executor_with_one_wav(tmp_path)
-    with patch.object(legacy_kardome.subprocess, "run", side_effect=OSError("exec failed")):
+    with patch.object(kardome_runparams.subprocess, "run", side_effect=OSError("exec failed")):
         result = ex.run()
     assert len(result.case_results) == 1
     assert "runner_os_error" in result.case_results[0].error
@@ -139,10 +139,10 @@ def test_log_open_oserror_yields_failed_case(tmp_path: Path) -> None:
     assert "log_open_failed" in result.case_results[0].error
 
 
-def _make_executor(dataset_root: Path, tmp_path: Path) -> LegacyKardomeStdoutExecutor:
+def _make_executor(dataset_root: Path, tmp_path: Path) -> KardomeRunparamsExecutor:
     runtime, outputs, logs = _minimal_dirs(tmp_path)
-    return LegacyKardomeStdoutExecutor(
-        LegacyKardomeStdoutConfig(
+    return KardomeRunparamsExecutor(
+        KardomeRunparamsConfig(
             runner_path=SK_KARDOME_RUNNER,
             template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=dataset_root,
@@ -231,8 +231,8 @@ def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> N
     (ds / "a.wav").write_bytes(b"RIFF")
     runtime, outputs, logs = _minimal_dirs(tmp_path)
 
-    ex = LegacyKardomeStdoutExecutor(
-        LegacyKardomeStdoutConfig(
+    ex = KardomeRunparamsExecutor(
+        KardomeRunparamsConfig(
             runner_path=runner,
             template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=ds,
@@ -252,7 +252,7 @@ def test_gcsfuse_workaround_copies_binary_and_so_not_inputs(tmp_path: Path) -> N
         captured["so_exists"] = (tmp_bundle_dir / "libKardome.so").exists()
         return types.SimpleNamespace(returncode=0)
 
-    with patch.object(legacy_kardome.subprocess, "run", side_effect=_mock_run):
+    with patch.object(kardome_runparams.subprocess, "run", side_effect=_mock_run):
         ex.run()
 
     assert captured, "subprocess.run was not called"
@@ -280,8 +280,8 @@ def test_gcsfuse_workaround_stages_external_deps_and_uses_local_ld_library_path(
     (ds / "a.wav").write_bytes(b"RIFF")
     runtime, outputs, logs = _minimal_dirs(tmp_path)
 
-    ex = LegacyKardomeStdoutExecutor(
-        LegacyKardomeStdoutConfig(
+    ex = KardomeRunparamsExecutor(
+        KardomeRunparamsConfig(
             runner_path=runner,
             template_path=KARDOME_INPUT_TEMPLATE,
             dataset_root=ds,
@@ -306,7 +306,7 @@ def test_gcsfuse_workaround_stages_external_deps_and_uses_local_ld_library_path(
         captured["ld_library_path"] = cast(dict[str, Any], env)["LD_LIBRARY_PATH"]
         return types.SimpleNamespace(returncode=0)
 
-    with patch.object(legacy_kardome.subprocess, "run", side_effect=_mock_run):
+    with patch.object(kardome_runparams.subprocess, "run", side_effect=_mock_run):
         ex.run()
 
     assert captured, "subprocess.run was not called"

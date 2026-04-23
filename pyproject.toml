@@ -100,6 +100,6 @@ addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --t
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
-    "integration: subprocess/filesystem tests (may invoke real kardome_runner from plugins/)",
+    "integration: subprocess/filesystem tests (local orchestration, fakes, or optional binaries)",
     "bmt_plugin_load: load published BMT plugins from committed plugins/ (import side effects)",
 ]

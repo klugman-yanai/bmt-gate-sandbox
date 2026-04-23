@@ -1,4 +1,12 @@
-"""Compatibility adapter for current kardome per-file stdout parsing."""
+"""Per-case ``kardome_runner`` driver (JSON calib paths + stdout or per-case metrics JSON).
+
+The runner still receives a **per-WAV JSON calib** file (``parseJsonCalib`` in core-main
+``Runners/utils/src/utils.c``) whose keys are **paths, switches, and wiring** — not the
+product AFE/KWS preset. That preset is selected in core-main via **run params**
+(``getActiveParameters`` in ``Runners/params/src/run_params_SK.c`` for SK builds).
+
+See ``docs/kardome_runner_SK_runtime.md`` for the split between JSON paths and C tuning.
+"""
 
 from __future__ import annotations
 
@@ -18,9 +26,29 @@ from typing import Any
 from bmt_sdk.results import CaseResult, ExecutionResult
 
 from runtime.config.constants import ENV_BMT_KARDOME_CASE_TIMEOUT_SEC
+from runtime.kardome_case_metrics import read_namuh_from_sidecar_json
 from runtime.stdout_counter_parse import counter_pattern_from_parsing_dict, read_counter_from_log
 
 logger = logging.getLogger(__name__)
+
+
+def execution_mode_for_runparams_case_results(case_results: list[CaseResult]) -> str:
+    """Summarize whether this leg used per-case metrics JSON, stdout log regexes, or both.
+
+    Return values retain the ``kardome_legacy_*`` prefix for stored BMT payloads even though
+    the runner preset is owned by core-main run params, not this JSON surface.
+    """
+    real = [r for r in case_results if not r.case_id.startswith("_")]
+    if not real:
+        return "kardome_legacy_stdout"
+    has_json = any(r.artifacts.get("metric_source") == "metrics_json" for r in real)
+    has_stdout = any(r.artifacts.get("metric_source") == "stdout_log" for r in real)
+    if has_json and has_stdout:
+        return "kardome_legacy_hybrid_metrics"
+    if has_json:
+        return "kardome_legacy_metrics_json"
+    return "kardome_legacy_stdout"
+
 
 # Placeholder prefix used in input_template.json; paths starting with this are rewritten per-WAV.
 _TEMPLATE_PLACEHOLDER_PREFIX = (Path(tempfile.gettempdir()) / "dummy").as_posix()
@@ -156,7 +184,7 @@ def _copy_shared_libraries(src_dir: Path, dst_dir: Path) -> list[Path]:
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyKardomeStdoutConfig:
+class KardomeRunparamsConfig:
     runner_path: Path
     template_path: Path
     dataset_root: Path
@@ -168,10 +196,10 @@ class LegacyKardomeStdoutConfig:
     num_source_test: int | None = None
     deps_root: Path | None = None
     runner_env: dict[str, str] = field(default_factory=dict)
-    # When set, probe the first wav's RIFF header once and fail the leg with a single
-    # ``_channel_mismatch_`` case if its ``NumChannels`` differs from this value. Project
-    # runners are built for a fixed mic count; mismatched inputs heap-corrupt the native
-    # side, so we reject them up front instead of spraying per-file crash logs.
+    # When set (e.g. SK ``plugin_config.expected_channels``), only ``*.wav`` files whose
+    # RIFF ``NumChannels`` equals this value are executed; other files are skipped with a
+    # warning (mixed 4ch/8ch trees). When ``None``, every ``*.wav`` is considered and
+    # heterogeneous channel layouts still fail the leg (see ``_channel_layout_issue_if_any``).
     expected_channels: int | None = None
     # Keys from ``_FORCED_WAV_PATH_KEYS`` that this leg wants *excluded* from the per-case
     # WAV-path rewrite. Used by SK to keep ``REF_PATH`` pointed at the dummy placeholder so
@@ -180,8 +208,8 @@ class LegacyKardomeStdoutConfig:
     forced_wav_path_keys_exclude: frozenset[str] = frozenset()
 
 
-class LegacyKardomeStdoutExecutor:
-    def __init__(self, config: LegacyKardomeStdoutConfig) -> None:
+class KardomeRunparamsExecutor:
+    def __init__(self, config: KardomeRunparamsConfig) -> None:
         self.config = config
 
     def _case_for_wav(
@@ -277,8 +305,25 @@ class LegacyKardomeStdoutExecutor:
                         error=f"runner_os_error:{type(exc).__name__}:{exc}",
                     )
                 assert proc is not None
-                counter = read_counter_from_log(log_path, counter_re)
-                counter_found = counter is not None
+                json_counter, json_used_path = read_namuh_from_sidecar_json(output_path)
+                stdout_counter = read_counter_from_log(log_path, counter_re)
+                artifacts_out: dict[str, str] = {
+                    "log_path": str(log_path),
+                    "output_path": str(output_path),
+                }
+                if json_counter is not None:
+                    counter = json_counter
+                    counter_found = True
+                    artifacts_out["metric_source"] = "metrics_json"
+                    artifacts_out["metrics_json_path"] = str(json_used_path)
+                elif stdout_counter is not None:
+                    counter = stdout_counter
+                    counter_found = True
+                    artifacts_out["metric_source"] = "stdout_log"
+                else:
+                    counter = None
+                    counter_found = False
+                    artifacts_out["metric_source"] = "none"
                 ok = proc.returncode == 0 and counter_found
                 error = "" if ok else "counter_not_found" if proc.returncode == 0 else f"runner_exit_{proc.returncode}"
                 return CaseResult(
@@ -287,10 +332,7 @@ class LegacyKardomeStdoutExecutor:
                     exit_code=proc.returncode,
                     status="ok" if ok else "failed",
                     metrics={"namuh_count": float(counter if counter is not None else 0)},
-                    artifacts={
-                        "log_path": str(log_path),
-                        "output_path": str(output_path),
-                    },
+                    artifacts=artifacts_out,
                     error=error,
                 )
             finally:
@@ -316,6 +358,31 @@ class LegacyKardomeStdoutExecutor:
             for entry in data.get("files", [])
             if isinstance(entry, dict) and not (self.config.dataset_root / str(entry.get("name", ""))).is_file()
         ]
+
+    def _resolve_runner_with_optional_staging(self) -> tuple[Path, str | None]:
+        """Return ``(runner_path, tmp_dir)`` where ``tmp_dir`` is set when a temp staging tree must be removed."""
+        runner_path = self.config.runner_path
+        deps_root = self.config.deps_root if self.config.deps_root and self.config.deps_root.is_dir() else None
+        tmp_runner_dir: str | None = None
+        if not os.access(runner_path, os.X_OK) or deps_root is not None:
+            tmp_runner_dir = tempfile.mkdtemp(prefix="bmt-runner-")
+            # Copy only the native runtime bundle, not the whole project tree. Large input trees
+            # under the runner directory would exhaust local disk, but native libs loaded straight
+            # from GCSFuse have been a recurring source of Cloud Run instability.
+            tmp_bundle = Path(tmp_runner_dir) / runner_path.parent.name
+            tmp_bundle.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(runner_path, tmp_bundle / runner_path.name)
+            _copy_shared_libraries(runner_path.parent, tmp_bundle)
+            src_lib = runner_path.parent / "lib"
+            staged_lib = tmp_bundle / "lib"
+            if src_lib.is_dir():
+                shutil.copytree(src_lib, staged_lib, dirs_exist_ok=True)
+            if deps_root is not None:
+                _copy_shared_libraries(deps_root, staged_lib)
+            runner_path = tmp_bundle / runner_path.name
+            runner_path.chmod(0o755)
+            logger.info("Staged runner bundle locally at %s (deps_root=%s)", runner_path.parent, deps_root or "<none>")
+        return runner_path, tmp_runner_dir
 
     def run(self) -> ExecutionResult:
         if not self.config.dataset_root.is_dir():
@@ -355,27 +422,7 @@ class LegacyKardomeStdoutExecutor:
                     )
                 ],
             )
-        runner_path = self.config.runner_path
-        deps_root = self.config.deps_root if self.config.deps_root and self.config.deps_root.is_dir() else None
-        _tmp_runner_dir: str | None = None
-        if not os.access(runner_path, os.X_OK) or deps_root is not None:
-            _tmp_runner_dir = tempfile.mkdtemp(prefix="bmt-runner-")
-            # Copy only the native runtime bundle, not the whole project tree. Large input trees
-            # under the runner directory would exhaust local disk, but native libs loaded straight
-            # from GCSFuse have been a recurring source of Cloud Run instability.
-            tmp_bundle = Path(_tmp_runner_dir) / runner_path.parent.name
-            tmp_bundle.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(runner_path, tmp_bundle / runner_path.name)
-            _copy_shared_libraries(runner_path.parent, tmp_bundle)
-            src_lib = runner_path.parent / "lib"
-            staged_lib = tmp_bundle / "lib"
-            if src_lib.is_dir():
-                shutil.copytree(src_lib, staged_lib, dirs_exist_ok=True)
-            if deps_root is not None:
-                _copy_shared_libraries(deps_root, staged_lib)
-            runner_path = tmp_bundle / runner_path.name
-            runner_path.chmod(0o755)
-            logger.info("Staged runner bundle locally at %s (deps_root=%s)", runner_path.parent, deps_root or "<none>")
+        runner_path, _tmp_runner_dir = self._resolve_runner_with_optional_staging()
         runner_env = self._runner_env(runner_path)
         try:
             template = json.loads(self.config.template_path.read_text(encoding="utf-8"))
@@ -399,51 +446,111 @@ class LegacyKardomeStdoutExecutor:
         results: list[CaseResult] = []
         try:
             wavs = sorted(self.config.dataset_root.rglob("*.wav"))
-            mismatch = self._channel_mismatch_if_any(wavs)
-            if mismatch is not None:
-                return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=[mismatch])
+            wavs, filter_issue = self._wavs_matching_expected_channels_or_issue(wavs)
+            if filter_issue is not None:
+                return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=[filter_issue])
+            layout_issue = self._channel_layout_issue_if_any(wavs)
+            if layout_issue is not None:
+                return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=[layout_issue])
             for wav_path in wavs:
                 rel = wav_path.relative_to(self.config.dataset_root)
                 results.append(self._case_for_wav(wav_path, rel, template, counter_re, runner_path, runner_env))
         finally:
-            if _tmp_runner_dir:
+            if _tmp_runner_dir is not None:
                 shutil.rmtree(_tmp_runner_dir, ignore_errors=True)
 
-        return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=results)
+        return ExecutionResult(
+            execution_mode_used=execution_mode_for_runparams_case_results(results),
+            case_results=results,
+        )
 
-    def _channel_mismatch_if_any(self, wavs: list[Path]) -> CaseResult | None:
-        """Probe the first wav once; return a failing CaseResult if its channel count differs.
+    def _wavs_matching_expected_channels_or_issue(self, wavs: list[Path]) -> tuple[list[Path], CaseResult | None]:
+        """When ``expected_channels`` is set, keep only WAVs whose RIFF probe matches it."""
+        exp = self.config.expected_channels
+        if exp is None or not wavs:
+            return wavs, None
+        out: list[Path] = []
+        for w in wavs:
+            ch = _probe_wav_channels(w)
+            rel = w.relative_to(self.config.dataset_root).as_posix()
+            if ch is None:
+                logger.warning(
+                    "Skipping %s: RIFF channel probe inconclusive while expected_channels=%d",
+                    rel,
+                    exp,
+                )
+                continue
+            if ch != exp:
+                logger.warning(
+                    "Skipping %s: RIFF reports %d channel(s), leg expected_channels=%d (not running this file)",
+                    rel,
+                    ch,
+                    exp,
+                )
+                continue
+            out.append(w)
+        if not out:
+            logger.error(
+                "No .wav files under %s match expected_channels=%d after RIFF probe filter",
+                self.config.dataset_root,
+                exp,
+            )
+            return [], CaseResult(
+                case_id="_channel_mismatch_",
+                input_path=self.config.dataset_root,
+                exit_code=-1,
+                status="failed",
+                metrics={},
+                artifacts={},
+                error=f"no_wavs_match_expected_channels:expected={exp}",
+            )
+        return out, None
 
-        Returns ``None`` when no ``expected_channels`` is declared, the dataset is empty, or
-        the probe is inconclusive (short/non-RIFF file). The first wav is treated as
-        representative — leg datasets are built homogeneous by convention.
+    def _channel_layout_issue_if_any(self, wavs: list[Path]) -> CaseResult | None:
+        """Require a unanimous RIFF ``NumChannels`` across probed ``*.wav`` files in ``wavs``.
+
+        Used after ``_wavs_matching_expected_channels_or_issue`` (when ``expected_channels``
+        is set, ``wavs`` is already restricted to that layout). Inconclusive probes are
+        skipped for aggregation only. If two or more distinct channel counts appear among
+        conclusive probes, fail the leg with a single ``_channel_mismatch_`` case.
         """
-        expected = self.config.expected_channels
-        if expected is None or not wavs:
+        if not wavs:
             return None
-        first = wavs[0]
-        actual = _probe_wav_channels(first)
-        if actual is None:
-            logger.warning("Channel probe inconclusive for %s — skipping channel gate for this leg", first)
+        probed: list[tuple[Path, int]] = []
+        for wav in wavs:
+            n = _probe_wav_channels(wav)
+            if n is None:
+                logger.warning(
+                    "Channel probe inconclusive for %s — skipping this file for layout aggregation",
+                    wav,
+                )
+                continue
+            probed.append((wav, n))
+        if not probed:
             return None
-        if actual == expected:
-            return None
-        rel = first.relative_to(self.config.dataset_root).as_posix()
-        logger.error(
-            "Channel mismatch on first wav: expected=%d got=%d probe=%s — failing leg without running kardome_runner",
-            expected,
-            actual,
-            rel,
-        )
-        return CaseResult(
-            case_id="_channel_mismatch_",
-            input_path=first,
-            exit_code=-1,
-            status="failed",
-            metrics={},
-            artifacts={},
-            error=f"channel_mismatch:expected={expected}:got={actual}:probe={rel}",
-        )
+        distinct = {n for _, n in probed}
+        if len(distinct) > 1:
+            by_n: dict[int, list[str]] = {}
+            for wav, n in probed:
+                rel = wav.relative_to(self.config.dataset_root).as_posix()
+                by_n.setdefault(n, []).append(rel)
+            summary = ";".join(f"{k}ch:{len(v)}wav" for k, v in sorted(by_n.items()))
+            example_rels = sorted({wav.relative_to(self.config.dataset_root).as_posix() for wav, _ in probed})
+            example = example_rels[0] if example_rels else ""
+            logger.error(
+                "Heterogeneous WAV channel layouts (%s) — failing leg without running kardome_runner",
+                summary,
+            )
+            return CaseResult(
+                case_id="_channel_mismatch_",
+                input_path=probed[0][0],
+                exit_code=-1,
+                status="failed",
+                metrics={},
+                artifacts={},
+                error=f"channel_layout_heterogeneous:{summary}:example={example}",
+            )
+        return None
 
     def _runner_env(self, runner_path: Path) -> dict[str, str]:
         env = dict(os.environ)
