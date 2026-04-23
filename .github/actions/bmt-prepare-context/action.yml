@@ -57,7 +57,7 @@ runs:
     - name: Setup BMT CLI (release PEX, no uv)
       # tag: defaults to github.action_ref on setup-bmt-pex, which resolves to
       # this action's own tag (e.g. bmt-v0.3.3). One pin, one source of truth.
-      uses: ../setup-bmt-pex
+      uses: ./.github/actions/setup-bmt-pex
       with:
         repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || 'klugman-yanai/bmt-gcloud' }}
         python_version: "3.12"
