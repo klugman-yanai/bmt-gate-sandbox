@@ -35,14 +35,29 @@ inputs:
   service_account:
     description: GCP service account email for WIF
     required: true
+  gcp_project:
+    description: GCP project ID; pass env.GCP_PROJECT (already authenticated via WIF in the caller job).
+    required: true
   bmt_status_context:
-    description: Status check name for branch protection (e.g. BMT Gate). Pass vars.BMT_STATUS_CONTEXT from workflow.
+    description: Status check name for branch protection (e.g. BMT Gate). Pass from caller workflow env.
     required: false
     default: "BMT Gate"
   accepted_projects:
     description: JSON array of cloud job subtask project names from classify (e.g. ["sk"])
     required: false
     default: "[]"
+  dispatch_reason:
+    description: kardome-bmt dispatch reason when invoke produced outputs
+    required: false
+    default: ""
+  workflow_execution_url:
+    description: GCP console URL when invoke partially recorded an execution
+    required: false
+    default: ""
+  workflow_execution_state:
+    description: Workflow execution state when known
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -61,7 +76,7 @@ runs:
         FALLBACK_REF: ${{ inputs.fallback_ref }}
       run: |
         classify_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{path: (.classify_path // "unknown"), has_legs: (.has_legs // "false"), accepted_projects: (.accepted_projects // "[]"), filtered_matrix: (.filtered_matrix // "{\"include\":[]}")}')
-        handoff_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{trigger_written: (.trigger_written // "false"), vm_started: (.vm_started // "false"), handshake_ok: (.handshake_ok // "false"), handshake_uri: (.handshake_uri // ""), handoff_reason: (.handoff_reason // "")}')
+        handoff_outputs=$(echo "$HANDSHAKE_OUTPUTS" | jq -c '{handshake_ok: (.handshake_ok // "false"), handoff_reason: (.handoff_reason // "")}')
         jq -nc \
           --arg prepare_result "$PREPARE_RESULT" \
           --argjson prepare_outputs "$SETUP_OUTPUTS" \
@@ -103,10 +118,7 @@ runs:
           echo "classify_has_legs=$(echo "$classify"         | jq -r '.has_legs          // "false"')"
           echo "classify_accepted_projects=$(echo "$classify"| jq -c '.accepted_projects // []')"
           echo "classify_filtered_matrix=$(echo "$classify"  | jq -c '.filtered_matrix   // {"include":[]}')"
-          echo "trigger_written=$(echo "$handoff"  | jq -r '.trigger_written // "false"')"
-          echo "vm_started=$(echo "$handoff"       | jq -r '.vm_started      // "false"')"
           echo "handshake_ok=$(echo "$handoff"     | jq -r '.handshake_ok    // "false"')"
-          echo "handshake_uri=$(echo "$handoff"    | jq -r '.handshake_uri   // ""')"
           echo "handoff_reason=$(echo "$handoff"   | jq -r '.handoff_reason  // ""')"
         } >> "$GITHUB_OUTPUT"
 
@@ -119,10 +131,11 @@ runs:
         PREPARE_PR_NUMBER: ${{ steps.x.outputs.pr_number }}
         ORCH_HAS_LEGS: ${{ steps.x.outputs.classify_has_legs }}
         ORCH_HANDSHAKE_OK: ${{ steps.x.outputs.handshake_ok }}
-        ORCH_TRIGGER_WRITTEN: ${{ steps.x.outputs.trigger_written }}
         DISPATCH_HEAD_SHA: ${{ steps.x.outputs.dispatch_head_sha }}
         DISPATCH_PR_NUMBER: ${{ steps.x.outputs.dispatch_pr_number }}
-      run: uv run bmt write-context && uv run bmt resolve-failure-context
+      run: |
+        "$BMT_PEX_PATH" handoff write-context
+        "$BMT_PEX_PATH" handoff resolve-failure-context
 
     - name: Classify failure reason
       id: reason
@@ -153,31 +166,14 @@ runs:
         pr_number: ${{ steps.failctx.outputs.pr_number }}
         filtered_matrix: ${{ steps.x.outputs.classify_filtered_matrix }}
         accepted_projects: ${{ inputs.accepted_projects }}
-        trigger_written: ${{ steps.failctx.outputs.trigger_written }}
         handshake_ok: ${{ steps.x.outputs.handshake_ok }}
         failure_reason: ${{ steps.reason.outputs.reason }}
-
-    - name: Setup GCP for cleanup
-      if: steps.failctx.outputs.trigger_written == 'true'
-      uses: ./.github/actions/setup-gcp-uv
-      with:
-        workload_identity_provider: ${{ inputs.workload_identity_provider }}
-        service_account: ${{ inputs.service_account }}
-        install_uv: "false"
-
-    - name: Post terminal status on handoff failure
-      if: steps.failctx.outputs.trigger_written == 'true' && (steps.failctx.outputs.vm_handshake_result == 'failure' || steps.x.outputs.handoff_reason == 'no_runtime_supported_legs')
-      shell: bash
-      env:
-        REPOSITORY: ${{ github.repository }}
-        HEAD_SHA: ${{ steps.failctx.outputs.head_sha }}
-        GITHUB_TOKEN: ${{ github.token }}
-        BMT_STATUS_CONTEXT: ${{ inputs.bmt_status_context }}
-        BMT_FAILURE_STATUS_DESCRIPTION: "${{ steps.x.outputs.handoff_reason == 'no_runtime_supported_legs' && 'BMT failed: runtime accepted zero supported test runs.' || 'BMT cancelled: runtime handoff failed before pickup.' }}"
-      run: uv run bmt write-context && uv run bmt post-handoff-timeout-status
-
-    - name: Cleanup failed trigger artifacts
-      if: steps.failctx.outputs.trigger_written == 'true'
-      shell: bash
-      run: uv run bmt cleanup-failed-trigger-artifacts
+        gcp_project: ${{ inputs.gcp_project }}
+        gcs_bucket: ${{ env.GCS_BUCKET }}
+        classify_outcome: ${{ inputs.classify_result }}
+        invoke_outcome: ${{ inputs.handoff_result }}
+        dispatch_reason: ${{ inputs.dispatch_reason }}
+        workflow_execution_url: ${{ inputs.workflow_execution_url }}
+        workflow_execution_state: ${{ inputs.workflow_execution_state }}
+        diagnostics_artifact: bmt-handoff-diagnostics-${{ github.run_id }}
 

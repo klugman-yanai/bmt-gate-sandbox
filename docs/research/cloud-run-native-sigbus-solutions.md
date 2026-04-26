@@ -3,7 +3,7 @@
 **Date:** 2026-03-16  
 **Context:** Python 3.12 orchestrator invoking native binary `kardome_runner` + shared lib `libKardome.so`. GLIBC_2.43 / GLIBCXX_3.4.32 required. Fedora 44/rawhide base works locally; Cloud Run Job executions fail with `Container terminated on signal 7` (SIGBUS) before app logs.
 
-**Assumptions:** The only image used for Cloud Run jobs is built from `gcp/image/Dockerfile` (see `cfg.cloud_run_image_uri` in `infra/pulumi/config.py`). That Dockerfile uses Ubuntu 22.04; the kardome sandbox image (`tools/scripts/Dockerfile.kardome-sandbox`) is also Ubuntu 22.04 so local runs match the Cloud Run environment.
+**Assumptions:** The Cloud Run job image is built from [`runtime/Dockerfile`](../../runtime/Dockerfile) (see `cfg.cloud_run_image_uri` in `infra/pulumi/config.py`). That Dockerfile uses Ubuntu 22.04; the kardome sandbox image (`tools/scripts/Dockerfile.kardome-sandbox`) is also Ubuntu 22.04 so local runs match the Cloud Run environment.
 
 ---
 
@@ -195,7 +195,7 @@ RUN apt-get update && apt-get install -y software-properties-common && \
 
 ### Phase 2: Rebuild Path (If Source Available)
 
-1. Create build Dockerfile (e.g. `gcp/image/Dockerfile.runner-build`) using `ubuntu:22.04` or `ubuntu:24.04`.
+1. Create build Dockerfile (e.g. `runtime/Dockerfile.runner-build`) using `ubuntu:22.04` or `ubuntu:24.04`.
 2. Build `kardome_runner` and `libKardome.so` in that container.
 3. Copy artifacts into the main app image (or publish to GCS and download at runtime).
 4. Update `bmt_jobs.json` and manager to use the new runner path.

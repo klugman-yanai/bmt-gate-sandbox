@@ -37,6 +37,10 @@ Manual GitHub repository secrets:
 - GCP Secret Manager secrets: `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`
 - GCP Secret Manager secrets: `GITHUB_APP_DEV_ID`, `GITHUB_APP_DEV_INSTALLATION_ID`, `GITHUB_APP_DEV_PRIVATE_KEY`
 
+## GitHub Actions and Pulumi
+
+Pulumi apply and repo-variable sync are **not** run from GitHub Actions in this repo (use `just pulumi` locally or on an approved runner). Optional CI patterns and fork-PR caveats: [.github/README.md](../.github/README.md#github-actions-and-pulumi).
+
 ## Notes
 
 - Eventarc and the VM watcher are no longer part of the active execution path.

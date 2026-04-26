@@ -1,0 +1,176 @@
+name: CI
+
+# Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel) → bmt_handoff (eligibility on handoff if).
+on:
+  push:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+      - test/*
+  pull_request:
+    branches:
+      - dev
+      - ci/check-bmt-gate
+      - test/*
+  workflow_dispatch:
+  workflow_call: {}
+
+defaults:
+  run:
+    shell: bash
+
+# Artifact upload (repo_snapshot) needs actions write.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ci-${{ github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  repo_snapshot:
+    name: Snapshot
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      artifact_size: ${{ steps.report.outputs.artifact_size }}
+      release_presets: ${{ steps.parse.outputs.release_presets }}
+      non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+
+      - name: Create repo snapshot
+        run: |
+          tar --exclude='.git' \
+              --exclude='.ruff_cache' \
+              --exclude='.venv' --exclude='venv' --exclude='.uv' \
+              --exclude='__pycache__' --exclude='.mypy_cache' --exclude='.pytest_cache' --exclude='.tox' --exclude='*.egg-info' \
+              --exclude='.cursor' --exclude='.vscode' \
+              --exclude='node_modules' \
+              -czf /tmp/repo-snapshot.tar.gz .
+          mv /tmp/repo-snapshot.tar.gz repo-snapshot.tar.gz
+
+      - name: Report repo-snapshot size
+        id: report
+        run: |
+          size=$(du -h repo-snapshot.tar.gz | cut -f1)
+          echo "::notice::repo-snapshot artifact size: $size"
+          echo "artifact_size=$size" >>"$GITHUB_OUTPUT"
+
+      - name: Upload repo-snapshot
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: repo-snapshot
+          path: repo-snapshot.tar.gz
+          retention-days: 5
+
+      - name: Parse CMakePresets.json
+        id: parse
+        run: |
+          # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
+          # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
+          presets=$(jq -c '
+            [ (.buildPresets // [])[]
+              | (.configurePreset // "") as $cfg
+              | select($cfg != "")
+              | { build: .name
+                , configure: $cfg
+                , short: (.name | sub("-build$"; ""))
+                , is_release: (
+                    ($cfg | test("_gcc_Release")) and
+                    (($cfg | test("xtensa"; "i")) | not) and
+                    (($cfg | test("hexagon"; "i")) | not)
+                  )
+                , soft_fail: (
+                    ($cfg | test("xtensa"; "i")) or
+                    ($cfg | test("hexagon"; "i"))
+                  )
+                }
+            ]' CMakePresets.json)
+          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
+          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
+
+  # Release builds: gate for BMT. Only release runner matrix is sent to BMT (handoff uses parse-release-runners).
+  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+  build_release:
+    name: Release
+    needs: repo_snapshot
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.repo_snapshot.outputs.release_presets) }}
+    steps:
+      - name: Release build placeholder (bmt-gcloud)
+        run: |
+          echo "bmt-gcloud: no real build; release preset ${{ matrix.configure }} would be built here. BMT runs after this job."
+
+  # Non-release builds: run in parallel; do not block BMT.
+  # bmt-gcloud: no real build; placeholder so job graph matches core-main.
+  build_non_release:
+    name: Non-Release
+    needs: repo_snapshot
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.repo_snapshot.outputs.non_release_presets) }}
+    steps:
+      - name: Non-release build placeholder (bmt-gcloud)
+        run: |
+          echo "bmt-gcloud: no real build; non-release preset ${{ matrix.configure }} runs in parallel (does not gate BMT)."
+
+  bmt_handoff:
+    name: Handoff
+    needs: [build_release]
+    # Single workflow handles both push and pull_request (trigger-ci-pr.yml was
+    # deleted — see commit history). Eligibility uses base branch on PRs and
+    # ref_name on push/dispatch; forks stay excluded so PR runs retain the
+    # repository secrets needed for WIF.
+    if: >-
+      (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
+      && (
+        (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
+        || github.event.pull_request.head.repo.full_name == github.repository
+      )
+      && (
+        (
+          (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
+          && (
+            github.base_ref == 'dev'
+            || github.base_ref == 'ci/check-bmt-gate'
+            || startsWith(github.base_ref, 'test/')
+          )
+        )
+        || (
+          (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
+          && (
+            github.ref_name == 'dev'
+            || github.ref_name == 'ci/check-bmt-gate'
+            || startsWith(github.ref_name, 'test/')
+          )
+        )
+      )
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      statuses: write
+      pull-requests: read
+    uses: ./.github/workflows/bmt-handoff.yml
+    with:
+      cloud_run_region: europe-west4
+      bmt_status_context: BMT Gate
+      bmt_pex_repo: klugman-yanai/bmt-gcloud
+      force_pass: false

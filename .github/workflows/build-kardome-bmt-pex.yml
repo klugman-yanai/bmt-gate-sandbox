@@ -1,0 +1,93 @@
+# Build dist/bmt.pex and attach to a GitHub Release.
+#
+# Triggers:
+#   - push tag bmt-v*  → release must exist for the tag (--verify-tag).
+#   - workflow_dispatch → pass release_tag; release is created at the workflow commit if missing.
+#
+# After publish: this workflow also updates the rolling git tag `bmt-handoff` (consumer `uses:` ref).
+# Local: `just build-pex` → `./dist/bmt.pex --help` (Python 3.12 on PATH).
+name: Build kardome-bmt PEX
+
+on:
+  push:
+    tags:
+      - "bmt-v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "GitHub Release tag (e.g. bmt-v0.2.0). Created at this workflow commit if the release is missing."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  pex:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+        with:
+          version: "0.10.9"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Build PEX
+        run: bash scripts/build_kardome_bmt_pex.sh
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCH_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${DISPATCH_TAG}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "${TAG}" =~ ^bmt-v ]]; then
+            echo "::error::Tag must match bmt-v* (got: ${TAG})"
+            exit 1
+          fi
+          NOTES="Self-contained bmt CLI (kardome-bmt). Run: ./bmt.pex --help. Requires Python 3.12.x on the runner."
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" dist/bmt.pex --repo "${GITHUB_REPOSITORY}" --clobber
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            gh release create "${TAG}" dist/bmt.pex \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TAG}" \
+              --notes "${NOTES}" \
+              --verify-tag
+          else
+            gh release create "${TAG}" dist/bmt.pex \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TAG}" \
+              --notes "${NOTES}" \
+              --target "${GITHUB_SHA}"
+          fi
+
+      - name: Point bmt-handoff tag at this release (consumer one-liner ref)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "${TAG}" =~ ^bmt-v ]]; then
+            exit 0
+          fi
+          sha="${GITHUB_SHA}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/bmt-handoff" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/bmt-handoff" -f sha="${sha}" -F force=true
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref=refs/tags/bmt-handoff -f sha="${sha}"
+          fi
+          echo "::notice::Updated refs/tags/bmt-handoff → ${sha} (use uses: .../bmt-handoff.yml@bmt-handoff in consumer repos)"

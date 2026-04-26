@@ -63,6 +63,11 @@ def _entry_from_gcs_object(obj: dict[str, object], prefix: str) -> DatasetEntry 
     url = str(obj.get("url", "")).strip()
     if not url:
         return None
+    # gcloud storage ls --json includes the GCS generation number in the URL
+    # (e.g. gs://bucket/file.wav#1776246072619317). Strip it so the manifest
+    # contains plain object names that exist in the bucket.
+    if "#" in url:
+        url = url[: url.index("#")]
     # Strip the gs://bucket/prefix/ portion to get the relative name.
     # url is like gs://bucket/projects/sk/inputs/false_rejects/ambient/file.wav
     prefix_uri = prefix.rstrip("/") + "/"
@@ -72,8 +77,8 @@ def _entry_from_gcs_object(obj: dict[str, object], prefix: str) -> DatasetEntry 
         # Fallback: strip everything up to and including the last slash of the prefix
         name = url.rsplit(prefix.rstrip("/"), 1)[-1].lstrip("/")
 
-    if not name or name.endswith("/"):
-        return None  # skip directory markers
+    if not name or name.endswith("/") or name == "dataset_manifest.json":
+        return None  # skip directory markers and the manifest file itself
 
     size = int(str(obj.get("size", 0)))
     # GCS ls --json returns md5Hash not sha256; use empty sha256 as placeholder

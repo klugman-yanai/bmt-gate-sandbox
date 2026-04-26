@@ -59,7 +59,7 @@ def _delete_uris(uris: list[str], dry_run: bool) -> None:
     for i in range(0, len(uris), BATCH_SIZE):
         batch = uris[i : i + BATCH_SIZE]
         subprocess.run(
-            ["gcloud", "storage", "rm", "--quiet", *batch],
+            ["gcloud", "storage", "rm", "--quiet", "--ignore-not-found", *batch],
             check=True,
         )
 

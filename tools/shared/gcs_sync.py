@@ -26,9 +26,11 @@ def upload_tree(
     bucket_name: str,
     source_root: Path,
     destination_prefix: str,
+    files: list[Path] | None = None,
 ) -> PrefixStats:
     bucket = client.bucket(bucket_name)
-    files = iter_files(source_root)
+    if files is None:
+        files = iter_files(source_root)
     total_bytes = 0
     clean_prefix = destination_prefix.strip("/")
     for path in files:
@@ -46,15 +48,17 @@ def sync_tree(
     source_root: Path,
     destination_prefix: str,
 ) -> PrefixStats:
+    files = iter_files(source_root)
     uploaded = upload_tree(
         client=client,
         bucket_name=bucket_name,
         source_root=source_root,
         destination_prefix=destination_prefix,
+        files=files,
     )
     bucket = client.bucket(bucket_name)
     clean_prefix = destination_prefix.strip("/")
-    local_relative_paths = {path.relative_to(source_root).as_posix() for path in iter_files(source_root)}
+    local_relative_paths = {path.relative_to(source_root).as_posix() for path in files}
     for blob in client.list_blobs(bucket_name, prefix=clean_prefix):
         if blob.name.endswith("/"):
             continue

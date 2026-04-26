@@ -5,25 +5,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from ci import config, github as github_api_module
-from ci.handoff import HandoffManager
 
+from ci.kardome_bmt.handoff import HandoffManager
+from tests.support.fixtures.ci import mock_config, mock_github_api
 
-@pytest.fixture
-def mock_github_api(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    mock = MagicMock()
-    monkeypatch.setattr(github_api_module, "should_post_failure_status", mock.should_post_failure_status)
-    monkeypatch.setattr(github_api_module, "post_commit_status", mock.post_commit_status)
-    return mock
+__all__ = ["mock_config", "mock_github_api"]  # re-export for pytest fixture discovery
 
-
-@pytest.fixture
-def mock_config(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    mock = MagicMock()
-    mock.bmt_status_context = "BMT Gate"
-    mock.bmt_failure_status_description = "BMT failed to complete handshake."
-    monkeypatch.setattr(config, "get_config", lambda: mock)
-    return mock
+pytestmark = pytest.mark.unit
 
 
 def test_post_handoff_timeout_status_posts_when_not_terminal(

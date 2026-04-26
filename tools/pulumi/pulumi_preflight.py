@@ -7,11 +7,12 @@ Run from repo root. Exits 0 if all checks pass, 1 with a clear message otherwise
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 
 from tools.repo.paths import pulumi_dir
+from tools.shared.cli_availability import command_available
+from tools.shared.contributor_docs import ContributorDocRefs, gcloud_cli_missing_message
 
 CONFIG_FILENAME = "bmt.tfvars.json"
 EXAMPLE_FILENAME = "bmt.tfvars.example.json"
@@ -38,13 +39,20 @@ def _load_config() -> dict:
 
 
 def _check_pulumi() -> None:
-    if not shutil.which("pulumi"):
-        raise SystemExit("::error::pulumi not found. Install Pulumi CLI: https://www.pulumi.com/docs/install/")
+    if not command_available("pulumi"):
+        refs = ContributorDocRefs.discover()
+        raise SystemExit(
+            "::error::"
+            + refs.external_cli_missing_line(
+                cli="pulumi",
+                hint="Install Pulumi CLI: https://www.pulumi.com/docs/install/",
+            )
+        )
 
 
 def _check_gcloud() -> None:
-    if not shutil.which("gcloud"):
-        raise SystemExit("::error::gcloud not found. Install Google Cloud SDK and ensure gcloud is on PATH.")
+    if not command_available("gcloud"):
+        raise SystemExit("::error::" + gcloud_cli_missing_message())
     r = subprocess.run(
         ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
         capture_output=True,
@@ -93,8 +101,15 @@ def _check_image(project: str) -> None:
 
 
 def _check_gh() -> None:
-    if not shutil.which("gh"):
-        raise SystemExit("::error::gh not found. Install GitHub CLI for the export-vars step (just pulumi).")
+    if not command_available("gh"):
+        refs = ContributorDocRefs.discover()
+        raise SystemExit(
+            "::error::"
+            + refs.external_cli_missing_line(
+                cli="gh",
+                hint="Install GitHub CLI for the export-vars step (just pulumi): https://cli.github.com/",
+            )
+        )
     r = subprocess.run(
         ["gh", "auth", "status"],
         capture_output=True,

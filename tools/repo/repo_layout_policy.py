@@ -11,7 +11,10 @@ from tools.repo.paths import DEFAULT_CONFIG_ROOT
 
 ALLOWED_TRACKED_TOP_LEVEL = {
     ".actrc",
+    ".codex",
     ".cursorignore",
+    ".cursorindexingignore",
+    ".dockerignore",
     ".env.example",
     ".gitattributes",
     ".github",
@@ -19,6 +22,7 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     ".pre-commit-config.yaml",
     ".python-version",
     "AGENTS.md",
+    "ARCHITECTURE.md",
     "CHANGELOG.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
@@ -28,14 +32,18 @@ ALLOWED_TRACKED_TOP_LEVEL = {
     "README.md",
     "ROADMAP.md",
     "cache",
+    "ci",
     "docs",
     "gcp",
     "infra",
+    "plugins",
     "pyproject.toml",
     "pyrightconfig.json",
     "ruff.toml",
+    "runtime",
     "schemas",
     "scripts",
+    "sdk",
     "tests",
     "tools",
     "uv.lock",
@@ -57,6 +65,15 @@ REQUIRED_PATHS = (
     ".github/workflows/build-and-test.yml",
     DEFAULT_CONFIG_ROOT,
     "tools/scripts/hooks/pre-commit-sync-gcp.sh",
+    # SK BMT: native runner (bucket URI projects/sk/kardome_runner) is tracked and
+    # must not disappear in refactors. libKardome.so is deliberately NOT in this
+    # list: it is gitignored globally (**/*.so) and produced by core-main's
+    # SK_gcc_Release build — a fresh CI checkout legitimately lacks it. The
+    # `tests/plugins/test_sk_runner_artifacts_present.py` invariant guards the
+    # developer working tree where the .so is required, using a skipif marker
+    # that sidesteps the check in clean checkouts.
+    "plugins/projects/sk/kardome_runner",
+    "plugins/projects/sk/runner_integration_contract.json",
 )
 # gcp/stage (DEFAULT_STAGE_ROOT) is optional: populated by sync; not required to exist for policy pass.
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from gcp.image.runtime.models import StageRuntimePaths, WorkflowRequest
-from gcp.image.runtime.planning import PlanOptions, build_plan
+import pytest
+
+from runtime.models import StageRuntimePaths, WorkflowRequest
+from runtime.planning import PlanOptions, build_plan
+
+pytestmark = pytest.mark.integration
 
 
 def test_repo_stage_sk_project_is_discoverable(repo_root) -> None:
-    stage_root = repo_root / "gcp" / "stage"
+    stage_root = repo_root / "plugins"
     workspace_root = repo_root / ".local" / "test-bmt-framework"
     plan = build_plan(
         runtime=StageRuntimePaths(stage_root=stage_root, workspace_root=workspace_root),

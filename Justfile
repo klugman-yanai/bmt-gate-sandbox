@@ -4,55 +4,65 @@ default:
     @just help
 
 help:
-    @printf '%s\n' \
-      'Core workflow' \
-      '  just pulumi                         Apply infra and sync repo vars' \
-      '  just deploy                         Sync staged bucket content' \
-      '  just add-project <project>          Scaffold a staged project' \
-      '  just add-bmt <project> <bmt_slug>   Scaffold a staged BMT' \
-      '  just publish-bmt <project> <bmt>    Validate, publish, and sync a BMT plugin' \
-      '  just upload-data <project> <src>    Upload a dataset zip or WAV folder' \
-      '  just mount-project <project>        Mount the live bucket view read-only' \
-      '  just umount-project <project>       Unmount a project view' \
-      '' \
-      'Verification and image work' \
-      '  just test                           Run the local verification suite' \
-      '  just typecheck                      ty section-by-section (stops at first failure)' \
-      '  just typecheck-section <name>     One ty section: ci | runtime | infra | tools | tests | stage' \
-      '  just image                          Build and push the Cloud Run image' \
-      '  just show-env                       Print the resolved repo/runtime env contract'
+    @echo "Tip: just test, just build-pex. Full recipe list:"
+    @just --list
+
+# Passthrough to the unified Typer CLI (see: just tools --help).
+[group('cli')]
+tools *args:
+    uv run python -m tools {{ args }}
 
 # -- Pre-push ---------------------------------------------------------------
 
 # Sections run in priority order; each completes before the next. Stops at first failing section.
+# Optional diagnostics (not part of just test): dead code + duplicate-code on env-related modules.
 [group('validate')]
-typecheck:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    run() { printf '\n==> ty check: %s (%s)\n' "$1" "$2"; uv run ty check "$2"; }
-    run "CI" ".github/bmt"
-    run "Runtime (gcp/image)" "gcp/image"
-    run "Infra" "infra"
-    run "Tools" "tools"
-    run "Tests" "tests"
-    run "Stage mirror" "gcp/stage"
+doctor:
+    uv run vulture runtime/config tools/shared/env.py tools/shared/bucket_env.py --min-confidence 80
+    uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 runtime/config/env_parse.py tools/shared/env.py tools/shared/bucket_env.py ci/kardome_bmt/workflow_dispatch.py
 
 [group('validate')]
-typecheck-section name:
+typecheck section="all":
     #!/usr/bin/env bash
     set -euo pipefail
-    case "{{name}}" in
-      ci) printf '\n==> ty check: CI (.github/bmt)\n'; uv run ty check .github/bmt ;;
-      runtime|gcp) printf '\n==> ty check: Runtime (gcp/image)\n'; uv run ty check gcp/image ;;
-      infra) printf '\n==> ty check: Infra\n'; uv run ty check infra ;;
-      tools) printf '\n==> ty check: Tools\n'; uv run ty check tools ;;
-      tests) printf '\n==> ty check: Tests\n'; uv run ty check tests ;;
-      stage) printf '\n==> ty check: Stage mirror\n'; uv run ty check gcp/stage ;;
+    run() { echo ""; echo "==> ty check: $$1 ($$2)"; uv run ty check "$$2"; }
+    case "{{section}}" in
+      all)
+        run "CI" "ci"
+        run "Runtime" "runtime"
+        run "Infra" "infra"
+        run "Tools" "tools"
+        run "Tests" "tests"
+        run "Plugins mirror" "plugins"
+        ;;
+      ci)
+        run "CI" "ci" ;;
+      runtime|gcp)
+        run "Runtime" "runtime" ;;
+      infra)
+        run "Infra" "infra" ;;
+      tools)
+        run "Tools" "tools" ;;
+      tests)
+        run "Tests" "tests" ;;
+      stage)
+        run "Plugins mirror" "plugins" ;;
       *)
-        printf 'Unknown section %q. Use: ci | runtime | infra | tools | tests | stage\n' "{{name}}" >&2
+        echo "Unknown section {{section}}. Use: all | ci | runtime | infra | tools | tests | stage" >&2
         exit 1
         ;;
     esac
+
+[group('pre-push')]
+ship *args:
+    uv run python -m tools ship {{ args }}
+
+# Full live-test pipeline: just ship (test+preflight+deploy+image) -> git push -> gh workflow_dispatch.
+# Confirms before firing the workflow. Skip phases with --skip-ship / --skip-push / --skip-trigger,
+# bypass confirmation with --no-confirm, preview with --dry-run. See the script for all flags.
+[group('pre-push')]
+live-test *args:
+    bash tools/scripts/just_live_test.sh {{ args }}
 
 [group('pre-push')]
 test:
@@ -60,18 +70,26 @@ test:
     uv run python -m pytest tests/ -v
     ruff check .
     ruff format --check .
-    uv run ty check
+    PYTHONPATH=./ uv run ty check
     command -v actionlint >/dev/null 2>&1 || (echo "Install actionlint (https://github.com/rhysd/actionlint)" >&2; exit 1)
     actionlint -config-file .github/actionlint.yaml
     command -v shellcheck >/dev/null 2>&1 || (echo "Install shellcheck (e.g. apt install shellcheck)" >&2; exit 1)
     shellcheck --severity=warning tools/scripts/hooks/*.sh
     uv run python -m tools repo validate-layout
 
+    just release-check
+
 # -- Bucket ------------------------------------------------------------------
 
 [group('bucket')]
 deploy:
     uv run python -m tools bucket deploy
+
+# Verify plugins matches the GCS bucket runtime seed manifest (requires GCS_BUCKET).
+# Run this before triggering BMT to catch stale local mirrors.
+[group('bucket')]
+check-sync:
+    uv run python -m tools.remote.bucket_verify_runtime_seed_sync
 
 [private]
 [group('bucket')]
@@ -81,7 +99,7 @@ preflight:
 # Upload WAV dataset to projects/<project>/inputs/<dataset>/ in GCS only (datasets can be 30-40 GB).
 # Archives use gcloud storage cp + Cloud Run extraction. Folders use gcloud storage rsync.
 # Dataset name is auto-detected from the filename.
-# Pass --local to also mirror into gcp/stage/. Example: just upload-data sk audio/sk_false_rejects.zip
+# Pass --local to also mirror into plugins/. Example: just upload-data sk audio/sk_false_rejects.zip
 [group('bucket')]
 upload-data project source *args:
     uv run python -m tools bucket upload-dataset "{{ project }}" "{{ source }}" {{ args }}
@@ -99,20 +117,20 @@ clean-bloat *args:
 
 # -- Data access (local fetch, manifests, FUSE mounts) -----------------------
 
-# Fetch a full dataset from GCS into gcp/stage/ for local use.
+# Fetch a full dataset from GCS into plugins/ for local use.
 # Example: just fetch-inputs sk false_rejects
 [private]
 [group('bucket')]
 fetch-inputs project dataset:
-    gcloud storage cp -r "gs://$GCS_BUCKET/projects/{{ project }}/inputs/{{ dataset }}/" \
-        "gcp/stage/projects/{{ project }}/inputs/{{ dataset }}/"
+    gcloud storage cp -r "gs://$${GCS_BUCKET}/projects/{{ project }}/inputs/{{ dataset }}/" \
+        "plugins/projects/{{ project }}/inputs/{{ dataset }}/"
 
-# Fetch a single file from GCS into gcp/stage/.
+# Fetch a single file from GCS into plugins/.
 # Example: just fetch-wav projects/sk/inputs/false_rejects/ambient/cafe_001.wav
 [private]
 [group('bucket')]
 fetch-wav path:
-    gcloud storage cp "gs://$GCS_BUCKET/{{ path }}" "gcp/stage/{{ path }}"
+    gcloud storage cp "gs://$${GCS_BUCKET}/{{ path }}" "plugins/{{ path }}"
 
 # (Re-)generate dataset_manifest.json for a dataset (requires GCS_BUCKET).
 # Example: just gen-manifest sk false_rejects
@@ -126,16 +144,7 @@ gen-manifest project dataset:
 [private]
 [group('bucket')]
 mount-data project:
-    mkdir -p gcp/mnt/{{ project }}-inputs
-    gcsfuse \
-        --only-dir="projects/{{ project }}/inputs" \
-        --file-mode=444 \
-        --dir-mode=555 \
-        --implicit-dirs \
-        --stat-cache-ttl=300s \
-        --type-cache-ttl=300s \
-        --kernel-list-cache-ttl-secs=60 \
-        "$GCS_BUCKET" gcp/mnt/{{ project }}-inputs
+    bash tools/scripts/just_mount_data.sh "{{ project }}"
 
 [group('bucket')]
 mount-project project:
@@ -145,7 +154,7 @@ mount-project project:
 [private]
 [group('bucket')]
 umount-data project:
-    fusermount -u gcp/mnt/{{ project }}-inputs
+    fusermount -u mnt/{{ project }}-inputs
 
 [group('bucket')]
 umount-project project:
@@ -155,33 +164,118 @@ umount-project project:
 [private]
 [group('bucket')]
 set-bucket-var:
-    gh variable set GCS_BUCKET --body "$(cd infra/pulumi && pulumi stack output gcs_bucket)"
+    gh variable set GCS_BUCKET --body "$$(cd infra/pulumi && pulumi stack output gcs_bucket)"
+
+# -- Large dataset uploads (Storage Transfer Service agent) ------------------
+
+# One-time: create the agent pool. Safe to re-run.
+[group('upload')]
+infra-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="$${GCP_PROJECT:-train-kws-202311}"
+    gcloud transfer agent-pools create bmt-upload-pool --project="$$PROJECT" 2>/dev/null || true
+    echo "Agent pool ready."
+    echo "Next: just agent-start before any large upload, then just transfer with project, dataset, source args"
+    echo "For Drive->GCS: docker run --rm -it -v \$HOME/.config/rclone:/config/rclone rclone/rclone config"
+
+# Start the Transfer Service agent. Mounts ./data as /transfer_root inside the container.
+# Run once before a batch of transfers; stop when done.
+[group('upload')]
+agent-start:
+    bash tools/scripts/just_agent_start.sh
+
+[group('upload')]
+agent-stop:
+    docker rm -f bmt-transfer-agent || true
+
+# Create a managed transfer job for a WAV dataset.
+# <source> is a path relative to ./data (e.g. false_alarms or rejects/quiet).
+# Monitor at https://console.cloud.google.com/storage-transfer
+# Example: GCS_BUCKET=train-kws-202311-bmt-gate just transfer sk false_alarms false_alarms
+[group('upload')]
+transfer project dataset source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="$${GCP_PROJECT:-train-kws-202311}"
+    gcloud transfer jobs create \
+      --source-agent-pool=bmt-upload-pool \
+      --source-directory="/transfer_root/{{source}}" \
+      --destination="gs://$${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}" \
+      --project="$$PROJECT"
+    echo ""
+    echo "Monitor: https://console.cloud.google.com/storage-transfer?project=$$PROJECT"
+    echo "After completion run: GCS_BUCKET=$${GCS_BUCKET} just upload-data {{project}} {{dataset}} data/{{source}} --force"
+
+# Compare local vs GCS file counts for a dataset.
+# Example: GCS_BUCKET=... just upload-status sk false_alarms
+[group('upload')]
+upload-status project dataset:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    LOCAL=$$(find "data/{{dataset}}" -type f 2>/dev/null | wc -l || echo 0)
+    REMOTE=$$(gcloud storage ls "gs://$${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}/**" 2>/dev/null | wc -l || echo 0)
+    echo "Local  (data/{{dataset}}):                         $$LOCAL files"
+    echo "Remote (gs://$${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}): $$REMOTE files"
+    if [ "$$LOCAL" -eq "$$REMOTE" ]; then echo "✓ In sync"; else echo "✗ Mismatch"; fi
+
+# Google Drive folder -> GCS via rclone (requires prior: docker run --rm -it rclone/rclone config).
+# <folder_id> is the Drive folder ID from the URL.
+# Example: GCS_BUCKET=... just drive-sync 1CFF2GQ... sk false_alarms
+[group('upload')]
+drive-sync folder_id project dataset:
+    docker run --rm -v "$$HOME/.config/rclone:/config/rclone" rclone/rclone copy "drive:{{folder_id}}" "gcs:$${GCS_BUCKET}/projects/{{project}}/inputs/{{dataset}}" --drive-root-folder-id="{{folder_id}}" --progress --transfers=4 --stats=5s
+
+# -- Monitoring & debug -------------------------------------------------------
+
+# Tail recent logs for a Cloud Run job. Default: last 1 hour.
+# Example: just logs bmt-control
+[group('monitor')]
+logs job freshness="1h":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT="$${GCP_PROJECT:-train-kws-202311}"
+    gcloud logging read \
+      "resource.type=cloud_run_job AND resource.labels.job_name={{job}}" \
+      --project="$$PROJECT" \
+      --limit=200 \
+      --freshness="{{freshness}}" \
+      --format="table(timestamp,textPayload)"
+
+# Show the image digest each Cloud Run job is currently pinned to.
+[group('monitor')]
+image-status:
+    bash tools/scripts/just_image_status.sh
+
+# Open a PR from the current branch targeting ci/check-bmt-gate to trigger the E2E BMT pipeline.
+[group('monitor')]
+e2e-trigger:
+    gh pr create --title "chore: E2E trigger" --body "Trigger BMT gate E2E pipeline." --base ci/check-bmt-gate
 
 # -- Infrastructure ----------------------------------------------------------
 
-# Apply GCS lifecycle rules (run once after `just pulumi`; deletes orphaned imports/ after 2d, triggers/ after 7d).
+# Apply GCS lifecycle rules (run once after pulumi apply; deletes orphaned imports/ after 2d, triggers/ after 7d).
 [group('infra')]
 set-lifecycle:
-    gcloud storage buckets update gs://$(cd infra/pulumi && pulumi stack output gcs_bucket) \
-        --lifecycle-file=infra/lifecycle.json \
-        --project=$(cd infra/pulumi && pulumi stack output gcp_project)
+    bash tools/scripts/just_set_lifecycle.sh
 
 [group('infra')]
 pulumi *args:
     uv run python -m tools pulumi apply {{ args }}
 
-# Build the Cloud Run image. Pass --repo owner/name after 'build' if origin differs (e.g. just build --repo klugman-yanai/bmt-gcloud).
+# Build the Cloud Run image (optional repo override: see tools build image).
 [private]
 [group('infra')]
 build *args:
-    uv run python -m tools build image --branch "`git rev-parse --abbrev-ref HEAD`" {{ args }}
+    #!/usr/bin/env bash
+    uv run python -m tools build image --branch "$$(git rev-parse --abbrev-ref HEAD)" {{ args }}
 
 [private]
 [group('infra')]
 packer-validate:
     uv run python -m tools build packer-validate
 
-# -- Validation & debug ------------------------------------------------------
+# -- Validation & debug -------------------------------------------------------
 
 [group('validate')]
 validate:
@@ -207,78 +301,92 @@ add-project project:
 add-bmt project bmt_slug:
     uv run python -m tools bmt add-bmt "{{ project }}" "{{ bmt_slug }}"
 
+# One-time setup for a fresh machine: installs uv, gcloud, ADC, syncs deps, installs prek hooks.
+# Pass --dev for a full developer environment (shellcheck, actionlint, pulumi).
+# Pass --dry-run to preview what would be installed without making changes.
+[group('setup')]
+setup *args:
+    bash tools/scripts/setup.sh {{ args }}
+
 [group('dev')]
 publish-bmt project bmt_slug:
     uv run python -m tools bmt publish-bmt "{{ project }}" "{{ bmt_slug }}"
 
-[private]
+# Legacy: assemble .github-release/ for core-main (deprecated — production uses published bmt.pex + bmt-get-pex).
 [group('dev')]
-release-package:
-    rm -rf .github-release/bmt/ci .github-release/bmt/config .github-release/bmt/pyproject.toml .github-release/bmt/uv.lock
-    cp -r .github/bmt/ci .github/bmt/config .github/bmt/pyproject.toml .github/bmt/uv.lock .github-release/bmt/
-    @echo "Updated .github-release/bmt/ from .github/bmt/ (ci, config, pyproject.toml, uv.lock)"
+release-legacy *args:
+    uv run python scripts/assemble_release.py {{ args }}
+
+[group('dev')]
+release-check:
+    command -v actionlint >/dev/null 2>&1 || (echo Install actionlint >&2; exit 1)
+    actionlint -config-file .github/actionlint.yaml \
+      .github/workflows/bmt-handoff.yml \
+      .github/workflows/build-kardome-bmt-pex.yml \
+      .github/workflows/release.yml
+
+# Self-contained bmt CLI for consumer CI (GitHub Release asset: bmt.pex on tag bmt-v*).
+[group('dev')]
+build-pex:
+    bash scripts/build_kardome_bmt_pex.sh
 
 # -- Local CI ----------------------------------------------------------------
 
-[private]
+# Default: workflow_dispatch on build-and-test.yml. For handoff or internal/trigger-ci, run act with -W yourself or see .github/README.md.
 [group('local-ci')]
-act which="":
-    #!/usr/bin/env -S bash -eu
-    VAR_ARG=""
-    [[ -f .env ]] && VAR_ARG="--var-file .env"
-    W=".github/workflows/build-and-test.yml"
-    case "{{ which }}" in
-      handoff)
-        act workflow_dispatch -W .github/workflows/bmt-handoff.yml \
-          --input ci_run_id="$${GITHUB_RUN_ID:-local123}" \
-          --input head_sha="$(git rev-parse HEAD)" \
-          --input head_branch="$(git branch --show-current)" \
-          --input head_event=push \
-          --input pr_number= \
-          $VAR_ARG
-        ;;
-      trigger)
-        act pull_request -W .github/workflows/ops/trigger-ci.yml -e .github/workflows/events/pull_request.json $VAR_ARG
-        ;;
-      "")
-        act workflow_dispatch -W "$W" $VAR_ARG
-        ;;
-      *)
-        act workflow_dispatch -W "$W" -j "{{ which }}" $VAR_ARG
-        ;;
-    esac
+act:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -f .env ]]; then
+      exec act workflow_dispatch -W .github/workflows/build-and-test.yml --var-file .env
+    fi
+    exec act workflow_dispatch -W .github/workflows/build-and-test.yml
 
 # -- Docker (Cloud Run image) --------------------------------------------------
 
 [group('docker')]
 image: docker-build docker-push
 
-# Build the BMT orchestrator container image (buildx for BuildKit/cache)
+# Build the BMT orchestrator container image (legacy builder; install buildx for BuildKit)
 [private]
 [group('docker')]
 docker-build:
-    docker buildx build --load -t bmt-orchestrator:latest -f gcp/image/Dockerfile .
+    docker build -t bmt-orchestrator:latest -f runtime/Dockerfile .
 
-# Run the container locally with gcp/stage bind-mounted as /mnt/runtime (FUSE simulation)
+# Run the container locally with plugins bind-mounted as /mnt/runtime (FUSE simulation)
 [private]
 [group('docker')]
 docker-run-test *args:
-    docker run --rm \
-        -v "$(pwd)/gcp/stage:/mnt/runtime:ro" \
-        -e BMT_CONFIG=/etc/bmt/config.json \
-        {{ args }} \
-        bmt-orchestrator:latest
+    bash tools/scripts/just_docker_run_test.sh {{ args }}
 
-# Tag and push the image to Artifact Registry (requires gcloud auth configure-docker)
+# Tag and push the image to Artifact Registry (requires gcloud auth configure-docker).
+# Also tags with the full git commit SHA so just ship can verify the image via Artifact Registry.
 [private]
 [group('docker')]
 docker-push:
+    bash tools/scripts/just_docker_push.sh
+
+# -- E2E / debug ---------------------------------------------------------------
+
+# Print gs:// URIs for SK batch-probe raw logs (stdout/stderr/meta) after a Cloud Run task.
+# Requires GCS_BUCKET. Example: `just sk-print-batch-probe-logs 12345-false_rejects false_rejects`
+[group('debug')]
+sk-print-batch-probe-logs run_id bmt_slug="false_rejects":
     #!/usr/bin/env bash
     set -euo pipefail
-    PROJECT=$(cd infra/pulumi && pulumi stack output gcp_project 2>/dev/null || echo "${GCP_PROJECT:-train-kws-202311}")
-    REGION="${CLOUD_RUN_REGION:-europe-west4}"
-    REPO="${ARTIFACT_REGISTRY_REPO:-bmt-images}"
-    IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/bmt-orchestrator:latest"
-    docker tag bmt-orchestrator:latest "${IMAGE}"
-    docker push "${IMAGE}"
-    echo "Pushed: ${IMAGE}"
+    : "${GCS_BUCKET:?set GCS_BUCKET to your train bucket}"
+    R="{{ run_id }}"
+    S="{{ bmt_slug }}"
+    P="gs://${GCS_BUCKET}/projects/sk/results/${S}/snapshots/${R}/logs"
+    echo "stdout : ${P}/batch_probe.stdout.log"
+    echo "stderr : ${P}/batch_probe.stderr.log"
+    echo "meta   : ${P}/batch_probe.meta.txt"
+    echo "view   : gcloud storage cat \"${P}/batch_probe.stdout.log\""
+
+# Placeholder: previous recipe mixed invalid Just syntax (@printf multiline, finally:). Restore from git history if needed.
+e2e-test-cloud-run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "e2e-test-cloud-run is not implemented as a maintained Just recipe." >&2
+    echo "Use docs/architecture.md and manual gcloud/pulumi steps, or restore an older Justfile from git." >&2
+    exit 1

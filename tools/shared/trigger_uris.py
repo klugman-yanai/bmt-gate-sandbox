@@ -1,12 +1,12 @@
-"""Trigger and handshake URIs for BMT run triggers (tools-only; no dependency on .github/bmt).
+"""Trigger and handshake URIs for BMT run triggers (tools-only; no dependency on kardome-bmt).
 
-Same path and sanitization contract as .github/bmt/ci/core so trigger/ack paths
-match between CI, VM, and tools.
+Same path and sanitization contract as ``ci/kardome_bmt/core.py`` so trigger/ack paths
+match between CI, runtime, and tools.
 """
 
 from __future__ import annotations
 
-from gcp.image.config.value_types import sanitize_run_id
+from runtime.config.value_types import sanitize_run_id
 
 __all__ = ["run_handshake_uri", "run_trigger_uri", "runtime_root_uri", "sanitize_run_id"]
 

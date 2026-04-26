@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from tools.repo.paths import TOOLS_SCRIPTS, repo_root
+from tools.repo.paths import repo_root
 from tools.shared.bucket_env import bucket_from_env
 from tools.shared.rich_minimal import step, step_console, success_panel
 
@@ -30,65 +30,65 @@ def verify_runtime_seed() -> None:
 
 @app.command()
 def deploy() -> None:
-    """Sync gcp/stage to bucket root and verify runtime seed."""
+    """Sync gcp/stage to bucket root and verify runtime seed.
+
+    On success, emits ``plugins_sha`` (the git tree SHA of ``plugins/projects``
+    at HEAD) to ``$GITHUB_OUTPUT`` so the CI release workflow can record which
+    plugin state was deployed. Local runs print it for visibility only.
+    """
     from tools.remote.bucket_sync_runtime_seed import BucketSyncRuntimeSeed
     from tools.remote.bucket_verify_runtime_seed_sync import BucketVerifyRuntimeSeedSync
+    from tools.shared.release_fingerprints import emit_github_output, plugins_tree_sha
 
     bucket = bucket_from_env()
     console = step_console()
     if console is not None:
         console.print("[bold]Deploy[/]")
-    steps: list[tuple[str, object]] = [
+    steps: list[tuple[str, BucketSyncRuntimeSeed | BucketVerifyRuntimeSeedSync]] = [
         ("Sync runtime seed", BucketSyncRuntimeSeed()),
         ("Verify runtime seed", BucketVerifyRuntimeSeedSync()),
     ]
     for label, runner in steps:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = runner.run(bucket=bucket)  # type: ignore[union-attr]
+            rc = runner.run(bucket=bucket)
         if rc != 0:
             if buf.getvalue():
                 sys.stderr.write(buf.getvalue())
             step(console, label, ok=False)
             raise typer.Exit(rc)
         step(console, label, ok=True)
+
+    plugins_sha = plugins_tree_sha(Path(repo_root()))
+    if plugins_sha is not None:
+        print(f"PLUGINS_SHA={plugins_sha}")
+        emit_github_output("plugins_sha", plugins_sha)
     success_panel(console, "Deploy", "Runtime seed synced and verified.")
     raise typer.Exit(0)
 
 
 @app.command()
 def preflight(
-    report: Annotated[
+    snapshot: Annotated[
         Path | None,
-        typer.Option("--report", help="Path to saved preflight report (.txt); skips shell script"),
+        typer.Option(
+            "--snapshot",
+            "--report",
+            help="Replay diff from a saved JSON snapshot (--report is an alias).",
+        ),
     ] = None,
     local_only: Annotated[
         bool,
-        typer.Option("--local-only", help="Only list gcp/image, no gcloud"),
+        typer.Option("--local-only", help="Only list gcp/image, no GCS"),
     ] = False,
 ) -> None:
-    """Bucket diff report (saved to .local/preflight-bucket-*.txt)."""
+    """Bucket diff vs gcp/image (JSON snapshot under .local/ on live runs)."""
+    from tools.remote.preflight_bucket import run_preflight
+
     console = step_console()
-    if report is not None or local_only:
-        script_path = repo_root() / "tools" / "scripts" / "preflight_bucket_vs_remote.py"
-        cmd = [sys.executable, str(script_path)]
-        if report is not None:
-            cmd.extend(["--report", str(report)])
-        if local_only:
-            cmd.append("--local-only")
-        rc = subprocess.run(cmd, check=False, cwd=repo_root()).returncode
-        step(console, "Preflight", ok=(rc == 0))
-        if rc == 0:
-            success_panel(console, "Preflight", "Bucket vs image check passed.")
-        raise typer.Exit(rc)
-    if console is not None:
+    if console is not None and snapshot is None and not local_only:
         console.print("[bold]Preflight[/]")
-    script = repo_root() / TOOLS_SCRIPTS / "run_preflight_bucket.sh"
-    rc = subprocess.run(
-        ["bash", str(script)],
-        check=False,
-        cwd=repo_root(),
-    ).returncode
+    rc = run_preflight(snapshot=snapshot, local_only=local_only)
     step(console, "Preflight", ok=(rc == 0))
     if rc == 0:
         success_panel(console, "Preflight", "Bucket preflight passed.")
@@ -120,11 +120,35 @@ def clean_bloat(
 def upload_runner(
     runner_path: Annotated[
         Path | None,
-        typer.Option("--runner-path", help="Path to runner binary; default from BMT_RUNNER_PATH or sk default"),
+        typer.Option(
+            "--runner-path",
+            envvar="BMT_RUNNER_PATH",
+            help="Path to runner binary; default from BMT_RUNNER_PATH or sk default",
+        ),
     ] = None,
     runner_uri: Annotated[
         str | None,
-        typer.Option("--runner-uri", help="GCS object path; default from BMT_RUNNER_URI or sk default"),
+        typer.Option(
+            "--runner-uri",
+            envvar="BMT_RUNNER_URI",
+            help="GCS object path; default from BMT_RUNNER_URI or sk default",
+        ),
+    ] = None,
+    source: Annotated[
+        str | None,
+        typer.Option(
+            "--source",
+            envvar="BMT_SOURCE",
+            help="Source label for metadata (default sandbox_manual)",
+        ),
+    ] = None,
+    source_ref: Annotated[
+        str | None,
+        typer.Option(
+            "--source-ref",
+            envvar="SOURCE_REF",
+            help="Optional source ref (commit, etc.)",
+        ),
     ] = None,
     force: Annotated[
         bool,
@@ -141,14 +165,14 @@ def upload_runner(
         (os.environ.get("BMT_RUNNER_PATH") or "").strip() or "repo/staging/runners/sk_gcc_release/kardome_runner"
     )
     uri = runner_uri or ((os.environ.get("BMT_RUNNER_URI") or "").strip() or "sk/runners/sk_gcc_release/kardome_runner")
-    source = (os.environ.get("BMT_SOURCE") or "").strip() or "sandbox_manual"
-    source_ref = (os.environ.get("SOURCE_REF") or "").strip()
+    source_eff = (source or (os.environ.get("BMT_SOURCE") or "").strip() or "sandbox_manual").strip()
+    source_ref_eff = (source_ref or (os.environ.get("SOURCE_REF") or "").strip()).strip()
     rc = BucketUploadRunner().run(
         bucket=bucket,
         runner_path=path,
         runner_uri=uri,
-        source=source,
-        source_ref=source_ref,
+        source=source_eff,
+        source_ref=source_ref_eff,
         force=force,
     )
     raise typer.Exit(rc)
@@ -160,44 +184,69 @@ def upload_dataset(
         str,
         typer.Argument(help="Project name (e.g. sk)"),
     ],
-    source: Annotated[
-        Path,
-        typer.Argument(help="Path to a .zip archive or a folder containing WAV files"),
+    dataset: Annotated[
+        str,
+        typer.Argument(help="Dataset name (e.g. false_alarms)"),
     ],
-    dataset_name: Annotated[
-        str | None,
-        typer.Option("--dataset", help="Dataset name override (auto-detected from source if omitted)"),
-    ] = None,
+    source: Annotated[
+        str,
+        typer.Argument(help="Local file path, local folder path, or Google Drive folder ID (with --drive)"),
+    ],
+    drive: Annotated[
+        bool,
+        typer.Option("--drive", help="Source is a Google Drive folder ID; transfer runs via Cloud Run (non-blocking)"),
+    ] = False,
+    recursive: Annotated[
+        bool,
+        typer.Option("--recursive", "-r", help="Source is a local folder; use gcloud storage rsync"),
+    ] = False,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Re-upload even if GCS already matches"),
+        typer.Option("--force", help="Re-upload even if GCS already matches (local modes only)"),
     ] = False,
     local: Annotated[
         bool,
         typer.Option("--local", help="Also mirror files into gcp/stage/ (off by default; datasets can be 30-40 GB)"),
     ] = False,
 ) -> None:
-    """Upload a WAV dataset (zip or folder) to projects/<project>/inputs/<dataset>/.
+    """Upload a WAV dataset to projects/<project>/inputs/<dataset>/.
 
-    Uploads to GCS only by default — datasets can be 30-40 GB. Archives use
-    ``gcloud storage cp`` followed by the Cloud Run dataset importer; folders
-    use ``gcloud storage rsync``. Pass --local to also mirror into gcp/stage/.
-    Dataset name is auto-detected from the source filename when not given:
-    sk_false_rejects.zip → false_rejects.
+    Three modes:
+
+    \b
+    Single file (up to 20 GB):
+        uv run bmt bucket upload-dataset sk my_data /path/to/audio.wav
+
+    Local folder (recursive):
+        uv run bmt bucket upload-dataset sk my_data /path/to/folder --recursive
+
+    Google Drive folder (non-blocking Cloud Run job):
+        uv run bmt bucket upload-dataset sk my_data <drive-folder-id> --drive
     """
     from tools.remote.bucket_upload_dataset import BucketUploadDataset
     from tools.repo.paths import repo_root
 
     bucket = bucket_from_env()
     local_mirror = repo_root() / "gcp" / "stage" if local else None
-    rc = BucketUploadDataset().run(
-        bucket=bucket,
-        project=project,
-        source=source,
-        dataset_name=dataset_name,
-        force=force,
-        local_mirror=local_mirror,
-    )
+
+    if drive:
+        rc = BucketUploadDataset().run(
+            bucket=bucket,
+            project=project,
+            source="",
+            dataset_name=dataset,
+            drive=True,
+            drive_folder_id=source,
+        )
+    else:
+        rc = BucketUploadDataset().run(
+            bucket=bucket,
+            project=project,
+            source=Path(source),
+            dataset_name=dataset,
+            force=force,
+            local_mirror=local_mirror,
+        )
     raise typer.Exit(rc)
 
 

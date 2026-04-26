@@ -1,0 +1,27 @@
+# DEPRECATED — intentionally commented out rather than deleted.
+#
+# Background:
+#   This workflow used to fire on every PR as a no-op "skip-check". CODEOWNERS
+#   review is now enforced natively by the `dev-protection` branch ruleset
+#   (`require_code_owner_review: true`), so this file is redundant.
+#
+# Why keep the file at all:
+#   `scripts/assemble_release.py` ships everything under this directory into
+#   `.github-release/workflows/internal/`. Removing the file would drop it from
+#   the release bundle silently. Leaving it here (fully commented) preserves
+#   history and any inbound references, while producing an inert workflow —
+#   GitHub Actions ignores files whose effective content has no `on:` block.
+#
+# To re-enable, uncomment the block below. Expect to first deprecate the
+# native ruleset to avoid double enforcement.
+#
+# ---
+# name: Deprecated Code Owner Check
+# on: [pull_request]
+#
+# jobs:
+#   skip-check:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Skipping check
+#         run: echo "This workflow is deprecated and has been disabled."

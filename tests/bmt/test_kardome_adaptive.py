@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gcp.image.runtime.sdk.kardome import AdaptiveKardomeExecutor
-from gcp.image.runtime.sdk.results import CaseResult, ExecutionResult
+import pytest
+from bmt_sdk.results import CaseResult, ExecutionResult
+
+from runtime.kardome import AdaptiveKardomeExecutor
+
+pytestmark = pytest.mark.integration
 
 
 def test_adaptive_kardome_falls_back_to_legacy_when_batch_result_missing(tmp_path: Path) -> None:

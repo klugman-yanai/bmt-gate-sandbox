@@ -12,153 +12,186 @@ main:
           - bucket: ${args.bucket}
           - plan_object: ${"triggers/plans/" + workflow_run_id + ".json"}
           - plan_url: ${"https://storage.googleapis.com/download/storage/v1/b/" + bucket + "/o/" + text.url_encode(plan_object) + "?alt=media"}
-
-    - run_plan_job:
-        call: googleapis.run.v1.namespaces.jobs.run
-        args:
-          name: ${"namespaces/" + project_number + "/jobs/bmt-control"}
-          location: ${location}
-          connector_params:
-            timeout: __CONNECTOR_TIMEOUT_SEC__
-          body:
-            overrides:
-              taskCount: 1
-              containerOverrides:
-                - env:
-                    - name: BMT_MODE
-                      value: "plan"
-                    - name: BMT_WORKFLOW_RUN_ID
-                      value: ${workflow_run_id}
-                    - name: BMT_HEAD_SHA
-                      value: ${args.head_sha}
-                    - name: BMT_HEAD_BRANCH
-                      value: ${args.head_branch}
-                    - name: BMT_HEAD_EVENT
-                      value: ${args.head_event}
-                    - name: BMT_PR_NUMBER
-                      value: ${default(map.get(args, "pr_number"), "")}
-                    - name: BMT_RUN_CONTEXT
-                      value: ${default(map.get(args, "run_context"), "ci")}
-                    - name: GITHUB_REPOSITORY
-                      value: ${args.repository}
-                    - name: BMT_ACCEPTED_PROJECTS_JSON
-                      value: ${args.accepted_projects_json}
-                    - name: BMT_STATUS_CONTEXT
-                      value: ${default(map.get(args, "status_context"), "BMT Gate")}
-                    - name: BMT_USE_MOCK_RUNNER
-                      value: ${default(map.get(args, "use_mock_runner_str"), "false")}
-                    - name: BMT_WORKFLOW_EXECUTION_URL
-                      value: ${workflow_console_url}
-        result: plan_job_execution
-
-    - read_plan:
-        call: http.get
-        args:
-          url: ${plan_url}
-          auth:
-            type: OAuth2
-        result: plan_response
-
-    - parse_plan:
-        assign:
-          - plan: ${plan_response.body}
-
-    - derive_plan_counts:
-        assign:
-          - standard_task_count: ${default(map.get(plan, "standard_task_count"), 0)}
-          - heavy_task_count: ${default(map.get(plan, "heavy_task_count"), 0)}
-
-    - init_task_failed:
-        assign:
+          - standard_task_count: 0
+          - heavy_task_count: 0
           - tasks_failed: false
+          - plan_job_execution: null
+          - standard_job_execution: null
+          - heavy_job_execution: null
+          - coordinator_job_execution: null
 
-    - maybe_run_standard:
-        switch:
-          - condition: ${standard_task_count > 0}
-            next: run_standard_job
-          - condition: true
-            next: maybe_run_heavy
-
-    - run_standard_job:
+    - bmt_pipeline:
         try:
-          call: googleapis.run.v1.namespaces.jobs.run
-          args:
-            name: ${"namespaces/" + project_number + "/jobs/bmt-task-standard"}
-            location: ${location}
-            connector_params:
-              timeout: __CONNECTOR_TIMEOUT_SEC__
-            body:
-              overrides:
-                taskCount: ${standard_task_count}
-                containerOverrides:
-                  - env:
-                      - name: BMT_MODE
-                        value: "task"
-                      - name: BMT_WORKFLOW_RUN_ID
-                        value: ${workflow_run_id}
-                      - name: BMT_TASK_PROFILE
-                        value: "standard"
-          result: standard_job_execution
+          steps:
+            - run_plan_job:
+                call: googleapis.run.v1.namespaces.jobs.run
+                args:
+                  name: ${"namespaces/" + project_number + "/jobs/bmt-control"}
+                  location: ${location}
+                  connector_params:
+                    timeout: __CONNECTOR_TIMEOUT_SEC__
+                  body:
+                    overrides:
+                      taskCount: 1
+                      containerOverrides:
+                        - env:
+                            - name: BMT_MODE
+                              value: "plan"
+                            - name: BMT_WORKFLOW_RUN_ID
+                              value: ${workflow_run_id}
+                            - name: BMT_HEAD_SHA
+                              value: ${args.head_sha}
+                            - name: BMT_HEAD_BRANCH
+                              value: ${args.head_branch}
+                            - name: BMT_HEAD_EVENT
+                              value: ${args.head_event}
+                            - name: BMT_PR_NUMBER
+                              value: ${default(map.get(args, "pr_number"), "")}
+                            - name: BMT_RUN_CONTEXT
+                              value: ${default(map.get(args, "run_context"), "ci")}
+                            - name: GITHUB_REPOSITORY
+                              value: ${args.repository}
+                            - name: BMT_ACCEPTED_PROJECTS_JSON
+                              value: ${args.accepted_projects_json}
+                            - name: BMT_STATUS_CONTEXT
+                              value: ${default(map.get(args, "status_context"), "BMT Gate")}
+                            - name: BMT_WORKFLOW_EXECUTION_URL
+                              value: ${workflow_console_url}
+                result: plan_job_execution
+
+            - read_plan:
+                call: http.get
+                args:
+                  url: ${plan_url}
+                  auth:
+                    type: OAuth2
+                result: plan_response
+
+            - parse_plan:
+                assign:
+                  - plan: ${plan_response.body}
+
+            - derive_plan_counts:
+                assign:
+                  - standard_task_count: ${default(map.get(plan, "standard_task_count"), 0)}
+                  - heavy_task_count: ${default(map.get(plan, "heavy_task_count"), 0)}
+
+            - init_task_failed:
+                assign:
+                  - tasks_failed: false
+
+            - maybe_run_standard:
+                switch:
+                  - condition: ${standard_task_count > 0}
+                    next: run_standard_job
+                  - condition: true
+                    next: maybe_run_heavy
+
+            - run_standard_job:
+                try:
+                  call: googleapis.run.v1.namespaces.jobs.run
+                  args:
+                    name: ${"namespaces/" + project_number + "/jobs/bmt-task-standard"}
+                    location: ${location}
+                    connector_params:
+                      timeout: __CONNECTOR_TIMEOUT_SEC__
+                    body:
+                      overrides:
+                        taskCount: ${standard_task_count}
+                        containerOverrides:
+                          - env:
+                              - name: BMT_MODE
+                                value: "task"
+                              - name: BMT_WORKFLOW_RUN_ID
+                                value: ${workflow_run_id}
+                              - name: BMT_TASK_PROFILE
+                                value: "standard"
+                  result: standard_job_execution
+                except:
+                  as: e
+                  steps:
+                    - note_standard_failure:
+                        assign:
+                          - tasks_failed: true
+                          - standard_job_execution: null
+
+            - maybe_run_heavy:
+                switch:
+                  - condition: ${heavy_task_count > 0}
+                    next: run_heavy_job
+                  - condition: true
+                    next: run_coordinator_job
+
+            - run_heavy_job:
+                try:
+                  call: googleapis.run.v1.namespaces.jobs.run
+                  args:
+                    name: ${"namespaces/" + project_number + "/jobs/bmt-task-heavy"}
+                    location: ${location}
+                    connector_params:
+                      timeout: __CONNECTOR_TIMEOUT_SEC__
+                    body:
+                      overrides:
+                        taskCount: ${heavy_task_count}
+                        containerOverrides:
+                          - env:
+                              - name: BMT_MODE
+                                value: "task"
+                              - name: BMT_WORKFLOW_RUN_ID
+                                value: ${workflow_run_id}
+                              - name: BMT_TASK_PROFILE
+                                value: "heavy"
+                  result: heavy_job_execution
+                except:
+                  as: e
+                  steps:
+                    - note_heavy_failure:
+                        assign:
+                          - tasks_failed: true
+                          - heavy_job_execution: null
+
+            - run_coordinator_job:
+                call: googleapis.run.v1.namespaces.jobs.run
+                args:
+                  name: ${"namespaces/" + project_number + "/jobs/bmt-control"}
+                  location: ${location}
+                  connector_params:
+                    timeout: __CONNECTOR_TIMEOUT_SEC__
+                  body:
+                    overrides:
+                      taskCount: 1
+                      containerOverrides:
+                        - env:
+                            - name: BMT_MODE
+                              value: "coordinator"
+                            - name: BMT_WORKFLOW_RUN_ID
+                              value: ${workflow_run_id}
+                result: coordinator_job_execution
         except:
           as: e
           steps:
-            - note_standard_failure:
+            - assign_finalize_reason:
                 assign:
-                  - tasks_failed: true
-                  - standard_job_execution: null
-
-    - maybe_run_heavy:
-        switch:
-          - condition: ${heavy_task_count > 0}
-            next: run_heavy_job
-          - condition: true
-            next: run_coordinator_job
-
-    - run_heavy_job:
-        try:
-          call: googleapis.run.v1.namespaces.jobs.run
-          args:
-            name: ${"namespaces/" + project_number + "/jobs/bmt-task-heavy"}
-            location: ${location}
-            connector_params:
-              timeout: __CONNECTOR_TIMEOUT_SEC__
-            body:
-              overrides:
-                taskCount: ${heavy_task_count}
-                containerOverrides:
-                  - env:
-                      - name: BMT_MODE
-                        value: "task"
-                      - name: BMT_WORKFLOW_RUN_ID
-                        value: ${workflow_run_id}
-                      - name: BMT_TASK_PROFILE
-                        value: "heavy"
-          result: heavy_job_execution
-        except:
-          as: e
-          steps:
-            - note_heavy_failure:
-                assign:
-                  - tasks_failed: true
-                  - heavy_job_execution: null
-
-    - run_coordinator_job:
-        call: googleapis.run.v1.namespaces.jobs.run
-        args:
-          name: ${"namespaces/" + project_number + "/jobs/bmt-control"}
-          location: ${location}
-          connector_params:
-            timeout: __CONNECTOR_TIMEOUT_SEC__
-          body:
-            overrides:
-              taskCount: 1
-              containerOverrides:
-                - env:
-                    - name: BMT_MODE
-                      value: "coordinator"
-                    - name: BMT_WORKFLOW_RUN_ID
-                      value: ${workflow_run_id}
-        result: coordinator_job_execution
+                  - bmt_failure_reason: "BMT_workflow_failed_before_successful_coordinator"
+            - run_finalize_failure_job:
+                call: googleapis.run.v1.namespaces.jobs.run
+                args:
+                  name: ${"namespaces/" + project_number + "/jobs/bmt-control"}
+                  location: ${location}
+                  connector_params:
+                    timeout: __CONNECTOR_TIMEOUT_SEC__
+                  body:
+                    overrides:
+                      taskCount: 1
+                      containerOverrides:
+                        - env:
+                            - name: BMT_MODE
+                              value: "finalize-failure"
+                            - name: BMT_WORKFLOW_RUN_ID
+                              value: ${workflow_run_id}
+                            - name: BMT_FAILURE_REASON
+                              value: ${bmt_failure_reason}
+                result: coordinator_job_execution
 
     - done:
         return:

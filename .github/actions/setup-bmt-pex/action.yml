@@ -1,0 +1,89 @@
+name: Setup kardome-bmt PEX
+description: >
+  Self-contained PEX-only BMT CLI setup for cross-repo callers. Installs Python 3.12
+  (PEX runtime), downloads bmt.pex from a GitHub Release, and exports BMT_PEX_PATH for
+  downstream steps. The PEX bundles the full kardome-bmt CLI; nothing else from this
+  publishing repo is needed at runtime. Unlike setup-bmt-cli, this action does NOT run
+  uv sync, has no dependency on the caller's checkout, and is the canonical setup used
+  by bmt-handoff.yml when callers consume it cross-repo (e.g. Kardome-org/core-main).
+
+inputs:
+  tag:
+    description: >-
+      Release tag containing bmt.pex. Defaults to github.action_ref (the ref that
+      loaded this action). Special case: ref `bmt-handoff` resolves to the latest
+      semver `bmt-v*` release on `repo`. For `@<sha>` or `@<branch>` when action_ref
+      is not `bmt-v*` or `bmt-handoff`, pass `tag: bmt-v0.3.x` explicitly.
+    required: false
+    default: ${{ github.action_ref }}
+  repo:
+    description: >
+      owner/name of the repo that published bmt.pex. Defaults to klugman-yanai/bmt-gcloud when empty.
+    required: false
+    default: klugman-yanai/bmt-gcloud
+  python_version:
+    description: Python version for the PEX runtime.
+    required: false
+    default: "3.12"
+  out_path:
+    description: Directory to place bmt.pex (relative to GITHUB_WORKSPACE).
+    required: false
+    default: ".local/bmt"
+  token:
+    description: Token with contents:read on the release repo (default github.token).
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        repo="${{ inputs.repo }}"
+        tag="${{ inputs.tag }}"
+        if [[ -z "$tag" ]]; then
+          echo "::error::setup-bmt-pex: tag is required; could not self-discover from github.action_ref ('${{ github.action_ref }}'). Pass \`with: tag: bmt-v0.3.x\` explicitly."
+          exit 1
+        fi
+        if [[ "$tag" == "bmt-handoff" ]]; then
+          # gh: pass jq as a single --jq=… flag; `--jq -r '.[]'` makes gh treat `.[]` as a subcommand.
+          tag=$(gh release list --repo "$repo" --exclude-drafts --limit 150 \
+            --json tagName --jq='.[].tagName' \
+            | grep -E '^bmt-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          if [[ -z "$tag" ]]; then
+            echo "::error::setup-bmt-pex: could not resolve rolling ref bmt-handoff to a semver bmt-v* release on $repo"
+            exit 1
+          fi
+          echo "::notice::setup-bmt-pex: resolved bmt-handoff → ${tag} for PEX download"
+        fi
+        if [[ "$tag" != bmt-v* ]]; then
+          echo "::error::setup-bmt-pex: tag '$tag' is not a bmt-v* release tag after resolution. If you invoked this action via @<sha> or @<branch>, pass \`with: tag: bmt-v0.3.x\` explicitly."
+          exit 1
+        fi
+        {
+          echo "BMT_PEX_DOWNLOAD_TAG=${tag}"
+        } >> "$GITHUB_ENV"
+
+    - name: Setup Python for PEX
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Download bmt.pex
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        out="${GITHUB_WORKSPACE}/${{ inputs.out_path }}"
+        mkdir -p "$out"
+        gh release download "${BMT_PEX_DOWNLOAD_TAG}" \
+          -R "${{ inputs.repo }}" \
+          -p "bmt.pex" \
+          -D "$out"
+        chmod +x "$out/bmt.pex"
+        echo "BMT_PEX_PATH=${out}/bmt.pex" >> "$GITHUB_ENV"

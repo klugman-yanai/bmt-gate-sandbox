@@ -1,19 +1,27 @@
 # Roadmap
 
-Planned work and implementation plans. Full files live in [docs/roadmap/](docs/roadmap/).
+Scaffold for **internal** planning. Edit this file as priorities change; delete placeholder rows you do not need.
 
-## Current
+## Now
 
-| Plan | Description |
-|------|-------------|
-| [gcp-data-separation-and-dev-workflow](docs/roadmap/gcp-data-separation-and-dev-workflow.md) | Bug fixes blocking dev, manifest-based dataset visibility, WorkspaceLayout. **Most urgent.** |
-| [gcp-image-refactor](docs/roadmap/gcp-image-refactor.md) | Constants, types, config-driven entrypoint, structural decoupling. |
-| [contributor-api-and-manager-contract](docs/roadmap/contributor-api-and-manager-contract.md) | Protocol, BaseBmtManager, contributor workflow, artifact contract. |
-| [cloud-run-containerization-and-infra](docs/roadmap/cloud-run-containerization-and-infra.md) | Dockerfile, Cloud Run Job + GCS Fuse, Pulumi, coordinator model. |
-| [ci-cutover-and-vm-decommission](docs/roadmap/ci-cutover-and-vm-decommission.md) | Direct API handoff, shadow testing, cutover, VM decommission. |
+| Item | Notes |
+| ---- | ----- |
+| _— add rows as needed —_ | |
 
-**Dependency chain:** 1 → 2+3 → 4 → 5. See [docs/roadmap/](docs/roadmap/) for urgency ranking.
+## Next
 
-## Index
+| Item | Notes |
+| ---- | ----- |
+| _— add rows as needed —_ | |
 
-See [docs/roadmap/](docs/roadmap/) for active plans. Older design notes in [docs/plans/](docs/plans/). Archived plans in [docs/archive/](docs/archive/).
+## Later / backlog
+
+- _— bullets or links —_
+
+## References (stable docs)
+
+- [docs/architecture.md](docs/architecture.md) — Pipeline, diagrams, maintainer deep dive (weak points, remediation ideas).
+- [docs/runbook.md](docs/runbook.md) — Production debugging.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Contributor workflow.
+
+**History:** Older roadmap and plan write-ups were removed from the tree; use **git history** if you need retired markdown.

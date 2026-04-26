@@ -4,68 +4,178 @@ This repository keeps GitHub Actions logic in the native locations that GitHub e
 
 ## Workflow matrix (this repo)
 
-| Workflow | Purpose |
-| -------- | ------- |
-| **`workflows/build-and-test.yml`** | Main CI: build, tests, and calls **`bmt-handoff.yml`** for the BMT gate |
-| **`workflows/bmt-handoff.yml`** | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`) |
-| **`workflows/ops/trigger-ci.yml`** | Manual / branch CI trigger (sandbox) |
-| **`workflows/ops/bmt-image-build.yml`** | Image build pipeline |
-| **`workflows/ops/trigger-image-build.yml`** | Trigger image build |
-| **`workflows/clang-format-auto-fix.yml`** | Formatting automation |
+Root `**.github/workflows/*.yml**` (non-`internal/`): `**build-and-test-dev.yml**`, `**build-and-test.yml**`, `**bmt-handoff.yml**`, `**build-kardome-bmt-pex.yml**`, `**clang-format-auto-fix.yml**`. Everything else is under `**internal/**` (dev/ops tooling). Optional templates for consumer repos (e.g. `**trigger-ci.yml**`) live under `**scripts/release_templates/workflows/**` as references — production no longer uses a generated `**.github-release/**` bundle.
 
-**BMT CLI:** `uv run bmt …` — package under **`bmt/`** (`ci/`, `config/`).
 
-## Production deliverables (Kardome-org/core-main, dev branch)
+| Workflow                                         | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `**workflows/build-and-test-dev.yml**`           | **This repo’s CI** on `push` / `pull_request` to `**dev`** / `**ci/check-bmt-gate**` / `**test/***` (plus `workflow_dispatch` / `workflow_call`); one build matrix + one handoff per event, and calls `**bmt-handoff.yml**` when the gate passes. **Intended path for BMT:** open a **PR** into `ci/check-bmt-gate` so the full handoff + cloud BMT + BMT Gate run against the PR head with normal GitHub review UI; `push` remains so merges (and bots) still land CI after merge. |
+| `**workflows/build-and-test.yml`**               | Reusable CI for **core-main** (and manual runs): `workflow_dispatch` + `workflow_call` only — thin `**trigger-ci.yml`** (template or copy) supplies `push` / `pull_request_target`                                                                                                                                                                                                                                                                                                  |
+| `**workflows/bmt-handoff.yml**`                  | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`)                                                                                                                                                                                                                                                                                                                                                                                            |
+| `**workflows/clang-format-auto-fix.yml`**        | C/C++ format automation on selected branches                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `**workflows/build-kardome-bmt-pex.yml**`        | On tag `**bmt-v***`: build `**dist/bmt.pex**` and attach to the GitHub Release on **klugman-yanai/bmt-gcloud** (must be top-level so push-tag triggers it; subdirs of `.github/workflows/` are not scanned for triggers)                                                                                                                                                                                                                                                            |
+| `**workflows/internal/trigger-ci.yml`**          | Manual: `gh workflow run` **build-and-test** on a chosen ref                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `**workflows/internal/bmt-image-build.yml`**     | Packer image build; also on path-filtered `push`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `**workflows/internal/trigger-image-build.yml**` | Manual: dispatch image build on a branch                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
-**core-main** already has `build-and-test.yml`, `clang-format-auto-fix.yml`, and a deprecated `code-owner-enforcement.yml` (must remain). To add the BMT gate to production you only need:
 
-1. **Modifications to `build-and-test.yml`** — BMT-related jobs (e.g. decide-bmt, bmt calling handoff).
-2. **`bmt-handoff.yml`** — Reusable workflow invoked by build-and-test for the BMT gate.
+**BMT CLI:** the canonical CI entry point is the release `**bmt.pex`**, downloaded by `**[setup-bmt-pex](./actions/setup-bmt-pex/action.yml)**` and invoked via `**"$BMT_PEX_PATH" …**`. In `**bmt-handoff.yml**`, composites use **repo-relative** `./.github/actions/...` so the PEX tag matches the **same ref** as the reusable workflow (`@bmt-handoff` rolling tag or `@bmt-v*`). `**setup-bmt-pex`** resolves `github.action_ref`, with `**bmt-handoff` → latest `bmt-v***` for downloads. Self-CI image-build / dev-tooling workflows still use `**uv run**` + `**[setup-bmt-cli](./actions/setup-bmt-cli/action.yml)**` + `**[setup-gcp-uv](./actions/setup-gcp-uv/action.yml)**`, which sync the `**ci/**` workspace ([`ci/README.md`](../ci/README.md)).
 
-**All other workflow files in this repo are for bmt-gcloud testing only** and are not part of the production set: `ops/*` (trigger-ci, trigger-image-build, bmt-image-build), `clang-format-auto-fix.yml`, etc. Do not add them to core-main.
+### Orchestrator image (`runtime/` → Cloud Run)
 
-## Will it work in production if only those two files are added?
+Changes under `**runtime/**` ship in the `**bmt-orchestrator**` container (`runtime/Dockerfile`), not via bucket `plugins/` sync. After `**just image**` (or `**just docker-build**` + `**just docker-push**`), ensure `**bmt-control**`, `**bmt-task-standard**`, and `**bmt-task-heavy**` use the new image (e.g. `**pulumi up**` or `**gcloud run jobs update … --image=…:latest**` per region). Otherwise plan/task jobs can keep running an older digest.
 
-**No.** Adding only modified `build-and-test.yml` and `bmt-handoff.yml` to core-main will cause the real workflow to fail. `bmt-handoff.yml` and the actions it uses depend on the rest of this repo:
+## Production (Kardome-org/core-main)
 
-- **Missing local actions** — Handoff uses: `check-image-up-to-date`, `bmt-prepare-context`, `setup-gcp-uv`, `bmt-filter-handoff-matrix`, `bmt-failure-fallback`, and `bmt-write-summary`. All must exist under `.github/actions/`.
-- **Missing BMT CLI** — Steps run `uv run bmt …` (write-context, filter-upload-matrix, invoke-workflow, etc.). The package lives under `.github/bmt/` (pyproject.toml, ci/, config/); core-main needs it.
-- **Missing `gcp/image`** — The failure-fallback path runs `from gcp.image.config.constants import STATUS_CONTEXT`. The handoff job does a sparse-checkout of `.github` and `gcp`, so at least `gcp/image/config/` (with `constants.py`) must exist in the repo.
-- **Check image up to date** — The first handoff job calls `check-image-up-to-date`, which expects a workflow named `bmt-image-build.yml` and fails if image-affecting paths changed but no successful run exists. If core-main does not have that workflow, the check will fail whenever `infra/packer` or `gcp/image` change (or the action must be made optional when the workflow is absent).
-- **Repo variables** — Handoff reads `vars.GCS_BUCKET`, `vars.GCP_WIF_PROVIDER`, `vars.GCP_SA_EMAIL`, `vars.GCP_PROJECT`, `vars.CLOUD_RUN_REGION`, and the Workflow / job names exported by Pulumi. These must be set in core-main (or the org).
-- **Job graph in build-and-test** — Only release runners are sent to BMT; non-release builds run in parallel. Jobs: `build-release` (gates BMT), `build-nonrelease` (parallel), `decide-bmt` → `bmt`. In core-main the same graph applies with real builds.
+**Preferred (cross-repo, zero vendoring):** In the production repo, call the reusable workflow directly:
 
-**For the real workflow to work in core-main you must:** add/copy the two workflow files **and** the required `.github/actions/` set, `.github/bmt/`, and enough of `gcp/image` for the fallback constant; set the repo vars; and either add `bmt-image-build.yml` (or equivalent) so the image check can pass, or make the image check skip when that workflow does not exist.
+```yaml
+bmt-handoff:
+  needs: build-release
+  if: <gate>
+  permissions:
+    contents: read
+    actions: read
+    id-token: write
+    statuses: write
+    pull-requests: read
+  uses: klugman-yanai/bmt-gcloud/.github/workflows/bmt-handoff.yml@bmt-handoff
+  with:
+    cloud_run_region: europe-west4
+    bmt_status_context: BMT Gate
+    bmt_pex_repo: klugman-yanai/bmt-gcloud
+    force_pass: false
+```
+
+Use a **plain Git ref** on `uses:` (no `${{ }}`): `**@bmt-handoff`** is a rolling tag updated on every `bmt-v*` PEX release. Prefer `**@bmt-v***` to freeze. Docker-style `:latest` is not valid in Actions.
+
+When this job runs **in the same workflow** as the build that uploaded `runner-*` artifacts, omit optional handoff inputs (`ci_run_id`, head SHA/branch, event, PR) — they resolve from the caller `github` context. **Always** pass `with:` for `cloud_run_region`, `bmt_status_context`, `bmt_pex_repo`, and `force_pass` (values live in caller YAML, not repo variables). For manual `workflow_dispatch` of handoff alone, set `ci_run_id` to the build run id.
+
+The workflow is **PEX-only and caller-tree independent** — it loads `**[setup-bmt-pex](./actions/setup-bmt-pex/action.yml)`** and sibling composites from **the same ref** as the workflow file. Each `build-release` matrix leg that produces a `runner-<preset>` artifact in **this** repo may additionally use `**setup-bmt-pex`** to run `"$BMT_PEX_PATH" preset stage-release-runner` / `compute-info` before `actions/upload-artifact`.
+
+**Caller repo variables** (minimal): `**GCS_BUCKET`**, `**GCP_WIF_PROVIDER**`, `**GCP_SA_EMAIL**`, `**GCP_PROJECT**` (see `[docs/configuration.md](../docs/configuration.md)`).
+
+`**workflows/internal/***` here is for **bmt-gcloud** testing only — not required on core-main unless you copy a specific template (e.g. `**trigger-ci.yml`** from `**scripts/release_templates/workflows/**`).
+
+## Will it work in production if only two workflow files are added?
+
+**No.** Handoff depends on local **composite actions**, optional **`bmt-failure-fallback`**, and **repo variables**. The **BMT CLI** comes from `**bmt.pex`** (release) via `**setup-bmt-pex**` in normal integrations — the consumer does not vendor `**ci/**` under `.github/`, but workflows and actions must still exist in the consumer repo (or be referenced cross-repo). See the section above.
 
 ## This repo’s workflow layout
 
-- **workflows/** — **`build-and-test.yml`** (main CI; structure aligned with core-main), **`bmt-handoff.yml`** (BMT handoff, called by build-and-test). **Test-only (not for core-main):** **`ops/`** — trigger-ci, trigger-image-build, bmt-image-build; **`clang-format-auto-fix.yml`**.
-- **actions/** — Local composite actions: `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `setup-gcp-uv`
-- **bmt/** — BMT CLI (`uv run bmt …`) and config used by workflows
-- **docs/** — Notes and references: `action-versions.md`, `dry-and-organization.md`
+- **workflows/** — **Root:** `**build-and-test-dev.yml`**, `**build-and-test.yml**`, `**bmt-handoff.yml**`, `**build-kardome-bmt-pex.yml**`, `**clang-format-auto-fix.yml**`. `**internal/**` — dev-only: trigger-ci, bmt-image-build, trigger-image-build.
+- **actions/** — `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `**setup-bmt-pex`** (PEX-only; cross-repo callable), `setup-bmt-cli` + `setup-gcp-uv` (uv-mode for self-CI), `bmt-get-pex`
+- `**ci/**` — **`kardome-bmt`** package ([`ci/README.md`](../ci/README.md))
 
 ## Which workflow runs CI?
 
-- **Production (core-main):** **`build-and-test.yml`** runs on push/pull_request and calls **`bmt-handoff.yml`** for the BMT gate. Only those two files (with build-and-test modified) are added to core-main.
-- **bmt-gcloud (this repo) only:** **`ops/trigger-ci.yml`** runs CI from a chosen branch; **`ops/bmt-image-build.yml`** for image tooling; **`clang-format-auto-fix.yml`** for formatting. None of these are production deliverables.
+- **bmt-gcloud (this repo):** `**build-and-test-dev.yml`** runs on `push` / `pull_request` / `workflow_dispatch` / `workflow_call` (branches `dev`, `ci/check-bmt-gate`, `test/*`). One workflow per event — no `**pull_request_target**`, no sibling PR trigger. **Use a PR into `ci/check-bmt-gate` as the default way to trigger and inspect the full BMT pipeline** (Checks tab, PR annotations); rely on `push` for post-merge continuity, not as the primary substitute for a PR when you are validating a change.
+- **Production (core-main):** Typically `**internal/trigger-ci.yml`** (from `**scripts/release_templates/workflows/trigger-ci.yml**`) on `push` / `pull_request_target` to `**dev**`, which `**workflow_call`s** `**build-and-test.yml`**. `**build-and-test.yml**` then calls `**bmt-handoff.yml**` when eligible.
+- **Manual / sandbox:** `**internal/trigger-ci.yml`** dispatches `**build-and-test.yml**` on an arbitrary ref.
+
+## Workflow and job triggers (inventory)
+
+**Reusable workflow context:** For `workflow_call`, the `**github` context in the called workflow matches the caller** ([docs](https://docs.github.com/en/actions/reference/reusable-workflows-reference#github-context)). Expressions in `**build-and-test.yml`** that use `github.event_name` / `github.event.pull_request` therefore see the **caller’s** event (e.g. `pull_request_target` from the template trigger).
+
+### `build-and-test.yml`
+
+
+| Trigger             | Notes                                                                             |
+| ------------------- | --------------------------------------------------------------------------------- |
+| `workflow_dispatch` | Manual                                                                            |
+| `workflow_call`     | Invoked by template `**trigger-ci`**, `**internal/trigger-ci**`, or other callers |
+
+
+**Job gate — `bmt_handoff`:** runs only if `build_release` succeeded or was skipped **and** (same-repo PR or not a PR) **and** either PR (`pull_request` or `pull_request_target`) with `**base_ref`** in `dev`  `ci/check-bmt-gate`, or non-PR with `**ref_name**` in `dev`  `ci/check-bmt-gate`. Checkouts honor `**pull_request_target**` head repo/SHA when that event applies.
+
+### `build-and-test-dev.yml`
+
+
+| Trigger             | Notes                                          |
+| ------------------- | ---------------------------------------------- |
+| `push`              | Branches: `dev`, `ci/check-bmt-gate`, `test/*` |
+| `pull_request`      | Same branch set (aligned with `push`)          |
+| `workflow_dispatch` | Manual                                         |
+| `workflow_call`     | Reusable entry                                 |
+
+
+**Job gate — `bmt_handoff`:** same fork rule as `**build-and-test.yml`**. **PRs** (`pull_request`) into `dev`, `ci/check-bmt-gate`, or `test/*` fire handoff from this workflow. **Push / `workflow_dispatch`:** handoff when `**ref_name`** is `dev`, `ci/check-bmt-gate`, or starts with `**test/**`. Checkouts use `**pull_request**` + head SHA when applicable.
+
+### `bmt-handoff.yml`
+
+
+| Trigger             | Notes                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `workflow_dispatch` | Inputs: `ci_run_id`, `head_sha`, `head_branch`, `head_event`, `pr_number`, `available_artifacts`, region, status context, etc. |
+| `workflow_call`     | Same inputs from CI                                                                                                            |
+
+
+**Notable job `if`:** `publish_runners` when `matrix_publish_keys != '[]'`; `start_bmt_workflow` when not cancelled, context job succeeded, and `publish_runners` succeeded or skipped; steps gated on `matrix.bmt_supported` and `invoke-workflow` outcome.
+
+### `internal/bmt-image-build.yml`
+
+
+| Trigger                               | Notes                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `workflow_dispatch` / `workflow_call` | Packer inputs                                                                              |
+| `push`                                | Branches: `main`, `ci/check-bmt-gate`, `dev`; **paths:** `infra/packer/`**, `runtime/**` |
+
+
+### `internal/trigger-image-build.yml` / `internal/trigger-ci.yml`
+
+
+| Workflow                               | Trigger                                                                           |
+| -------------------------------------- | --------------------------------------------------------------------------------- |
+| `**internal/trigger-image-build.yml**` | `workflow_dispatch` (optional `branch` input; dispatches image build on that ref) |
+| `**internal/trigger-ci.yml**`          | `workflow_dispatch` (required `ref`; dispatches `**build-and-test.yml**`)         |
+
+
+### `clang-format-auto-fix.yml`
+
+
+| Trigger             | Notes                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `workflow_dispatch` | Manual                                                                                       |
+| `push`              | `**branches-ignore`:** `dev`, `main`, `master`; **paths:** C/C++ sources and `.clang-format` |
+
+
+**Job `if`:** `github.actor != 'github-actions[bot]'`. Workflow uses `**contents: write`**.
+
+### Template `scripts/release_templates/workflows/trigger-ci.yml`
+
+Use on core-main at `**workflows/internal/trigger-ci.yml**` (same relative `**uses:**` paths to root `**build-and-test.yml**`).
+
+
+| Trigger               | Notes                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `push`                | Branch: `**dev**`                                                                       |
+| `pull_request_target` | Branch: `**dev**` — default-branch workflow context; pair with care for untrusted forks |
+
+
+Calls `**./.github/workflows/build-and-test.yml@${{ github.event_name == 'pull_request_target' && github.head_ref || github.ref_name }}**` so the **called** workflow file comes from the PR head on `pull_request_target`.
+
+### Security / semantics (summary)
+
+- `**pull_request_target`** appears in the **template** only; combining it with `**uses: …@head_ref`** matches “workflow definition from head, runner/token context from base.” `**bmt_handoff**` also excludes forks via `**head.repo.full_name == github.repository**` where applicable.
 
 ## Why there is no `.github/jobs/`
 
 GitHub Actions does not execute files from `.github/jobs/`. Use native `workflow_call` reusable workflows under `workflows/` for reusable job-level logic.
 
+## Repo variables vs composite inputs
+
+Repository variables (`vars.*`, synced from Pulumi) are the **source of truth**. Workflows usually map them once on a workflow or job `env:` block (for example `GCP_PROJECT: ${{ vars.GCP_PROJECT }}`). Composite actions cannot rely on `vars` the same way, so actions such as `setup-gcp-uv` take an explicit `**gcp_project`** input — pass `**${{ env.GCP_PROJECT }}**` when the job already defines `env` from `vars`. That is one value threaded through two mechanisms, not two different project IDs.
+
 ## Why `actions/setup-gcp-uv` exists
 
 `actions/setup-gcp-uv/action.yml` centralizes:
 
-1. `google-github-actions/auth` (Workload Identity Federation)
-2. `google-github-actions/setup-gcloud`
-3. Optional `astral-sh/setup-uv`
+1. `google-github-actions/auth` (Workload Identity Federation) with `**project_id**`
+2. `google-github-actions/setup-gcloud` with the same `**project_id**` and a default `**gcloud_version**` constraint for WIF
+3. BMT CLI install (`**setup-bmt-cli**`: uv or release PEX)
 
-That keeps auth and toolchain versions in one place. Per-job `permissions` are still set in each workflow job.
+Third-party action bumps: **Dependabot** (`.github/dependabot.yml`). Per-job `permissions` stay in each workflow job.
 
-## Auth boundaries
+## GitHub Actions and Pulumi
 
-- **WIF + service account** authenticate workflow jobs to GCP.
-- **github.token / GITHUB_TOKEN** is only used in workflow paths that call GitHub APIs directly (for example gh workflow run, gh variable set, or fallback status posting).
-- **GitHub App credentials** are runtime-only and are loaded by the VM/Cloud Run runtime after dispatch; they are not part of the reusable workflow contract.
-
+`pulumi`/GitHub var export runs via `**just pulumi`** (local or approved runner), not from default CI here — keeps state credentials and blast radius off ephemeral runners. To add `**pulumi preview**` on PRs later, you need a chosen [state backend](https://www.pulumi.com/docs/iac/concepts/state-and-backends/) and secrets policy; treat **fork PRs** as untrusted for cloud tokens.

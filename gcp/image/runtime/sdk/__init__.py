@@ -1,1 +1,0 @@
-"""Stable plugin SDK surface."""

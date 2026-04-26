@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from gcp.image.config.constants import (
+from runtime.config.constants import (
     ENV_BMT_CONTROL_JOB,
     ENV_BMT_STATUS_CONTEXT,
     ENV_BMT_TASK_HEAVY_JOB,

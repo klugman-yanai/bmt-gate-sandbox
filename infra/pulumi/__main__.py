@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import posixpath
+import tempfile
 from pathlib import Path
 
 import config as pulumi_config
@@ -9,7 +11,7 @@ import pulumi
 import pulumi_gcp as gcp
 from workflow_template import github_app_secret_names, render_workflow_source
 
-cfg = pulumi_config.load_config()  # ty: ignore[unresolved-attribute]
+cfg = pulumi_config.load_config()
 
 artifact_registry = gcp.artifactregistry.Repository(
     "bmt-images",
@@ -79,7 +81,7 @@ def _job(
                             ),
                             gcp.cloudrunv2.JobTemplateTemplateContainerEnvArgs(
                                 name="BMT_FRAMEWORK_WORKSPACE",
-                                value="/tmp/bmt-framework",  # noqa: S108
+                                value=posixpath.join(tempfile.gettempdir(), "bmt-framework"),
                             ),
                             _secret_env("GITHUB_APP_ID"),
                             _secret_env("GITHUB_APP_INSTALLATION_ID"),
@@ -134,6 +136,44 @@ cloud_run_job_heavy = _job(
     memory=cfg.cloud_run_memory_heavy,
 )
 
+# DORMANT (2026-04-20): `bmt-dataset-transfer` Cloud Run Job + its invoker IAM
+# + `cloud_run_image_transfer_uri` were declared here for a partially-implemented
+# Google Drive dataset transfer feature. The job was never deployed to GCP and
+# no workflow dispatches it. Declarations removed to avoid phantom drift in the
+# Pulumi state import exercise
+# (docs/configuration.md — Pulumi / GitHub vars alignment).
+# Revival: restore this block + the export below + re-add `bmt-transfer` Docker
+# image build; see `tools/remote/bucket_upload_dataset._dispatch_drive_transfer_job`.
+# Note: the three BMT_DRIVE_* secrets (empty shells) DO exist on GCP and are
+# still managed by the secret loop below — they will be imported normally.
+
+# OAuth2 credentials for Google Drive access (rclone inside the transfer Cloud Run job).
+# SA key creation is blocked by org policy; these secrets are populated manually after deploy:
+#   gcloud secrets versions add BMT_DRIVE_CLIENT_ID --data-file=- <<< "<value>"
+#   gcloud secrets versions add BMT_DRIVE_CLIENT_SECRET --data-file=- <<< "<value>"
+#   gcloud secrets versions add BMT_DRIVE_REFRESH_TOKEN --data-file=- <<< "<value>"
+# Use a Google OAuth2 Desktop app (Drive API scope). The Drive folder owner must share it
+# with the authenticating user account used to generate the refresh token.
+_drive_oauth_secret_names = ("BMT_DRIVE_CLIENT_ID", "BMT_DRIVE_CLIENT_SECRET", "BMT_DRIVE_REFRESH_TOKEN")
+
+_drive_oauth_secrets: dict[str, gcp.secretmanager.Secret] = {}
+for _name in _drive_oauth_secret_names:
+    _drive_oauth_secrets[_name] = gcp.secretmanager.Secret(
+        f"bmt-drive-{_name.lower().replace('_', '-')}-secret",
+        secret_id=_name,
+        project=cfg.gcp_project,
+        replication=gcp.secretmanager.SecretReplicationArgs(
+            auto=gcp.secretmanager.SecretReplicationAutoArgs(),
+        ),
+    )
+    gcp.secretmanager.SecretIamMember(
+        f"job-runner-drive-{_name.lower().replace('_', '-')}-secret",
+        project=cfg.gcp_project,
+        secret_id=_drive_oauth_secrets[_name].secret_id,
+        role="roles/secretmanager.secretAccessor",
+        member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
+    )
+
 workflow_source = render_workflow_source(
     template_path=Path(__file__).parent / "workflow.yaml",
     connector_timeout_sec=cfg.cloud_run_workflow_connector_timeout_sec,
@@ -154,6 +194,15 @@ gcp.storage.BucketIAMMember(
     "job-runner-bucket-writer",
     bucket=cfg.gcs_bucket,
     role="roles/storage.objectAdmin",
+    member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
+)
+
+gcp.artifactregistry.RepositoryIamMember(
+    "job-runner-artifact-registry-writer",
+    location=cfg.cloud_run_region,
+    project=cfg.gcp_project,
+    repository=artifact_registry.name,
+    role="roles/artifactregistry.writer",
     member=pulumi.Output.concat("serviceAccount:", job_runner_sa.email),
 )
 

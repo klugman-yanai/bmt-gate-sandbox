@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ci import gcs
-from ci.runner import RunnerManager
+import pytest
+from kardome_bmt import gcs
+
+from ci.kardome_bmt.runner import RunnerManager
+
+pytestmark = pytest.mark.unit
 
 
 def test_resolve_uploaded_projects_uses_uploaded_markers(monkeypatch, tmp_path: Path) -> None:

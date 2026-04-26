@@ -6,6 +6,7 @@ sync_runtime_seed, verify_gcp_sync, and verify_runtime_seed_sync.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import re
@@ -30,9 +31,14 @@ def is_inputs_data_path(rel: str) -> bool:
     return filename not in _INPUTS_ALLOWLISTED_FILENAMES
 
 
+@functools.lru_cache(maxsize=32)
+def _compiled_patterns(patterns: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    return tuple(re.compile(p) for p in patterns)
+
+
 def matches(patterns: tuple[str, ...], rel: str) -> bool:
     """True if rel matches any of the regex patterns."""
-    return any(re.search(p, rel) for p in patterns)
+    return any(p.search(rel) for p in _compiled_patterns(patterns))
 
 
 def local_digest(

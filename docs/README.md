@@ -1,30 +1,17 @@
 # Documentation
 
-**Entry:** [README](../README.md) · **Security:** [SECURITY](../SECURITY.md) · **Architecture hub:** [ARCHITECTURE](../ARCHITECTURE.md)
-
-## By role
-
-| Role | Start here |
-| ---- | ---------- |
-| **Contributor** (code, tests, plugins) | [CONTRIBUTING](../CONTRIBUTING.md) → [development.md](development.md) |
-| **Operator** (incidents, GCS, GCP, stuck checks) | [runbook.md](runbook.md) → [configuration.md](configuration.md) |
-| **Maintainer** (risks, remediation backlog) | [bmt-architecture-deep-dive.md](bmt-architecture-deep-dive.md) → [plans/bmt-weak-points-remediation.md](plans/bmt-weak-points-remediation.md) |
-
-## By task
+**Start here:** [README](../README.md) · **Contributing:** [CONTRIBUTING](../CONTRIBUTING.md)
 
 | I want to… | Doc |
 | ---------- | --- |
-| **Understand the pipeline and CI** | [architecture.md](architecture.md), [pipeline-dag.md](pipeline-dag.md) |
-| **Upload a dataset / `just upload-data`** | [development.md](development.md#dataset-upload-just-upload-data) |
-| **Validate CI with mock runner (E2E)** | [plans/2026-03-22-e2e-ci-validation.md](plans/2026-03-22-e2e-ci-validation.md) |
-| **Test Cloud Run / local dev** | [development.md](development.md) |
-| **Set up config / repo vars** | [configuration.md](configuration.md), [infra/README.md](../infra/README.md) |
-| **Deep architecture review** (risks, weak points) | [bmt-architecture-deep-dive.md](bmt-architecture-deep-dive.md) |
-| **Add a project or BMT** | [adding-a-project.md](adding-a-project.md) |
-| **ADR index** | [adr/README.md](adr/README.md) |
+| **Run / debug BMT locally** (runner logs, plugins, without full Actions→GCP wiring) | [developer-workflow.md](developer-workflow.md) |
+| **System architecture** (pipeline, diagrams, maintainer notes) | [architecture.md](architecture.md) |
+| **Configuration / env / Pulumi** | [configuration.md](configuration.md) |
+| **Add a project or BMT** (incl. **SK** as reference plugin) | [adding-a-project.md](adding-a-project.md) |
+| **Production incidents / GCS** | [runbook.md](runbook.md) |
+| **Roadmap / priorities** | [ROADMAP.md](../ROADMAP.md); retired long-form notes → [roadmap/README.md](roadmap/README.md) |
+| **ADRs** (contracts, decisions) | [adr/README.md](adr/README.md) |
+| **SK `kardome_runner` / tinywav / `run_params_SK.c`** | [kardome_runner_SK_runtime.md](kardome_runner_SK_runtime.md) |
+| **Known weak points / remediation backlog** | [plans/bmt-weak-points-remediation.md](plans/bmt-weak-points-remediation.md) |
 
-**Reference:** [architecture.md](architecture.md) · [configuration.md](configuration.md) · [development.md](development.md) · [adding-a-project.md](adding-a-project.md)
-
-**Roadmap:** [ROADMAP.md](../ROADMAP.md) · [roadmap/](roadmap/) · [plans/](plans/)
-
-**Audits:** [audits/](audits/)
+Everything above is for the **Workflows + Cloud Run** pipeline; ignore legacy VM-era references if you see them in old issues or git history.

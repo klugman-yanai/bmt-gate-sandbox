@@ -4,13 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gcp.image.runtime.artifacts import (
+import pytest
+
+from runtime.artifacts import (
+    aggregate_status,
     cleanup_ephemeral_triggers,
     reporting_metadata_path,
     write_reporting_metadata,
     write_summary,
 )
-from gcp.image.runtime.models import ExecutionPlan, LegSummary, ReportingMetadata, ScorePayload
+from runtime.config.bmt_domain_status import BmtLegStatus
+from runtime.models import ExecutionPlan, LegSummary, ReportingMetadata, ScorePayload
+
+pytestmark = pytest.mark.integration
+
+
+def test_aggregate_status_empty_summaries_is_fail_not_pass() -> None:
+    assert aggregate_status([]) == BmtLegStatus.FAIL.value
 
 
 def test_cleanup_ephemeral_triggers_removes_expected_paths(tmp_path: Path) -> None:

@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "bmt_manifest_json": "false_alarms.json",
+  "parser": "stdout_counter_v1",
+  "description": "Repo-local contract for integration tests: which flat manifest supplies plugin_config for legacy stdout (keyword, counter_pattern, overrides). The harness prefers a per-case .bmt.json next to USER_OUTPUT_PATH (see runtime/kardome_case_metrics.py) and falls back to stdout log regex. Scope is per-file—not batch runner. Tests read this file so parsing can move without editing the Cloud Run image."
+}

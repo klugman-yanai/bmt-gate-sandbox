@@ -5,6 +5,8 @@
 
 # Build/output junk
 build/
+dist/pexb/
+dist/bmt.pex
 data/
 local_batch/
 sk_runtime/
@@ -57,9 +59,13 @@ audio/
 # Mount with: just mount-data <project>  Unmount with: just umount-data <project>
 gcp/mnt/
 
+# Git worktrees
+.worktrees/
+
 # Tooling/editor
 compile_commands.json
 .vscode/
+!.vscode/settings.json
 .idea/
 .cursor/plans/
 *.swp
@@ -73,3 +79,15 @@ Thumbs.db
 gcp-key.json
 .env
 .secrets
+
+# Claude Code local settings (machine-specific paths)
+.claude/settings.local.json
+
+# Local SK runner drop under temp/ (core-main build artifacts — never commit)
+temp/kardome_runner
+temp/libKardome.so
+# Ad-hoc scratch trees under temp/ (datasets, smoke batch outputs)
+temp/false_rejects/
+temp/smoke_fr_*/
+# Optional local scratch (historical pipeline experiments)
+temp/sk_local_pipeline/

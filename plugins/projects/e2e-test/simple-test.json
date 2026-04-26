@@ -1,0 +1,14 @@
+{
+  "project": "e2e-test",
+  "bmt_slug": "simple-test",
+  "bmt_id": "simple-test",
+  "enabled": true,
+  "plugin_config": {},
+  "inputs_prefix": "e2e-test-inputs",
+  "results_path": "e2e-test-results",
+  "outputs_prefix": "e2e-test-outputs",
+  "execution": {
+    "policy": "strict",
+    "profile": "standard"
+  }
+}

@@ -14,4 +14,9 @@ config-variables:
   - BMT_EXPECTED_IMAGE_FAMILY
   - BMT_EXPECTED_BASE_IMAGE_FAMILY
   - BMT_EXPECTED_BASE_IMAGE_PROJECT
+  - BMT_CLI
+  # CI-driven release (.github/workflows/release.yml): container image
+  # repo in Artifact Registry. Defaults to 'bmt-images' via the workflow
+  # expression fallback; listing here keeps lint quiet when unset in vars.
+  - ARTIFACT_REGISTRY_REPO
 

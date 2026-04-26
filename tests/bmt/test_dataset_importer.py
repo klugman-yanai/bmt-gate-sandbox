@@ -4,7 +4,11 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from gcp.image.runtime.importer import DatasetImporter
+import pytest
+
+from runtime.importer import DatasetImporter
+
+pytestmark = pytest.mark.integration
 
 
 class _FakeBlob:

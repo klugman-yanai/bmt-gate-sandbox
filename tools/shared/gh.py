@@ -5,15 +5,12 @@ from __future__ import annotations
 import json
 import subprocess
 
-
-def cmd_exists(name: str) -> bool:
-    """Return True if the given command is on PATH."""
-    return subprocess.run(["which", name], capture_output=True, check=False).returncode == 0
+from tools.shared.cli_availability import command_available
 
 
 def gh_var(name: str) -> str | None:
     """Return the value of a GitHub repo variable, or None if unset or gh unavailable."""
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(
         ["gh", "variable", "get", name],
@@ -26,7 +23,7 @@ def gh_var(name: str) -> str | None:
 
 def gh_repo_slug() -> str | None:
     """Return owner/repo for the current repo, or None if gh unavailable."""
-    if not cmd_exists("gh"):
+    if not command_available("gh"):
         return None
     result = subprocess.run(
         ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],

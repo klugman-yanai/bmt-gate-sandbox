@@ -7,28 +7,26 @@ import json
 import os
 import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
-from shutil import which
 
-import jwt as pyjwt
+from github import Auth, Github, GithubException
 
-from gcp.image.config.constants import JWT_CLOCK_SKEW_SEC, JWT_LIFETIME_SEC
-from gcp.image.github.github_auth import (
+from runtime.github.github_auth import (
     DEV_PROFILE,
+    HAS_JWT,
     PRIMARY_PROFILE,
-    github_api_headers,
     github_app_profile_for_repository,
 )
+from tools.shared.cli_availability import command_available
+from tools.shared.contributor_docs import missing_dev_dependency_message
+from tools.shared.github_app_settings import app_id_for_profile, private_key_path_for_profile
 
 
 def _repository_slug() -> str:
     repository = (os.environ.get("BMT_GITHUB_REPOSITORY") or os.environ.get("GITHUB_REPOSITORY") or "").strip()
     if "/" in repository:
         return repository
-    if which("gh") is None:
+    if not command_available("gh"):
         return ""
     result = subprocess.run(
         ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
@@ -48,39 +46,18 @@ def _app_profile() -> str:
 
 
 def get_app_id_from_env() -> str:
-    if _app_profile() == DEV_PROFILE:
-        return (os.environ.get("GITHUB_APP_DEV_ID") or os.environ.get("GH_APP_DEV_ID") or "").strip()
-    return (os.environ.get("GITHUB_APP_ID") or os.environ.get("GH_APP_ID") or "").strip()
+    return app_id_for_profile(_app_profile())
 
 
 def get_private_key_path_from_env() -> str:
-    if _app_profile() == DEV_PROFILE:
-        return (
-            os.environ.get("GITHUB_APP_DEV_PRIVATE_KEY_PATH")
-            or os.environ.get("GH_APP_DEV_PRIVATE_KEY_PATH")
-            or os.environ.get("BMT_APP_PRIVATE_KEY_PATH")
-            or ""
-        ).strip()
-    return (
-        os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH")
-        or os.environ.get("GH_APP_PRIVATE_KEY_PATH")
-        or os.environ.get("BMT_APP_PRIVATE_KEY_PATH")
-        or ""
-    ).strip()
+    return private_key_path_for_profile(_app_profile())
 
 
 def fetch_app_metadata(app_id: str, private_key: str) -> dict:
-    now = int(time.time())
-    payload = {"iat": now - JWT_CLOCK_SKEW_SEC, "exp": now + JWT_LIFETIME_SEC, "iss": app_id}
-    token = pyjwt.encode(payload, private_key, algorithm="RS256")
-
-    req = urllib.request.Request(
-        "https://api.github.com/app",
-        headers=github_api_headers(token),
-        method="GET",
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+    auth = Auth.AppAuth(int(app_id), private_key)
+    gh = Github(auth=auth, timeout=15)
+    app = gh.get_app()
+    return dict(app.raw_data)
 
 
 def extract_path(data: dict, path: str) -> dict | None:
@@ -103,8 +80,11 @@ class GhAppPerms:
         private_key_path: str = "",
         jq_path: str = "",
     ) -> int:
-        if pyjwt is None:
-            print("PyJWT required: uv pip install pyjwt cryptography", file=sys.stderr)
+        if not HAS_JWT:
+            print(
+                missing_dev_dependency_message(what="PyJWT (GitHub App JWT)"),
+                file=sys.stderr,
+            )
             return 1
 
         app_id = (app_id or get_app_id_from_env()).strip()
@@ -127,8 +107,8 @@ class GhAppPerms:
 
         try:
             data = fetch_app_metadata(app_id, private_key)
-        except urllib.error.HTTPError as e:
-            print(e.read().decode(), file=sys.stderr)
+        except GithubException as e:
+            print(e.data if isinstance(e.data, dict) else str(e), file=sys.stderr)
             return 1
 
         if jq_path:

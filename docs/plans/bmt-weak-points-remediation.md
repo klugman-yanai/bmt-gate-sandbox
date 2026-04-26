@@ -57,11 +57,11 @@ This document tracks **design-level** and **implementation-level** issues called
 
 ### B.2 Missing summary conflated with runner failure
 
-**Why it matters:** `_load_summary_or_failure` in `gcp/image/runtime/entrypoint.py` maps `FileNotFoundError` to `reason_code="runner_failures"`, mixing **missing artifact** with **real runner failure** — wrong ops signals.
+**Why it matters:** `_load_summary_or_failure` in `runtime/artifacts.py` maps `FileNotFoundError` to `reason_code="summary_missing"` (renamed from `runner_failures`), keeping **missing artifact** distinct from **real runner failure** — correct ops signals. The rename is complete.
 
 **Recommendations:**
 
-- **P1:** Distinct `reason_code` (e.g. `summary_missing`, `incomplete_plan`) and metrics/alerts.
+- **P1:** Metrics/alerts on `summary_missing` distinct from `runner_failures`; add `incomplete_plan` for partial-plan scenarios.
 
 ### B.3 GitHub outcome vs GCS divergence
 
@@ -71,13 +71,15 @@ This document tracks **design-level** and **implementation-level** issues called
 
 - **P1/P2:** Retries with backoff for finalize; structured logging; metrics on finalize failures; optional non-zero exit or reconciliation job.
 
-### B.4 `object_exists` hides infra errors (CI)
+### B.4 `object_exists` hides infra errors (CI) — addressed
 
-**Why it matters:** In `.github/bmt/ci/gcs.py`, `object_exists` returns `False` on **any** exception — auth/quota/network look like “missing object” and wrong branches run.
+**Why it mattered:** Older `object_exists` helpers could return **`False`** on **any** exception, so auth/quota/network looked like “missing object”.
+
+**Current state:** `ci/kardome_bmt/gcs.py` raises **`GcsError`** on infrastructure failures (see `object_exists`).
 
 **Recommendations:**
 
-- **P1:** Return **False** only for not-found; raise or return **`GcsError`** for other failures so callers can distinguish.
+- **P1:** Keep new GCS helpers on the same contract; do not reintroduce “catch-all → False”.
 
 ### B.5 Workflows `start_execution` single HTTP attempt
 
@@ -87,17 +89,19 @@ This document tracks **design-level** and **implementation-level** issues called
 
 - **P2:** Retry with backoff; design **idempotency** if the API can be invoked twice for the same logical run.
 
-### B.6 CI ↔ `gcp.image` import coupling
+### B.6 CI ↔ runtime import coupling — addressed
 
-**Why it matters:** `.github/bmt/ci/core.py` imports `gcp.image.config`; refactors there can break `uv run bmt` unexpectedly.
+**Why it matters:** CI and Cloud Run share **`runtime.config`** symbols; refactors can break **`uv run kardome-bmt`** and the image together.
+
+**Current state:** `ci/kardome_bmt/bmt_constants.py` re-exports the narrow set CI needs.
 
 **Recommendations:**
 
-- **P3:** Thin **stable facade** for constants/decisions used only by CI.
+- **P3:** Extend the facade deliberately when adding new shared constants.
 
 ### B.7 Broad `except Exception`
 
-**Why it matters:** Collapses error types; hides validation failures in `ci/github.py`, `ci/config.py`, etc.
+**Why it matters:** Collapses error types; hides validation failures in `ci/kardome_bmt/github.py`, `ci/kardome_bmt/config.py`, etc.
 
 **Recommendations:**
 

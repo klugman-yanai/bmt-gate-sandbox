@@ -6,7 +6,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from gcp.image.config.constants import DEFAULT_IMAGE_FAMILY
+import pytest
+
+from runtime.config.constants import DEFAULT_IMAGE_FAMILY
 
 # Load InfraConfig from the Pulumi project (not a regular package)
 _pulumi_dir = Path(__file__).resolve().parents[2] / "infra" / "pulumi"
@@ -16,6 +18,8 @@ _mod = importlib.util.module_from_spec(_spec)
 sys.modules["pulumi_infra_config"] = _mod
 _spec.loader.exec_module(_mod)
 InfraConfig = _mod.InfraConfig
+
+pytestmark = pytest.mark.unit
 
 
 def test_pulumi_image_family_default_matches_constants() -> None:

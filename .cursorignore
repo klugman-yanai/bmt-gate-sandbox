@@ -5,6 +5,9 @@
 # Sane defaults (common across projects)
 # -----------------------------------------------------------------------------
 
+# Dotfiles
+.git/
+
 # Python
 .venv/
 venv/
@@ -26,9 +29,11 @@ dist/
 
 # IDE/editor (keep rules; ignore local state)
 .idea/
-.vscode/
+.vscode/**
+!.vscode/settings.json
 *.swp
 *~
+!.worktrees
 
 # OS
 .DS_Store
@@ -46,7 +51,8 @@ sk_runtime/
 **.7z
 **.tar.gz
 **.tar
-
+!**/libKardome.so
+!**/kardome_runner
 # Secrets and credentials
 secrets/
 gcp-key.json
@@ -54,6 +60,7 @@ gcp-key.json
 
 # Runner binaries and heavy deps (present locally, not for context)
 remote/sk/runners/lib/
+audio/
 
 # Generated results and logs (frequently changing; canonical paths in CLAUDE.md)
 *.log

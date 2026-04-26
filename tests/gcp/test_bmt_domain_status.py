@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from gcp.image.config.bmt_domain_status import (
+import pytest
+
+from runtime.config.bmt_domain_status import (
     BmtLegStatus,
     BmtProgressStatus,
     leg_status_is_fail,
@@ -10,6 +12,8 @@ from gcp.image.config.bmt_domain_status import (
     progress_status_is_in_flight,
     summary_dict_leg_passed,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_leg_pass_and_fail_synonym() -> None:

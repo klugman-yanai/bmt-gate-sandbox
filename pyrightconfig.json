@@ -15,16 +15,22 @@
 		".venv",
 		"node_modules"
 	],
-	"extraPaths": [".github/bmt"],
+	"extraPaths": [
+		"ci",
+		"infra/pulumi"
+	],
 	"executionEnvironments": [
 		{
 			"root": ".",
-			"extraPaths": [".github/bmt"]
+			"extraPaths": [
+				"ci",
+				"infra/pulumi"
+			]
 		}
 	],
 	"venvPath": ".",
 	"venv": ".venv",
-	"reportMissingTypeStubs": "warning",
+	"reportMissingTypeStubs": "none",
 	"reportGeneralTypeIssues": "error",
 	"reportUnusedImport": "warning",
 	"reportUnusedVariable": "warning",

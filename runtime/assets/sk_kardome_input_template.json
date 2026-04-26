@@ -1,0 +1,36 @@
+{
+  "REF_PATH": "/tmp/dummy/ref.wav",
+  "MICS_PATH": "/tmp/dummy/mics.wav",
+  "KARDOME_OUTPUT_PATH": "/tmp/dummy/kardome_output.wav",
+  "USER_OUTPUT_PATH": "/tmp/dummy/user_output.wav",
+  "CALIB_BIN_PATH": "/tmp/dummy/calib.bin",
+  "LOG_TO_FILE_ENABLE": false,
+  "NUM_SOURCE_TEST": 0,
+  "QUIET_PATH": "/tmp/dummy/quiet.wav",
+  "ZONE1_PATH": "/tmp/dummy/zone1.wav",
+  "ZONE2_PATH": "/tmp/dummy/zone2.wav",
+  "ZONE3_PATH": "/tmp/dummy/zone3.wav",
+  "ZONE4_PATH": "/tmp/dummy/zone4.wav",
+  "ZONE5_PATH": "/tmp/dummy/zone5.wav",
+  "ZONE6_PATH": "/tmp/dummy/zone6.wav",
+  "KWS_CONFIG": {
+    "KWS_ENABLE": true,
+    "CALIB_KWS_ENABLE": false,
+    "CALIB_KWS_PATH": "/tmp/dummy/kws_calib/",
+    "OUTPUT_AI_MODEL_ENABLE": false,
+    "MANUAL_INDICATOR_ENABLE": false,
+    "INPUT_INDICATOR_PATH": "/tmp/dummy/is_vad.txt",
+    "OUTPUT_KWS_PATH": "/tmp/dummy/kws_out/",
+    "KWS_PRED_FILE_ENABLE": false,
+    "KWS_PRED_FILE_PATH": "/tmp/dummy/kws_pred.txt",
+    "KWS_USE_USER_OUTPUT": false
+  },
+  "BIOMETRICS_CONFIG": {
+    "BIO_ENABLE": false,
+    "BIO_NUM_SPEAKERS": 0,
+    "CALIB_BIO_PATH": "/tmp/dummy/bio_calib.bin"
+  },
+  "SPOT_FORMER_CONFIG": {
+    "AFE_ENABLE": true
+  }
+}

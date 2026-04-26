@@ -1,0 +1,90 @@
+name: Release / auto-retry transient infra failures
+
+# Listen for `Release` workflow completions and auto-rerun failed jobs ONCE
+# when the failure log matches a known transient GitHub Actions infrastructure
+# pattern — typically the random tarball-by-SHA 404 from api.github.com when
+# the runner downloads a pinned action (no built-in retry exists for that path).
+#
+# Discovered on run 24675905148 / commit 939aa6a, where `Setup Cloud SDK`
+# (google-github-actions/setup-gcloud@aa5489c8…) returned a 404 for the GCS
+# plugins job while the same SHA succeeded for the Cloud Run image job in the
+# same run, ~1 second apart. The error contained GitHub's infra trace ID
+# (`BC01:171155:3ECB:4F55:69E649F5`) — the canonical transient signature.
+#
+# Guards against runaway retries:
+#   1. Only acts on `Release` failures (other workflows are unaffected).
+#   2. Only on `run_attempt == 1` — never retries a retry.
+#   3. Only when the failed job's log matches one of the well-known transient
+#      patterns; non-matching failures (genuine bugs) flow through unchanged.
+#
+# Token notes: `actions: write` lets `gh run rerun` rerun jobs in the source
+# workflow. The default `GITHUB_TOKEN` granted to a `workflow_run` job has the
+# necessary scope without needing a PAT.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry:
+    name: Auto-retry on transient failure
+    if: >-
+      github.event.workflow_run.conclusion == 'failure'
+      && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Inspect failed jobs for transient infra errors
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Patterns that indicate a transient GitHub Actions infrastructure
+          # failure rather than a real bug. Keep narrow so genuine breakage
+          # is never auto-recovered (and silently masked).
+          TRANSIENT_PATTERNS='Failed to download archive|could not be found at the URI|HttpError 5[0-9][0-9]|getaddrinfo .* api\.github\.com'
+
+          mapfile -t FAILED_JOB_IDS < <(
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${REPO}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+              --jq '.jobs[] | select(.conclusion=="failure") | .id'
+          )
+
+          if [[ ${#FAILED_JOB_IDS[@]} -eq 0 ]]; then
+            echo "No failed jobs found (race?); not retrying."
+            echo "is_transient=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for job_id in "${FAILED_JOB_IDS[@]}"; do
+            # The logs endpoint redirects to a signed URL; gh follows it.
+            log=$(gh api "/repos/${REPO}/actions/jobs/${job_id}/logs" 2>/dev/null || true)
+            if grep -qE "$TRANSIENT_PATTERNS" <<<"$log"; then
+              echo "Job ${job_id} matched transient pattern — will retry."
+              echo "is_transient=true" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
+          echo "No failed jobs matched transient patterns; leaving the run as a real failure."
+          echo "is_transient=false" >>"$GITHUB_OUTPUT"
+
+      - name: Rerun failed jobs once
+        if: steps.classify.outputs.is_transient == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          gh run rerun --failed --repo "$REPO" "$RUN_ID"
+          echo "::notice::Auto-retried failed jobs in Release run ${RUN_ID} (transient infra error detected)."

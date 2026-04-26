@@ -1,34 +1,16 @@
-"""Tests for .github/bmt/ci/core.py — pure functions only, no I/O."""
+"""Tests for ci/kardome_bmt/core.py — pure functions only, no I/O."""
 
 import pytest
-from ci import core as models
 
-from gcp.image.config.decisions import GateDecision
+from ci.kardome_bmt import core as models
+from runtime.config import value_types as vt
+from runtime.config.decisions import GateDecision
 
-# ── sanitize_run_id ───────────────────────────────────────────────────────────
-
-
-def test_sanitize_run_id_safe_chars():
-    run_id = "gh-12345-1-sk-false_reject_namuh-abc123def456"
-    assert models.sanitize_run_id(run_id) == run_id
+pytestmark = pytest.mark.unit
 
 
-def test_sanitize_run_id_replaces_unsafe():
-    assert models.sanitize_run_id("foo/bar baz") == "foo-bar-baz"
-
-
-def test_sanitize_run_id_strips_leading_trailing():
-    assert models.sanitize_run_id("--abc--") == "abc"
-
-
-def test_sanitize_run_id_empty_raises():
-    with pytest.raises(ValueError):
-        models.sanitize_run_id("   ")
-
-
-def test_sanitize_run_id_truncates_long():
-    long_id = "a" * 300
-    assert len(models.sanitize_run_id(long_id)) == 200
+def test_sanitize_run_id_is_value_types_reexport() -> None:
+    assert models.sanitize_run_id is vt.sanitize_run_id
 
 
 # ── decision_exit ────────────────────────────────────────────────────────────
@@ -59,28 +41,3 @@ def test_decision_exit_unknown_string_nonzero():
 def test_bucket_root_uri():
     """Bucket root: gs://<bucket> (no code/ or runtime/ prefix)."""
     assert models.bucket_root_uri("my-bucket") == "gs://my-bucket"
-
-
-def test_run_trigger_uri():
-    uri = models.run_trigger_uri("gs://b", "123456")
-    assert uri == "gs://b/triggers/runs/123456.json"
-
-
-def test_run_trigger_uri_with_prefix():
-    uri = models.run_trigger_uri("gs://b/team", "123456")
-    assert uri == "gs://b/team/triggers/runs/123456.json"
-
-
-def test_run_handshake_uri():
-    uri = models.run_handshake_uri("gs://b", "123456")
-    assert uri == "gs://b/triggers/acks/123456.json"
-
-
-def test_run_handshake_uri_with_prefix():
-    uri = models.run_handshake_uri("gs://b/team", "123456")
-    assert uri == "gs://b/team/triggers/acks/123456.json"
-
-
-def test_run_status_uri():
-    uri = models.run_status_uri("gs://b", "123456")
-    assert uri == "gs://b/triggers/status/123456.json"

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from unittest import mock
 
 import pytest
 
-from gcp.image.github import github_auth
+from runtime.github import github_auth
+
+pytestmark = pytest.mark.unit
 
 
 class TestGithubAppProfile:
@@ -118,7 +119,7 @@ class TestResolveGithubAppToken:
 
         assert github_auth.resolve_github_app_token("Kardome-org/core-main") is None
 
-    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
+    @mock.patch("runtime.github.github_auth.get_installation_token_from_app")
     def test_successful_primary_app_auth(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = "test-app-token"
         monkeypatch.setenv("GITHUB_APP_ID", "12345")
@@ -136,7 +137,7 @@ class TestResolveGithubAppToken:
             "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
         )
 
-    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
+    @mock.patch("runtime.github.github_auth.get_installation_token_from_app")
     def test_successful_dev_app_auth(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = "dev-app-token"
         monkeypatch.setenv("GITHUB_APP_DEV_ID", "dev-id")
@@ -148,7 +149,7 @@ class TestResolveGithubAppToken:
         assert token == "dev-app-token"
         mock_get_token.assert_called_once_with("dev-id", "dev-installation", "dev-private-key")
 
-    @mock.patch("gcp.image.github.github_auth.get_installation_token_from_app")
+    @mock.patch("runtime.github.github_auth.get_installation_token_from_app")
     def test_app_auth_failure_returns_none(self, mock_get_token: mock.Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_get_token.return_value = None
         monkeypatch.setenv("GITHUB_APP_DEV_ID", "dev-id")
@@ -161,29 +162,30 @@ class TestResolveGithubAppToken:
 class TestGetInstallationTokenFromApp:
     """Tests for get_installation_token_from_app()."""
 
-    def test_missing_pyjwt_returns_none(self) -> None:
-        with mock.patch("gcp.image.github.github_auth.HAS_JWT", new=False):
-            token = github_auth.get_installation_token_from_app(
+    @mock.patch("runtime.github.github_auth.GithubIntegration")
+    def test_integration_constructor_failure_returns_none(self, mock_integration_cls: mock.Mock) -> None:
+        mock_integration_cls.side_effect = RuntimeError("invalid credentials")
+        assert (
+            github_auth.get_installation_token_from_app(
                 "12345",
                 "67890",
-                "test-key",
+                "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
             )
-            assert token is None
+            is None
+        )
 
     def test_missing_credentials_returns_none(self) -> None:
         assert github_auth.get_installation_token_from_app("", "67890", "key") is None
         assert github_auth.get_installation_token_from_app("12345", "", "key") is None
         assert github_auth.get_installation_token_from_app("12345", "67890", "") is None
 
-    @mock.patch("gcp.image.github.github_auth.HAS_JWT", new=True)
-    @mock.patch("gcp.image.github.github_auth.jwt")
-    @mock.patch("gcp.image.github.github_auth.urllib.request.urlopen")
-    def test_successful_token_exchange(self, mock_urlopen: mock.Mock, mock_jwt: mock.Mock) -> None:
-        mock_jwt.encode.return_value = "mock-jwt-token"
-        mock_response = mock.MagicMock()
-        mock_response.status = 201
-        mock_response.read.return_value = json.dumps({"token": "test-installation-token"}).encode()
-        mock_urlopen.return_value.__enter__.return_value = mock_response
+    @mock.patch("runtime.github.github_auth.GithubIntegration")
+    def test_successful_token_exchange(self, mock_integration_cls: mock.Mock) -> None:
+        mock_auth = mock.MagicMock()
+        mock_auth.token = "test-installation-token"
+        mock_integration = mock.MagicMock()
+        mock_integration.get_access_token.return_value = mock_auth
+        mock_integration_cls.return_value = mock_integration
 
         token = github_auth.get_installation_token_from_app(
             "12345",
@@ -192,22 +194,13 @@ class TestGetInstallationTokenFromApp:
         )
 
         assert token == "test-installation-token"
-        mock_jwt.encode.assert_called_once()
+        mock_integration.get_access_token.assert_called_once_with(67890)
 
-    @mock.patch("gcp.image.github.github_auth.HAS_JWT", new=True)
-    @mock.patch("gcp.image.github.github_auth.jwt")
-    @mock.patch("gcp.image.github.github_auth.urllib.request.urlopen")
-    def test_api_error_returns_none(self, mock_urlopen: mock.Mock, mock_jwt: mock.Mock) -> None:
-        mock_jwt.encode.return_value = "mock-jwt-token"
-        from urllib.error import HTTPError
-
-        mock_urlopen.side_effect = HTTPError(
-            "https://api.github.com",
-            401,
-            "Unauthorized",
-            None,  # type: ignore[arg-type]
-            None,
-        )
+    @mock.patch("runtime.github.github_auth.GithubIntegration")
+    def test_api_error_returns_none(self, mock_integration_cls: mock.Mock) -> None:
+        mock_integration = mock.MagicMock()
+        mock_integration.get_access_token.side_effect = Exception("unauthorized")
+        mock_integration_cls.return_value = mock_integration
 
         token = github_auth.get_installation_token_from_app(
             "12345",

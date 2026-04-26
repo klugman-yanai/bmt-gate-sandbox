@@ -7,7 +7,12 @@ name = "bmt-gcloud"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "bmt",
+    "kardome-bmt",
+    "bmt-sdk",
+    "bmt-runtime",
+    "PyGithub>=2.0",
+    "google-cloud-storage>=2.16",
+    "google-cloud-artifact-registry>=1.14.0",
     "orjson>=3.10",
     "prek>=0.3.5",
     "pulumi-gcp>=9.15.0",
@@ -17,39 +22,40 @@ dependencies = [
     "rich>=13.0",
     "typer>=0.15.0",
     "whenever>=0.9.5",
+    "google-auth-stubs>=0.3.0",
 ]
 
 [tool.uv.sources]
-bmt = { workspace = true }
-# So that member .github/bmt can depend on bmt-gcloud without listing it (keeps that pyproject portable).
+kardome-bmt = { workspace = true }
+bmt-sdk = { workspace = true }
+bmt-runtime = { workspace = true }
+# So that member ci/ can depend on bmt-gcloud without listing it (keeps that pyproject portable).
 bmt-gcloud = { workspace = true }
 
 # Workspace: one lockfile, shared resolution. See https://docs.astral.sh/uv/concepts/projects/workspaces/
 [tool.uv.workspace]
-members = [".github/bmt", "gcp/image"]
+members = ["ci", "runtime", "sdk"]
 # exclude = []   # Optional: globs to exclude from members (e.g. a dir with pyproject you don't want as member)
 
 [tool.uv]
 package = true
 
-[project.optional-dependencies]
-# Runtime extras: install with pip install -e ".[vm]" or ".[monitor]" when using root env for VM/monitor.
-# For VM watcher when using GitHub App JWT (install with: pip install -e ".[vm]")
-vm = ["PyJWT>=2.0", "cryptography>=41.0"]
-# For live BMT monitor TUI (install with: pip install -e ".[monitor]")
-monitor = ["rich>=13.0", "whenever>=0.9.0"]
-
 # Ruff: configured in ruff.toml (line-length 120, py312, select/ignore, per-file-ignores).
-# Root package exposes gcp + tools. Workspace members: .github/bmt (bmt CLI), gcp/image (bmt-runtime).
-# Run a member with: uv run --package bmt … or uv run --package bmt-runtime …
+# Root package exposes tools. Workspace members: ci/ (kardome-bmt CLI), runtime/ (bmt-runtime).
+# Run a member with: uv run --package kardome-bmt … or uv run --package bmt-runtime …
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gcp*", "tools*"]
+include = ["tools*"]
 
 # Typecheck: `uv run ty check` (see `[tool.ty]`). IDE: Pylance/Cursor uses [pyrightconfig.json].
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = [".github/bmt"]
+extra-paths = [
+    "ci",
+    "sdk",
+    "plugins/projects/sk",
+    "infra/pulumi",
+]
 
 [tool.ty.src]
 exclude = [
@@ -57,11 +63,9 @@ exclude = [
     "sk_runtime",
     "local_batch",
     "secrets",
-    # Bucket mirror; layout mirrors image but imports are not a full package tree.
-    "gcp/stage",
 ]
 
-# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Install with: uv sync --group dev
+# Dependency groups: dev is for workspace-root only (tests, lint, typecheck). Included by default on `uv sync`; omit with `uv sync --no-dev`.
 [dependency-groups]
 dev = [
     "cryptography>=46.0.5",
@@ -84,6 +88,8 @@ dev = [
     "ruff>=0.15.6",
     "ty>=0.0.1",
     "typer>=0.24.1",
+    "vulture>=2.11",
+    "pylint>=3.3.0",
     "whenever>=0.9.5",
 ]
 
@@ -94,6 +100,6 @@ addopts = "--strict-config --strict-markers -ra --durations=25 --timeout=420 --t
 markers = [
     "unit: pure logic tests without subprocess/network/filesystem coupling",
     "contract: deterministic behavior tests for CLI command contracts using fakes/mocks",
-    "integration: subprocess/filesystem orchestration tests with local fakes",
-    "live_smoke: cloud-backed smoke tests (scheduled/manual only; not for default PR fast gate)",
+    "integration: subprocess/filesystem tests (local orchestration, fakes, or optional binaries)",
+    "bmt_plugin_load: load published BMT plugins from committed plugins/ (import side effects)",
 ]

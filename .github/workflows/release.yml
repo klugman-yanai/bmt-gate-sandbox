@@ -1,0 +1,422 @@
+name: Release
+
+# CI-driven release — the ONLY producer of BMT pipeline artifacts. Every push to
+# ci/check-bmt-gate (and every `bmt-v*` tag) lands here and atomically updates
+# the four surfaces that downstream BMT runs consume:
+#
+#   1. Cloud Run image (Artifact Registry)
+#   2. GCS plugins mirror
+#   3. Pulumi infra / repo vars
+#   4. PEX release tag  (tag pushes only)
+#
+# …then writes a single ``gs://$BUCKET/_state/release.json`` marker that pins
+# ``git_sha`` to the resulting digests/shas. The Plan job of the BMT handoff
+# (wired in Phase C) asserts the marker matches ``github.sha`` before
+# dispatching cloud work, which eliminates stale-artifact drift class failures.
+#
+# **Phase B (shadow mode)**: this workflow runs alongside the legacy push →
+# build-and-test-dev → bmt-handoff path. It writes the marker but does not
+# invoke the handoff — the existing path stays authoritative until Phase C
+# cutover. Observe two+ green runs here before flipping.
+#
+# See docs/architecture.md and docs/configuration.md (release marker + consumer pinning).
+
+on:
+  push:
+    branches:
+      - ci/check-bmt-gate
+    tags:
+      - "bmt-v*"
+  workflow_dispatch:
+    inputs:
+      force_image:
+        description: "Force image rebuild regardless of path filter."
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      force_plugins:
+        description: "Force plugins deploy regardless of path filter."
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      force_pulumi:
+        description: "Force pulumi apply regardless of path filter."
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+# Serialize per-ref so two concurrent pushes to ci/check-bmt-gate never race on
+# the bucket marker. `cancel-in-progress: false` lets an in-flight release
+# finish writing its marker before the next one starts — rollbacks work by
+# reverting the commit and letting release.yml run again.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+  GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+  GCP_SA_EMAIL: ${{ vars.GCP_SA_EMAIL }}
+  GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+  CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION || 'europe-west4' }}
+  ARTIFACT_REGISTRY_REPO: ${{ vars.ARTIFACT_REGISTRY_REPO || 'bmt-images' }}
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Which surfaces does this commit actually change? Each downstream job
+  # (image/plugins/pulumi) gates on one of these booleans. Tag pushes (bmt-v*)
+  # always force-build the image — the PEX tag path means a new release wants
+  # a fresh runtime even if runtime/** is unchanged.
+  # --------------------------------------------------------------------------
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-22.04
+    outputs:
+      runtime: ${{ steps.resolve.outputs.runtime }}
+      plugins: ${{ steps.resolve.outputs.plugins }}
+      infra: ${{ steps.resolve.outputs.infra }}
+      is_tag: ${{ steps.resolve.outputs.is_tag }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # Full history so dorny/paths-filter can resolve `github.event.before`
+          # for any-size push (single- or multi-commit). With a shallow checkout
+          # paths-filter falls back to "all files added" when the base ref is
+          # unreachable, which silently runs every job on every push.
+          fetch-depth: 0
+
+      - name: Path filter
+        id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          # Compare against the most recent commit on the same branch before the
+          # push (i.e. `github.event.before`). Without this, the action defaults
+          # to the repo's default branch (main) which we don't fetch — that path
+          # silently classifies every file as added and runs every job. See
+          # https://github.com/dorny/paths-filter#detect-changes-against-previous-commit-for-long-lived-branches
+          base: ${{ github.ref }}
+          filters: |
+            runtime:
+              - 'runtime/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'runtime/Dockerfile'
+            plugins:
+              - 'plugins/**'
+              - 'gcp/stage/**'
+            infra:
+              - 'infra/pulumi/**'
+
+      - name: Resolve force flags and tag push
+        id: resolve
+        env:
+          F_IMAGE: ${{ inputs.force_image || 'false' }}
+          F_PLUGINS: ${{ inputs.force_plugins || 'false' }}
+          F_PULUMI: ${{ inputs.force_pulumi || 'false' }}
+          REF: ${{ github.ref }}
+          RUNTIME: ${{ steps.filter.outputs.runtime }}
+          PLUGINS_CHANGED: ${{ steps.filter.outputs.plugins }}
+          INFRA_CHANGED: ${{ steps.filter.outputs.infra }}
+        run: |
+          set -euo pipefail
+          is_tag=false
+          if [[ "${REF}" == refs/tags/bmt-v* ]]; then is_tag=true; fi
+
+          runtime=${RUNTIME}
+          plugins=${PLUGINS_CHANGED}
+          infra=${INFRA_CHANGED}
+          if [[ "${F_IMAGE}" == "true" || "${is_tag}" == "true" ]]; then runtime=true; fi
+          if [[ "${F_PLUGINS}" == "true" ]]; then plugins=true; fi
+          if [[ "${F_PULUMI}" == "true" ]]; then infra=true; fi
+
+          {
+            echo "runtime=${runtime}"
+            echo "plugins=${plugins}"
+            echo "infra=${infra}"
+            echo "is_tag=${is_tag}"
+          } >>"$GITHUB_OUTPUT"
+
+          {
+            echo "## Release: change detection"
+            echo ""
+            echo "| Surface | Changed | Will run |"
+            echo "|---|---|---|"
+            echo "| Cloud Run image | \`${RUNTIME}\` | \`${runtime}\` |"
+            echo "| GCS plugins | \`${PLUGINS_CHANGED}\` | \`${plugins}\` |"
+            echo "| Pulumi infra | \`${INFRA_CHANGED}\` | \`${infra}\` |"
+            echo "| Tag push (bmt-v*) | — | \`${is_tag}\` |"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  # --------------------------------------------------------------------------
+  # Fail-fast quality gate. No side effects — if this is red we never build
+  # the image or touch the bucket. Matches `just test` locally.
+  # --------------------------------------------------------------------------
+  test:
+    name: Test
+    needs: detect-changes
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@bd01e18f51369d5a26f1651c3cb451d3417e3bba # v6.3.1
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: uv sync
+        run: uv sync --all-extras
+      - name: pytest
+        run: uv run python -m pytest tests/ -q
+      - name: Ruff
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Type check
+        run: uv run ty check
+      - name: Layout policies
+        run: |
+          uv run python -m tools.repo.gcp_layout_policy
+          uv run python -m tools.repo.repo_layout_policy
+
+  # --------------------------------------------------------------------------
+  # Build + push the Cloud Run image. The pushed `:${GIT_SHA}` tag's manifest
+  # digest is the authoritative identifier that Cloud Run jobs (bmt-control,
+  # bmt-task-standard, bmt-task-heavy) run against. Captured into the marker.
+  # --------------------------------------------------------------------------
+  image:
+    name: Cloud Run image
+    needs: [detect-changes, test]
+    if: needs.detect-changes.outputs.runtime == 'true'
+    runs-on: ubuntu-22.04
+    outputs:
+      image_digest: ${{ steps.push.outputs.image_digest }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
+          install_uv: "true"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.CLOUD_RUN_REGION }}-docker.pkg.dev --quiet
+
+      - name: docker build
+        run: docker build -t bmt-orchestrator:latest -f runtime/Dockerfile .
+
+      - name: docker push and capture digest
+        id: push
+        env:
+          GCP_PROJECT: ${{ env.GCP_PROJECT }}
+          CLOUD_RUN_REGION: ${{ env.CLOUD_RUN_REGION }}
+          ARTIFACT_REGISTRY_REPO: ${{ env.ARTIFACT_REGISTRY_REPO }}
+        run: bash tools/scripts/just_docker_push.sh
+
+      - name: Summarize image
+        if: always()
+        env:
+          DIGEST: ${{ steps.push.outputs.image_digest }}
+        run: |
+          {
+            echo "## Cloud Run image"
+            echo ""
+            echo "\`\`\`"
+            echo "digest: ${DIGEST:-<unresolved>}"
+            echo "git_sha: ${{ github.sha }}"
+            echo "\`\`\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  # --------------------------------------------------------------------------
+  # Sync gcp/stage → bucket. Emits the git tree SHA of plugins/projects so the
+  # marker records exactly which plugin state was deployed.
+  # --------------------------------------------------------------------------
+  plugins:
+    name: GCS plugins
+    needs: [detect-changes, test]
+    if: needs.detect-changes.outputs.plugins == 'true'
+    runs-on: ubuntu-22.04
+    outputs:
+      plugins_sha: ${{ steps.deploy.outputs.plugins_sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
+          install_uv: "true"
+
+      - name: Deploy plugins to bucket
+        id: deploy
+        env:
+          GCS_BUCKET: ${{ env.GCS_BUCKET }}
+        run: uv run python -m tools bucket deploy
+
+      - name: Summarize plugins
+        if: always()
+        env:
+          SHA: ${{ steps.deploy.outputs.plugins_sha }}
+        run: |
+          {
+            echo "## GCS plugins"
+            echo ""
+            echo "\`\`\`"
+            echo "plugins_sha: ${SHA:-<unresolved>}"
+            echo "bucket: gs://${{ env.GCS_BUCKET }}/"
+            echo "\`\`\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  # --------------------------------------------------------------------------
+  # Pulumi infra — TEMPORARILY DESCOPED.
+  #
+  # Discovery on 2026-04-20 found that the Pulumi GCS state backend at
+  # gs://$BUCKET/pulumi/bmt-vm/ is empty despite ~24 declared resources
+  # existing on GCP (created outside Pulumi). `pulumi up` from CI therefore
+  # tries to CREATE every resource and fails on IAM_PERMISSION_DENIED for
+  # iam.serviceAccounts.create / secretmanager.secrets.create etc. — and
+  # would then fail "already exists" even with admin IAM.
+  #
+  # The fix is a bulk `pulumi import` exercise run from an admin workstation,
+  # followed by drift reconciliation so `pulumi preview` is a clean no-op.
+  # Operational import backlog (infra/README.md, docs/configuration.md).
+  # Once that lands, Phase 3.2 re-introduces this job.
+  #
+  # In the interim: `pulumi_stack_sha` in the release marker is null. That's
+  # semantically correct — release.yml did not touch the Pulumi surface for
+  # this commit. Legacy `bmt-handoff.yml` push trigger remains authoritative
+  # for cloud traffic.
+  # --------------------------------------------------------------------------
+  # pulumi:
+  #   name: Pulumi infra
+  #   needs: [detect-changes, test]
+  #   if: needs.detect-changes.outputs.infra == 'true'
+  #   runs-on: ubuntu-22.04
+  #   outputs:
+  #     pulumi_stack_sha: ${{ steps.apply.outputs.pulumi_stack_sha }}
+  #   steps:
+  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+  #       with:
+  #         fetch-depth: 1
+  #     - name: Setup GCP and uv
+  #       uses: ./.github/actions/setup-gcp-uv
+  #       with:
+  #         workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+  #         service_account: ${{ env.GCP_SA_EMAIL }}
+  #         gcp_project: ${{ env.GCP_PROJECT }}
+  #         install_uv: "true"
+  #     - name: Install Pulumi CLI
+  #       uses: pulumi/actions@cc7494be991dba0978f7ffafaf995b0449a0998e # v6.5.0
+  #     - name: Apply Pulumi stack
+  #       id: apply
+  #       env:
+  #         GCP_PROJECT: ${{ env.GCP_PROJECT }}
+  #         GCS_BUCKET: ${{ env.GCS_BUCKET }}
+  #         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+  #       run: uv run python -m tools.pulumi.pulumi_apply
+  #     - name: Summarize pulumi
+  #       if: always()
+  #       env:
+  #         SHA: ${{ steps.apply.outputs.pulumi_stack_sha }}
+  #       run: |
+  #         {
+  #           echo "## Pulumi infra"
+  #           echo ""
+  #           echo "\`\`\`"
+  #           echo "stack_sha: ${SHA:-<unresolved>}"
+  #           echo "\`\`\`"
+  #         } >>"$GITHUB_STEP_SUMMARY"
+
+  # --------------------------------------------------------------------------
+  # Write the single source-of-truth release marker. Runs even when upstream
+  # build jobs were skipped (path filter) — `always()` gate + explicit
+  # !failure() so a genuinely failed image/plugins/pulumi step does block the
+  # marker. Skipped jobs contribute empty (null) fields to the marker, which
+  # is semantically correct: "release.yml did not touch this surface for
+  # this commit".
+  # --------------------------------------------------------------------------
+  mark:
+    name: Write release marker
+    needs: [detect-changes, test, image, plugins]  # pulumi dep removed while descoped
+    if: always() && !failure() && !cancelled() && needs.test.result == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup GCP and uv
+        uses: ./.github/actions/setup-gcp-uv
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SA_EMAIL }}
+          gcp_project: ${{ env.GCP_PROJECT }}
+          install_uv: "true"
+
+      - name: Resolve PEX tag (tag pushes only)
+        id: pex_tag
+        env:
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${REF}" == refs/tags/bmt-v* ]]; then
+            echo "pex_tag=${REF_NAME}" >>"$GITHUB_OUTPUT"
+          else
+            echo "pex_tag=" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Write release marker
+        env:
+          GCS_BUCKET: ${{ env.GCS_BUCKET }}
+          GITHUB_SHA: ${{ github.sha }}
+          RELEASE_IMAGE_DIGEST: ${{ needs.image.outputs.image_digest }}
+          RELEASE_PLUGINS_SHA: ${{ needs.plugins.outputs.plugins_sha }}
+          RELEASE_PULUMI_STACK_SHA: ""  # descoped until Pulumi runs from CI again (infra/README.md).
+          RELEASE_PEX_TAG: ${{ steps.pex_tag.outputs.pex_tag }}
+        run: uv run kardome-bmt release mark
+
+      - name: Verify marker round-trip
+        env:
+          GCS_BUCKET: ${{ env.GCS_BUCKET }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: uv run kardome-bmt release verify
+
+      - name: Summarize marker
+        if: always()
+        env:
+          DIGEST: ${{ needs.image.outputs.image_digest }}
+          PLUGINS_SHA: ${{ needs.plugins.outputs.plugins_sha }}
+          PULUMI_SHA: ""
+          PEX_TAG: ${{ steps.pex_tag.outputs.pex_tag }}
+          IMG_RESULT: ${{ needs.image.result }}
+          PLG_RESULT: ${{ needs.plugins.result }}
+          PUL_RESULT: descoped
+        run: |
+          {
+            echo "## Release marker"
+            echo ""
+            echo "| Surface | Status | Value |"
+            echo "|---|---|---|"
+            echo "| git_sha | — | \`${{ github.sha }}\` |"
+            echo "| image_digest | ${IMG_RESULT} | \`${DIGEST:-<skipped>}\` |"
+            echo "| plugins_sha | ${PLG_RESULT} | \`${PLUGINS_SHA:-<skipped>}\` |"
+            echo "| pulumi_stack_sha | ${PUL_RESULT} | \`${PULUMI_SHA:-<skipped>}\` |"
+            echo "| pex_tag | — | \`${PEX_TAG:-<non-tag push>}\` |"
+            echo ""
+            echo "Marker at \`gs://${{ env.GCS_BUCKET }}/_state/release.json\`."
+          } >>"$GITHUB_STEP_SUMMARY"

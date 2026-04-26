@@ -10,8 +10,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
-import re
 import subprocess
 import tempfile
 import time
@@ -19,7 +19,17 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-COUNTER_RE = re.compile(r"Hi NAMUH counter = (\d+)")
+from pydantic import ValidationError
+from whenever import Instant
+
+from runtime.stdout_counter_parse import (
+    DEFAULT_KARDOME_COUNTER_KEYWORD,
+    StdoutCounterParseConfig,
+    compile_counter_pattern,
+    read_counter_from_log,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,6 +41,7 @@ class FileResult:
     duration_sec: float
     log_path: str
     output_wav: str
+    error: str = ""
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -50,14 +61,6 @@ def _rewrite_template(cfg: dict[str, Any], wav_path: Path, output_wav: Path) -> 
         cfg[f"ZONE{idx}_PATH"] = wav_value
     cfg["NUM_SOURCE_TEST"] = 0
     return cfg
-
-
-def _read_counter(log_path: Path) -> int:
-    text = log_path.read_text(encoding="utf-8", errors="replace")
-    matches = COUNTER_RE.findall(text)
-    if not matches:
-        return 0
-    return int(matches[-1])
 
 
 def _runner_env(runner_path: Path, deps_dir: Path | None) -> dict[str, str]:
@@ -98,6 +101,7 @@ def run_all(
     out_root: Path,
     deps_dir: Path | None,
     limit: int,
+    parse_cfg: StdoutCounterParseConfig | None = None,
 ) -> tuple[list[FileResult], dict[str, Any]]:
     if not runner.is_file():
         raise FileNotFoundError(f"Runner not found: {runner}")
@@ -123,6 +127,9 @@ def run_all(
     wav_out_dir.mkdir(parents=True, exist_ok=True)
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
+    spec = parse_cfg or StdoutCounterParseConfig()
+    counter_re = compile_counter_pattern(spec)
+
     results: list[FileResult] = []
     for wav_path in wavs:
         rel = wav_path.relative_to(wav_root)
@@ -147,30 +154,33 @@ def run_all(
                 check=False,
             )
         duration_sec = round(time.monotonic() - t0, 3)
-        namuh = _read_counter(log_path)
-
+        counter = read_counter_from_log(log_path, counter_re)
+        counter_found = counter is not None
+        ok = proc.returncode == 0 and counter_found
+        error = "" if ok else "counter_not_found" if proc.returncode == 0 else f"runner_exit_{proc.returncode}"
         results.append(
             FileResult(
                 file=str(rel),
-                status="ok" if proc.returncode == 0 else "failed",
+                status="ok" if ok else "failed",
                 exit_code=proc.returncode,
-                namuh_count=namuh,
+                namuh_count=int(counter if counter is not None else 0),
                 duration_sec=duration_sec,
                 log_path=str(log_path),
                 output_wav=str(out_wav),
+                error=error,
             )
         )
 
     total = len(results)
     ok_count = sum(1 for r in results if r.status == "ok")
-    fail_count = total - ok_count
+    fail_count = total - ok_count  # includes missing counter and non-zero exit
     avg_namuh = round(sum(r.namuh_count for r in results) / total, 3)
     summary = {
         "total_files": total,
         "ok_count": ok_count,
         "fail_count": fail_count,
         "avg_namuh": avg_namuh,
-        "started_at_epoch": time.time(),
+        "started_at_epoch": Instant.now().timestamp(),
     }
     return results, summary
 
@@ -195,7 +205,25 @@ def main() -> int:
         action="store_true",
         help="Exit non-zero when one or more files fail.",
     )
+    parser.add_argument(
+        "--keyword",
+        default=DEFAULT_KARDOME_COUNTER_KEYWORD,
+        help="Keyword in the stdout counter line when --counter-pattern is not set.",
+    )
+    parser.add_argument(
+        "--counter-pattern",
+        default="",
+        help="Full regex with a capture group for digits; empty uses Hi <keyword> counter = (digits).",
+    )
     args = parser.parse_args()
+
+    try:
+        parse_cfg = StdoutCounterParseConfig(
+            keyword=args.keyword,
+            counter_pattern=(args.counter_pattern.strip() or None),
+        )
+    except ValidationError as exc:
+        parser.error(f"Invalid counter parse config: {exc}")
 
     out_root = args.out_root if args.out_root is not None else Path(tempfile.gettempdir()) / "kardome-sandbox-out"
     out_root.mkdir(parents=True, exist_ok=True)
@@ -209,6 +237,7 @@ def main() -> int:
         out_root=out_root,
         deps_dir=args.deps_dir,
         limit=args.limit,
+        parse_cfg=parse_cfg,
     )
     payload = {"summary": summary, "results": [asdict(r) for r in results]}
     summary_json.parent.mkdir(parents=True, exist_ok=True)
@@ -217,10 +246,21 @@ def main() -> int:
     summary_csv.parent.mkdir(parents=True, exist_ok=True)
     with summary_csv.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["file", "status", "exit_code", "namuh_count", "duration_sec", "log_path", "output_wav"])
+        writer.writerow(
+            ["file", "status", "exit_code", "namuh_count", "duration_sec", "log_path", "output_wav", "error"]
+        )
         for row in results:
             writer.writerow(
-                [row.file, row.status, row.exit_code, row.namuh_count, row.duration_sec, row.log_path, row.output_wav]
+                [
+                    row.file,
+                    row.status,
+                    row.exit_code,
+                    row.namuh_count,
+                    row.duration_sec,
+                    row.log_path,
+                    row.output_wav,
+                    row.error,
+                ]
             )
 
     print(json.dumps(summary, indent=2))

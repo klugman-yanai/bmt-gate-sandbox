@@ -1,6 +1,10 @@
 """Tests for runtime summary artifact paths."""
 
-from gcp.image.runtime.artifacts import summary_path
+import pytest
+
+from runtime.artifacts import summary_path
+
+pytestmark = pytest.mark.unit
 
 
 def test_summary_artifact_path_format() -> None:

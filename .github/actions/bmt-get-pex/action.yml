@@ -1,0 +1,39 @@
+name: Download kardome-bmt PEX from a release
+description: >
+  Fetches bmt.pex from a GitHub Release (published by klugman-yanai/bmt-gcloud on tags bmt-v*).
+  Requires gh (preinstalled on GitHub-hosted runners). For a public upstream release, the default
+  token is enough; for a private release asset, use a token with contents:read on that repo.
+
+inputs:
+  tag:
+    description: Release tag (e.g. bmt-v0.1.0)
+    required: true
+  repo:
+    description: owner/name of the repo that published bmt.pex (production default is this upstream)
+    required: false
+    default: klugman-yanai/bmt-gcloud
+  out-path:
+    description: Directory to place bmt.pex
+    required: false
+    default: "."
+  token:
+    description: Token with contents:read for the release repo
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download bmt.pex
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        out="${{ inputs.out-path }}"
+        mkdir -p "$out"
+        gh release download "${{ inputs.tag }}" \
+          -R "${{ inputs.repo }}" \
+          -p "bmt.pex" \
+          -D "$out"
+        chmod +x "$out/bmt.pex"
