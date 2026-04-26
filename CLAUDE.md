@@ -82,9 +82,9 @@ Avoid `time.time()` / `datetime.now()` for new code. CI and `plugins/` may use l
 
 ## CI / BMT CLI
 
-Entrypoint: `**uv run kardome-bmt <cmd>`** from repo root; implementation under `**ci/**` (workspace member `kardome-bmt` is installed by `**uv sync**` at the repo root).
+Entrypoint: `uv run kardome-bmt <cmd>` from repo root; implementation under `ci/` (workspace member `kardome-bmt` is installed by `uv sync` at the repo root).
 
-Workflows in `**.github/workflows/**` call into this CLI (e.g. `**bmt-handoff.yml**`: `write-context`, `filter-upload-matrix`, `invoke-workflow`, etc.). See **[.github/README.md](.github/README.md)** for workflow layout.
+Workflows in `.github/workflows/` call into this CLI (e.g. `bmt-handoff.yml`: `write-context`, `filter-upload-matrix`, `invoke-workflow`, etc.). See **[.github/README.md](.github/README.md)** for workflow layout.
 
 ## Linting and type checking
 
@@ -124,12 +124,12 @@ are **paths + switches**, not a second source of AFE numbers.
 
 ### Pointer / snapshot flow (real bucket)
 
-To exercise manager-style snapshot writes and `**current.json`** against a real bucket, you can run project managers or orchestration paths **as documented** in [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/configuration.md](docs/configuration.md). Full **E2E** (Actions → Workflows → Cloud Run) is covered by CI and workflow dispatch on `bmt-handoff.yml`.
+To exercise manager-style snapshot writes and `current.json` against a real bucket, you can run project managers or orchestration paths **as documented** in [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/configuration.md](docs/configuration.md). Full **E2E** (Actions → Workflows → Cloud Run) is covered by CI and workflow dispatch on `bmt-handoff.yml`.
 
 ## Devtools and pre-commit
 
-- **Install [uv](https://docs.astral.sh/uv/) first**, then `**just setup`**: bootstraps Python 3.12+, **prek** hooks, and prints a Rich setup summary. See [CONTRIBUTING.md](CONTRIBUTING.md).
-- `**just deploy`** (with `GCS_BUCKET`) syncs `plugins/` to the bucket and verifies.
+- **Install [uv](https://docs.astral.sh/uv/) first**, then `just setup`: bootstraps Python 3.12+, **prek** hooks, and prints a Rich setup summary. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- `just deploy` (with `GCS_BUCKET`) syncs `plugins/` to the bucket and verifies.
 - Pre-commit may **block** commits that touch `plugins/` unless the bucket is in sync (`SKIP_SYNC_VERIFY=1` to bypass intentionally).
 
 ```bash
@@ -144,14 +144,14 @@ When searching the tree, parsing structured output, or running repo commands, **
 
 | Prefer                                                                                                             | Fallback                                                            | Role                                                                                                                  |
 | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `**rg`** ([ripgrep](https://github.com/BurntSushi/ripgrep))                                                        | `grep` (with appropriate `-r` / excludes)                           | Recursive code and text search                                                                                        |
-| `**fd**` ([fd](https://github.com/sharkdp/fd))                                                                     | `find`                                                              | Files by name/path under a tree                                                                                       |
-| `**jq**`                                                                                                           | *(same)*                                                            | JSON: filter and project fields in the shell                                                                          |
-| `**yq*`* (mikefarah / [go-yq](https://github.com/mikefarah/yq); `yq --version` mentions `github.com/mikefarah/yq`) | `jq` on JSON, or small **Python** in-repo helpers for YAML/TOML     | YAML/JSON/XML in pipelines; **not** the Python [kislyuk/yq](https://github.com/kislyuk/yq) jq-wrapper (different CLI) |
-| `**ast-grep`**                                                                                                     | `rg` / `grep`                                                       | Structure-aware search when rules exist                                                                               |
-| `**sd**`                                                                                                           | `sed`                                                               | Non-interactive replace (mind `sed` escaping)                                                                         |
-| `**uv**`                                                                                                           | `python3 -m venv` + `pip` per [uv docs](https://docs.astral.sh/uv/) | Python env and `uv run`                                                                                               |
-| `**just**`                                                                                                         | invoke the underlying `recipe` commands manually                    | Task runner from [Justfile](Justfile)                                                                                 |
+| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep))                                                        | `grep` (with appropriate `-r` / excludes)                           | Recursive code and text search                                                                                        |
+| `fd` ([fd](https://github.com/sharkdp/fd))                                                                     | `find`                                                              | Files by name/path under a tree                                                                                       |
+| `jq`                                                                                                           | *(same)*                                                            | JSON: filter and project fields in the shell                                                                          |
+| `yq` (mikefarah / [go-yq](https://github.com/mikefarah/yq); `yq --version` mentions `github.com/mikefarah/yq`) | `jq` on JSON, or small **Python** in-repo helpers for YAML/TOML     | YAML/JSON/XML in pipelines; **not** the Python [kislyuk/yq](https://github.com/kislyuk/yq) jq-wrapper (different CLI) |
+| `ast-grep`                                                                                                     | `rg` / `grep`                                                       | Structure-aware search when rules exist                                                                               |
+| `sd`                                                                                                           | `sed`                                                               | Non-interactive replace (mind `sed` escaping)                                                                         |
+| `uv`                                                                                                           | `python3 -m venv` + `pip` per [uv docs](https://docs.astral.sh/uv/) | Python env and `uv run`                                                                                               |
+| `just`                                                                                                         | invoke the underlying `recipe` commands manually                    | Task runner from [Justfile](Justfile)                                                                                 |
 
 
 (Version numbers omitted; run `<tool> --version` to verify.)
@@ -167,7 +167,7 @@ When searching the tree, parsing structured output, or running repo commands, **
 | **GCS**       | Plans, summaries, snapshots, `current.json`           |
 
 
-Runtime code: `**runtime/`**, entry via `**runtime.entrypoint**` (Cloud Run / local parity). Plugins live under `**plugins/projects/.../plugins/**` (published bundles).
+Runtime code: `runtime/`, entry via `runtime.entrypoint` (Cloud Run / local parity). Plugins live under `plugins/projects/.../plugins/` (published bundles).
 
 **Details:** [docs/architecture.md](docs/architecture.md).
 
@@ -181,12 +181,12 @@ Runtime code: `**runtime/`**, entry via `**runtime.entrypoint**` (Cloud Run / lo
 
 1. **[.github/README.md](.github/README.md)**. Production handoff job shape, `permissions`, `with:` example, minimal vars.
 2. **[docs/configuration.md](docs/configuration.md)**. Variable names, handoff consumer paragraph, env contract tables.
-3. `**[.github/workflows/bmt-handoff.yml](.github/workflows/bmt-handoff.yml)`**. Full handoff DAG (`workflow_call` inputs, top-level `env`, jobs).
-4. `**[.github/workflows/build-and-test.yml](.github/workflows/build-and-test.yml)**` (or `**build-and-test-dev.yml**`). How **this** repo calls handoff with `with:` after the build job.
-5. `**[.github/actions/bmt-prepare-context/action.yml](.github/actions/bmt-prepare-context/action.yml)**`. PEX setup + required-var check + `CMakePresets.json` fetch from caller.
-6. `**[.github/actions/setup-bmt-pex/action.yml](.github/actions/setup-bmt-pex/action.yml)**`. How `**bmt.pex**` is resolved from the workflow ref (`bmt-handoff` → latest `bmt-v*`).
-7. `**[ci/kardome_bmt/runner.py](ci/kardome_bmt/runner.py)**`. `filter-upload-matrix` / upload vs `skip_in_gcs` (artifact names `**runner-<preset>**`, preseed / skip-publish flags).
-8. `**[docs/architecture.md](docs/architecture.md)**`. End-to-end Actions → Workflows → Cloud Run → GCS when you need the big picture.
+3. [.github/workflows/bmt-handoff.yml](.github/workflows/bmt-handoff.yml). Full handoff DAG (`workflow_call` inputs, top-level `env`, jobs).
+4. [.github/workflows/build-and-test.yml](.github/workflows/build-and-test.yml) (or `build-and-test-dev.yml`). How **this** repo calls handoff with `with:` after the build job.
+5. [.github/actions/bmt-prepare-context/action.yml](.github/actions/bmt-prepare-context/action.yml). PEX setup + required-var check + `CMakePresets.json` fetch from caller.
+6. [.github/actions/setup-bmt-pex/action.yml](.github/actions/setup-bmt-pex/action.yml). How `bmt.pex` is resolved from the workflow ref (`bmt-handoff` → latest `bmt-v*`).
+7. [ci/kardome_bmt/runner.py](ci/kardome_bmt/runner.py). `filter-upload-matrix` / upload vs `skip_in_gcs` (artifact names `runner-<preset>`, preseed / skip-publish flags).
+8. [docs/architecture.md](docs/architecture.md). End-to-end Actions → Workflows → Cloud Run → GCS when you need the big picture.
 
 ## Datasets
 
@@ -207,9 +207,9 @@ For large files (10–30 GB), use `gcloud storage cp` first then run `just uploa
 
 | Env var                                           | Effect                                                                                                                                                                                                                                                          |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BMT_SKIP_PUBLISH_RUNNERS=1`                      | `**filter-upload-matrix` short-circuit:** emit empty publish matrices; no upload jobs; assumes runners are already in GCS.                                                                                                                                     |
-| `BMT_RUNNERS_PRESEEDED_IN_GCS=1`                  | **Per-leg only:** when `runner_meta.json` already exists in GCS, treat bucket as authoritative and classify `**skip_in_gcs`** even if `source_ref` ≠ current `HEAD_SHA` (trust pre-seeded bucket). Unrelated to skip-publish; omit unless you need that escape. |
-| Handoff input `force_pass: true` (caller `with:`) | Dispatch runs `kardome-bmt dispatch invoke-workflow --force-pass`. Does not change GCS or cloud BMT verdict. Actions escape hatch only. Ad-hoc: `KARDOME_BMT_FORCE_PASS` env on the PEX.                                                                       |
+| `BMT_SKIP_PUBLISH_RUNNERS=1`                      | **`filter-upload-matrix` short-circuit:** emit empty publish matrices; no upload jobs; assumes runners are already in GCS.                                                                                                                                     |
+| `BMT_RUNNERS_PRESEEDED_IN_GCS=1`                  | **Per-leg only:** when `runner_meta.json` already exists in GCS, treat bucket as authoritative and classify `skip_in_gcs` even if `source_ref` ≠ current `HEAD_SHA` (trust pre-seeded bucket). Unrelated to skip-publish; omit unless you need that escape. |
+| Handoff input `force_pass: true` (caller `with:`) | Dispatch/auth must still succeed. Cloud runtime then emits fast force-pass leg summaries (`demo_force_pass`) and publishes normal GitHub checks/comments with a passing `BMT Gate`. Ad-hoc env: `KARDOME_BMT_FORCE_PASS`. **Semantics + layers:** [docs/bmt-pipeline-signal.md](docs/bmt-pipeline-signal.md). |
 
 
 ## Not committed

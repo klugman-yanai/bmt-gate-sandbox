@@ -114,3 +114,33 @@ def test_verbose_matrix_appends_details(tmp_path: Path, monkeypatch: pytest.Monk
     text = summary.read_text(encoding="utf-8")
     assert "<details>" in text
     assert '"project": "a"' in text
+
+
+def test_force_pass_confirmed_dispatch_adds_runtime_short_circuit_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    summary = tmp_path / "step_summary.md"
+    summary.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setenv("GITHUB_REPOSITORY", "klugman-yanai/bmt-gcloud")
+    monkeypatch.setenv("BMT_FORCE_PASS_RESOLVED", "true")
+
+    env = HandoffEnv(
+        prepare_result="success",
+        mode="run_success",
+        head_sha="abcdabcdabcdabcdabcdabcdabcdabcdabcd",
+        pr_number="",
+        orch_has_legs=True,
+        repository="o/r",
+        head_branch="x",
+        filtered_matrix_raw=json.dumps({"include": [{"project": "sk"}]}),
+        accepted_projects_raw=json.dumps(["sk"]),
+        dispatch_confirmed=True,
+        failure_reason="",
+        server="https://github.com",
+        run_id="1",
+    )
+    cfg = BmtConfig.model_validate({})
+    write_handoff_step_summary(cfg, env)
+    text = summary.read_text(encoding="utf-8")
+    assert "force pass is currently active; cloud runtime will short-circuit BMT execution" in text

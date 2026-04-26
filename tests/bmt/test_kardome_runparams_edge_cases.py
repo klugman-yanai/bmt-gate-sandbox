@@ -58,7 +58,7 @@ def test_dataset_not_directory_returns_single_failed_case(tmp_path: Path) -> Non
     assert "dataset_root" in result.case_results[0].error
 
 
-def test_invalid_template_json_returns_single_failed_case(tmp_path: Path) -> None:
+def test_invalid_template_json_is_ignored_in_hard_cut_mode(tmp_path: Path) -> None:
     ds = tmp_path / "ds"
     ds.mkdir()
     runtime, outputs, logs = _minimal_dirs(tmp_path)
@@ -75,9 +75,9 @@ def test_invalid_template_json_returns_single_failed_case(tmp_path: Path) -> Non
         )
     )
     result = ex.run()
-    assert len(result.case_results) == 1
-    assert result.case_results[0].case_id == "_template_"
-    assert "template_load_failed" in result.case_results[0].error
+    # Hard-cut mode no longer reads template JSON for runner invocation.
+    # With no WAVs, execution yields no cases.
+    assert result.case_results == []
 
 
 def _executor_with_one_wav(tmp_path: Path) -> KardomeRunparamsExecutor:

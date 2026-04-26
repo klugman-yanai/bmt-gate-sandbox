@@ -13,7 +13,6 @@ from runtime.kardome_runparams import (
     KardomeRunparamsExecutor,
     execution_mode_for_runparams_case_results,
 )
-from runtime.stdout_counter_parse import StdoutCounterParseConfig
 from tests._support.minimal_wav import write_silence_wav
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -73,7 +72,29 @@ def test_read_namuh_bmt_result_stem() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_bmt_json_preferred_over_stdout(tmp_path: Path) -> None:
+def _runner_script_body(sidecar_body: str | None) -> str:
+    writer = (
+        ""
+        if sidecar_body is None
+        else f"pathlib.Path(str(out.with_suffix('.bmt.json'))).write_text({sidecar_body!r}, encoding='utf-8')"
+    )
+    return f"""#!/usr/bin/env python3
+import pathlib
+import sys
+
+def arg(flag):
+    idx = sys.argv.index(flag)
+    return sys.argv[idx + 1]
+
+out = pathlib.Path(arg("--user-output"))
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_bytes(b"ok")
+{writer}
+print("Hi NAMUH counter = 999")
+"""
+
+
+def _make_executor(tmp_path: Path, runner_body: str) -> KardomeRunparamsExecutor:
     (tmp_path / "ds").mkdir(parents=True)
     write_silence_wav(tmp_path / "ds" / "one.wav")
     (tmp_path / "runtime").mkdir()
@@ -81,26 +102,10 @@ def test_bmt_json_preferred_over_stdout(tmp_path: Path) -> None:
     (tmp_path / "logs").mkdir()
 
     runner = tmp_path / "fake_runner.py"
-    runner.write_text(
-        """#!/usr/bin/env python3
-import json, pathlib, sys
-cfg_path = pathlib.Path(sys.argv[1])
-cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-out = pathlib.Path(cfg["USER_OUTPUT_PATH"])
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_bytes(b"ok")
-(out.with_suffix(".bmt.json")).write_text(
-    json.dumps({"namuh_count": 4}),
-    encoding="utf-8",
-)
-print("Hi NAMUH counter = 999")
-""",
-        encoding="utf-8",
-    )
+    runner.write_text(runner_body, encoding="utf-8")
     runner.chmod(runner.stat().st_mode | stat.S_IXUSR)
 
-    parsing = StdoutCounterParseConfig().model_dump(mode="python", exclude_none=True)
-    ex = KardomeRunparamsExecutor(
+    return KardomeRunparamsExecutor(
         KardomeRunparamsConfig(
             runner_path=runner,
             template_path=_SK_TEMPLATE,
@@ -108,119 +113,40 @@ print("Hi NAMUH counter = 999")
             runtime_root=tmp_path / "runtime",
             outputs_root=tmp_path / "outputs",
             logs_root=tmp_path / "logs",
-            parsing=parsing,
+            parsing={},
         )
     )
+
+
+def test_metrics_json_is_required(tmp_path: Path) -> None:
+    ex = _make_executor(tmp_path, _runner_script_body(sidecar_body=None))
     result = ex.run()
-    assert result.execution_mode_used == "kardome_legacy_metrics_json"
-    assert len(result.case_results) == 1
+    assert result.execution_mode_used == "kardome_legacy_metrics_json_missing"
     row = result.case_results[0]
-    assert row.status == "ok"
-    assert row.metrics["namuh_count"] == 4.0
-    assert row.artifacts.get("metric_source") == "metrics_json"
-    assert row.artifacts.get("metrics_json_path", "").endswith(".bmt.json")
+    assert row.status == "failed"
+    assert row.error == "metrics_json_missing"
+    assert row.artifacts.get("metric_source") == "none"
 
 
-def test_stdout_fallback_when_no_sidecar(tmp_path: Path) -> None:
-    (tmp_path / "ds").mkdir(parents=True)
-    write_silence_wav(tmp_path / "ds" / "a.wav")
-    (tmp_path / "runtime").mkdir()
-    (tmp_path / "outputs").mkdir()
-    (tmp_path / "logs").mkdir()
-
-    runner = tmp_path / "fake_runner.py"
-    runner.write_text(
-        """#!/usr/bin/env python3
-import json, pathlib, sys
-cfg = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-out = pathlib.Path(cfg["USER_OUTPUT_PATH"])
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_bytes(b"x")
-print("Hi NAMUH counter = 5")
-""",
-        encoding="utf-8",
-    )
-    runner.chmod(runner.stat().st_mode | stat.S_IXUSR)
-
-    parsing = StdoutCounterParseConfig().model_dump(mode="python", exclude_none=True)
-    ex = KardomeRunparamsExecutor(
-        KardomeRunparamsConfig(
-            runner_path=runner,
-            template_path=_SK_TEMPLATE,
-            dataset_root=tmp_path / "ds",
-            runtime_root=tmp_path / "runtime",
-            outputs_root=tmp_path / "outputs",
-            logs_root=tmp_path / "logs",
-            parsing=parsing,
-        )
-    )
+def test_malformed_sidecar_json_fails_case(tmp_path: Path) -> None:
+    ex = _make_executor(tmp_path, _runner_script_body(sidecar_body="{not json"))
     result = ex.run()
-    assert result.execution_mode_used == "kardome_legacy_stdout"
     row = result.case_results[0]
-    assert row.status == "ok"
-    assert row.metrics["namuh_count"] == 5.0
-    assert row.artifacts.get("metric_source") == "stdout_log"
+    assert row.status == "failed"
+    assert row.error == "metrics_json_missing"
 
 
-def _fake_runner_writes_sidecar_then_stdout(tmp_path: Path, *, sidecar_body: str) -> None:
-    (tmp_path / "ds").mkdir(parents=True)
-    write_silence_wav(tmp_path / "ds" / "x.wav")
-    (tmp_path / "runtime").mkdir()
-    (tmp_path / "outputs").mkdir()
-    (tmp_path / "logs").mkdir()
-
-    runner = tmp_path / "fake_runner.py"
-    runner.write_text(
-        f"""#!/usr/bin/env python3
-import json, pathlib, sys
-cfg = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-out = pathlib.Path(cfg["USER_OUTPUT_PATH"])
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_bytes(b"x")
-pathlib.Path(str(out.with_suffix(".bmt.json"))).write_text({sidecar_body!r}, encoding="utf-8")
-print("Hi NAMUH counter = 6")
-""",
-        encoding="utf-8",
-    )
-    runner.chmod(runner.stat().st_mode | stat.S_IXUSR)
-
-    parsing = StdoutCounterParseConfig().model_dump(mode="python", exclude_none=True)
-    ex = KardomeRunparamsExecutor(
-        KardomeRunparamsConfig(
-            runner_path=runner,
-            template_path=_SK_TEMPLATE,
-            dataset_root=tmp_path / "ds",
-            runtime_root=tmp_path / "runtime",
-            outputs_root=tmp_path / "outputs",
-            logs_root=tmp_path / "logs",
-            parsing=parsing,
-        )
-    )
+def test_sidecar_json_without_counter_fails_case(tmp_path: Path) -> None:
+    ex = _make_executor(tmp_path, _runner_script_body(sidecar_body='{"other": 1}'))
     result = ex.run()
-    assert result.execution_mode_used == "kardome_legacy_stdout"
-    assert result.case_results[0].metrics["namuh_count"] == 6.0
-    assert result.case_results[0].artifacts.get("metric_source") == "stdout_log"
+    row = result.case_results[0]
+    assert row.status == "failed"
+    assert row.error == "metrics_json_missing"
 
 
-def test_malformed_sidecar_json_falls_back_to_stdout(tmp_path: Path) -> None:
-    _fake_runner_writes_sidecar_then_stdout(tmp_path, sidecar_body="{not json")
-
-
-def test_sidecar_json_without_counter_falls_back_to_stdout(tmp_path: Path) -> None:
-    _fake_runner_writes_sidecar_then_stdout(tmp_path, sidecar_body='{"other": 1}')
-
-
-def test_execution_mode_hybrid_when_mixed_sources() -> None:
+def test_execution_mode_json_only() -> None:
     cases = [
         CaseResult("a.wav", Path("a.wav"), 0, "ok", {}, {"metric_source": "metrics_json"}),
-        CaseResult("b.wav", Path("b.wav"), 0, "ok", {}, {"metric_source": "stdout_log"}),
-    ]
-    assert execution_mode_for_runparams_case_results(cases) == "kardome_legacy_hybrid_metrics"
-
-
-def test_execution_mode_ignores_internal_case_ids() -> None:
-    cases = [
         CaseResult("_dataset_", Path("x"), -1, "failed", {}, {}),
-        CaseResult("a.wav", Path("a.wav"), 0, "ok", {}, {"metric_source": "stdout_log"}),
     ]
-    assert execution_mode_for_runparams_case_results(cases) == "kardome_legacy_stdout"
+    assert execution_mode_for_runparams_case_results(cases) == "kardome_legacy_metrics_json"

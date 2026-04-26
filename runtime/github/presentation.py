@@ -36,7 +36,7 @@ REASON_LABELS: dict[str, str] = {
     "bootstrap_no_previous_result": _BOOTSTRAP_FIRST_RUN,
     "runner_failures": "the runner exited with a failure",
     "runner_timeout": "the runner timed out",
-    "demo_force_pass": "forced pass override (demo mode)",
+    "demo_force_pass": "force pass is currently active, merge unblock with no cloud run job execution",
     "bootstrap_without_baseline": _BOOTSTRAP_FIRST_RUN,
     "runner_case_failures": "runner crashed on one or more test files",
     "no_successful_cases": "runner crashed on all test files",
@@ -122,6 +122,7 @@ class FinalCommentView:
     state: str
     links: LiveLinks
     failed_bmts: list[tuple[str, str]] = field(default_factory=list)
+    force_pass_active: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +200,11 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
         ]
         if view.links.workflow_execution_url:
             lines.insert(-1, f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
+        if view.force_pass_active:
+            lines.insert(
+                -1,
+                "- force pass is currently active, merge unblock with no cloud run job execution",
+            )
         lines.append(check_run_tab_refresh_hint_bullet())
         return "\n".join(lines)
 

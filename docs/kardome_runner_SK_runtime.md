@@ -11,14 +11,13 @@ For **SK** builds, `kardome_init_params()` calls `getActiveParameters()` impleme
 **`Runners/params/src/run_params_SK.c`** (AFE/KWS `krdmSetParam` values). That is the
 **authoritative** tuning surface for the product preset.
 
-**JSON from BMT** (`parseJsonCalib` in `Runners/utils/src/utils.c`) still supplies **paths**
-(`MICS_PATH`, `REF_PATH`, outputs, zones, `KWS_CONFIG` switches, etc.). Do not reintroduce
-large “tuning blobs” in repo JSON; extend **`run_params_SK.c`** in core-main when behaviour
-must change.
+`kardome_runner` now supports an additive **runparams CLI mode** (`--input-wav`, `--user-output`,
+`--kardome-output`, toggles, optional batch flags). Legacy `argv[1]=json` is preserved in
+core-main for compatibility, but active SK BMT in **bmt-gcloud** should use the non-JSON CLI path.
 
-In **bmt-gcloud**, the per-case driver that writes that JSON and invokes ``kardome_runner`` is
-**`runtime/kardome_runparams.py`** (``KardomeRunparamsExecutor``) — it is **not** a second
-source of SK AFE/KWS numbers; it only supplies paths and manifest ``enable_overrides``.
+In **bmt-gcloud**, `runtime/kardome_runparams.py` invokes that runparams CLI and reads per-case
+sidecar `.bmt.json` metrics. The SK path does **not** use stdout regex fallback anymore.
+Run params in core-main remain the only source of SK AFE/KWS tuning numbers.
 
 ## WAV / tinywav
 

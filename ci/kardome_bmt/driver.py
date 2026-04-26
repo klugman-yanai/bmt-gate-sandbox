@@ -148,8 +148,8 @@ def dispatch_invoke_workflow(
         bool,
         typer.Option(
             "--force-pass",
-            help="If Workflows dispatch fails, still exit 0 after writing GITHUB_OUTPUT (escape hatch). "
-            "Also enabled when env BMT_FORCE_PASS or KARDOME_BMT_FORCE_PASS is truthy.",
+            help="Dispatches normally, then asks cloud runtime to short-circuit BMT execution and publish a force-pass result. "
+            "Dispatch/auth must still succeed.",
             envvar="BMT_FORCE_PASS",
         ),
     ] = False,

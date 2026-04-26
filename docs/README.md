@@ -6,8 +6,10 @@
 | ---------- | --- |
 | **Run / debug BMT locally** (runner logs, plugins, without full Actions→GCP wiring) | [developer-workflow.md](developer-workflow.md) |
 | **System architecture** (pipeline, diagrams, maintainer notes) | [architecture.md](architecture.md) |
+| **Three pipeline layers, `force_pass`, consumer handoff, post-release** | [bmt-pipeline-signal.md](bmt-pipeline-signal.md) |
 | **Configuration / env / Pulumi** | [configuration.md](configuration.md) |
 | **Add a project or BMT** (incl. **SK** as reference plugin) | [adding-a-project.md](adding-a-project.md) |
+| **Project onboarding quality gate** | [plugin-conformance-checklist.md](plugin-conformance-checklist.md) |
 | **Production incidents / GCS** | [runbook.md](runbook.md) |
 | **Roadmap / priorities** | [ROADMAP.md](../ROADMAP.md); retired long-form notes → [roadmap/README.md](roadmap/README.md) |
 | **ADRs** (contracts, decisions) | [adr/README.md](adr/README.md) |

@@ -29,6 +29,7 @@ class WorkflowDispatchInvokePayload(TypedDict):
     accepted_projects: list[str]
     accepted_projects_json: str
     status_context: str
+    force_pass: bool
 
 
 def _accepted_projects(filtered_matrix_json: str) -> list[str]:
@@ -76,41 +77,32 @@ class WorkflowDispatchManager:
             "accepted_projects": accepted_projects,
             "accepted_projects_json": json.dumps(accepted_projects, separators=(",", ":")),
             "status_context": cfg.bmt_status_context,
+            "force_pass": force_pass,
         }
-        try:
-            execution = start_execution(
-                project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
-                region=cfg.cloud_run_region,
-                workflow_name=DEFAULT_WORKFLOW_NAME,
-                argument=payload,
-            )
-            execution_name = str(execution.get("name") or "").strip()
-            execution_state = str(execution.get("state") or "").strip()
-            if not execution_name:
-                raise RuntimeError("Workflow execution response did not include a name")
-            execution_url = workflow_execution_console_url(
-                project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
-                region=cfg.cloud_run_region,
-                workflow_name=DEFAULT_WORKFLOW_NAME,
-                execution_name=execution_name,
-            )
+        execution = start_execution(
+            project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
+            region=cfg.cloud_run_region,
+            workflow_name=DEFAULT_WORKFLOW_NAME,
+            argument=payload,
+        )
+        execution_name = str(execution.get("name") or "").strip()
+        execution_state = str(execution.get("state") or "").strip()
+        if not execution_name:
+            raise RuntimeError("Workflow execution response did not include a name")
+        execution_url = workflow_execution_console_url(
+            project=cfg.gcp_project or core.require_env(ENV_GCP_PROJECT),
+            region=cfg.cloud_run_region,
+            workflow_name=DEFAULT_WORKFLOW_NAME,
+            execution_name=execution_name,
+        )
 
-            write_github_output(github_output, "accepted_projects", payload["accepted_projects_json"])
-            write_github_output(github_output, "workflow_execution_name", execution_name)
-            write_github_output(github_output, "workflow_execution_url", execution_url)
-            write_github_output(github_output, "workflow_execution_state", execution_state or "UNKNOWN")
-            write_github_output(github_output, "dispatch_confirmed", "true")
+        write_github_output(github_output, "accepted_projects", payload["accepted_projects_json"])
+        write_github_output(github_output, "workflow_execution_name", execution_name)
+        write_github_output(github_output, "workflow_execution_url", execution_url)
+        write_github_output(github_output, "workflow_execution_state", execution_state or "UNKNOWN")
+        write_github_output(github_output, "dispatch_confirmed", "true")
+        if force_pass:
+            gh_warning("force pass is currently active; dispatch is required and cloud runtime will short-circuit.")
+            write_github_output(github_output, "dispatch_reason", "ok_workflow_execution_started_force_pass")
+        else:
             write_github_output(github_output, "dispatch_reason", "ok_workflow_execution_started")
-        except Exception as exc:
-            if not force_pass:
-                raise
-            gh_warning(
-                "BMT_FORCE_PASS / --force-pass: dispatch failed but exiting 0 so the Actions step "
-                f"succeeds. Error was: {exc}"
-            )
-            write_github_output(github_output, "accepted_projects", payload["accepted_projects_json"])
-            write_github_output(github_output, "workflow_execution_name", "")
-            write_github_output(github_output, "workflow_execution_url", "")
-            write_github_output(github_output, "workflow_execution_state", "FORCED_PASS_NOT_DISPATCHED")
-            write_github_output(github_output, "dispatch_confirmed", "false")
-            write_github_output(github_output, "dispatch_reason", "bmt_force_pass_suppressed_error")

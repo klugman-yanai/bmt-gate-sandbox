@@ -10,11 +10,9 @@ See ``docs/kardome_runner_SK_runtime.md`` for the split between JSON paths and C
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
 import os
-import re
 import shutil
 import struct
 import subprocess
@@ -27,27 +25,19 @@ from bmt_sdk.results import CaseResult, ExecutionResult
 
 from runtime.config.constants import ENV_BMT_KARDOME_CASE_TIMEOUT_SEC
 from runtime.kardome_case_metrics import read_namuh_from_sidecar_json
-from runtime.stdout_counter_parse import counter_pattern_from_parsing_dict, read_counter_from_log
 
 logger = logging.getLogger(__name__)
 
 
 def execution_mode_for_runparams_case_results(case_results: list[CaseResult]) -> str:
-    """Summarize whether this leg used per-case metrics JSON, stdout log regexes, or both.
-
-    Return values retain the ``kardome_legacy_*`` prefix for stored BMT payloads even though
-    the runner preset is owned by core-main run params, not this JSON surface.
-    """
+    """Summarize whether this leg used per-case sidecar metrics JSON."""
     real = [r for r in case_results if not r.case_id.startswith("_")]
     if not real:
-        return "kardome_legacy_stdout"
+        return "kardome_legacy_metrics_json"
     has_json = any(r.artifacts.get("metric_source") == "metrics_json" for r in real)
-    has_stdout = any(r.artifacts.get("metric_source") == "stdout_log" for r in real)
-    if has_json and has_stdout:
-        return "kardome_legacy_hybrid_metrics"
     if has_json:
         return "kardome_legacy_metrics_json"
-    return "kardome_legacy_stdout"
+    return "kardome_legacy_metrics_json_missing"
 
 
 # Placeholder prefix used in input_template.json; paths starting with this are rewritten per-WAV.
@@ -212,12 +202,51 @@ class KardomeRunparamsExecutor:
     def __init__(self, config: KardomeRunparamsConfig) -> None:
         self.config = config
 
+    def _runner_args_for_case(self, runner_path: Path, wav_path: Path, output_path: Path) -> list[str]:
+        """Build hard-cut runparams CLI args (no JSON input file contract)."""
+        kws_enable = 1
+        bio_enable = 0
+        afe_enable = 1
+        calib_kws_enable = 0
+        for dotted_key, value in self.config.enable_overrides.items():
+            key = dotted_key.strip().upper()
+            if key == "KWS_CONFIG.KWS_ENABLE":
+                kws_enable = 1 if bool(value) else 0
+            elif key == "BIOMETRICS_CONFIG.BIO_ENABLE":
+                bio_enable = 1 if bool(value) else 0
+            elif key == "SPOT_FORMER_CONFIG.AFE_ENABLE":
+                afe_enable = 1 if bool(value) else 0
+            elif key == "KWS_CONFIG.CALIB_KWS_ENABLE":
+                calib_kws_enable = 1 if bool(value) else 0
+
+        num_source_test = int(self.config.num_source_test or 0)
+        refs_path = str((self.config.runtime_root / "dummy_ref.wav").resolve())
+        return [
+            str(runner_path),
+            "--input-wav",
+            str(wav_path),
+            "--user-output",
+            str(output_path),
+            "--kardome-output",
+            str(output_path),
+            "--refs-path",
+            refs_path,
+            "--kws-enable",
+            str(kws_enable),
+            "--bio-enable",
+            str(bio_enable),
+            "--afe-enable",
+            str(afe_enable),
+            "--calib-kws-enable",
+            str(calib_kws_enable),
+            "--num-source-test",
+            str(num_source_test),
+        ]
+
     def _case_for_wav(
         self,
         wav_path: Path,
         rel: Path,
-        template: dict[str, Any],
-        counter_re: re.Pattern[str],
         runner_path: Path,
         runner_env: dict[str, str],
     ) -> CaseResult:
@@ -226,30 +255,51 @@ class KardomeRunparamsExecutor:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        cfg = copy.deepcopy(template)
-        _rewrite_json_paths_for_wav(
-            cfg,
-            wav_path,
-            output_path,
-            forced_key_excludes=self.config.forced_wav_path_keys_exclude,
-        )
-        if self.config.num_source_test is not None:
-            cfg["NUM_SOURCE_TEST"] = int(self.config.num_source_test)
-        for dotted_key, value in self.config.enable_overrides.items():
-            _set_dotted(cfg, dotted_key, value)
-
-        with tempfile.NamedTemporaryFile(
-            suffix=".json",
-            dir=self.config.runtime_root,
-            delete=False,
-        ) as handle:
-            Path(handle.name).write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
-            config_path = Path(handle.name)
+        proc = None
+        timeout_sec = _subprocess_timeout_sec()
         try:
-            proc = None
-            timeout_sec = _subprocess_timeout_sec()
+            log_stream = log_path.open("w", encoding="utf-8")
+        except OSError as exc:
+            return CaseResult(
+                case_id=rel.as_posix(),
+                input_path=wav_path,
+                exit_code=-1,
+                status="failed",
+                metrics={"namuh_count": 0.0},
+                artifacts={
+                    "log_path": str(log_path),
+                    "output_path": str(output_path),
+                },
+                error=f"log_open_failed:{type(exc).__name__}:{exc}",
+            )
+        try:
             try:
-                log_stream = log_path.open("w", encoding="utf-8")
+                proc = subprocess.run(
+                    self._runner_args_for_case(runner_path, wav_path, output_path),
+                    cwd=str(self.config.runtime_root),
+                    env=runner_env,
+                    stdout=log_stream,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                    timeout=timeout_sec,
+                )
+            except subprocess.TimeoutExpired:
+                return CaseResult(
+                    case_id=rel.as_posix(),
+                    input_path=wav_path,
+                    exit_code=-1,
+                    status="failed",
+                    metrics={"namuh_count": 0.0},
+                    artifacts={
+                        "log_path": str(log_path),
+                        "output_path": str(output_path),
+                    },
+                    error=(
+                        f"kardome_runner_timeout_after_{int(timeout_sec)}s"
+                        if timeout_sec is not None
+                        else "kardome_runner_timeout"
+                    ),
+                )
             except OSError as exc:
                 return CaseResult(
                     case_id=rel.as_posix(),
@@ -261,84 +311,36 @@ class KardomeRunparamsExecutor:
                         "log_path": str(log_path),
                         "output_path": str(output_path),
                     },
-                    error=f"log_open_failed:{type(exc).__name__}:{exc}",
+                    error=f"runner_os_error:{type(exc).__name__}:{exc}",
                 )
-            try:
-                try:
-                    proc = subprocess.run(
-                        [str(runner_path), str(config_path)],
-                        cwd=str(self.config.runtime_root),
-                        env=runner_env,
-                        stdout=log_stream,
-                        stderr=subprocess.STDOUT,
-                        check=False,
-                        timeout=timeout_sec,
-                    )
-                except subprocess.TimeoutExpired:
-                    return CaseResult(
-                        case_id=rel.as_posix(),
-                        input_path=wav_path,
-                        exit_code=-1,
-                        status="failed",
-                        metrics={"namuh_count": 0.0},
-                        artifacts={
-                            "log_path": str(log_path),
-                            "output_path": str(output_path),
-                        },
-                        error=(
-                            f"kardome_runner_timeout_after_{int(timeout_sec)}s"
-                            if timeout_sec is not None
-                            else "kardome_runner_timeout"
-                        ),
-                    )
-                except OSError as exc:
-                    return CaseResult(
-                        case_id=rel.as_posix(),
-                        input_path=wav_path,
-                        exit_code=-1,
-                        status="failed",
-                        metrics={"namuh_count": 0.0},
-                        artifacts={
-                            "log_path": str(log_path),
-                            "output_path": str(output_path),
-                        },
-                        error=f"runner_os_error:{type(exc).__name__}:{exc}",
-                    )
-                assert proc is not None
-                json_counter, json_used_path = read_namuh_from_sidecar_json(output_path)
-                stdout_counter = read_counter_from_log(log_path, counter_re)
-                artifacts_out: dict[str, str] = {
-                    "log_path": str(log_path),
-                    "output_path": str(output_path),
-                }
-                if json_counter is not None:
-                    counter = json_counter
-                    counter_found = True
-                    artifacts_out["metric_source"] = "metrics_json"
-                    artifacts_out["metrics_json_path"] = str(json_used_path)
-                elif stdout_counter is not None:
-                    counter = stdout_counter
-                    counter_found = True
-                    artifacts_out["metric_source"] = "stdout_log"
-                else:
-                    counter = None
-                    counter_found = False
-                    artifacts_out["metric_source"] = "none"
-                ok = proc.returncode == 0 and counter_found
-                error = "" if ok else "counter_not_found" if proc.returncode == 0 else f"runner_exit_{proc.returncode}"
-                return CaseResult(
-                    case_id=rel.as_posix(),
-                    input_path=wav_path,
-                    exit_code=proc.returncode,
-                    status="ok" if ok else "failed",
-                    metrics={"namuh_count": float(counter if counter is not None else 0)},
-                    artifacts=artifacts_out,
-                    error=error,
-                )
-            finally:
-                log_stream.close()
+            assert proc is not None
+            json_counter, json_used_path = read_namuh_from_sidecar_json(output_path)
+            artifacts_out: dict[str, str] = {
+                "log_path": str(log_path),
+                "output_path": str(output_path),
+            }
+            if json_counter is not None:
+                counter = json_counter
+                counter_found = True
+                artifacts_out["metric_source"] = "metrics_json"
+                artifacts_out["metrics_json_path"] = str(json_used_path)
+            else:
+                counter = None
+                counter_found = False
+                artifacts_out["metric_source"] = "none"
+            ok = proc.returncode == 0 and counter_found
+            error = "" if ok else "metrics_json_missing" if proc.returncode == 0 else f"runner_exit_{proc.returncode}"
+            return CaseResult(
+                case_id=rel.as_posix(),
+                input_path=wav_path,
+                exit_code=proc.returncode,
+                status="ok" if ok else "failed",
+                metrics={"namuh_count": float(counter if counter is not None else 0)},
+                artifacts=artifacts_out,
+                error=error,
+            )
         finally:
-            config_path.unlink(missing_ok=True)
+            log_stream.close()
 
     def _check_manifest_completeness(self) -> list[str]:
         """Return relative paths of files listed in dataset_manifest.json that are not present on disk.
@@ -388,7 +390,7 @@ class KardomeRunparamsExecutor:
         if not self.config.dataset_root.is_dir():
             logger.error("dataset_root does not exist or is not a directory: %s", self.config.dataset_root)
             return ExecutionResult(
-                execution_mode_used="kardome_legacy_stdout",
+                execution_mode_used="kardome_legacy_metrics_json",
                 case_results=[
                     CaseResult(
                         case_id="_dataset_",
@@ -409,7 +411,7 @@ class KardomeRunparamsExecutor:
                 missing,
             )
             return ExecutionResult(
-                execution_mode_used="kardome_legacy_stdout",
+                execution_mode_used="kardome_legacy_metrics_json",
                 case_results=[
                     CaseResult(
                         case_id="_dataset_",
@@ -424,37 +426,18 @@ class KardomeRunparamsExecutor:
             )
         runner_path, _tmp_runner_dir = self._resolve_runner_with_optional_staging()
         runner_env = self._runner_env(runner_path)
-        try:
-            template = json.loads(self.config.template_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            logger.exception("Failed to read kardome input template %s", self.config.template_path)
-            return ExecutionResult(
-                execution_mode_used="kardome_legacy_stdout",
-                case_results=[
-                    CaseResult(
-                        case_id="_template_",
-                        input_path=self.config.template_path,
-                        exit_code=-1,
-                        status="failed",
-                        metrics={},
-                        artifacts={},
-                        error=f"template_load_failed:{type(exc).__name__}:{exc}",
-                    )
-                ],
-            )
-        counter_re = counter_pattern_from_parsing_dict(self.config.parsing)
         results: list[CaseResult] = []
         try:
             wavs = sorted(self.config.dataset_root.rglob("*.wav"))
             wavs, filter_issue = self._wavs_matching_expected_channels_or_issue(wavs)
             if filter_issue is not None:
-                return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=[filter_issue])
+                return ExecutionResult(execution_mode_used="kardome_legacy_metrics_json", case_results=[filter_issue])
             layout_issue = self._channel_layout_issue_if_any(wavs)
             if layout_issue is not None:
-                return ExecutionResult(execution_mode_used="kardome_legacy_stdout", case_results=[layout_issue])
+                return ExecutionResult(execution_mode_used="kardome_legacy_metrics_json", case_results=[layout_issue])
             for wav_path in wavs:
                 rel = wav_path.relative_to(self.config.dataset_root)
-                results.append(self._case_for_wav(wav_path, rel, template, counter_re, runner_path, runner_env))
+                results.append(self._case_for_wav(wav_path, rel, runner_path, runner_env))
         finally:
             if _tmp_runner_dir is not None:
                 shutil.rmtree(_tmp_runner_dir, ignore_errors=True)
