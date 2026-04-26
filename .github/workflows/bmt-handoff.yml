@@ -574,7 +574,12 @@ jobs:
         shell: bash
         env:
           FILTERED_MATRIX_JSON: ${{ steps.classify.outputs.filtered_matrix }}
-          RUN_CONTEXT: ${{ needs.write_handoff_context.outputs.run_context }}
+          RUN_CONTEXT: >-
+            ${{
+              env.BMT_FORCE_PASS_RESOLVED == 'true'
+              && 'force_pass'
+              || needs.write_handoff_context.outputs.run_context
+            }}
           HEAD_EVENT: ${{ needs.write_handoff_context.outputs.head_event }}
           HEAD_SHA: ${{ needs.write_handoff_context.outputs.head_sha }}
           HEAD_BRANCH: ${{ needs.write_handoff_context.outputs.head_branch }}
