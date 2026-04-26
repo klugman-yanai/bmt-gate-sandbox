@@ -12,6 +12,7 @@ Short guidance for **Codex** and other agents in **bmt-gcloud**.
 - **[docs/README.md](docs/README.md)** — Task and role index
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Setup, lint, tests, PR expectations
 - **[docs/architecture.md](docs/architecture.md)** — Canonical pipeline description (diagrams + maintainer deep dive)
+- **[docs/bmt-pipeline-signal.md](docs/bmt-pipeline-signal.md)** — Repo vs handoff vs cloud signal; **`force_pass`** semantics; consumer `workflow_call` checklist
 - **[docs/adding-a-project.md](docs/adding-a-project.md)** — Scaffold flow plus **SK** as the reference plugin / extension pattern
 
 Implementation plans for agents in this workspace may live under **`.cursor/plans/`**.

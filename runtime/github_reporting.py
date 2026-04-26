@@ -28,7 +28,7 @@ from runtime.artifacts import (
     write_reporting_metadata,
 )
 from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
-from runtime.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET
+from runtime.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET, REASON_DEMO_FORCE_PASS
 from runtime.config.status import CheckConclusion, CheckStatus, CommitStatus
 from runtime.github import github_checks
 from runtime.github.github_auth import resolve_github_app_token
@@ -218,7 +218,10 @@ def _commit_status_description(summaries: list[LegSummary], *, is_pass: bool) ->
     if not summaries:
         return "No BMT legs completed."
     n_failed = sum(1 for s in summaries if not leg_status_is_pass(s.status))
+    force_pass_active = any((s.reason_code or "").strip() == REASON_DEMO_FORCE_PASS for s in summaries)
     if is_pass:
+        if force_pass_active:
+            return "force pass is currently active, merge unblock with no cloud run job execution"
         return f"{len(summaries)} BMTs passed."
     return f"{n_failed}/{len(summaries)} BMTs failed."
 
@@ -291,6 +294,7 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
                 state=check_state,
                 links=LiveLinks(workflow_execution_url=workflow_url, log_dump_url=log_dump_url),
                 failed_bmts=_final_comment_failed_rows(summaries),
+                force_pass_active=any((s.reason_code or "").strip() == REASON_DEMO_FORCE_PASS for s in summaries),
             ),
         )
     except GithubException:

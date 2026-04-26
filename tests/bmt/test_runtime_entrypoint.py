@@ -171,6 +171,50 @@ def test_run_task_mode_writes_failure_summary_when_execute_leg_raises(tmp_path: 
     assert summary.score.extra.get("unavailable") is True
 
 
+def test_run_task_mode_force_pass_short_circuits_execution(tmp_path: Path, monkeypatch) -> None:
+    stage_root = tmp_path / "gcp" / "stage"
+    workspace_root = tmp_path / "workspace"
+    _setup_flat_project(stage_root, "acme", "wake_word_quality")
+
+    dataset_root = stage_root / "projects" / "acme" / "inputs" / "wake_word_quality"
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    (dataset_root / "sample.wav").write_bytes(b"fake")
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("BMT_HEAD_SHA", "0123456789abcdef0123456789abcdef01234567")
+    monkeypatch.setenv("BMT_HEAD_BRANCH", "main")
+    monkeypatch.setenv("BMT_ACCEPTED_PROJECTS_JSON", '["acme"]')
+    monkeypatch.setenv("BMT_FORCE_PASS", "true")
+
+    def _fail_if_called(**_kwargs: object) -> None:
+        raise AssertionError("execute_leg should not run when force pass is active")
+
+    monkeypatch.setattr(runtime_entrypoint, "execute_leg", _fail_if_called)
+
+    assert run_plan_mode(workflow_run_id="wf-force", stage_root=stage_root) == 0
+    assert (
+        run_task_mode(
+            workflow_run_id="wf-force",
+            task_profile="standard",
+            task_index=0,
+            stage_root=stage_root,
+            workspace_root=workspace_root,
+        )
+        == 0
+    )
+
+    summary = load_summary(
+        stage_root=stage_root,
+        workflow_run_id="wf-force",
+        project="acme",
+        bmt_slug="wake_word_quality",
+    )
+    assert summary.status == "pass"
+    assert summary.reason_code == "demo_force_pass"
+    assert summary.execution_mode_used == "force_pass_short_circuit"
+    assert summary.score.metrics.get("force_pass_active") is True
+
+
 def test_image_main_dispatches_task_mode(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     called: dict[str, object] = {}
 

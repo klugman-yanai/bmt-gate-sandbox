@@ -2,6 +2,8 @@
 
 Everything lives in the **stage scaffold** under `gcp/stage/` (mirrored to the bucket). Use the `just` commands below; they match what CI expects.
 
+Before enabling a new project in cloud CI, run the [plugin conformance checklist](plugin-conformance-checklist.md).
+
 ---
 
 ## New project
@@ -114,8 +116,8 @@ The **SK Kardome benchmark** under **`plugins/projects/sk/`** is the repo’s wo
 | **`plugin.py`** | `BmtPlugin`: `prepare` / `execute` / `score` / `verdict`; wires `AdaptiveKardomeExecutor` (batch JSON probe → `KardomeRunparamsExecutor` per-case fallback). |
 | **`sk_scoring_policy.py`** | Declares comparison direction, aggregates, and reason codes the gate understands. |
 | **`false_alarms.json` / `false_rejects.json`** | Flat BMT manifests: `plugin_config`, `execution.policy`, `runner.template_path`, `forced_wav_path_keys_exclude`, etc. |
-| **`runner_integration_contract.json`** | Repo-local contract for tests: which manifest supplies stdout vs per-case metrics JSON parsing (see `tests/sk_runner_repo_paths.py`). |
-| **`runtime/kardome_runparams.py`** (image) | Builds per-case JSON calib paths for `kardome_runner`; **numeric SK preset** lives in core-main **`run_params_SK.c`**, not in giant JSON blobs. |
+| **`runner_integration_contract.json`** | Repo-local contract for tests: which manifest drives structured metrics parsing (`metrics_json_v1`) and batch schema expectations (see `tests/sk_runner_repo_paths.py`). |
+| **`runtime/kardome_runparams.py`** (image) | Invokes runner runparams CLI (`--input-wav` / `--user-output` / toggles) and reads sidecar `.bmt.json`; **numeric SK preset** lives in core-main **`run_params_SK.c`**. |
 | **`runtime/kardome_case_metrics.py`** (image) | Filenames and JSON keys the image reads next to `USER_OUTPUT_PATH`. Match what your runner writes (see that module). |
 
 **Core-main alignment:** Extend **`Runners/params/src/run_params_SK.c`** for behaviour changes; extend **`sanity_tests.c`** (or the SK runner entrypoint your build uses) to **write structured BMT JSON** so the framework’s plugin path stays stable. See **`docs/kardome_runner_SK_runtime.md`** for the split between JSON paths and C run params.

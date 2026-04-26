@@ -112,6 +112,7 @@ def write_handoff_step_summary(cfg: BmtConfig, env: HandoffEnv) -> None:
     classify_outcome = (os.environ.get("CLASSIFY_OUTCOME") or "").strip()
     invoke_outcome = (os.environ.get("INVOKE_OUTCOME") or "").strip()
     dispatch_reason = (os.environ.get("DISPATCH_REASON") or "").strip()
+    force_pass_active = (os.environ.get("BMT_FORCE_PASS_RESOLVED") or "").strip() == "true"
 
     lines: list[str] = ["## BMT", ""]
 
@@ -162,6 +163,8 @@ def write_handoff_step_summary(cfg: BmtConfig, env: HandoffEnv) -> None:
         cloud_bits.append(f"`{exec_state}`")
     cloud_bits.append(f"**{projects_label}**{legs_suffix} · cloud {'confirmed' if ok else 'not confirmed'}")
     lines.append(f"- **Cloud:** {_cell(' · '.join(cloud_bits))}")
+    if force_pass_active and ok:
+        lines.append("- **Force pass:** force pass is currently active; cloud runtime will short-circuit BMT execution")
 
     gcp_project = _gcp_project_for_summary(cfg)
     gcs_bucket = _gcs_bucket_for_summary(cfg)

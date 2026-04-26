@@ -36,8 +36,8 @@ on:
         default: ""
       force_pass:
         description: >
-          When true, handoff exits green even if dispatch fails (runs invoke-workflow --force-pass).
-          Does not change cloud BMT verdict or GCS. Pass explicitly from the caller workflow (no repo var).
+          When true, dispatch/auth must still succeed, but cloud runtime short-circuits BMT execution and
+          publishes explicit force-pass output to checks/comments. Pass explicitly from caller workflow (no repo var).
         required: false
         type: boolean
         default: false
@@ -118,7 +118,8 @@ on:
         default: "[]"
       force_pass:
         description: >
-          When true, bmt_gate_passed is true even if dispatch fails (invoke-workflow --force-pass).
+          When true, dispatch/auth must still succeed. Cloud runtime short-circuits BMT execution and
+          publishes force-pass output while keeping BMT Gate green.
           Pass from caller workflow only (no repo var).
         required: false
         type: boolean
@@ -151,16 +152,14 @@ on:
     outputs:
       bmt_gate_passed:
         description: >
-          True when dispatch is confirmed, or when force_pass input enables the escape hatch
-          (may be true without a cloud execution).
+          True when dispatch is confirmed (cloud runtime handles terminal BMT reporting).
         value: ${{ jobs.start_bmt_workflow.outputs.bmt_gate_passed }}
       bmt_dispatch_confirmed:
         description: "True when trigger dispatch to cloud runtime is confirmed."
         value: ${{ jobs.start_bmt_workflow.outputs.bmt_dispatch_confirmed }}
       bmt_final_state:
         description: >
-          Terminal state: dispatched_async, dispatch_failed, or forced_pass_dispatch_failed when
-          force_pass is set without a confirmed execution.
+          Terminal state: dispatched_async or dispatch_failed.
         value: ${{ jobs.start_bmt_workflow.outputs.bmt_final_state }}
       bmt_recovery_used:
         description: "True if context/dispatch failed and recovery fallback path ran."
@@ -645,7 +644,6 @@ jobs:
       - name: Failure fallback
         if: >-
           steps.invoke-workflow.outcome != 'success'
-          && env.BMT_FORCE_PASS_RESOLVED != 'true'
         uses: ./.github/actions/bmt-failure-fallback
         with:
           handshake_outputs: ${{ toJson(steps.invoke-workflow.outputs) }}
@@ -666,30 +664,12 @@ jobs:
           workflow_execution_state: ${{ steps.invoke-workflow.outputs.workflow_execution_state || '' }}
 
       - id: outcome
-        env:
-          HANDOFF_FORCE_PASS: ${{ env.BMT_FORCE_PASS_RESOLVED }}
         shell: bash
         run: |
           set -euo pipefail
           invoke_result="${{ steps.invoke-workflow.outcome }}"
           disp="${{ steps.invoke-workflow.outputs.dispatch_confirmed }}"
-          if [[ "$HANDOFF_FORCE_PASS" == "true" ]]; then
-            if [[ "$invoke_result" == "success" && "$disp" == "true" ]]; then
-              {
-                echo "bmt_gate_passed=true"
-                echo "bmt_dispatch_confirmed=true"
-                echo "bmt_final_state=dispatched_async"
-                echo "bmt_recovery_used=false"
-              } >> "$GITHUB_OUTPUT"
-            else
-              {
-                echo "bmt_gate_passed=true"
-                echo "bmt_dispatch_confirmed=false"
-                echo "bmt_final_state=forced_pass_dispatch_failed"
-                echo "bmt_recovery_used=true"
-              } >> "$GITHUB_OUTPUT"
-            fi
-          elif [[ "$invoke_result" == "success" && "$disp" == "true" ]]; then
+          if [[ "$invoke_result" == "success" && "$disp" == "true" ]]; then
             {
               echo "bmt_gate_passed=true"
               echo "bmt_dispatch_confirmed=true"
@@ -704,15 +684,6 @@ jobs:
               echo "bmt_recovery_used=true"
             } >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Forced pass notice (no confirmed cloud dispatch)
-        if: >-
-          always()
-          && env.BMT_FORCE_PASS_RESOLVED == 'true'
-          && steps.outcome.outputs.bmt_dispatch_confirmed != 'true'
-        shell: bash
-        run: |
-          echo "::warning::BMT handoff force pass is set: job is green without a confirmed Workflows execution; cloud BMT was not started from this handoff."
 
       - name: Fail job when BMT did not pass
         if: steps.outcome.outputs.bmt_gate_passed != 'true'

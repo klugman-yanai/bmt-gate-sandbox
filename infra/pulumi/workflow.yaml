@@ -55,6 +55,8 @@ main:
                               value: ${args.accepted_projects_json}
                             - name: BMT_STATUS_CONTEXT
                               value: ${default(map.get(args, "status_context"), "BMT Gate")}
+                            - name: BMT_FORCE_PASS
+                              value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
                             - name: BMT_WORKFLOW_EXECUTION_URL
                               value: ${workflow_console_url}
                 result: plan_job_execution
@@ -106,6 +108,8 @@ main:
                                 value: ${workflow_run_id}
                               - name: BMT_TASK_PROFILE
                                 value: "standard"
+                              - name: BMT_FORCE_PASS
+                                value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
                   result: standard_job_execution
                 except:
                   as: e
@@ -141,6 +145,8 @@ main:
                                 value: ${workflow_run_id}
                               - name: BMT_TASK_PROFILE
                                 value: "heavy"
+                              - name: BMT_FORCE_PASS
+                                value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
                   result: heavy_job_execution
                 except:
                   as: e
@@ -166,6 +172,8 @@ main:
                               value: "coordinator"
                             - name: BMT_WORKFLOW_RUN_ID
                               value: ${workflow_run_id}
+                            - name: BMT_FORCE_PASS
+                              value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
                 result: coordinator_job_execution
         except:
           as: e
@@ -191,6 +199,8 @@ main:
                               value: ${workflow_run_id}
                             - name: BMT_FAILURE_REASON
                               value: ${bmt_failure_reason}
+                            - name: BMT_FORCE_PASS
+                              value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
                 result: coordinator_job_execution
 
     - done:

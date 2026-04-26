@@ -100,6 +100,18 @@ def test_render_final_failure_pr_comment_lists_failed_bmts_without_table() -> No
     assert "| Project |" not in rendered
 
 
+def test_render_final_success_pr_comment_mentions_force_pass_when_active() -> None:
+    rendered = render_final_pr_comment(
+        FinalCommentView(
+            head_sha="fedcba9876543210",
+            state="success",
+            links=LiveLinks(workflow_execution_url="https://example.test/workflows/123"),
+            force_pass_active=True,
+        )
+    )
+    assert "force pass is currently active, merge unblock with no cloud run job execution" in rendered
+
+
 def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:
     output = render_progress_check_output(
         CheckProgressView(

@@ -85,9 +85,10 @@ def test_invoke_workflow_starts_execution_and_writes_outputs(
     assert spy.argument["bucket"] == "demo-bucket"
     assert spy.argument["workflow_run_id"] == "12345"
     assert spy.argument["accepted_projects_json"] == '["sk"]'
+    assert spy.argument["force_pass"] is False
 
 
-def test_invoke_workflow_force_pass_suppresses_start_execution_error(
+def test_invoke_workflow_force_pass_still_requires_dispatch_success(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -111,10 +112,44 @@ def test_invoke_workflow_force_pass_suppresses_start_execution_error(
 
     monkeypatch.setattr("ci.kardome_bmt.workflow_dispatch.start_execution", _boom)
 
+    with pytest.raises(RuntimeError, match="workflows api unavailable"):
+        WorkflowDispatchManager.from_env().invoke(force_pass=True)
+
+
+def test_invoke_workflow_force_pass_flag_is_forwarded_to_cloud_payload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    github_output = tmp_path / "github_output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    monkeypatch.setenv("GCP_PROJECT", "demo-project")
+    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
+    monkeypatch.setenv("GCS_BUCKET", "demo-bucket")
+    monkeypatch.setenv("GITHUB_RUN_ID", "12345")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("HEAD_SHA", "0123456789abcdef0123456789abcdef01234567")
+    monkeypatch.setenv("HEAD_BRANCH", "main")
+    monkeypatch.setenv("HEAD_EVENT", "push")
+    monkeypatch.setenv("RUN_CONTEXT", "ci")
+    monkeypatch.setenv("FILTERED_MATRIX_JSON", json.dumps({"include": [{"project": "sk"}]}))
+
+    spy = _WorkflowDispatchSpy()
+
+    def _fake_start_execution(
+        *, project: str, region: str, workflow_name: str, argument: WorkflowDispatchInvokePayload
+    ) -> WorkflowExecutionStubResponse:
+        spy.project = project
+        spy.region = region
+        spy.workflow_name = workflow_name
+        spy.argument = argument
+        return {
+            "name": "projects/demo/locations/europe-west4/workflows/bmt-workflow/executions/abc",
+            "state": "ACTIVE",
+        }
+
+    monkeypatch.setattr("ci.kardome_bmt.workflow_dispatch.start_execution", _fake_start_execution)
+
     WorkflowDispatchManager.from_env().invoke(force_pass=True)
 
-    outputs = _read_outputs(github_output)
-    assert outputs["dispatch_confirmed"] == "false"
-    assert outputs["dispatch_reason"] == "bmt_force_pass_suppressed_error"
-    assert outputs["workflow_execution_name"] == ""
-    assert json.loads(outputs["accepted_projects"]) == ["sk"]
+    assert spy.argument is not None
+    assert spy.argument["force_pass"] is True

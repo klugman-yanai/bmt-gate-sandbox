@@ -35,10 +35,12 @@ from runtime.artifacts import (
 from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from runtime.config.constants import (
     ENV_BMT_FAILURE_REASON,
+    REASON_DEMO_FORCE_PASS,
     ENV_BMT_STATUS_CONTEXT,
     ENV_GCS_BUCKET,
     STATUS_CONTEXT,
 )
+from runtime.config.env_parse import is_truthy_env_value
 from runtime.execution import execute_leg
 from runtime.github_reporting import (
     ensure_reporting_metadata_for_plan,
@@ -101,6 +103,32 @@ def _leg_summary_from_execute_failure(*, leg: PlanLeg, exc: BaseException) -> Le
             extra={"unavailable": True},
         ),
         verdict_summary={"execute_exception": type(exc).__name__, "message": msg[:8000]},
+    )
+
+
+def _force_pass_enabled() -> bool:
+    """Runtime force-pass flag (Cloud Run path). Dispatch/auth must still succeed."""
+    return is_truthy_env_value(os.environ.get("BMT_FORCE_PASS")) or is_truthy_env_value(
+        os.environ.get("KARDOME_BMT_FORCE_PASS")
+    )
+
+
+def _leg_summary_force_pass(*, leg: PlanLeg) -> LegSummary:
+    return LegSummary(
+        project=leg.project,
+        bmt_slug=leg.bmt_slug,
+        bmt_id=leg.bmt_id,
+        run_id=leg.run_id,
+        status=BmtLegStatus.PASS.value,
+        reason_code=REASON_DEMO_FORCE_PASS,
+        plugin_ref=leg.plugin_ref,
+        execution_mode_used="force_pass_short_circuit",
+        score=ScorePayload(
+            aggregate_score=0.0,
+            metrics={"force_pass_active": True, "execution_skipped": True},
+            extra={"force_pass": True},
+        ),
+        verdict_summary={"force_pass": True, "summary": "execution short-circuited by force pass"},
     )
 
 
@@ -292,7 +320,10 @@ def run_task_mode(
     publish_progress(plan=plan, runtime=runtime)
     started_monotonic = time.monotonic()
     try:
-        summary = execute_leg(plan=plan, leg=leg, runtime=runtime)
+        if _force_pass_enabled():
+            summary = _leg_summary_force_pass(leg=leg)
+        else:
+            summary = execute_leg(plan=plan, leg=leg, runtime=runtime)
     except Exception as exc:
         logger.exception(
             "execute_leg failed workflow_run_id=%s project=%s bmt=%s",
