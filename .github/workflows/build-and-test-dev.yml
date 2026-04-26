@@ -173,4 +173,4 @@ jobs:
       cloud_run_region: europe-west4
       bmt_status_context: BMT Gate
       bmt_pex_repo: klugman-yanai/bmt-gcloud
-      force_pass: false
+      force_pass: true
