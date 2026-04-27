@@ -35,6 +35,7 @@ from runtime.artifacts import (
 from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
 from runtime.config.constants import (
     ENV_BMT_FAILURE_REASON,
+    REASON_DEMO_FORCE_PASS,
     ENV_BMT_STATUS_CONTEXT,
     ENV_GCS_BUCKET,
     REASON_DEMO_FORCE_PASS,
