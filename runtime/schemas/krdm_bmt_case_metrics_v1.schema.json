@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/krdm_bmt_case_metrics_v1.schema.json",
+  "title": "kardome_runner per-case BMT metrics (legacy v1 shape)",
+  "description": "Written next to the per-case user output file (see path rules in runtime.kardome_case_metrics). Produced by kardome_runner in core-main; consumed by bmt-gcloud runtime (kardome_case_metrics, kardome_runparams). Not a Cloud Run orchestration artifact.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "namuh_count", "hi_namuh_count"],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "krdm_bmt_case_metrics_v1",
+      "description": "Schema id. Bump only for breaking or incompatible changes; add a new schema file and coordinate core-main + runtime."
+    },
+    "namuh_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Case-level NAMUH-style keyword count (primary scoring counter for default SK config)."
+    },
+    "hi_namuh_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Same semantic counter as namuh_count for backward compatibility; emit the same value as namuh_count unless a future schema defines a split."
+    },
+    "source": {
+      "type": "string",
+      "const": "kardome_runner",
+      "description": "Producer identifier."
+    },
+    "calibration_mode": {
+      "type": "boolean",
+      "description": "True when calibration KWS path is active; when true, runtime typically treats the active counter as calibration hits instead of NAMUH."
+    }
+  }
+}

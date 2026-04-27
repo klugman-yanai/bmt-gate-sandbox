@@ -140,7 +140,7 @@ def _coerce_metric_name(raw: Any) -> str:
 
 
 def _coerce_metric_json_keys(raw: Any) -> tuple[str, ...]:
-    """Sidecar JSON keys to try for the primary metric (``plugin_config["metric_json_keys"]``)."""
+    """Per-case .bmt.json keys to try for the primary metric (``plugin_config["metric_json_keys"]``)."""
     if raw is None:
         return ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh")
     if not isinstance(raw, list | tuple):

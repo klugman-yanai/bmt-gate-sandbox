@@ -24,13 +24,13 @@ from typing import Any
 from bmt_sdk.results import CaseResult, ExecutionResult
 
 from runtime.config.constants import ENV_BMT_KARDOME_CASE_TIMEOUT_SEC
-from runtime.kardome_case_metrics import read_metric_from_sidecar_json
+from runtime.kardome_case_metrics import read_metric_from_bmt_case_json
 
 logger = logging.getLogger(__name__)
 
 
 def execution_mode_for_runparams_case_results(case_results: list[CaseResult]) -> str:
-    """Summarize whether this leg used per-case sidecar metrics JSON."""
+    """Summarize whether this leg used per-case BMT metrics JSON."""
     real = [r for r in case_results if not r.case_id.startswith("_")]
     if not real:
         return "kardome_legacy_metrics_json"
@@ -198,7 +198,7 @@ class KardomeRunparamsConfig:
     forced_wav_path_keys_exclude: frozenset[str] = frozenset()
     # Metric key used in CaseResult.metrics (plugin-level scoring can still map/ignore).
     metric_name: str = "namuh_count"
-    # Keys searched in sidecar JSON for per-case numeric value; first match wins.
+    # Keys searched in per-case .bmt.json for numeric value; first match wins.
     metric_json_keys: tuple[str, ...] = ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh")
 
 
@@ -321,7 +321,7 @@ class KardomeRunparamsExecutor:
                     error=f"runner_os_error:{type(exc).__name__}:{exc}",
                 )
             assert proc is not None
-            json_counter, json_used_path = read_metric_from_sidecar_json(
+            json_counter, json_used_path, runner_case_artifact_stubs = read_metric_from_bmt_case_json(
                 output_path,
                 metric_keys=self.config.metric_json_keys,
             )
@@ -334,6 +334,8 @@ class KardomeRunparamsExecutor:
                 counter_found = True
                 artifacts_out["metric_source"] = "metrics_json"
                 artifacts_out["metrics_json_path"] = str(json_used_path)
+                if runner_case_artifact_stubs:
+                    artifacts_out.update(runner_case_artifact_stubs)
             else:
                 counter = None
                 counter_found = False

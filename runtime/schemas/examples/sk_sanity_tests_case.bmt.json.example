@@ -1,0 +1,13 @@
+{
+  "case_format": "krdm_runner_execution_results.1",
+  "kardome_lib_version": "0.0.0",
+  "calibration_kws": false,
+  "hi_namuh_count": 2,
+  "keyword_calib_count": 0,
+  "gleo_per_channel": [0, 1, 0, 0],
+  "paths": {
+    "mics": "/data/false_alarms/example.wav",
+    "refs": "/tmp/dummy/ref.wav",
+    "user_output": "/out/example.wav"
+  }
+}

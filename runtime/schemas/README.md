@@ -7,6 +7,9 @@ Schemas in this directory describe runtime-generated JSON artifacts written by t
 
 | Schema | Describes | Produced by |
 |--------|-----------|-------------|
+| `krdm_runner_execution_results_v1.schema.json` | Per-case `.bmt.json` runner execution results: `case_format`, counters, optional `paths` and `kardome_lib_version` | kardome_runner in core-main |
+| `examples/sk_sanity_tests_case.bmt.json.example` | Example SK `sanity_tests` one-case output (false-alarm style); fixture-style `kardome_lib_version` | Reference |
+| `krdm_bmt_case_metrics_v1.schema.json` | Older minimal per-case JSON (counter + key aliases) | Legacy runners; v2 is preferred for new work |
 | `bmt_root_results.schema.json` | `bmt_root_results.json` (run summary in bucket) | Coordinator / compatibility tools |
 | `manager_summary.schema.json` | `manager_summary.json` (per-leg summary) | Cloud Run task runtime |
 | `ci_verdict.schema.json` | `snapshots/<run_id>/ci_verdict.json` | Cloud Run task runtime |

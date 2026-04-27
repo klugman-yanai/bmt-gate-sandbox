@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmt-gcloud/schemas/krdm_runner_execution_results_v1.schema.json",
+  "title": "kardome_runner per-case execution results JSON",
+  "description": "Flat JSON written beside the user output WAV for one kardome_runner case. case_format is the document format id (name + version in one string). BMT reads one metric field via manifest; other fields are for humans and tools.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["case_format", "calibration_kws", "hi_namuh_count", "keyword_calib_count", "gleo_per_channel"],
+  "properties": {
+    "case_format": {
+      "type": "string",
+      "const": "krdm_runner_execution_results.1",
+      "description": "Format id. Bump the trailing number for incompatible changes; change the name if the document meaning changes completely."
+    },
+    "kardome_lib_version": {
+      "type": "string",
+      "description": "Optional. libKardome product version only (same family as VERSION_NUMBER in core-main), e.g. semver \"x.y.z\". Do not include build date/time; the runner may use a short symbol or the leading token before any date. Runtime normalizes to the first token when ingesting."
+    },
+    "calibration_kws": {
+      "type": "boolean",
+      "description": "Same as s_json_data.calib_kws_enable: if true, headline score is keyword_calib_count; if false, hi_namuh_count. GLEO lines are only meaningful when false (stdout prints GLEO per channel; when true, stdout repeats the calib counter — emit that as keyword_calib_count and set gleo_per_channel to [] or repeat zeros)."
+    },
+    "hi_namuh_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Hi NAMUH total (normal mode). Use 0 in pure calib runs if not applicable."
+    },
+    "keyword_calib_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Calibration keyword total (calib mode). Use 0 when calibration_kws is false."
+    },
+    "gleo_per_channel": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "description": "Hi GLEO per output channel (same order as \"Hi GLEO counter for channel N\"). Empty array is allowed if not applicable."
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional copy of paths the runner already logs at start (helps when you only have this file).",
+      "properties": {
+        "mics": { "type": "string" },
+        "refs": { "type": "string" },
+        "user_output": { "type": "string" }
+      }
+    }
+  }
+}

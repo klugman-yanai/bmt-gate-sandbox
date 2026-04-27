@@ -15,8 +15,7 @@ For **SK** builds, `kardome_init_params()` calls `getActiveParameters()` impleme
 `--kardome-output`, toggles, optional batch flags). Legacy `argv[1]=json` is preserved in
 core-main for compatibility, but active SK BMT in **bmt-gcloud** should use the non-JSON CLI path.
 
-In **bmt-gcloud**, `runtime/kardome_runparams.py` invokes that runparams CLI and reads per-case
-sidecar `.bmt.json` metrics. The SK path does **not** use stdout regex fallback anymore.
+In **bmt-gcloud**, `runtime/kardome_runparams.py` invokes that runparams CLI and reads per-case `.bmt.json` metrics. The SK path does **not** use stdout regex fallback anymore.
 Run params in core-main remain the only source of SK AFE/KWS tuning numbers.
 
 ## WAV / tinywav
