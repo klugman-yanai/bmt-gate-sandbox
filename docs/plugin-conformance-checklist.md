@@ -18,7 +18,7 @@ This document lives in **bmt-gcloud** because framework contracts, orchestration
 
 - Runner invocation method documented (CLI args/env, optional batch mode).
 - Per-case output artifact contract documented:
-  - sidecar JSON path convention (for example `<output>.bmt.json`)
+  - per-case metrics JSON path (for example `<output>.bmt.json`)
   - required fields (`status`, metric field(s), optional `exit_code`, optional `error`)
 - If batch mode exists, batch schema documented and stable.
 

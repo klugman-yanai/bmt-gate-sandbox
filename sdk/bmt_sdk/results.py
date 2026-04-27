@@ -21,7 +21,7 @@ class PreparedAssets:
 
 @dataclass(frozen=True, slots=True)
 class CaseResult:
-    """One input file: numeric primary metric in ``metrics``."""
+    """One case row: primary floats in ``metrics``; string paths and optional runner case JSON fields in ``artifacts``."""
 
     case_id: str
     input_path: Path
