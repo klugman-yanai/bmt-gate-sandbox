@@ -56,7 +56,7 @@ main:
                             - name: BMT_STATUS_CONTEXT
                               value: ${default(map.get(args, "status_context"), "BMT Gate")}
                             - name: BMT_FORCE_PASS
-                              value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
+                              value: '${if(default(map.get(args, "force_pass"), false), "true", if(default(map.get(args, "run_context"), "") == "force_pass", "true", "false"))}'
                             - name: BMT_WORKFLOW_EXECUTION_URL
                               value: ${workflow_console_url}
                 result: plan_job_execution
@@ -109,7 +109,7 @@ main:
                               - name: BMT_TASK_PROFILE
                                 value: "standard"
                               - name: BMT_FORCE_PASS
-                                value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
+                                value: '${if(default(map.get(args, "force_pass"), false), "true", if(default(map.get(args, "run_context"), "") == "force_pass", "true", "false"))}'
                   result: standard_job_execution
                 except:
                   as: e
@@ -146,7 +146,7 @@ main:
                               - name: BMT_TASK_PROFILE
                                 value: "heavy"
                               - name: BMT_FORCE_PASS
-                                value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
+                                value: '${if(default(map.get(args, "force_pass"), false), "true", if(default(map.get(args, "run_context"), "") == "force_pass", "true", "false"))}'
                   result: heavy_job_execution
                 except:
                   as: e
@@ -173,7 +173,7 @@ main:
                             - name: BMT_WORKFLOW_RUN_ID
                               value: ${workflow_run_id}
                             - name: BMT_FORCE_PASS
-                              value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
+                              value: '${if(default(map.get(args, "force_pass"), false), "true", if(default(map.get(args, "run_context"), "") == "force_pass", "true", "false"))}'
                 result: coordinator_job_execution
         except:
           as: e
@@ -200,7 +200,7 @@ main:
                             - name: BMT_FAILURE_REASON
                               value: ${bmt_failure_reason}
                             - name: BMT_FORCE_PASS
-                              value: ${default(map.get(args, "force_pass"), false) ? "true" : "false"}
+                              value: '${if(default(map.get(args, "force_pass"), false), "true", if(default(map.get(args, "run_context"), "") == "force_pass", "true", "false"))}'
                 result: coordinator_job_execution
 
     - done:

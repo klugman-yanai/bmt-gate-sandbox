@@ -38,6 +38,7 @@ from runtime.config.constants import (
     REASON_DEMO_FORCE_PASS,
     ENV_BMT_STATUS_CONTEXT,
     ENV_GCS_BUCKET,
+    REASON_DEMO_FORCE_PASS,
     STATUS_CONTEXT,
 )
 from runtime.config.env_parse import is_truthy_env_value

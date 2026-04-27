@@ -42,6 +42,7 @@ This document lives in **bmt-gcloud** because framework contracts, orchestration
 ## 5) Framework Integration Rules
 
 - Primary scoring path uses structured JSON, not stdout regex parsing.
+- Per-case metric key names are plugin-owned (for example `metric_name` / `metric_json_keys` in manifest config), not hardcoded in framework logic.
 - Execution policy is selected per manifest (`legacy_only`, `adaptive_batch_then_legacy`, `batch_json_only`).
 - Plugin tuning/config does not require framework code edits for normal project work.
 

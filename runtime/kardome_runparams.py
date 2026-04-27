@@ -1,9 +1,9 @@
-"""Per-case ``kardome_runner`` driver (JSON calib paths + stdout or per-case metrics JSON).
+"""Per-case ``kardome_runner`` driver (JSON calib paths + per-case metrics JSON).
 
 The runner still receives a **per-WAV JSON calib** file (``parseJsonCalib`` in core-main
 ``Runners/utils/src/utils.c``) whose keys are **paths, switches, and wiring** — not the
 product AFE/KWS preset. That preset is selected in core-main via **run params**
-(``getActiveParameters`` in ``Runners/params/src/run_params_SK.c`` for SK builds).
+(``run_params_*.c`` per project; ``run_params_SK.c`` is one example).
 
 See ``docs/kardome_runner_SK_runtime.md`` for the split between JSON paths and C tuning.
 """
@@ -24,7 +24,7 @@ from typing import Any
 from bmt_sdk.results import CaseResult, ExecutionResult
 
 from runtime.config.constants import ENV_BMT_KARDOME_CASE_TIMEOUT_SEC
-from runtime.kardome_case_metrics import read_namuh_from_sidecar_json
+from runtime.kardome_case_metrics import read_metric_from_sidecar_json
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +196,16 @@ class KardomeRunparamsConfig:
     # the runner's refs channel guard short-circuits (``is_ref == -1``) instead of refusing
     # to run every case because ``num_of_refs * 3`` can't hold an 8-channel mics WAV.
     forced_wav_path_keys_exclude: frozenset[str] = frozenset()
+    # Metric key used in CaseResult.metrics (plugin-level scoring can still map/ignore).
+    metric_name: str = "namuh_count"
+    # Keys searched in sidecar JSON for per-case numeric value; first match wins.
+    metric_json_keys: tuple[str, ...] = ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh")
 
 
 class KardomeRunparamsExecutor:
+    def _zero_metric(self) -> dict[str, float]:
+        return {self.config.metric_name: 0.0}
+
     def __init__(self, config: KardomeRunparamsConfig) -> None:
         self.config = config
 
@@ -265,7 +272,7 @@ class KardomeRunparamsExecutor:
                 input_path=wav_path,
                 exit_code=-1,
                 status="failed",
-                metrics={"namuh_count": 0.0},
+                metrics=self._zero_metric(),
                 artifacts={
                     "log_path": str(log_path),
                     "output_path": str(output_path),
@@ -289,7 +296,7 @@ class KardomeRunparamsExecutor:
                     input_path=wav_path,
                     exit_code=-1,
                     status="failed",
-                    metrics={"namuh_count": 0.0},
+                    metrics=self._zero_metric(),
                     artifacts={
                         "log_path": str(log_path),
                         "output_path": str(output_path),
@@ -306,7 +313,7 @@ class KardomeRunparamsExecutor:
                     input_path=wav_path,
                     exit_code=-1,
                     status="failed",
-                    metrics={"namuh_count": 0.0},
+                    metrics=self._zero_metric(),
                     artifacts={
                         "log_path": str(log_path),
                         "output_path": str(output_path),
@@ -314,7 +321,10 @@ class KardomeRunparamsExecutor:
                     error=f"runner_os_error:{type(exc).__name__}:{exc}",
                 )
             assert proc is not None
-            json_counter, json_used_path = read_namuh_from_sidecar_json(output_path)
+            json_counter, json_used_path = read_metric_from_sidecar_json(
+                output_path,
+                metric_keys=self.config.metric_json_keys,
+            )
             artifacts_out: dict[str, str] = {
                 "log_path": str(log_path),
                 "output_path": str(output_path),
@@ -335,7 +345,7 @@ class KardomeRunparamsExecutor:
                 input_path=wav_path,
                 exit_code=proc.returncode,
                 status="ok" if ok else "failed",
-                metrics={"namuh_count": float(counter if counter is not None else 0)},
+                metrics={self.config.metric_name: float(counter if counter is not None else 0.0)},
                 artifacts=artifacts_out,
                 error=error,
             )

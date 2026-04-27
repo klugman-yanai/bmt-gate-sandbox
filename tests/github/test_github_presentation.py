@@ -258,6 +258,28 @@ def test_run_context_blurb_includes_hints_from_scoring_policy() -> None:
     assert "Higher keyword hits are better." in md
 
 
+def test_run_context_blurb_prefers_check_run_copy_success_text() -> None:
+    md = run_context_blurb_markdown(
+        [
+            FinalBmtRow(
+                project="kt",
+                bmt="wakeword_gate",
+                status="pass",
+                aggregate_score=7.0,
+                reason_code="score_gte_last",
+                score_extra={
+                    "check_run_copy": {
+                        "success_in_words": "Treat this as a wakeword precision score for KT.",
+                        "metric_label": "precision points (avg.)",
+                    }
+                },
+            )
+        ]
+    )
+    assert "Treat this as a wakeword precision score for KT." in md
+    assert "precision points (avg.)" in md
+
+
 def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
     output = render_final_check_output(
         CheckFinalView(
@@ -299,6 +321,29 @@ def test_render_final_failure_check_output_owns_the_detailed_table() -> None:
     assert "| Project | BMT | Status | Avg. | Tests | Reason | Duration |" in text
     assert "| sk | false_rejects | FAIL | 41.25 | 22/24 passed | score dropped below baseline | 1m 5s |" in text
     assert "| sk | false_alarms | PASS | 56.80 | 30/30 passed | score met or exceeded baseline | 59s |" in text
+
+
+def test_render_final_check_output_uses_custom_reason_text_when_provided() -> None:
+    output = render_final_check_output(
+        CheckFinalView(
+            state="failure",
+            links=LiveLinks(workflow_execution_url="https://example.test/wf"),
+            bmts=[
+                FinalBmtRow(
+                    project="kt",
+                    bmt="wakeword_gate",
+                    status="fail",
+                    aggregate_score=3.2,
+                    reason_code="score_below_last",
+                    score_extra={"check_run_copy": {"reason_text": "custom KT policy threshold was missed"}},
+                ),
+            ],
+        )
+    )
+    summary = output.get("summary") or ""
+    text = output.get("text") or ""
+    assert "custom KT policy threshold was missed" in summary
+    assert "| kt | wakeword_gate | FAIL | 3.20 | — | custom KT policy threshold was missed | — |" in text
 
 
 def test_render_final_check_output_unavailable_score_not_shown_as_numeric() -> None:
@@ -383,7 +428,8 @@ def test_render_final_check_output_per_file_scores_collapsible_and_annotations()
                         "scoring_policy": {
                             "primary_metric": "namuh_count",
                             "score_direction_hint": "lower_better",
-                        }
+                        },
+                        "check_run_copy": {"metric_label": "false alarms per file"},
                     },
                     score_direction_label="lower better",
                     case_outcomes=[
@@ -406,7 +452,7 @@ def test_render_final_check_output_per_file_scores_collapsible_and_annotations()
     assert "bad.wav" in text_body
     assert "runner_exit_139" in text_body
     assert "2.00 ↓" in text_body
-    assert "namuh_count" in text_body
+    assert "false alarms per file" in text_body
     assert "### Per-case failures" not in text_body
     assert "annotations" in output
     assert output["annotations"][0]["path"].startswith("bmt/sk/false_alarms/")
