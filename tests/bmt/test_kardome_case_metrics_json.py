@@ -84,9 +84,7 @@ def test_runner_case_json_lib_version_artifact_strips_trailing_date() -> None:
             ),
             encoding="utf-8",
         )
-        _v, _p, stub = read_metric_from_bmt_case_json(
-            wav, metric_keys=("hi_namuh_count", "namuh_count")
-        )
+        _v, _p, stub = read_metric_from_bmt_case_json(wav, metric_keys=("hi_namuh_count", "namuh_count"))
         assert stub is not None
         assert stub.get("kardome_lib_version") == short_ver
     finally:
