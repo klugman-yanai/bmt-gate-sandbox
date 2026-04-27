@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## bmt-v0.3.4
+
+### CI
+
+- Cloud **force_pass** is only honored when the handoff is started via **workflow_dispatch** (or an equivalent path that provides dispatch context). Mere `run_context=force_pass` without dispatch no longer flips the cloud runtime to force-pass (#102, #103).
+
 ### Added
 
 - SK leg-level channel pre-flight: the `KardomeRunparamsExecutor` now probes the first WAV's RIFF header once per leg and, when the declared `plugin_config.expected_channels` does not match, emits a single `_channel_mismatch_` case instead of running `kardome_runner` against an incompatible dataset. This replaces per-file `free(): invalid next size` heap-corruption crashes with a readable leg-level error (`channel_mismatch:expected=N:got=M:probe=<rel>`). WAV files are never converted — this is pure graceful failure.
