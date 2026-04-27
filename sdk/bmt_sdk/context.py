@@ -10,6 +10,8 @@ from bmt_sdk.models import BmtManifestView, ProjectManifestView
 
 @dataclass(frozen=True, slots=True)
 class ExecutionContext:
+    """Per-hook inputs: read ``bmt_manifest.plugin_config``, ``dataset_root``, paths, ``runner_path``."""
+
     project_manifest: ProjectManifestView
     bmt_manifest: BmtManifestView
     plugin_root: Path

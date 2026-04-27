@@ -1,9 +1,4 @@
-"""Lightweight read-only views of BMT manifest data.
-
-These are dataclasses (no Pydantic). The runtime constructs them from its
-own Pydantic models before passing an ExecutionContext to a plugin. Plugins
-read from these views; they never construct them directly.
-"""
+"""Read-only manifest slices (runtime builds these; plugins only read)."""
 
 from __future__ import annotations
 

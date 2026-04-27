@@ -7,7 +7,7 @@ from pathlib import Path
 
 from bmt_sdk.results import CaseResult
 
-from runtime.kardome_case_metrics import read_namuh_from_sidecar_json
+from runtime.kardome_case_metrics import read_metric_from_sidecar_json, read_namuh_from_sidecar_json
 from runtime.kardome_runparams import (
     KardomeRunparamsConfig,
     KardomeRunparamsExecutor,
@@ -72,6 +72,21 @@ def test_read_namuh_bmt_result_stem() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_read_metric_from_sidecar_json_custom_key() -> None:
+    tmp = Path(tempfile.mkdtemp(prefix="bmt-metrics-"))
+    try:
+        wav_out = tmp / "case.wav"
+        side = wav_out.with_suffix(".bmt.json")
+        side.write_text(json.dumps({"metrics": {"wake_hits": 3.5}}), encoding="utf-8")
+        value, path = read_metric_from_sidecar_json(wav_out, metric_keys=("wake_hits",))
+        assert value == 3.5
+        assert path == side
+    finally:
+        import shutil
+
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _runner_script_body(sidecar_body: str | None) -> str:
     writer = (
         ""
@@ -94,7 +109,13 @@ print("Hi NAMUH counter = 999")
 """
 
 
-def _make_executor(tmp_path: Path, runner_body: str) -> KardomeRunparamsExecutor:
+def _make_executor(
+    tmp_path: Path,
+    runner_body: str,
+    *,
+    metric_name: str = "namuh_count",
+    metric_json_keys: tuple[str, ...] = ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh"),
+) -> KardomeRunparamsExecutor:
     (tmp_path / "ds").mkdir(parents=True)
     write_silence_wav(tmp_path / "ds" / "one.wav")
     (tmp_path / "runtime").mkdir()
@@ -114,6 +135,8 @@ def _make_executor(tmp_path: Path, runner_body: str) -> KardomeRunparamsExecutor
             outputs_root=tmp_path / "outputs",
             logs_root=tmp_path / "logs",
             parsing={},
+            metric_name=metric_name,
+            metric_json_keys=metric_json_keys,
         )
     )
 
@@ -150,3 +173,16 @@ def test_execution_mode_json_only() -> None:
         CaseResult("_dataset_", Path("x"), -1, "failed", {}, {}),
     ]
     assert execution_mode_for_runparams_case_results(cases) == "kardome_legacy_metrics_json"
+
+
+def test_executor_uses_configured_metric_name_and_keys(tmp_path: Path) -> None:
+    ex = _make_executor(
+        tmp_path,
+        _runner_script_body(sidecar_body='{"metrics": {"wake_hits": 11}}'),
+        metric_name="wake_hits",
+        metric_json_keys=("wake_hits",),
+    )
+    result = ex.run()
+    row = result.case_results[0]
+    assert row.status == "ok"
+    assert row.metrics == {"wake_hits": 11.0}

@@ -1,3 +1,5 @@
+"""SK BMT plugin: use as a template. Read ``context.bmt_manifest.plugin_config`` for tuning."""
+
 from __future__ import annotations
 
 import json
@@ -91,12 +93,7 @@ def _coerce_expected_channels(raw: Any) -> int | None:
 
 
 def _coerce_forced_wav_path_keys_exclude(raw: Any) -> frozenset[str]:
-    """Coerce plugin_config["forced_wav_path_keys_exclude"] to a frozenset of upper-case keys.
-
-    Accepts a list / tuple / set of strings. Anything else (including a bare string) logs
-    a warning and falls back to the empty set — the manifest is treated as "don't exclude
-    anything", i.e. the historical forced-rewrite behavior is preserved.
-    """
+    """``forced_wav_path_keys_exclude`` as upper-case keys; non-sequences log and return empty."""
     if raw is None:
         return frozenset()
     if not isinstance(raw, list | tuple | set | frozenset):
@@ -134,7 +131,35 @@ def _resolve_batch_results_file(workspace_root: Path, results_relpath: str) -> P
     return candidate if candidate.is_file() else None
 
 
+def _coerce_metric_name(raw: Any) -> str:
+    """``plugin_config["metric_name"]`` for per-case rows; default ``namuh_count``."""
+    if not isinstance(raw, str):
+        return "namuh_count"
+    name = raw.strip()
+    return name or "namuh_count"
+
+
+def _coerce_metric_json_keys(raw: Any) -> tuple[str, ...]:
+    """Sidecar JSON keys to try for the primary metric (``plugin_config["metric_json_keys"]``)."""
+    if raw is None:
+        return ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh")
+    if not isinstance(raw, list | tuple):
+        logger.warning("Ignoring non-sequence plugin_config.metric_json_keys=%r", raw)
+        return ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh")
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            logger.warning("Ignoring non-string metric_json_keys entry: %r", item)
+            continue
+        s = item.strip()
+        if s:
+            out.append(s)
+    return tuple(out) if out else ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh")
+
+
 class SkPlugin(BmtPlugin):
+    """SK ``BmtPlugin``: optional batch JSON, else per-case runparams; policy in ``evaluate``."""
+
     plugin_name = "default"
     api_version = "v1"
 
@@ -174,6 +199,10 @@ class SkPlugin(BmtPlugin):
                     ),
                     forced_wav_path_keys_exclude=_coerce_forced_wav_path_keys_exclude(
                         context.bmt_manifest.plugin_config.get("forced_wav_path_keys_exclude")
+                    ),
+                    metric_name=_coerce_metric_name(context.bmt_manifest.plugin_config.get("metric_name")),
+                    metric_json_keys=_coerce_metric_json_keys(
+                        context.bmt_manifest.plugin_config.get("metric_json_keys")
                     ),
                 )
             )
@@ -308,8 +337,8 @@ class SkPlugin(BmtPlugin):
                     "cases_failed": cases_failed,
                     "cases_failed_ids": score_result.metrics.get("cases_failed_ids", []),
                     "warning": (
-                        "Every passing case reported NAMUH 0 on a higher-is-better leg — "
-                        "likely a runner or metrics bug; baseline not compared. PR not blocked."
+                        "Every passing case reported NAMUH 0 on a higher-is-better leg. "
+                        "Likely a runner or metrics bug; baseline not compared. PR not blocked."
                     ),
                     **direction,
                 },
@@ -404,7 +433,7 @@ class SkPlugin(BmtPlugin):
         return batch_path
 
     def _parse_batch_json(self, batch_path: Path, workspace_root: Path) -> ExecutionResult:
-        """Parse batch JSON; raises ``ValueError`` on invalid path, I/O, JSON, or schema."""
+        """Batch JSON to ``ExecutionResult``; ``ValueError`` on bad path, I/O, JSON, or schema."""
         resolved = batch_path.resolve()
         base = workspace_root.resolve()
         if not resolved.is_relative_to(base):

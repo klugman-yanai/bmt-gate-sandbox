@@ -14,10 +14,12 @@ from bmt_sdk.plugin import BmtPlugin
 from bmt_sdk.results import (
     CaseResult,
     CaseStatus,
+    CheckRunCopy,
     ExecutionResult,
     PreparedAssets,
     ScoreResult,
     VerdictResult,
+    merge_check_run_copy,
 )
 
 __all__ = [
@@ -25,10 +27,12 @@ __all__ = [
     "BmtPlugin",
     "CaseResult",
     "CaseStatus",
+    "CheckRunCopy",
     "ExecutionContext",
     "ExecutionResult",
     "PreparedAssets",
     "ProjectManifestView",
     "ScoreResult",
     "VerdictResult",
+    "merge_check_run_copy",
 ]

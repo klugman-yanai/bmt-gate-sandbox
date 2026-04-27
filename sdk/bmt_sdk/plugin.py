@@ -9,10 +9,9 @@ from bmt_sdk.results import ExecutionResult, PreparedAssets, ScoreResult, Verdic
 
 
 class BmtPlugin(ABC):
-    """Stable BMT plugin contract.
+    """Implement in ``plugins/<project>/plugin.py``; runtime loads it automatically.
 
-    Subclass this and implement all four methods. Drop your subclass in
-    ``plugins/<project>/plugin.py`` — the runtime discovers it automatically.
+    Call order: :meth:`prepare` → :meth:`execute` → :meth:`score` → :meth:`evaluate`.
     """
 
     plugin_name = "default"
@@ -20,11 +19,11 @@ class BmtPlugin(ABC):
 
     @abstractmethod
     def prepare(self, context: ExecutionContext) -> PreparedAssets:
-        """Resolve assets needed before execution."""
+        """Paths and tools before :meth:`execute` (keep it light)."""
 
     @abstractmethod
     def execute(self, context: ExecutionContext, prepared_assets: PreparedAssets) -> ExecutionResult:
-        """Run a BMT leg and return normalized results."""
+        """One :class:`CaseResult` per input; ``status="failed"`` for runner or parse errors."""
 
     @abstractmethod
     def score(
@@ -33,7 +32,7 @@ class BmtPlugin(ABC):
         baseline: ScoreResult | None,
         context: ExecutionContext,
     ) -> ScoreResult:
-        """Convert normalized execution output into a score."""
+        """Counters in ``metrics``; policy and check-run copy in ``extra``."""
 
     @abstractmethod
     def evaluate(
@@ -42,4 +41,4 @@ class BmtPlugin(ABC):
         baseline: ScoreResult | None,
         context: ExecutionContext,
     ) -> VerdictResult:
-        """Return pass/fail semantics for the score."""
+        """Stable machine ``reason_code``; reporting turns that into check text."""

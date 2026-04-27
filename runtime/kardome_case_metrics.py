@@ -1,6 +1,8 @@
-"""Load per-case NAMUH-style counters from JSON beside the runner output WAV.
+"""Load per-case counters from JSON beside the runner output WAV.
 
-Older ``kardome_runner`` builds print ``Hi … counter = N`` to stdout. New builds should write JSON next to the WAV; filenames and keys are implemented below."""
+Older ``kardome_runner`` builds print counters to stdout. Newer builds should write
+structured JSON next to the WAV; this module extracts a numeric metric value by key.
+"""
 
 from __future__ import annotations
 
@@ -12,27 +14,32 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _coerce_namuh_int(value: Any) -> int | None:
+def _coerce_numeric(value: Any) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, int):
+        return float(value)
+    if isinstance(value, float):
         return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
     return None
 
 
-def _extract_namuh_from_obj(obj: Any) -> int | None:
+def _extract_metric_from_obj(
+    obj: Any,
+    *,
+    metric_keys: tuple[str, ...],
+    nested_keys: tuple[str, ...],
+) -> float | None:
     if not isinstance(obj, dict):
         return None
-    for key in ("namuh_count", "hi_namuh_count", "namuh", "hi_namuh"):
-        got = _coerce_namuh_int(obj.get(key))
+    for key in metric_keys:
+        got = _coerce_numeric(obj.get(key))
         if got is not None:
             return got
-    for nest_key in ("metrics", "bmt", "result"):
+    for nest_key in nested_keys:
         nested = obj.get(nest_key)
         if isinstance(nested, dict):
-            got = _extract_namuh_from_obj(nested)
+            got = _extract_metric_from_obj(nested, metric_keys=metric_keys, nested_keys=nested_keys)
             if got is not None:
                 return got
     return None
@@ -45,7 +52,13 @@ def _candidate_metric_json_paths(output_wav_path: Path) -> tuple[Path, ...]:
     )
 
 
-def read_namuh_from_sidecar_json(output_wav_path: Path) -> tuple[int | None, Path | None]:
+def read_metric_from_sidecar_json(
+    output_wav_path: Path,
+    *,
+    metric_keys: tuple[str, ...],
+    nested_keys: tuple[str, ...] = ("metrics", "bmt", "result"),
+) -> tuple[float | None, Path | None]:
+    """Read first matching numeric metric from known sidecar JSON locations."""
     for candidate in _candidate_metric_json_paths(output_wav_path):
         if not candidate.is_file():
             continue
@@ -59,9 +72,20 @@ def read_namuh_from_sidecar_json(output_wav_path: Path) -> tuple[int | None, Pat
         except json.JSONDecodeError as exc:
             logger.warning("Invalid metrics JSON %s: %s", candidate, exc)
             continue
-        value = _extract_namuh_from_obj(data)
+        value = _extract_metric_from_obj(data, metric_keys=metric_keys, nested_keys=nested_keys)
         if value is None:
-            logger.warning("Metrics JSON %s has no recognized namuh counter field", candidate)
+            logger.warning("Metrics JSON %s missing configured metric keys: %s", candidate, metric_keys)
             continue
         return value, candidate
     return None, None
+
+
+def read_namuh_from_sidecar_json(output_wav_path: Path) -> tuple[int | None, Path | None]:
+    """Backward-compatible helper for SK-style NAMUH counters."""
+    value, path = read_metric_from_sidecar_json(
+        output_wav_path,
+        metric_keys=("namuh_count", "hi_namuh_count", "namuh", "hi_namuh"),
+    )
+    if value is None:
+        return None, None
+    return int(value), path

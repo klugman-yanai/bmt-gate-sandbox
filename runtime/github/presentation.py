@@ -234,6 +234,30 @@ def _scoring_policy_dict(extra: dict[str, Any]) -> dict[str, Any] | None:
     return sp if isinstance(sp, dict) else None
 
 
+def _check_run_copy_dict(extra: dict[str, Any]) -> dict[str, Any] | None:
+    raw = extra.get("check_run_copy")
+    return raw if isinstance(raw, dict) else None
+
+
+def _reason_label_for_row(row: FinalBmtRow) -> str:
+    copy = _check_run_copy_dict(row.score_extra)
+    if isinstance(copy, dict):
+        custom = copy.get("reason_text")
+        if isinstance(custom, str) and custom.strip():
+            return custom.strip()
+    return human_reason(row.reason_code)
+
+
+def _custom_copy_text(score_extra: dict[str, Any], key: str) -> str:
+    copy = _check_run_copy_dict(score_extra)
+    if not isinstance(copy, dict):
+        return ""
+    raw = copy.get(key)
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()
+
+
 def _default_success_in_words(scoring_policy: dict[str, Any]) -> str:
     hint = scoring_policy.get("score_direction_hint")
     if hint == "lower_better":
@@ -260,12 +284,45 @@ def _avg_column_direction_suffix(score_extra: dict[str, Any] | None, score_direc
     return ""
 
 
+def _row_run_context_text(row: FinalBmtRow) -> str:
+    sp = _scoring_policy_dict(row.score_extra)
+    custom_success = _custom_copy_text(row.score_extra, "success_in_words")
+    if custom_success:
+        body = custom_success
+    elif isinstance(sp, dict):
+        hints_raw = sp.get("reporting_hints")
+        hints: dict[str, Any] = hints_raw if isinstance(hints_raw, dict) else {}
+        sw = hints.get("success_in_words")
+        if isinstance(sw, str) and sw.strip():
+            body = sw.strip()
+        else:
+            body = _default_success_in_words(sp)
+    else:
+        return ""
+
+    custom_metric_label = _custom_copy_text(row.score_extra, "metric_label")
+    if custom_metric_label:
+        return f"{body} — *{custom_metric_label}*"
+
+    if isinstance(sp, dict):
+        hints_raw = sp.get("reporting_hints")
+        hints = hints_raw if isinstance(hints_raw, dict) else {}
+        msl = hints.get("metric_short_label")
+        if isinstance(msl, str) and msl.strip():
+            return f"{body} — *{msl.strip()}*"
+        primary = sp.get("primary_metric")
+        if isinstance(primary, str) and primary.strip():
+            return f"{body} — *metric `{primary}`*"
+    return body
+
+
 def run_context_blurb_markdown(rows: list[FinalBmtRow]) -> str:
     """Short context copy from ``score.extra.scoring_policy`` / ``reporting_hints`` (generic; no slug branching)."""
     if not rows:
         return ""
     has_policy = any(_scoring_policy_dict(r.score_extra) for r in rows)
-    if len(rows) == 1 and not has_policy:
+    has_custom_copy = any(_check_run_copy_dict(r.score_extra) for r in rows)
+    if len(rows) == 1 and not has_policy and not has_custom_copy:
         return ""
     parts: list[str] = [
         "*Each BMT row stands alone. Pass or fail vs your stored baseline is decided **per test file**. "
@@ -276,24 +333,12 @@ def run_context_blurb_markdown(rows: list[FinalBmtRow]) -> str:
     if len(rows) > 1:
         parts.append("*Different BMT rows may measure different things; treat the numbers as separate.*")
     parts.append("*On **Avg.**: ↓ = lower is better for that row · ↑ = higher is better.*")
-    if has_policy:
+    if has_policy or has_custom_copy:
         parts.append("")
         for r in rows:
-            sp = _scoring_policy_dict(r.score_extra)
-            if not sp:
+            body = _row_run_context_text(r)
+            if not body:
                 continue
-            hints_raw = sp.get("reporting_hints")
-            hints: dict[str, Any] = hints_raw if isinstance(hints_raw, dict) else {}
-            sw = hints.get("success_in_words")
-            if isinstance(sw, str) and sw.strip():
-                body = sw.strip()
-            else:
-                body = _default_success_in_words(sp)
-            msl = hints.get("metric_short_label")
-            if isinstance(msl, str) and msl.strip():
-                body = f"{body} — *{msl.strip()}*"
-            elif isinstance(sp.get("primary_metric"), str) and str(sp["primary_metric"]).strip():
-                body = f"{body} — *metric `{sp['primary_metric']}`*"
             parts.append(f"- **`{r.project}` / `{r.bmt}`:** {body}")
     parts.append("")
     return "\n".join(parts).strip() + "\n"
@@ -396,7 +441,7 @@ def _final_check_table_markdown(view: CheckFinalView) -> str:
                     _final_status_label(row.status),
                     score_s,
                     _md_table_cell(row.cases_detail or EM_DASH),
-                    _md_table_cell(human_reason(row.reason_code)),
+                    _md_table_cell(_reason_label_for_row(row)),
                     _format_duration(row.duration_sec),
                 ]
             )
@@ -425,17 +470,22 @@ def case_outcomes_from_metrics(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _primary_metric_header_and_key(score_extra: dict[str, Any]) -> tuple[str, str]:
+    custom_metric_label = _custom_copy_text(score_extra, "metric_label")
     sp = score_extra.get("scoring_policy")
     if isinstance(sp, dict):
         pm = sp.get("primary_metric")
         key = str(pm).strip() if isinstance(pm, str) else ""
         if key:
+            if custom_metric_label:
+                return custom_metric_label, key
             hints = sp.get("reporting_hints")
             if isinstance(hints, dict):
                 msl = hints.get("metric_short_label")
                 if isinstance(msl, str) and msl.strip():
                     return msl.strip(), key
             return key, key
+    if custom_metric_label:
+        return custom_metric_label, ""
     return ("Score", "")
 
 
@@ -647,7 +697,7 @@ def _final_check_failure_summary_lines(view: CheckFinalView) -> list[str]:
     if not failed_rows:
         return []
     out = ["", "### Failure summary", ""]
-    out.extend(f"- `{row.bmt}`: {human_reason(row.reason_code)}" for row in failed_rows)
+    out.extend(f"- `{row.bmt}`: {_reason_label_for_row(row)}" for row in failed_rows)
     return out
 
 
