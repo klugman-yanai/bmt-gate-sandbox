@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## bmt-v0.3.5
+
+### Changed
+
+- **`bmt-handoff.yml`:** composite steps use `klugman-yanai/bmt-gcloud/.github/actions/*@bmt-v0.3.5` (literal `uses:` refs). Cross-repo callers no longer vendor `bmt-prepare-context` or `setup-bmt-pex`; consumers pin `@bmt-v0.3.5` or `@bmt-handoff`.
+- **Cloud Run / `force_pass`:** task legs always run full BMT execution; GitHub Checks, PR comments, and workflow summary annotate when force-pass dispatch is requested (no `demo_force_pass` short-circuit). Failure surfaces link to **GCP Console → Cloud Run job execution logs** per leg (and coordinator on the publish retry path).
+- **`build-and-test.yml` / `build-and-test-dev.yml`:** handoff jobs omit redundant `cloud_run_region` / `bmt_status_context` (`bmt-handoff` defaults remain **europe-west4** / **BMT Gate**).
+
 ## bmt-v0.3.4
 
 ### CI

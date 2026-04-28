@@ -164,7 +164,9 @@ def write_handoff_step_summary(cfg: BmtConfig, env: HandoffEnv) -> None:
     cloud_bits.append(f"**{projects_label}**{legs_suffix} · cloud {'confirmed' if ok else 'not confirmed'}")
     lines.append(f"- **Cloud:** {_cell(' · '.join(cloud_bits))}")
     if force_pass_active and ok:
-        lines.append("- **Force pass:** force pass is currently active; cloud runtime will short-circuit BMT execution")
+        lines.append(
+            "- **Force pass:** dispatch enabled — Cloud Run runs the **full** BMT workload; see **Checks** for results."
+        )
 
     gcp_project = _gcp_project_for_summary(cfg)
     gcs_bucket = _gcs_bucket_for_summary(cfg)

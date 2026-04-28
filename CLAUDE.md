@@ -209,7 +209,7 @@ For large files (10–30 GB), use `gcloud storage cp` first then run `just uploa
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BMT_SKIP_PUBLISH_RUNNERS=1`                      | **`filter-upload-matrix` short-circuit:** emit empty publish matrices; no upload jobs; assumes runners are already in GCS.                                                                                                                                     |
 | `BMT_RUNNERS_PRESEEDED_IN_GCS=1`                  | **Per-leg only:** when `runner_meta.json` already exists in GCS, treat bucket as authoritative and classify `skip_in_gcs` even if `source_ref` ≠ current `HEAD_SHA` (trust pre-seeded bucket). Unrelated to skip-publish; omit unless you need that escape. |
-| Handoff input `force_pass: true` (caller `with:`) | Dispatch/auth must still succeed. Cloud runtime then emits fast force-pass leg summaries (`demo_force_pass`) and publishes normal GitHub checks/comments with a passing `BMT Gate`. Ad-hoc env: `KARDOME_BMT_FORCE_PASS`. **Semantics + layers:** [docs/bmt-pipeline-signal.md](docs/bmt-pipeline-signal.md). |
+| Handoff input `force_pass: true` (caller `with:`) | Dispatch/auth must still succeed. Cloud Run executes full BMT (same as false); Checks/PR annotate force-pass. Failures surface real runner output; **Cloud Run execution log** links appear on failure surfaces. Ad-hoc env: `KARDOME_BMT_FORCE_PASS`. **Semantics:** [docs/bmt-pipeline-signal.md](docs/bmt-pipeline-signal.md). |
 
 
 ## Not committed

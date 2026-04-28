@@ -148,8 +148,8 @@ def dispatch_invoke_workflow(
         bool,
         typer.Option(
             "--force-pass",
-            help="Dispatches normally, then asks cloud runtime to short-circuit BMT execution and publish a force-pass result. "
-            "Dispatch/auth must still succeed.",
+            help="Passes force_pass on the workflow dispatch; Cloud Run runs full BMT like force_pass=false. "
+            "Checks/PR annotate that force-pass was requested. Dispatch/auth must still succeed.",
             envvar="BMT_FORCE_PASS",
         ),
     ] = False,

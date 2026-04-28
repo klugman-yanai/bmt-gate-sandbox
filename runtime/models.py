@@ -175,6 +175,8 @@ class LegSummary(BaseModel):
     summary_uri: str = ""
     logs_uri: str = ""
     duration_sec: int | None = None
+    #: GCP Console → this task's Cloud Run job execution Logs (stdout/stderr). Empty when unset.
+    cloud_run_logs_url: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -22,7 +22,7 @@ flowchart TB
   end
   subgraph layer2b [Layer2_gha]
     C[handoff classify validate dispatch]
-    D[force_pass dispatch escape]
+    D[force_pass dispatch flag]
   end
   subgraph layer3 [Layer3_gcp]
     E[Workflows CloudRun kardome_runner GCS]
@@ -30,16 +30,16 @@ flowchart TB
   layer1 --> layer2
   layer2 --> E
   C --> D
-  D -.->|may not start| E
+  D -.->|annotation only| E
 ```
 
-## `force_pass` requires valid dispatch, then short-circuits in cloud runtime
+## `force_pass` requires valid dispatch; Cloud Run runs full BMT
 
 Handoff input **`force_pass: true`** (or env **`BMT_FORCE_PASS` / `KARDOME_BMT_FORCE_PASS`**) still requires a successful Google Workflows dispatch/auth path (`kardome-bmt dispatch invoke-workflow`).
 
 - If dispatch fails (auth/API/network), handoff fails; there is no local dispatch bypass.
-- If dispatch succeeds, Cloud Run task legs emit a fast force-pass result (`reason_code=demo_force_pass`) instead of running full BMT execution.
-- GitHub App reporting still runs from cloud runtime: Checks tab output, PR comment updates, and passing `BMT Gate` status remain visible.
+- If dispatch succeeds, Cloud Run runs the **same** task/coordinator workload as **`force_pass: false`**. Leg outcomes reflect real **`kardome_runner`** execution (including failures).
+- GitHub reporting annotates that force-pass dispatch was requested (workflow summary, PR comment, Checks tab copy). When a leg or coordinator fails, those surfaces include links to **GCP Console → Cloud Run job execution logs** (container stdout/stderr).
 
 ## Layer 1 and 2 commands (copy-paste)
 
@@ -79,7 +79,7 @@ jobs:
       cloud_run_region: europe-west4
       bmt_status_context: BMT Gate
       bmt_pex_repo: klugman-yanai/bmt-gcloud
-      force_pass: false   # true to keep pipeline live while cloud runtime emits force-pass results
+      force_pass: false   # true = label dispatch only; full Cloud Run BMT still runs
 ```
 
 Pin with `@bmt-vX.Y.Z` for reproducible PEX + workflow behavior.

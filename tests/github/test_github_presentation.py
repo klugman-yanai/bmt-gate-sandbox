@@ -109,7 +109,7 @@ def test_render_final_success_pr_comment_mentions_force_pass_when_active() -> No
             force_pass_active=True,
         )
     )
-    assert "force pass is currently active, merge unblock with no cloud run job execution" in rendered
+    assert "outcomes reflect **real** Cloud Run execution" in rendered
 
 
 def test_render_progress_check_output_shows_bmt_table_and_progress() -> None:

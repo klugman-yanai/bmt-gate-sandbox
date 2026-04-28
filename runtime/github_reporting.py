@@ -28,8 +28,10 @@ from runtime.artifacts import (
     write_reporting_metadata,
 )
 from runtime.config.bmt_domain_status import BmtLegStatus, BmtProgressStatus, leg_status_is_pass
-from runtime.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET, REASON_DEMO_FORCE_PASS
+from runtime.config.constants import ENV_BMT_WORKFLOW_EXECUTION_URL, ENV_GCS_BUCKET
+from runtime.config.env_parse import force_pass_dispatch_requested
 from runtime.config.status import CheckConclusion, CheckStatus, CommitStatus
+from runtime.gcp_console_links import cloud_run_job_execution_logs_console_url
 from runtime.github import github_checks
 from runtime.github.github_auth import resolve_github_app_token
 from runtime.github.presentation import (
@@ -147,7 +149,11 @@ def ensure_reporting_metadata_for_plan(*, plan: ExecutionPlan, runtime: StageRun
         token=token,
         status_context=plan.status_context,
     )
-    view = StartedCommentView(head_sha=plan.head_sha, links=LiveLinks(workflow_execution_url=workflow_url))
+    view = StartedCommentView(
+        head_sha=plan.head_sha,
+        links=LiveLinks(workflow_execution_url=workflow_url),
+        force_pass_dispatch=force_pass_dispatch_requested(),
+    )
     try:
         check_run_id = reporter.create_started_check_run(
             view,
@@ -218,12 +224,12 @@ def _commit_status_description(summaries: list[LegSummary], *, is_pass: bool) ->
     if not summaries:
         return "No BMT legs completed."
     n_failed = sum(1 for s in summaries if not leg_status_is_pass(s.status))
-    force_pass_active = any((s.reason_code or "").strip() == REASON_DEMO_FORCE_PASS for s in summaries)
+    fp = force_pass_dispatch_requested()
     if is_pass:
-        if force_pass_active:
-            return "force pass is currently active, merge unblock with no cloud run job execution"
-        return f"{len(summaries)} BMTs passed."
-    return f"{n_failed}/{len(summaries)} BMTs failed."
+        base = f"{len(summaries)} BMTs passed."
+        return f"{base} (force-pass dispatch enabled.)" if fp else base
+    base = f"{n_failed}/{len(summaries)} BMTs failed."
+    return f"{base} (force-pass dispatch enabled; outcomes are real.)" if fp else base
 
 
 def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], runtime: StageRuntimePaths) -> None:
@@ -233,12 +239,19 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
 
     workflow_url = metadata.workflow_execution_url
     log_dump_url = _write_log_dump_and_sign(plan=plan, runtime=runtime, summaries=summaries)
+    is_pass, check_state, commit_state = _aggregate_pass_and_commit_states(summaries)
+    fp_dispatch = force_pass_dispatch_requested()
+    links = _live_links_for_publish(
+        summaries,
+        workflow_url=workflow_url or "",
+        log_dump_url=log_dump_url,
+        attach_coordinator_logs=not is_pass,
+    )
     final_view = _final_view(
         summaries=summaries,
-        workflow_execution_url=workflow_url,
-        log_dump_url=log_dump_url,
+        links=links,
+        force_pass_dispatch=fp_dispatch,
     )
-    is_pass, check_state, commit_state = _aggregate_pass_and_commit_states(summaries)
     description = _commit_status_description(summaries, is_pass=is_pass)
 
     finalized_ok = False
@@ -292,9 +305,9 @@ def publish_final_results(*, plan: ExecutionPlan, summaries: list[LegSummary], r
             view=FinalCommentView(
                 head_sha=plan.head_sha,
                 state=check_state,
-                links=LiveLinks(workflow_execution_url=workflow_url, log_dump_url=log_dump_url),
+                links=links,
                 failed_bmts=_final_comment_failed_rows(summaries),
-                force_pass_active=any((s.reason_code or "").strip() == REASON_DEMO_FORCE_PASS for s in summaries),
+                force_pass_active=fp_dispatch,
             ),
         )
     except GithubException:
@@ -353,10 +366,16 @@ def _publish_github_failure_retry_commit_description(
     )
     workflow_url = metadata.workflow_execution_url
     log_dump_url = _write_log_dump_and_sign(plan=plan, runtime=runtime, summaries=summaries)
+    links = _live_links_for_publish(
+        summaries,
+        workflow_url=workflow_url or "",
+        log_dump_url=log_dump_url,
+        attach_coordinator_logs=True,
+    )
     final_view = _final_view(
         summaries=summaries,
-        workflow_execution_url=workflow_url,
-        log_dump_url=log_dump_url,
+        links=links,
+        force_pass_dispatch=force_pass_dispatch_requested(),
     )
     desc = (reason.strip() or "BMT pipeline aborted.")[:140]
     finalized_ok = False
@@ -616,14 +635,47 @@ def _final_comment_failed_rows(summaries: list[LegSummary]) -> list[tuple[str, s
     return rows
 
 
+def _cloud_run_links_from_summaries(summaries: list[LegSummary]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for s in summaries:
+        url = (s.cloud_run_logs_url or "").strip()
+        if not url:
+            continue
+        out.append((f"{s.project}/{s.bmt_slug} (task)", url))
+    return out
+
+
+def _live_links_for_publish(
+    summaries: list[LegSummary],
+    *,
+    workflow_url: str,
+    log_dump_url: str | None,
+    attach_coordinator_logs: bool,
+) -> LiveLinks:
+    pairs = _cloud_run_links_from_summaries(summaries)
+    if attach_coordinator_logs:
+        coord = cloud_run_job_execution_logs_console_url()
+        if coord:
+            pairs.append(("Coordinator job (GitHub finalize / reporting)", coord))
+    return LiveLinks(
+        workflow_execution_url=workflow_url,
+        log_dump_url=log_dump_url,
+        cloud_run_execution_logs=pairs,
+    )
+
+
 def _final_view(
-    *, summaries: list[LegSummary], workflow_execution_url: str, log_dump_url: str | None
+    *,
+    summaries: list[LegSummary],
+    links: LiveLinks,
+    force_pass_dispatch: bool = False,
 ) -> CheckFinalView:
     is_pass = aggregate_status(summaries) == BmtLegStatus.PASS.value
     check_state = CheckConclusion.SUCCESS.value if is_pass else CheckConclusion.FAILURE.value
     return CheckFinalView(
         state=check_state,
-        links=LiveLinks(workflow_execution_url=workflow_execution_url, log_dump_url=log_dump_url),
+        links=links,
+        force_pass_dispatch=force_pass_dispatch,
         bmts=[
             FinalBmtRow(
                 project=summary.project,
@@ -637,6 +689,7 @@ def _final_view(
                 score_extra=dict(summary.score.extra),
                 score_direction_label=_score_direction_label_from_summary(summary),
                 case_outcomes=case_outcomes_from_metrics(dict(summary.score.metrics)),
+                cloud_run_logs_url=(summary.cloud_run_logs_url or ""),
             )
             for summary in summaries
         ],
