@@ -192,7 +192,7 @@ These names are synced from Pulumi to GitHub **Variables** for normal use. See [
 | `BMT_TASK_HEAVY_JOB` | Repo var, local tools | Yes | |
 | `BMT_STATUS_CONTEXT` | Repo var, CI, runtime (non-handoff) | Optional | Default status context (e.g. `BMT Gate`). **Reusable `bmt-handoff.yml` callers:** pass `bmt_status_context` via job `with:` (not a repo var). |
 | `BMT_CLI` | Repo var, CI | Optional | `uv` (default) or `pex` — use release `bmt.pex` instead of `uv run kardome-bmt` when set to `pex` |
-| `BMT_PEX_TAG` | Repo var, consumer CI | **Optional** for handoff | Prefer a **literal ref** on the reusable workflow: `uses: .../bmt-handoff.yml@bmt-handoff` (rolling) or `@bmt-v0.3.4` (pinned). Legacy: some repos still pin via `vars.BMT_PEX_TAG`; not required for new integrations. |
+| `BMT_PEX_TAG` | Repo var, consumer CI | **Optional** for handoff | Prefer a **literal ref** on the reusable workflow: `uses: .../bmt-handoff.yml@bmt-handoff` (rolling) or `@bmt-v0.3.5` (pinned). Legacy: some repos still pin via `vars.BMT_PEX_TAG`; not required for new integrations. |
 
 **Consumer `workflow_call`:** pin `uses: …/bmt-handoff.yml@bmt-handoff` (or `@bmt-v*`), set job `permissions:` as documented, and pass **`with:`** for `cloud_run_region`, `bmt_status_context`, `bmt_pex_repo`, and `force_pass` (declare values in the caller YAML — no repo vars for those). Omit other inputs when handoff runs in the same workflow as the `runner-*` upload; those resolve from the caller `github` context. **Repo vars** still required on the caller: `GCS_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_SA_EMAIL`, `GCP_PROJECT`. **What `force_pass` does and does not do:** [bmt-pipeline-signal.md](bmt-pipeline-signal.md).
 
