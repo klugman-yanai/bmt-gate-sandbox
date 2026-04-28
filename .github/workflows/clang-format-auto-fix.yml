@@ -74,7 +74,10 @@ jobs:
           default_branch="${{ github.event.repository.default_branch }}"
           tmp_file="$(mktemp)"
 
-          if [[ -n "${before_sha}" && "${before_sha}" != "0000000000000000000000000000000000000000" ]]; then
+          # If github.event.before is missing locally (e.g. force-push), fall back to merge-base.
+          if [[ -n "${before_sha}" && \
+               "${before_sha}" != "0000000000000000000000000000000000000000" ]] && \
+             git cat-file -e "${before_sha}" 2>/dev/null; then
             git diff --name-only --diff-filter=ACMR -z "${before_sha}" "${current_sha}" >"${tmp_file}"
           else
             merge_base="$(git merge-base "origin/${default_branch}" "${current_sha}")"
