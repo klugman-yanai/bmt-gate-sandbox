@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`bmt-handoff.yml`:** composite steps use `klugman-yanai/bmt-gcloud/.github/actions/*@bmt-v0.3.5` (literal refs). Cross-repo callers no longer vendor `bmt-prepare-context` or `setup-bmt-pex`. Dropped sparse checkouts of the caller `.github` that only served `./.github/actions/*`. Tag **`bmt-v0.3.5`** on the release commit before pinning consumers to `@bmt-v0.3.5`; until then test with a commit SHA ref.
+
 ## bmt-v0.3.4
 
 ### CI
