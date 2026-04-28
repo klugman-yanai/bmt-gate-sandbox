@@ -62,8 +62,10 @@ runs:
   using: composite
   steps:
     - name: Setup BMT CLI (release PEX, no uv)
-      # Nested composites get an empty github.action_ref; setup-bmt-pex needs an explicit tag.
-      uses: ./.github/actions/setup-bmt-pex
+      # Nested local `uses: ./...` resolves from the *caller* workspace and breaks when this
+      # composite is fetched via klugman-yanai/bmt-gcloud/.../bmt-prepare-context@bmt-v*.
+      # Keep @ref in sync with bmt-handoff.yml composite pins.
+      uses: klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@bmt-v0.3.5
       with:
         repo: ${{ inputs.bmt_pex_repo != '' && inputs.bmt_pex_repo || 'klugman-yanai/bmt-gcloud' }}
         tag: ${{ inputs.bmt_pex_tag }}

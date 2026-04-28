@@ -157,7 +157,7 @@ runs:
 
     - name: Write handoff summary (failure)
       if: always()
-      uses: ./.github/actions/bmt-write-summary
+      uses: klugman-yanai/bmt-gcloud/.github/actions/bmt-write-summary@bmt-v0.3.5
       with:
         mode: failure
         repository: ${{ github.repository }}
