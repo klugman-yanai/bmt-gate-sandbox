@@ -30,7 +30,7 @@ End goal: **stable bmt-gcloud** (tested, validated, E2E) and a **core-main PR to
 
 ### Status (completed run, 2026-04-27)
 
-**bmt-gcloud:** Branch `feat/bmt-runner-case-json-v1` → PR **https://github.com/klugman-yanai/bmt-gcloud/pull/104** into `ci/check-bmt-gate`. `just test` green; **Handoff / Dispatch**, **BMT Gate** green (incl. force-pass path where applicable).
+**bmt-gcloud:** Branch `feat/bmt-runner-case-json-v1` → PR **https://github.com/klugman-yanai/bmt-gcloud/pull/105** into `ci/check-bmt-gate`. `just test` green; **Handoff / Dispatch**, **BMT Gate** green (incl. force-pass path where applicable).
 
 **core-main:** Branch `feat/bmt-runner-case-json-v1` (from `dev` @ `8b570a58f`) → draft PR **https://github.com/Kardome-org/core-main/pull/277** into **`ci/check-bmt-gate`** (not `dev`). Includes runner JSON v1, `build-and-test.yml` + `bmt-handoff@bmt-handoff`, and legacy **`bmt.yml`** fixes (restore `workflow_run`, clarify VM vs **BMT Gate** comment).
 
