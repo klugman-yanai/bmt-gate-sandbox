@@ -171,7 +171,8 @@ def test_run_task_mode_writes_failure_summary_when_execute_leg_raises(tmp_path: 
     assert summary.score.extra.get("unavailable") is True
 
 
-def test_run_task_mode_force_pass_short_circuits_execution(tmp_path: Path, monkeypatch) -> None:
+def test_run_task_mode_force_pass_still_executes_leg(tmp_path: Path, monkeypatch) -> None:
+    """Force-pass dispatch must run real execute_leg (same workload as normal); annotation is GitHub-only."""
     stage_root = tmp_path / "gcp" / "stage"
     workspace_root = tmp_path / "workspace"
     _setup_flat_project(stage_root, "acme", "wake_word_quality")
@@ -185,11 +186,10 @@ def test_run_task_mode_force_pass_short_circuits_execution(tmp_path: Path, monke
     monkeypatch.setenv("BMT_HEAD_BRANCH", "main")
     monkeypatch.setenv("BMT_ACCEPTED_PROJECTS_JSON", '["acme"]')
     monkeypatch.setenv("BMT_FORCE_PASS", "true")
-
-    def _fail_if_called(**_kwargs: object) -> None:
-        raise AssertionError("execute_leg should not run when force pass is active")
-
-    monkeypatch.setattr(runtime_entrypoint, "execute_leg", _fail_if_called)
+    monkeypatch.setenv("GCP_PROJECT", "test-proj")
+    monkeypatch.setenv("CLOUD_RUN_JOB", "bmt-task-standard")
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", "bmt-task-standard-testexec")
+    monkeypatch.setenv("CLOUD_RUN_REGION", "europe-west4")
 
     assert run_plan_mode(workflow_run_id="wf-force", stage_root=stage_root) == 0
     assert (
@@ -210,9 +210,9 @@ def test_run_task_mode_force_pass_short_circuits_execution(tmp_path: Path, monke
         bmt_slug="wake_word_quality",
     )
     assert summary.status == "pass"
-    assert summary.reason_code == "demo_force_pass"
-    assert summary.execution_mode_used == "force_pass_short_circuit"
-    assert summary.score.metrics.get("force_pass_active") is True
+    assert summary.reason_code != "demo_force_pass"
+    assert summary.execution_mode_used != "force_pass_short_circuit"
+    assert "console.cloud.google.com/run/jobs/details" in summary.cloud_run_logs_url
 
 
 def test_image_main_dispatches_task_mode(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:

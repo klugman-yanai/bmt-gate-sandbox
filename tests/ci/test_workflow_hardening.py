@@ -138,10 +138,11 @@ def test_handoff_declares_opt_in_release_marker_verification() -> None:
     )
 
 
-def test_handoff_uses_repo_relative_composite_actions() -> None:
+def test_handoff_uses_repo_qualified_composite_actions() -> None:
+    """Cross-repo callers must resolve composites from klugman-yanai/bmt-gcloud@tag (literal ``uses:``)."""
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
-    assert "uses: ./.github/actions/setup-bmt-pex" in handoff
-    assert "klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@" not in handoff
+    assert "klugman-yanai/bmt-gcloud/.github/actions/setup-bmt-pex@" in handoff
+    assert "uses: ./.github/actions/setup-bmt-pex" not in handoff
 
 
 def test_handoff_resolves_caller_context_when_inputs_omitted() -> None:

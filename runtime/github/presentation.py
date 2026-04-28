@@ -36,7 +36,7 @@ REASON_LABELS: dict[str, str] = {
     "bootstrap_no_previous_result": _BOOTSTRAP_FIRST_RUN,
     "runner_failures": "the runner exited with a failure",
     "runner_timeout": "the runner timed out",
-    "demo_force_pass": "force pass is currently active, merge unblock with no cloud run job execution",
+    "demo_force_pass": "(legacy) demo force-pass marker — prefer checking dispatch annotations",
     "bootstrap_without_baseline": _BOOTSTRAP_FIRST_RUN,
     "runner_case_failures": "runner crashed on one or more test files",
     "no_successful_cases": "runner crashed on all test files",
@@ -68,6 +68,8 @@ def human_reason(reason_code: str) -> str:
 class LiveLinks:
     workflow_execution_url: str
     log_dump_url: str | None = None
+    #: (label, url) for Cloud Run job execution logs (task and/or coordinator).
+    cloud_run_execution_logs: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,12 +110,16 @@ class FinalBmtRow:
     score_direction_label: str = ""
     #: Per-case rows from ``metrics.case_outcomes`` when the plugin provides them; failure tables and annotations.
     case_outcomes: list[dict[str, Any]] = field(default_factory=list)
+    #: GCP Console URL for this leg's Cloud Run task logs (stdout/stderr).
+    cloud_run_logs_url: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class StartedCommentView:
     head_sha: str
     links: LiveLinks
+    #: True when handoff requested force-pass dispatch (full runtime still runs).
+    force_pass_dispatch: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +146,8 @@ class CheckFinalView:
     state: str
     links: LiveLinks
     bmts: list[FinalBmtRow]
+    #: When True, annotate Checks output that force-pass dispatch was requested (full execution still ran).
+    force_pass_dispatch: bool = False
 
 
 def check_run_tab_refresh_hint_bullet() -> str:
@@ -178,6 +186,10 @@ def render_started_pr_comment(view: StartedCommentView) -> str:
         "",
         f"- Status: `{BmtProgressStatus.PENDING.value}`",
     ]
+    if view.force_pass_dispatch:
+        lines.append(
+            "- **Force pass:** dispatch enabled — full BMT execution runs in Cloud Run (same workload as a normal run)."
+        )
     if view.links.workflow_execution_url:
         lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
     lines.append(f"- Detailed progress: see the **{CHECK_COPY_GATE}** check")
@@ -203,7 +215,7 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
         if view.force_pass_active:
             lines.insert(
                 -1,
-                "- force pass is currently active, merge unblock with no cloud run job execution",
+                "- **Force pass:** dispatch enabled — outcomes reflect **real** Cloud Run execution (same as a normal run).",
             )
         lines.append(check_run_tab_refresh_hint_bullet())
         return "\n".join(lines)
@@ -221,6 +233,12 @@ def render_final_pr_comment(view: FinalCommentView) -> str:
         lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
     if view.links.log_dump_url:
         lines.append(f"- Failure log dump: [3-day link]({view.links.log_dump_url})")
+    if view.links.cloud_run_execution_logs:
+        lines.extend(["", "### Cloud Run debug logs (stdout / stderr)", ""])
+        for label, url in view.links.cloud_run_execution_logs:
+            lines.append(f"- **{label}:** [GCP Console]({url})")
+    if view.force_pass_active:
+        lines.append("- **Force pass:** dispatch enabled — failures above are from **real** runner execution.")
     lines.append(f"- Full details: see the **{CHECK_COPY_GATE}** check")
     lines.append(check_run_tab_refresh_hint_bullet())
     if view.failed_bmts:
@@ -724,6 +742,7 @@ def _final_bmt_row_from_summary_dict(d: dict[str, Any]) -> FinalBmtRow:
         score_extra=extra,
         score_direction_label=str(d.get("score_direction_label", "")),
         case_outcomes=case_outcomes,
+        cloud_run_logs_url=str(d.get("cloud_run_logs_url", "") or ""),
     )
 
 
@@ -763,10 +782,18 @@ def render_final_check_output(view: CheckFinalView) -> CheckRunOutput:
         "",
         f"- Result: `{CheckConclusion.SUCCESS.value if is_success else CheckConclusion.FAILURE.value}`",
     ]
+    if view.force_pass_dispatch:
+        lines.append(
+            "- **Force pass:** dispatch enabled — legs reflect **real** Cloud Run execution (same as a normal run)."
+        )
     if view.links.workflow_execution_url:
         lines.append(f"- Live runtime: {_gcp_console_link(view.links.workflow_execution_url)}")
     if view.links.log_dump_url:
         lines.append(f"- Log dump (expires in 3 days): [open]({view.links.log_dump_url})")
+    if view.links.cloud_run_execution_logs:
+        lines.extend(["", "### Cloud Run debug logs (stdout / stderr)", ""])
+        for label, url in view.links.cloud_run_execution_logs:
+            lines.append(f"- **{label}:** [GCP Console]({url})")
     lines.extend(_final_check_failure_summary_lines(view))
     blurb_md = run_context_blurb_markdown(view.bmts)
     text_parts: list[str] = []

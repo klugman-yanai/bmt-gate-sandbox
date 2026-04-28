@@ -116,7 +116,7 @@ def test_verbose_matrix_appends_details(tmp_path: Path, monkeypatch: pytest.Monk
     assert '"project": "a"' in text
 
 
-def test_force_pass_confirmed_dispatch_adds_runtime_short_circuit_notice(
+def test_force_pass_confirmed_dispatch_adds_full_execution_notice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     summary = tmp_path / "step_summary.md"
@@ -143,4 +143,4 @@ def test_force_pass_confirmed_dispatch_adds_runtime_short_circuit_notice(
     cfg = BmtConfig.model_validate({})
     write_handoff_step_summary(cfg, env)
     text = summary.read_text(encoding="utf-8")
-    assert "force pass is currently active; cloud runtime will short-circuit BMT execution" in text
+    assert "Cloud Run runs the **full** BMT workload" in text

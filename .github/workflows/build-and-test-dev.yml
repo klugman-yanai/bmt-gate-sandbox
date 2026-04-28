@@ -170,7 +170,5 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/bmt-handoff.yml
     with:
-      cloud_run_region: europe-west4
-      bmt_status_context: BMT Gate
       bmt_pex_repo: klugman-yanai/bmt-gcloud
       force_pass: true

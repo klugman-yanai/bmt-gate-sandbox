@@ -36,8 +36,8 @@ on:
         default: ""
       force_pass:
         description: >
-          When true, dispatch/auth must still succeed, but cloud runtime short-circuits BMT execution and
-          publishes explicit force-pass output to checks/comments. Pass explicitly from caller workflow (no repo var).
+          When true, dispatch/auth must still succeed and the same Cloud Run workload runs as a normal BMT;
+          GitHub Checks/PR copy are annotated that force-pass dispatch was requested. Pass from caller (no repo var).
         required: false
         type: boolean
         default: false
@@ -49,15 +49,17 @@ on:
         type: string
         default: "[]"
       cloud_run_region:
-        description: GCP region for Cloud Run jobs (pass from caller workflow; default here is unused when empty).
+        description: >
+          GCP region for Cloud Run jobs. Optional; defaults to europe-west4 when omitted or empty.
         required: false
         type: string
-        default: ""
+        default: "europe-west4"
       bmt_status_context:
-        description: GitHub commit status context name (pass from caller workflow).
+        description: >
+          GitHub commit status context name. Optional; defaults to BMT Gate when omitted or empty.
         required: false
         type: string
-        default: ""
+        default: "BMT Gate"
       bmt_pex_repo:
         description: >
           owner/repo publishing bmt.pex releases. Empty defaults to klugman-yanai/bmt-gcloud inside prepare.
@@ -118,22 +120,23 @@ on:
         default: "[]"
       force_pass:
         description: >
-          When true, dispatch/auth must still succeed. Cloud runtime short-circuits BMT execution and
-          publishes force-pass output while keeping BMT Gate green.
+          When true, full Cloud Run BMT execution runs (same as false); Checks/PR note that force-pass was requested.
           Pass from caller workflow only (no repo var).
         required: false
         type: boolean
         default: false
       cloud_run_region:
-        description: GCP region for Cloud Run (caller workflow `with:`).
+        description: >
+          GCP region for Cloud Run. Optional; defaults to europe-west4 when omitted or empty.
         required: false
         type: string
-        default: ""
+        default: "europe-west4"
       bmt_status_context:
-        description: Commit status context name (caller workflow `with:`).
+        description: >
+          Commit status context name. Optional; defaults to BMT Gate when omitted or empty.
         required: false
         type: string
-        default: ""
+        default: "BMT Gate"
       bmt_pex_repo:
         description: owner/repo for bmt.pex releases (caller workflow `with:`; empty → klugman-yanai/bmt-gcloud).
         required: false
@@ -185,8 +188,8 @@ env:
     }}
   # vars.* below are evaluated in the CALLER repository. Cross-repo callers MUST set:
   # GCS_BUCKET, GCP_WIF_PROVIDER, GCP_SA_EMAIL, GCP_PROJECT.
-  # Region, status context, PEX repo, and force_pass come from workflow_call / workflow_dispatch
-  # inputs only (declare them in the caller `with:` block — no repo vars).
+  # Optional inputs cloud_run_region and bmt_status_context default here (europe-west4, BMT Gate).
+  # PEX repo and force_pass come from workflow_call / workflow_dispatch inputs (no repo vars).
   #
   # Composite `uses:` refs must be literals (GitHub does not allow expressions in `uses:`).
   # Bump @bmt-v0.3.5 below when tagging; keep in sync with caller `uses: .../bmt-handoff.yml@...`.

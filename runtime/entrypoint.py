@@ -37,11 +37,10 @@ from runtime.config.constants import (
     ENV_BMT_FAILURE_REASON,
     ENV_BMT_STATUS_CONTEXT,
     ENV_GCS_BUCKET,
-    REASON_DEMO_FORCE_PASS,
     STATUS_CONTEXT,
 )
-from runtime.config.env_parse import is_truthy_env_value
 from runtime.execution import execute_leg
+from runtime.gcp_console_links import cloud_run_job_execution_logs_console_url
 from runtime.github_reporting import (
     ensure_reporting_metadata_for_plan,
     publish_final_results,
@@ -106,30 +105,12 @@ def _leg_summary_from_execute_failure(*, leg: PlanLeg, exc: BaseException) -> Le
     )
 
 
-def _force_pass_enabled() -> bool:
-    """Runtime force-pass flag (Cloud Run path). Dispatch/auth must still succeed."""
-    return is_truthy_env_value(os.environ.get("BMT_FORCE_PASS")) or is_truthy_env_value(
-        os.environ.get("KARDOME_BMT_FORCE_PASS")
-    )
-
-
-def _leg_summary_force_pass(*, leg: PlanLeg) -> LegSummary:
-    return LegSummary(
-        project=leg.project,
-        bmt_slug=leg.bmt_slug,
-        bmt_id=leg.bmt_id,
-        run_id=leg.run_id,
-        status=BmtLegStatus.PASS.value,
-        reason_code=REASON_DEMO_FORCE_PASS,
-        plugin_ref=leg.plugin_ref,
-        execution_mode_used="force_pass_short_circuit",
-        score=ScorePayload(
-            aggregate_score=0.0,
-            metrics={"force_pass_active": True, "execution_skipped": True},
-            extra={"force_pass": True},
-        ),
-        verdict_summary={"force_pass": True, "summary": "execution short-circuited by force pass"},
-    )
+def _attach_cloud_run_logs_url(summary: LegSummary) -> LegSummary:
+    """Annotate summary with this task container's Cloud Run execution Logs URL when available."""
+    url = cloud_run_job_execution_logs_console_url()
+    if not url:
+        return summary
+    return summary.model_copy(update={"cloud_run_logs_url": url})
 
 
 def _runtime_paths(stage_root: Path | None = None, workspace_root: Path | None = None) -> StageRuntimePaths:
@@ -320,10 +301,7 @@ def run_task_mode(
     publish_progress(plan=plan, runtime=runtime)
     started_monotonic = time.monotonic()
     try:
-        if _force_pass_enabled():
-            summary = _leg_summary_force_pass(leg=leg)
-        else:
-            summary = execute_leg(plan=plan, leg=leg, runtime=runtime)
+        summary = execute_leg(plan=plan, leg=leg, runtime=runtime)
     except Exception as exc:
         logger.exception(
             "execute_leg failed workflow_run_id=%s project=%s bmt=%s",
@@ -332,6 +310,7 @@ def run_task_mode(
             leg.bmt_slug,
         )
         summary = _leg_summary_from_execute_failure(leg=leg, exc=exc)
+    summary = _attach_cloud_run_logs_url(summary)
     duration_sec = max(0, int(time.monotonic() - started_monotonic))
     summary = summary.model_copy(update={"duration_sec": duration_sec})
     summary = _write_snapshot_artifacts(
