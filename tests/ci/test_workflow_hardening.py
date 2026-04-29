@@ -91,18 +91,48 @@ def test_dev_ci_workflow_does_not_publish_placeholder_runner_artifacts() -> None
     assert ".github/actions/artifacts/upload-repo" not in dev_ci
 
 
-def test_external_actions_are_sha_pinned_in_hardened_workflows() -> None:
-    build_test = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
-    clang_format = (repo_root() / ".github" / "workflows" / "clang-format-auto-fix.yml").read_text(encoding="utf-8")
-    image_build = (repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml").read_text(
-        encoding="utf-8"
-    )
+def _specs_with_commit_sha_pins(yaml_text: str) -> list[str]:
+    """Return ``owner/repo@{40-hex}`` uses for marketplace actions (local ``./`` refs skipped)."""
+    bad: list[str] = []
+    for line in yaml_text.splitlines():
+        stripped = line.split("#", 1)[0].rstrip()
+        if "uses:" not in stripped:
+            continue
+        m = re.match(r"^\s*(?:-\s)?uses:\s+(?P<spec>\S+)", stripped)
+        if not m:
+            continue
+        spec = m.group("spec")
+        if spec.startswith("./"):
+            continue
+        if "@" not in spec:
+            continue
+        _name, rev = spec.rsplit("@", 1)
+        if len(rev) == 40 and all(c in "0123456789abcdef" for c in rev.lower()):
+            bad.append(spec)
+    return bad
 
-    assert "actions/checkout@v4" not in build_test
-    assert "actions/checkout@v4" not in clang_format
-    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in clang_format
-    assert "uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in image_build
-    assert "hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232" in image_build
+
+def test_hardened_workflows_external_uses_use_semver_tags_not_sha_pins() -> None:
+    """Prefer rolling ``@vN`` tags over immutable commit pins for third-party actions."""
+    paths = (
+        repo_root() / ".github" / "workflows" / "build-and-test.yml",
+        repo_root() / ".github" / "workflows" / "clang-format-auto-fix.yml",
+        repo_root() / ".github" / "workflows" / "internal" / "bmt-image-build.yml",
+    )
+    offenders: list[str] = []
+    for path in paths:
+        rel = path.relative_to(repo_root())
+        text = path.read_text(encoding="utf-8")
+        if "actions/checkout@v4" in text:
+            offenders.append(f"{rel}: must not use deprecated actions/checkout@v4")
+        offenders.extend(f"{rel}: {spec}" for spec in _specs_with_commit_sha_pins(text))
+    assert not offenders, "Invalid external action pins:\n" + "\n".join(offenders)
+
+    clang_format = paths[1].read_text(encoding="utf-8")
+    image_build = paths[2].read_text(encoding="utf-8")
+    assert "uses: actions/checkout@v6" in clang_format
+    assert "uses: actions/checkout@v6" in image_build
+    assert "hashicorp/setup-packer@v3" in image_build
 
 
 def test_unused_bmt_runner_env_action_is_removed() -> None:

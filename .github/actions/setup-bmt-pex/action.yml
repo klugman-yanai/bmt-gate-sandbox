@@ -69,7 +69,7 @@ runs:
         } >> "$GITHUB_ENV"
 
     - name: Setup Python for PEX
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python_version }}
 

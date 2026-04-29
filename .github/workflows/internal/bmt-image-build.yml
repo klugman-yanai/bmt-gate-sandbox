@@ -72,7 +72,7 @@ jobs:
       PKR_VAR_bmt_repo_source: ${{ github.workspace }}/runtime
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@v6
 
       - name: Setup GCP and uv
         uses: ./.github/actions/setup-gcp-uv
@@ -90,7 +90,7 @@ jobs:
         # Drop this env once hashicorp/setup-packer publishes a Node 24 release (v4 or later).
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-        uses: hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232  # v3.1.0
+        uses: hashicorp/setup-packer@v3
         with:
           version: "1.11.0"
 
@@ -141,7 +141,7 @@ jobs:
             --out provenance.json
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159  # v3.9.2
+        uses: sigstore/cosign-installer@v4
 
       - name: Sign image provenance (SLSA L2)
         env:
@@ -157,7 +157,7 @@ jobs:
           echo "::notice::Image provenance signed (Sigstore/Rekor) and uploaded"
 
       - name: Upload provenance artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7
+        uses: actions/upload-artifact@v7
         with:
           name: slsa-provenance-${{ steps.packer.outputs.image_name }}
           path: |

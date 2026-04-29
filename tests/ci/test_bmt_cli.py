@@ -24,4 +24,3 @@ def test_matrix_build_help() -> None:
 def test_matrix_ci_snapshot_bmt_gcloud_help() -> None:
     result = runner.invoke(app, ["matrix", "ci-snapshot-bmt-gcloud", "--help"])
     assert result.exit_code == 0
-
