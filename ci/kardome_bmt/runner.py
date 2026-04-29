@@ -6,7 +6,6 @@ import contextlib
 import hashlib
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,13 +18,32 @@ from kardome_bmt.runner_provenance import write_runner_provenance
 from kardome_bmt.workflow_env import read_workflow_str
 
 
-def _project_has_bmt_stage_layout(project: str) -> bool:
-    """True when this repo declares BMT for ``project`` under ``plugins/projects/<project>/``."""
+_FLAT_BMT_EXCLUDE: frozenset[str] = frozenset(
+    {
+        "project.json",
+        "runner_latest_meta.json",
+        "runner_meta.json",
+        "runner.slsa.json",
+        "runner_integration_contract.json",
+    }
+)
+
+
+def _project_has_bmt_bucket_layout(root: str, project: str) -> bool:
+    """True when the authenticated BMT bucket declares at least one BMT for ``project``."""
     slug = str(project).strip().lower()
     if not slug:
         return False
-    base = Path("plugins/projects") / slug
-    return (base / "project.json").is_file() or (base / "bmts").is_dir()
+    prefix = f"{root}/projects/{slug}/"
+    uris = gcs.list_prefix(prefix)
+    for uri in uris:
+        rel = uri.removeprefix(prefix)
+        name = rel.rsplit("/", 1)[-1]
+        if rel.startswith("bmts/") and rel.endswith("/bmt.json"):
+            return True
+        if "/" not in rel and name.endswith(".json") and name not in _FLAT_BMT_EXCLUDE and not name.startswith("_"):
+            return True
+    return False
 
 
 def _runner_meta_in_gcs(root: str, project: str, preset: str) -> dict[str, Any] | None:
@@ -38,17 +56,6 @@ def _runner_meta_in_gcs(root: str, project: str, preset: str) -> dict[str, Any] 
     payload, _ = gcs.download_json(f"{root}/{project}/runners/{preset}/runner_latest_meta.json")
     if isinstance(payload, dict):
         return payload
-    # Local repo fallback: plugins/projects/{project}/runner_latest_meta.json.
-    # Present when the runner is configured in this repo's plugins layout (bucket may not yet
-    # be synced, but the file's presence confirms a runner is intended for this project).
-    local = Path("plugins/projects") / project / "runner_latest_meta.json"
-    if local.is_file():
-        try:
-            data = json.loads(local.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-        except Exception as e:
-            print(f"::warning::Failed to parse local runner meta {local}: {e}", file=sys.stderr)
     return None
 
 
@@ -115,7 +122,7 @@ def _render_matrix_step_summary(
         for row in no_bmt_include:
             project = str(row.get("project", ""))
             preset = str(row.get("preset", ""))
-            reason = str(row.get("skip_reason", "") or "no cloud BMT plugin")
+            reason = str(row.get("skip_reason", "") or "no BMT manifest in authenticated bucket")
             lines.append(f"| {project} | {preset} | {reason} |")
     else:
         lines.append("_All release presets are supported — no acknowledgement rows._")
@@ -217,8 +224,8 @@ class RunnerManager:
           ``upload_action`` field: ``upload`` means a real GCS push is needed;
           ``skip_in_gcs`` means the runner is already in the bucket so the job
           only records "Skipped (already in GCS)" for visibility).
-        - ``matrix_no_bmt``   — release presets the cloud runtime has no BMT
-          plugin for; rendered as an informational "Acknowledged (no BMT)"
+        - ``matrix_no_bmt``   — release presets whose project has no BMT
+          manifest in the authenticated bucket; rendered as an informational "Acknowledged (no BMT)"
           parallel matrix, never red.
         - ``matrix_need_upload`` (back-compat) — subset of ``matrix_publish``
           where ``upload_action == 'upload'``. Downstream readers that only
@@ -276,6 +283,7 @@ class RunnerManager:
         publish_include: list[dict[str, Any]] = []
         no_bmt_include: list[dict[str, Any]] = []
         projects_written: set[str] = set()
+        support_cache: dict[str, bool] = {}
         for entry in include:
             if not isinstance(entry, dict):
                 continue
@@ -283,13 +291,20 @@ class RunnerManager:
             preset = str(entry.get("preset", "")).strip()
             if not project or not preset:
                 continue
-            supported = _project_has_bmt_stage_layout(project)
+            if project not in support_cache:
+                try:
+                    support_cache[project] = _project_has_bmt_bucket_layout(root, project)
+                except gcs.GcsError as exc:
+                    raise RuntimeError(
+                        f"Failed to probe BMT bucket support for project {project!r}: {exc}"
+                    ) from exc
+            supported = support_cache[project]
 
             if not supported:
                 row = cast(dict[str, Any], dict(entry))
                 row["bmt_supported"] = "false"
                 row["upload_action"] = "no_bmt"
-                row["skip_reason"] = "no cloud BMT plugin"
+                row["skip_reason"] = "no BMT manifest in authenticated bucket"
                 no_bmt_include.append(row)
                 continue
 
@@ -337,7 +352,7 @@ class RunnerManager:
         print(
             f"::notice::Filter upload matrix: "
             f"{len(publish_include)} supported leg(s) ({n_upload} upload, {n_skip_in_gcs} already in GCS); "
-            f"{len(no_bmt_include)} release preset(s) with no cloud BMT plugin."
+            f"{len(no_bmt_include)} release preset(s) with no BMT manifest in the authenticated bucket."
         )
         _append_matrix_step_summary(_render_matrix_step_summary(publish_include, no_bmt_include))
 

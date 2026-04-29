@@ -231,15 +231,10 @@ jobs:
       matrix_no_bmt: ${{ steps.filter.outputs.matrix_no_bmt }}
       matrix_no_bmt_keys: ${{ steps.filter.outputs.matrix_no_bmt_keys }}
     steps:
-      # NOTE: the Plan job does not checkout the full caller tree up front — `bmt-prepare-context`
-      # only fetches `CMakePresets.json` via the API so `parse-release-runners` can emit
-      # `RUNNER_MATRIX`. Before `runner filter-upload-matrix`, we still need
-      # `plugins/projects/<project>/` on disk so `_project_has_bmt_stage_layout()` can see
-      # `project.json` / `bmts/` (see `ci/kardome_bmt/runner.py`). Without that, every preset
-      # is misclassified as `no_bmt` and SK never appears in the Publish matrix. The sparse
-      # checkout below materializes only `plugins/projects/` under `_layout_probe/` and symlinks
-      # it into the workspace root, leaving `.local/bmt/` from `setup-bmt-pex` untouched
-      # (`actions/checkout` uses `path:` so it does not clobber the job workspace).
+      # NOTE: the Plan job intentionally does not checkout the caller tree. After WIF auth,
+      # `runner filter-upload-matrix` probes the authenticated BMT bucket under
+      # `projects/<project>/` for BMT manifests, so support is determined by the deployed
+      # plugin architecture rather than by files in the calling repository.
       - name: Require ci_run_id for direct workflow_dispatch
         if: github.event_name == 'workflow_dispatch'
         shell: bash
@@ -291,30 +286,6 @@ jobs:
         with:
           project_id: ${{ env.GCP_PROJECT }}
           version: ">= 363.0.0"
-
-      - name: Stage plugins/projects for BMT layout probe
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ github.repository }}
-          ref: ${{ steps.prepare.outputs.head_sha }}
-          fetch-depth: 1
-          path: _layout_probe
-          sparse-checkout: |
-            plugins/projects
-          sparse-checkout-cone-mode: true
-
-      - name: Symlink plugins/projects into workspace root
-        shell: bash
-        run: |
-          set -euo pipefail
-          probe="${GITHUB_WORKSPACE}/_layout_probe/plugins/projects"
-          if [[ -d "$probe" ]]; then
-            mkdir -p plugins
-            rm -rf "${GITHUB_WORKSPACE}/plugins/projects" 2>/dev/null || true
-            ln -sfn "$probe" "${GITHUB_WORKSPACE}/plugins/projects"
-          else
-            echo "::notice::No plugins/projects in sparse checkout at $probe — filter-upload-matrix uses repo layout probe only when the caller mirrors bmt-gcloud."
-          fi
 
       # Drift guard: assert bucket ``_state/release.json`` matches the commit under test
       # (see docs/architecture.md and ci/kardome_bmt/release_marker.py).
@@ -445,8 +416,8 @@ jobs:
           "$BMT_PEX_PATH" runner validate-in-repo
 
   # Parallel, informational-only node: one visible green row per release preset
-  # that has no cloud BMT plugin. Keeps the full matrix visible in the UI without
-  # turning unsupported legs into red failures or silencing them entirely.
+  # whose project has no BMT manifest in the authenticated bucket. Keeps the full
+  # matrix visible in the UI without turning unsupported legs into red failures.
   acknowledge_no_bmt:
     name: No BMT
     needs: write_handoff_context
@@ -464,13 +435,13 @@ jobs:
         # summary covers all no-BMT rows in one section.
         shell: bash
         run: |
-          echo "::notice::${{ matrix.project }}/${{ matrix.preset }}: no cloud BMT plugin — acknowledged, nothing to upload."
+          echo "::notice::${{ matrix.project }}/${{ matrix.preset }}: no BMT manifest in authenticated bucket, acknowledged with nothing to upload."
 
   start_bmt_workflow:
     name: Dispatch
     # `acknowledge_no_bmt` is intentionally NOT in `needs`: it's a
-    # display-only job (one green row per release preset that has no
-    # cloud BMT plugin) and Dispatch doesn't read any output from it.
+    # display-only job (one green row per release preset whose project has no
+    # BMT manifest in the authenticated bucket) and Dispatch doesn't read any output from it.
     # Including it in `needs` made Dispatch silently skip whenever the
     # released PEX didn't emit `matrix_no_bmt_keys` and the matrix
     # expanded to zero rows, because `needs.acknowledge_no_bmt.result`
@@ -663,5 +634,3 @@ jobs:
         run: |
           echo "::error::BMT dispatch did not complete successfully (classify=${{ steps.classify.outcome || 'n/a' }}, workflow=${{ steps.invoke-workflow.outcome || 'n/a' }})."
           exit 1
-
-
