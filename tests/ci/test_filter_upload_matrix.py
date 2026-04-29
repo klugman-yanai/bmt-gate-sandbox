@@ -5,7 +5,7 @@ UI nodes:
 
 - ``matrix_publish``     — supported BMT legs, each tagged
   ``upload_action ∈ {"upload", "skip_in_gcs"}``.
-- ``matrix_no_bmt``      — release presets with no cloud BMT plugin.
+- ``matrix_no_bmt``      — release presets with no BMT manifest in the authenticated bucket.
 - ``matrix_need_upload`` — back-compat subset: the ``upload`` rows only.
 
 Every supported leg appears in ``matrix_publish`` regardless of GCS state —
@@ -51,6 +51,7 @@ def _setup_env(
     *,
     available_artifacts: str = "[]",
     runner_matrix: str = _RUNNER_MATRIX_SK_ONLY,
+    bucket_supported_projects: tuple[str, ...] = ("sk",),
 ) -> Path:
     out = tmp_path / "github_output.txt"
     out.write_text("", encoding="utf-8")
@@ -63,6 +64,7 @@ def _setup_env(
     monkeypatch.setenv("AVAILABLE_ARTIFACTS", available_artifacts)
     monkeypatch.delenv("BMT_SKIP_PUBLISH_RUNNERS", raising=False)
     monkeypatch.delenv("BMT_RUNNERS_PRESEEDED_IN_GCS", raising=False)
+    _stub_bucket_bmt_support(monkeypatch, bucket_supported_projects)
     return out
 
 
@@ -88,11 +90,17 @@ def _sk_publish_row(outputs: dict[str, str]) -> dict:
     return rows[0]
 
 
-def _ensure_local_project_layout(tmp_path: Path, project: str) -> None:
-    """Make ``plugins/projects/<project>/project.json`` so ``_project_has_bmt_stage_layout`` returns True."""
-    p = tmp_path / "plugins" / "projects" / project
-    p.mkdir(parents=True, exist_ok=True)
-    (p / "project.json").write_text("{}", encoding="utf-8")
+def _stub_bucket_bmt_support(monkeypatch: pytest.MonkeyPatch, projects: tuple[str, ...]) -> None:
+    """Make GCS prefix listing declare BMT support for the selected project slugs."""
+    supported = {p.strip().lower() for p in projects if p.strip()}
+
+    def fake_list_prefix(prefix: str) -> list[str]:
+        for project in supported:
+            if prefix == f"gs://test-bucket/projects/{project}/":
+                return [f"gs://test-bucket/projects/{project}/false_alarms.json"]
+        return []
+
+    monkeypatch.setattr(gcs, "list_prefix", fake_list_prefix)
 
 
 def test_sk_skip_in_gcs_when_no_artifacts_and_runner_binary_in_gcs_new_layout(
@@ -100,7 +108,6 @@ def test_sk_skip_in_gcs_when_no_artifacts_and_runner_binary_in_gcs_new_layout(
 ) -> None:
     """No GitHub artifacts + kardome_runner at new GCS layout → sk is `skip_in_gcs` (visible)."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
     out = _setup_env(monkeypatch, tmp_path)
 
     written: list[str] = []
@@ -125,7 +132,6 @@ def test_sk_skip_in_gcs_when_no_artifacts_and_runner_binary_in_gcs_old_layout(
 ) -> None:
     """Old-layout GCS path (sk/runners/preset/kardome_runner) also classified as `skip_in_gcs`."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
     out = _setup_env(monkeypatch, tmp_path)
 
     written: list[str] = []
@@ -144,7 +150,6 @@ def test_sk_skip_in_gcs_when_no_artifacts_and_runner_binary_in_gcs_old_layout(
 def test_sk_upload_when_no_artifacts_and_no_runner_in_gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """No GitHub artifacts AND nothing in GCS → sk is `upload` (real push required)."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
     out = _setup_env(monkeypatch, tmp_path)
 
     monkeypatch.setattr(gcs, "download_json", lambda _uri: (None, "404"))
@@ -165,7 +170,6 @@ def test_sk_upload_when_no_artifacts_and_no_runner_in_gcs(monkeypatch: pytest.Mo
 def test_sk_skip_in_gcs_when_old_layout_meta_matches_sha(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """runner_latest_meta.json at old layout still triggers `skip_in_gcs` when caller has artifacts."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
     head_sha = "deadbeef" * 5
     out = _setup_env(
         monkeypatch,
@@ -192,16 +196,16 @@ def test_sk_skip_in_gcs_when_old_layout_meta_matches_sha(monkeypatch: pytest.Mon
     assert any("sk.json" in u for u in written)
 
 
-def test_sk_skip_in_gcs_via_local_repo_meta(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Local plugins/projects/sk/runner_latest_meta.json serves as a last-resort recognition of a configured runner."""
+def test_local_repo_meta_does_not_override_bucket_support(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Local plugin files do not make a project BMT-supported when the bucket has no manifest."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
     local_meta = tmp_path / "plugins" / "projects" / "sk" / "runner_latest_meta.json"
+    local_meta.parent.mkdir(parents=True)
     local_meta.write_text(
         '{"bucket_path": "sk/runners/sk_gcc_release/kardome_runner", "source_ref": null}',
         encoding="utf-8",
     )
-    out = _setup_env(monkeypatch, tmp_path)
+    out = _setup_env(monkeypatch, tmp_path, bucket_supported_projects=())
 
     written: list[str] = []
     monkeypatch.setattr(gcs, "download_json", lambda _uri: (None, "404"))
@@ -211,15 +215,16 @@ def test_sk_skip_in_gcs_via_local_repo_meta(monkeypatch: pytest.MonkeyPatch, tmp
     RunnerManager.from_env().filter_upload_matrix()
 
     outputs = _read_output(out)
-    row = _sk_publish_row(outputs)
-    assert row["upload_action"] == "skip_in_gcs"
-    assert any("_workflow/uploaded/99999/sk.json" in u for u in written)
+    assert json.loads(outputs["matrix_publish"])["include"] == []
+    no_bmt = json.loads(outputs["matrix_no_bmt"])
+    assert [e["project"] for e in no_bmt["include"]] == ["sk"]
+    assert no_bmt["include"][0]["upload_action"] == "no_bmt"
+    assert written == []
 
 
 def test_meta_sha_match_still_classified_skip_in_gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """meta.source_ref matching HEAD_SHA → skip_in_gcs (regression guard for previous fast-path)."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
     head_sha = "deadbeef" * 5
     out = _setup_env(monkeypatch, tmp_path)
     monkeypatch.setenv("HEAD_SHA", head_sha)
@@ -245,8 +250,7 @@ def test_meta_sha_match_still_classified_skip_in_gcs(monkeypatch: pytest.MonkeyP
 def test_mixed_matrix_splits_supported_and_no_bmt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A mixed matrix yields one sk row in matrix_publish and two rows in matrix_no_bmt."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
-    # hmtc + woven remain unsupported (no plugins/projects/<p>/project.json in tmp_path).
+    # hmtc + woven remain unsupported (no BMT manifests in the authenticated bucket).
     out = _setup_env(monkeypatch, tmp_path, runner_matrix=_RUNNER_MATRIX_MIXED)
 
     monkeypatch.setattr(gcs, "download_json", lambda _uri: (None, "404"))
@@ -304,7 +308,11 @@ def test_render_matrix_step_summary_both_sections() -> None:
             }
         ],
         no_bmt_include=[
-            {"project": "hmtc", "preset": "hmtc_gcc_release", "skip_reason": "no cloud BMT plugin"},
+            {
+                "project": "hmtc",
+                "preset": "hmtc_gcc_release",
+                "skip_reason": "no BMT manifest in authenticated bucket",
+            },
             {"project": "woven", "preset": "woven_gcc_release"},
         ],
     )
@@ -312,8 +320,8 @@ def test_render_matrix_step_summary_both_sections() -> None:
     assert "### Publish (1 leg(s))" in md
     assert "| sk | sk_gcc_release | `skip_in_gcs` | runner in GCS (preseeded) |" in md
     assert "### No BMT (2 leg(s))" in md
-    assert "| hmtc | hmtc_gcc_release | no cloud BMT plugin |" in md
-    assert "| woven | woven_gcc_release | no cloud BMT plugin |" in md
+    assert "| hmtc | hmtc_gcc_release | no BMT manifest in authenticated bucket |" in md
+    assert "| woven | woven_gcc_release | no BMT manifest in authenticated bucket |" in md
 
 
 def test_render_matrix_step_summary_empty_sections() -> None:
@@ -327,7 +335,6 @@ def test_render_matrix_step_summary_empty_sections() -> None:
 def test_filter_writes_single_aggregated_step_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """One invocation of `filter_upload_matrix` appends exactly one matrix section."""
     monkeypatch.chdir(tmp_path)
-    _ensure_local_project_layout(tmp_path, "sk")
     _setup_env(
         monkeypatch,
         tmp_path,
