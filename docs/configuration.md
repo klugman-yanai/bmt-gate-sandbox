@@ -198,6 +198,8 @@ These names are synced from Pulumi to GitHub **Variables** for normal use. See [
 
 **Production consumer repos** typically download **`bmt.pex`** from that upstream release in a workflow step (see **`.github/actions/setup-bmt-pex`** in bmt-gcloud) instead of vendoring the full `ci/` tree for `uv run kardome-bmt`.
 
+**Matrix snapshots in `bmt.pex`:** **`matrix extract-core-main-presets`** (Kardome-org/core-main preset split), **`matrix ci-snapshot-bmt-gcloud`** (this repo’s merged **build-and-test.yml** snapshot), and **`runner filter-bmt-presets`** (upstream artifact rows) ship in **`kardome-bmt`**; pin a **`bmt-v*`** release that contains any command your workflow uses, then replace long inline **`jq`** / Python **`run:`** blocks with a single **`setup-bmt-pex`** step plus **`"$BMT_PEX_PATH" …`**. See **[`ci/README.md`](../ci/README.md)** under *Matrix snapshot commands*.
+
 ## Workflow handoff context (CI)
 
 Read by `context_from_env` / `WorkflowContext` in [ci/kardome_bmt/config.py](../ci/kardome_bmt/config.py) (`_WORKFLOW_CONTEXT_ENV_KEYS`). Typical sources: workflow `env`, prior step outputs, and Actions built-ins.

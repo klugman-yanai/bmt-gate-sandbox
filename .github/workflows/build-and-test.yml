@@ -40,30 +40,19 @@ jobs:
           ref:        ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha        || github.sha }}
           fetch-depth: 1
 
+      - name: Install uv (kardome-bmt matrix snapshot)
+        uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+        with:
+          version: "0.10.9"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync workspace for kardome-bmt CLI
+        run: uv sync
+
       - name: Parse CMakePresets.json
         id: parse
-        run: |
-          # Null-safe: (.buildPresets // []) and (.configurePreset // "") so refs with missing
-          # or partial presets (e.g. no configurePreset on an entry) do not make jq exit 5.
-          presets=$(jq -c '
-            [ (.buildPresets // [])[]
-              | (.configurePreset // "") as $cfg
-              | { build: .name
-                , configure: $cfg
-                , short: (.name | sub("-build$"; ""))
-                , is_release: (
-                    ($cfg | test("_gcc_Release")) and
-                    (($cfg | test("xtensa"; "i")) | not) and
-                    (($cfg | test("hexagon"; "i")) | not)
-                  )
-                , soft_fail: (
-                    ($cfg | test("xtensa"; "i")) or
-                    ($cfg | test("hexagon"; "i"))
-                  )
-                }
-            ]' CMakePresets.json)
-          echo "release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release)]')" >>"$GITHUB_OUTPUT"
-          echo "non_release_presets=$(echo "$presets" | jq -c '[.[] | select(.is_release | not)]')" >>"$GITHUB_OUTPUT"
+        run: uv run kardome-bmt matrix ci-snapshot-bmt-gcloud
 
   # ─────────────────────── 2a) Build release presets (gates BMT) ────────────
   build_release:

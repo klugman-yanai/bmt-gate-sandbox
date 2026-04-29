@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from kardome_bmt import config
+from kardome_bmt import config, core
 from kardome_bmt.actions import gh_error
 from kardome_bmt.handoff import HandoffManager
 from kardome_bmt.matrix import MatrixManager
@@ -63,10 +63,48 @@ def matrix_filter_supported() -> None:
     MatrixManager.from_env().filter_supported()
 
 
+@matrix_app.command("extract-core-main-presets")
+def matrix_extract_core_main_presets() -> None:
+    """Emit ``presets_release`` / ``presets_nonrelease`` (Kardome-org/core-main parity)."""
+    from pathlib import Path
+
+    from kardome_bmt.matrix_core_main import extract_presets_github_output_from_repo
+
+    rr = Path((os.environ.get("BMT_REPO_ROOT") or ".").strip() or ".").resolve()
+    presets = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
+    gh_out = core.require_env("GITHUB_OUTPUT")
+    extract_presets_github_output_from_repo(rr, presets, gh_out)
+
+
+@matrix_app.command("ci-snapshot-bmt-gcloud")
+def matrix_ci_snapshot_bmt_gcloud() -> None:
+    """Emit ``release_presets`` / ``non_release_presets`` (``build-and-test.yml`` jq parity)."""
+    from pathlib import Path
+
+    from kardome_bmt.matrix_ci_snapshot_bmt_gcloud import write_github_bmt_gcloud_repo_snapshot
+
+    rr = Path((os.environ.get("BMT_REPO_ROOT") or ".").strip() or ".").resolve()
+    presets = Path(os.environ.get("BMT_PRESETS_FILE", "CMakePresets.json"))
+    preset_path = presets.resolve() if presets.is_absolute() else (rr / presets).resolve()
+    gh_out = core.require_env("GITHUB_OUTPUT")
+    write_github_bmt_gcloud_repo_snapshot(
+        preset_path,
+        gh_out,
+        presets_key_release=os.environ.get("BMT_KEY_RELEASE_PRESETS", "release_presets"),
+        presets_key_non=os.environ.get("BMT_KEY_NON_RELEASE_PRESETS", "non_release_presets"),
+    )
+
+
 @matrix_app.command("parse-release-runners")
 def matrix_parse_release_runners() -> None:
     """Parse CMakePresets for CI or BMT runner rows."""
     MatrixManager.from_env().parse_release_runners()
+
+
+@runner_app.command("filter-bmt-presets")
+def runner_filter_bmt_presets() -> None:
+    """Upstream artifact metadata subset (core-main ``filter-bmt-presets.sh`` parity)."""
+    RunnerManager.from_env().filter_bmt_presets_upstream()
 
 
 @runner_app.command("upload")

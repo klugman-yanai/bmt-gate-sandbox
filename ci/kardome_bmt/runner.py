@@ -133,6 +133,37 @@ def _append_matrix_step_summary(markdown: str) -> None:
         f.write(markdown)
 
 
+def filter_bmt_presets_upstream_artifacts_matrix(
+    artifact_root: Path, repo_root: Path
+) -> tuple[list[dict[str, Any]], int, bool]:
+    """Subset of core-main ``filter-bmt-presets.sh``: metadata under ``artifact_root/*/*``. Returns ``(matrix, count, has_presets).``"""
+    items: list[dict[str, Any]] = []
+    for meta_path in sorted(artifact_root.resolve().glob("*/metadata.json")):
+        with meta_path.open(encoding="utf-8") as fh:
+            metadata = json.load(fh)
+        if not metadata.get("runnable_on_bmt_runner", False):
+            continue
+        build_preset = metadata["build_preset"]
+        bmt_key = metadata.get("bmt_key", build_preset)
+        script_path = repo_root / "bmt" / str(bmt_key) / "run-bmt.sh"
+        if not script_path.is_file():
+            continue
+        items.append(
+            {
+                "artifact_name": f"runner-{build_preset}",
+                "build_preset": build_preset,
+                "bmt_key": bmt_key,
+                "configure_preset": metadata["configure_preset"],
+                "runner_path": metadata["runner_path"],
+                "script_path": str(script_path),
+                "arch": metadata.get("arch", ""),
+                "os": metadata.get("os", ""),
+            }
+        )
+    n = len(items)
+    return items, n, n > 0
+
+
 class RunnerManager:
     def __init__(self, cfg: BmtConfig, ctx: BmtContext | None) -> None:
         self._cfg = cfg
@@ -506,3 +537,18 @@ class RunnerManager:
         filtered_matrix = json.loads(filtered_raw)
         bmt_jobs = sorted({str(e.get("project", "")).strip() for e in filtered_matrix.get("include", []) if e})
         print(f"::notice::Matrix handshake: uploaded={len(accepted)} legs={len(bmt_jobs)}")
+
+    def filter_bmt_presets_upstream(self) -> None:
+        """Emit ``matrix``, ``count``, ``has_presets`` to ``GITHUB_OUTPUT`` (core-main filter script parity)."""
+        raw_root = (os.environ.get("FILTER_BMT_ARTIFACT_ROOT") or os.environ.get("BMT_ARTIFACT_ROOT") or "").strip()
+        artifact_root = Path(raw_root or "upstream-artifacts").resolve()
+        repo_root = Path(
+            (os.environ.get("BMT_REPO_ROOT") or os.environ.get("GITHUB_WORKSPACE") or ".").strip() or "."
+        ).resolve()
+        out = core.require_env("GITHUB_OUTPUT")
+        items, count, has_presets = filter_bmt_presets_upstream_artifacts_matrix(artifact_root, repo_root)
+        matrix_payload = json.dumps(items, separators=(",", ":"))
+        with Path(out).open("a", encoding="utf-8") as fh:
+            fh.write(f"matrix={matrix_payload}\n")
+            fh.write(f"count={count}\n")
+            fh.write(f"has_presets={'true' if has_presets else 'false'}\n")

@@ -19,3 +19,9 @@ def test_matrix_build_help() -> None:
     result = runner.invoke(app, ["matrix", "build", "--help"])
     assert result.exit_code == 0
     assert "GITHUB_OUTPUT" in result.stdout or "Emit BMT matrix" in result.stdout
+
+
+def test_matrix_ci_snapshot_bmt_gcloud_help() -> None:
+    result = runner.invoke(app, ["matrix", "ci-snapshot-bmt-gcloud", "--help"])
+    assert result.exit_code == 0
+
