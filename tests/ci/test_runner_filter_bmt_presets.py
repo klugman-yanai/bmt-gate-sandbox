@@ -1,4 +1,4 @@
-"""``runner filter-bmt-presets`` / ``filter-bmt-presets.sh`` parity."""
+"""``runner filter-bmt-presets`` matrix tests."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from kardome_bmt.runner import filter_bmt_presets_upstream_artifacts_matrix
 
 
-def test_filter_keeps_only_runnable_with_script(tmp_path: Path) -> None:
+def test_filter_keeps_runnable_metadata_without_consumer_bmt_script(tmp_path: Path) -> None:
     art = tmp_path / "upstream"
     meta_dir = art / "runner-a"
     meta_dir.mkdir(parents=True)
@@ -26,8 +26,7 @@ def test_filter_keeps_only_runnable_with_script(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (tmp_path / "bmt" / "T").mkdir(parents=True)
-    (tmp_path / "bmt" / "T" / "run-bmt.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     items, count, hp = filter_bmt_presets_upstream_artifacts_matrix(art, tmp_path)
     assert count == 1 and hp
     assert items[0]["artifact_name"] == "runner-T_gcc_Release-build"
+    assert "script_path" not in items[0]

@@ -136,7 +136,7 @@ def _append_matrix_step_summary(markdown: str) -> None:
 def filter_bmt_presets_upstream_artifacts_matrix(
     artifact_root: Path, repo_root: Path
 ) -> tuple[list[dict[str, Any]], int, bool]:
-    """Subset of core-main ``filter-bmt-presets.sh``: metadata under ``artifact_root/*/*``. Returns ``(matrix, count, has_presets).``"""
+    """Build a handoff matrix from uploaded runner metadata."""
     items: list[dict[str, Any]] = []
     for meta_path in sorted(artifact_root.resolve().glob("*/metadata.json")):
         with meta_path.open(encoding="utf-8") as fh:
@@ -145,9 +145,6 @@ def filter_bmt_presets_upstream_artifacts_matrix(
             continue
         build_preset = metadata["build_preset"]
         bmt_key = metadata.get("bmt_key", build_preset)
-        script_path = repo_root / "bmt" / str(bmt_key) / "run-bmt.sh"
-        if not script_path.is_file():
-            continue
         items.append(
             {
                 "artifact_name": f"runner-{build_preset}",
@@ -155,7 +152,6 @@ def filter_bmt_presets_upstream_artifacts_matrix(
                 "bmt_key": bmt_key,
                 "configure_preset": metadata["configure_preset"],
                 "runner_path": metadata["runner_path"],
-                "script_path": str(script_path),
                 "arch": metadata.get("arch", ""),
                 "os": metadata.get("os", ""),
             }
