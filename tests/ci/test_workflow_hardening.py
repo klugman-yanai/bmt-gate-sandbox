@@ -50,7 +50,7 @@ def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     assert "  statuses: write" not in merged_dispatch
     assert "GH_TOKEN: ${{ github.token }}" in merged_dispatch
     assert 'gh workflow run "$workflow_file"' in merged_dispatch
-    assert 'internal/bmt-image-build.yml' in merged_dispatch
+    assert "internal/bmt-image-build.yml" in merged_dispatch
 
 
 def test_handoff_uses_direct_workflow_dispatch_not_gcs_eventarc() -> None:
