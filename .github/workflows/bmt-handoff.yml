@@ -245,7 +245,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cid="${{ github.event.inputs.ci_run_id }}"
+          cid="${{ inputs.ci_run_id || github.event.inputs.ci_run_id }}"
           if [[ -z "${cid// }" ]]; then
             echo "::error::workflow_dispatch requires input ci_run_id (Actions run_id that uploaded runner-* artifacts)."
             exit 1
@@ -663,6 +663,5 @@ jobs:
         run: |
           echo "::error::BMT dispatch did not complete successfully (classify=${{ steps.classify.outcome || 'n/a' }}, workflow=${{ steps.invoke-workflow.outcome || 'n/a' }})."
           exit 1
-
 
 
