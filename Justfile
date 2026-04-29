@@ -322,8 +322,11 @@ release-check:
     command -v actionlint >/dev/null 2>&1 || (echo Install actionlint >&2; exit 1)
     actionlint -config-file .github/actionlint.yaml \
       .github/workflows/bmt-handoff.yml \
+      .github/workflows/build-and-test.yml \
+      .github/workflows/build-and-test-dev.yml \
       .github/workflows/build-kardome-bmt-pex.yml \
-      .github/workflows/release.yml
+      .github/workflows/release.yml \
+      .github/workflows/internal/dispatch-branch-workflows.yml
 
 # Self-contained bmt CLI for consumer CI (GitHub Release asset: bmt.pex on tag bmt-v*).
 [group('dev')]
@@ -332,7 +335,7 @@ build-pex:
 
 # -- Local CI ----------------------------------------------------------------
 
-# Default: workflow_dispatch on build-and-test.yml. For handoff or internal/trigger-ci, run act with -W yourself or see .github/README.md.
+# Default: workflow_dispatch on build-and-test.yml. For handoff or internal/dispatch-branch-workflows, run act with -W yourself or see .github/README.md.
 [group('local-ci')]
 act:
     #!/usr/bin/env bash

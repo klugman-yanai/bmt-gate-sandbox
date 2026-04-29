@@ -1,8 +1,10 @@
 # Merged CI: real builds (from .github-packaged) + BMT handoff (gated by release build).
 # Copy to core-main/.github/workflows/build-and-test.yml
-# push/pull_request_target are in trigger-ci.yml so CI runs from the PR/source branch (see trigger-ci.yml).
+# push/pull_request_target on core-main use scripts/release_templates/workflows/trigger-ci.yml (see README).
 
 name: CI
+
+run-name: "CI (build-and-test) · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
 
 # Jobs/DAG: repo_snapshot → build_release + build_non_release (parallel) → bmt_handoff (eligibility on handoff if).
 on:

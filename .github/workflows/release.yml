@@ -1,5 +1,7 @@
 name: Release
 
+run-name: "Release · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
+
 # CI-driven release — the ONLY producer of BMT pipeline artifacts. Every push to
 # ci/check-bmt-gate (and every `bmt-v*` tag) lands here and atomically updates
 # the four surfaces that downstream BMT runs consume:

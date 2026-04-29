@@ -25,27 +25,32 @@ pytestmark = pytest.mark.unit
 
 def test_reusable_workflow_calls_do_not_inherit_secrets() -> None:
     build_workflow = (repo_root() / ".github" / "workflows" / "build-and-test.yml").read_text(encoding="utf-8")
-    trigger_ci = (repo_root() / ".github" / "workflows" / "internal" / "trigger-ci.yml").read_text(encoding="utf-8")
+    merged_dispatch = (repo_root() / ".github" / "workflows" / "internal" / "dispatch-branch-workflows.yml").read_text(
+        encoding="utf-8",
+    )
 
     assert "secrets: inherit" not in build_workflow
-    assert "secrets: inherit" not in trigger_ci
+    assert "secrets: inherit" not in merged_dispatch
 
 
 def test_workflow_permissions_are_minimal_for_current_steps() -> None:
     handoff = (repo_root() / ".github" / "workflows" / "bmt-handoff.yml").read_text(encoding="utf-8")
-    trigger_ci = (repo_root() / ".github" / "workflows" / "internal" / "trigger-ci.yml").read_text(encoding="utf-8")
+    merged_dispatch = (repo_root() / ".github" / "workflows" / "internal" / "dispatch-branch-workflows.yml").read_text(
+        encoding="utf-8",
+    )
 
     assert "start_bmt_workflow:" in handoff
     assert "statuses: write" in handoff
     assert "      contents: read" in handoff
     assert "      actions: write" not in handoff
 
-    assert "permissions:" in trigger_ci
-    assert "  actions: write" in trigger_ci
-    assert "  id-token: write" not in trigger_ci
-    assert "  statuses: write" not in trigger_ci
-    assert "GH_TOKEN: ${{ github.token }}" in trigger_ci
-    assert 'gh workflow run "$workflow_file"' in trigger_ci
+    assert "permissions:" in merged_dispatch
+    assert "  actions: write" in merged_dispatch
+    assert "  id-token: write" not in merged_dispatch
+    assert "  statuses: write" not in merged_dispatch
+    assert "GH_TOKEN: ${{ github.token }}" in merged_dispatch
+    assert 'gh workflow run "$workflow_file"' in merged_dispatch
+    assert 'internal/bmt-image-build.yml' in merged_dispatch
 
 
 def test_handoff_uses_direct_workflow_dispatch_not_gcs_eventarc() -> None:

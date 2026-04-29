@@ -2,6 +2,8 @@
 
 This repository keeps GitHub Actions logic in the native locations that GitHub executes.
 
+The Actions UI lists **one entry per YAML file** under `.github/workflows/` (including `internal/`). Distinct **`run-name:`** strings make the **run** list easier to scan; unrelated workflows stay split for clarity and token scope.
+
 ## Workflow matrix (this repo)
 
 Root `**.github/workflows/*.yml**` (non-`internal/`): `**build-and-test-dev.yml**`, `**build-and-test.yml**`, `**bmt-handoff.yml**`, `**build-kardome-bmt-pex.yml**`, `**clang-format-auto-fix.yml**`. Everything else is under `**internal/**` (dev/ops tooling). Optional templates for consumer repos (e.g. `**trigger-ci.yml**`) live under `**scripts/release_templates/workflows/**` as references — production no longer uses a generated `**.github-release/**` bundle.
@@ -14,9 +16,8 @@ Root `**.github/workflows/*.yml**` (non-`internal/`): `**build-and-test-dev.yml*
 | `**workflows/bmt-handoff.yml**`                  | Reusable BMT handoff: context, upload matrix, **Workflows** dispatch (`invoke-workflow`)                                                                                                                                                                                                                                                                                                                                                                                            |
 | `**workflows/clang-format-auto-fix.yml`**        | C/C++ format automation on selected branches                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `**workflows/build-kardome-bmt-pex.yml**`        | On tag `**bmt-v***`: build `**dist/bmt.pex**` and attach to the GitHub Release on **klugman-yanai/bmt-gcloud** (must be top-level so push-tag triggers it; subdirs of `.github/workflows/` are not scanned for triggers)                                                                                                                                                                                                                                                            |
-| `**workflows/internal/trigger-ci.yml`**          | Manual: `gh workflow run` **build-and-test** on a chosen ref                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `**workflows/internal/dispatch-branch-workflows.yml**` | **Manual only:** unified dispatcher — `**target=build-and-test**` (runs **`build-and-test.yml`** on a ref) or `**target=image-build**` (runs **`internal/bmt-image-build.yml`**). Example: ``gh workflow run internal/dispatch-branch-workflows.yml -f target=build-and-test -f ref=my-branch`` ; image: ``… -f target=image-build -f ref=my-branch``. Empty `ref` uses defaults documented in the workflow. |
 | `**workflows/internal/bmt-image-build.yml`**     | Packer image build; also on path-filtered `push`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `**workflows/internal/trigger-image-build.yml**` | Manual: dispatch image build on a branch                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 
 **BMT CLI:** the canonical CI entry point is the release `**bmt.pex`**, downloaded by `**[setup-bmt-pex](./actions/setup-bmt-pex/action.yml)**` and invoked via `**"$BMT_PEX_PATH" …**`. In `**bmt-handoff.yml**`, composites use **repo-relative** `./.github/actions/...` so the PEX tag matches the **same ref** as the reusable workflow (`@bmt-handoff` rolling tag or `@bmt-v*`). `**setup-bmt-pex`** resolves `github.action_ref`, with `**bmt-handoff` → latest `bmt-v***` for downloads. Self-CI image-build / dev-tooling workflows still use `**uv run**` + `**[setup-bmt-cli](./actions/setup-bmt-cli/action.yml)**` + `**[setup-gcp-uv](./actions/setup-gcp-uv/action.yml)**`, which sync the `**ci/**` workspace ([`ci/README.md`](../ci/README.md)).
@@ -63,15 +64,15 @@ The workflow is **PEX-only and caller-tree independent** — it loads `**[setup-
 
 ## This repo’s workflow layout
 
-- **workflows/** — **Root:** `**build-and-test-dev.yml`**, `**build-and-test.yml**`, `**bmt-handoff.yml**`, `**build-kardome-bmt-pex.yml**`, `**clang-format-auto-fix.yml**`. `**internal/**` — dev-only: trigger-ci, bmt-image-build, trigger-image-build.
+- **workflows/** — **Root:** `**build-and-test-dev.yml`**, `**build-and-test.yml**`, `**bmt-handoff.yml**`, `**build-kardome-bmt-pex.yml**`, `**clang-format-auto-fix.yml**`. `**internal/**` — dev-only: **`dispatch-branch-workflows.yml`**, **`bmt-image-build.yml`**, plus other helpers listed above.
 - **actions/** — `bmt-prepare-context`, `bmt-filter-handoff-matrix`, `bmt-write-summary`, `bmt-failure-fallback`, `**setup-bmt-pex`** (PEX-only; cross-repo callable), `setup-bmt-cli` + `setup-gcp-uv` (uv-mode for self-CI), `bmt-get-pex`
 - `**ci/**` — **`kardome-bmt`** package ([`ci/README.md`](../ci/README.md))
 
 ## Which workflow runs CI?
 
 - **bmt-gcloud (this repo):** `**build-and-test-dev.yml`** runs on `push` / `pull_request` / `workflow_dispatch` / `workflow_call` (branches `dev`, `ci/check-bmt-gate`, `test/*`). One workflow per event — no `**pull_request_target**`, no sibling PR trigger. **Use a PR into `ci/check-bmt-gate` as the default way to trigger and inspect the full BMT pipeline** (Checks tab, PR annotations); rely on `push` for post-merge continuity, not as the primary substitute for a PR when you are validating a change.
-- **Production (core-main):** Typically `**internal/trigger-ci.yml`** (from `**scripts/release_templates/workflows/trigger-ci.yml**`) on `push` / `pull_request_target` to `**dev**`, which `**workflow_call`s** `**build-and-test.yml`**. `**build-and-test.yml**` then calls `**bmt-handoff.yml**` when eligible.
-- **Manual / sandbox:** `**internal/trigger-ci.yml`** dispatches `**build-and-test.yml**` on an arbitrary ref.
+- **Production (core-main):** Copy **`scripts/release_templates/workflows/trigger-ci.yml`** to `**workflows/internal/trigger-ci.yml**` — it runs on `push` / `pull_request_target` to **`dev`** and **`workflow_call`s** `**build-and-test.yml**`. **`build-and-test.yml`** then calls `**bmt-handoff.yml**` when eligible. (That template is **not** the same path as **`bmt-gcloud`’s** `**dispatch-branch-workflows.yml**`, which replaces only this repo’s old manual wrappers.)
+- **Manual / sandbox (this repo):** `**internal/dispatch-branch-workflows.yml`** with `**target=build-and-test**` dispatches **`build-and-test.yml`** on an arbitrary ref; `**target=image-build**` dispatches the Packer/image workflow.
 
 ## Workflow and job triggers (inventory)
 
@@ -83,7 +84,7 @@ The workflow is **PEX-only and caller-tree independent** — it loads `**[setup-
 | Trigger             | Notes                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
 | `workflow_dispatch` | Manual                                                                            |
-| `workflow_call`     | Invoked by template `**trigger-ci`**, `**internal/trigger-ci**`, or other callers |
+| `workflow_call`     | Invoked by core-main’s **`trigger-ci`** workflow (from **`scripts/release_templates/workflows/trigger-ci.yml`** once copied into that repo), or other callers |
 
 
 **Job gate — `bmt_handoff`:** runs only if `build_release` succeeded or was skipped **and** (same-repo PR or not a PR) **and** either PR (`pull_request` or `pull_request_target`) with `**base_ref`** in `dev`  `ci/check-bmt-gate`, or non-PR with `**ref_name**` in `dev`  `ci/check-bmt-gate`. Checkouts honor `**pull_request_target**` head repo/SHA when that event applies.
@@ -121,14 +122,12 @@ The workflow is **PEX-only and caller-tree independent** — it loads `**[setup-
 | `push`                                | Branches: `main`, `ci/check-bmt-gate`, `dev`; **paths:** `infra/packer/`**, `runtime/**` |
 
 
-### `internal/trigger-image-build.yml` / `internal/trigger-ci.yml`
+### `internal/dispatch-branch-workflows.yml`
 
 
-| Workflow                               | Trigger                                                                           |
-| -------------------------------------- | --------------------------------------------------------------------------------- |
-| `**internal/trigger-image-build.yml**` | `workflow_dispatch` (optional `branch` input; dispatches image build on that ref) |
-| `**internal/trigger-ci.yml**`          | `workflow_dispatch` (required `ref`; dispatches `**build-and-test.yml**`)         |
-
+| Trigger             | Notes |
+| ------------------- | ----- |
+| `workflow_dispatch` | Inputs **`target`** (`build-and-test` \| `image-build`), optional **`ref`** (defaults per-job; see YAML). Dispatches **`build-and-test.yml`** or **`internal/bmt-image-build.yml`** and watches the child run. |
 
 ### `clang-format-auto-fix.yml`
 

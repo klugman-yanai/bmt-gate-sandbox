@@ -16,7 +16,7 @@ from tools.shared.rich_minimal import step_console, success_panel
 app = typer.Typer(no_args_is_help=True)
 
 PACKER_TEMPLATE = "infra/packer/bmt-runtime.pkr.hcl"  # relative to repo root
-IMAGE_BUILD_WORKFLOW = "internal/trigger-image-build.yml"
+IMAGE_BUILD_WORKFLOW = "internal/dispatch-branch-workflows.yml"
 
 
 def _repo_slug() -> str:
@@ -79,12 +79,12 @@ def _run_packer_validate() -> int:
 
 
 def _dispatch_workflow(repo: str, branch: str) -> None:
-    # Dispatch the trigger workflow without --ref so GitHub finds it on the default branch
-    # (the trigger workflow may live at ops/ on feature branches but at root on main).
-    # Pass branch as an input so the trigger can build from the intended branch.
+    # Dispatch the merged dispatcher on the default branch (first try), passing target + ref.
+    # Fall back with --ref so GitHub resolves the workflow from the caller branch when needed.
     base_args = ["gh", "workflow", "run", IMAGE_BUILD_WORKFLOW, "--repo", repo]
+    inputs = ["-f", "target=image-build", "-f", f"ref={branch}"]
     with_input = subprocess.run(
-        [*base_args, "-f", f"branch={branch}"],
+        [*base_args, *inputs],
         check=False,
         capture_output=True,
         text=True,
@@ -92,9 +92,8 @@ def _dispatch_workflow(repo: str, branch: str) -> None:
     )
     if with_input.returncode == 0:
         return
-    # Fall back: try with --ref (works when workflow is on the same branch as current)
     with_ref = subprocess.run(
-        [*base_args, "--ref", branch, "-f", f"branch={branch}"],
+        [*base_args, "--ref", branch, *inputs],
         check=False,
         capture_output=True,
         text=True,
@@ -102,22 +101,13 @@ def _dispatch_workflow(repo: str, branch: str) -> None:
     )
     if with_ref.returncode == 0:
         return
-    # Last attempt: workflow may not accept branch input
-    no_input = subprocess.run(
-        base_args,
-        check=False,
-        capture_output=True,
-        text=True,
-        cwd=repo_root(),
-    )
-    if no_input.returncode != 0:
-        err = no_input.stderr or with_ref.stderr or with_input.stderr
+    if with_ref.returncode != 0:
+        err = with_ref.stderr or with_input.stderr
         if err:
             typer.echo(err.strip(), err=True)
         typer.echo(
-            "Trigger failed. Ensure internal/trigger-image-build.yml (or legacy ops/ / root paths) "
-            "is accessible from the default branch and accepts a 'branch' input. "
-            "Use --skip-image to run Pulumi only.",
+            "Trigger failed. Ensure internal/dispatch-branch-workflows.yml is on the default branch "
+            "and accepts target=image-build with ref=. Use --skip-image to run Pulumi only.",
             err=True,
         )
         raise typer.Exit(1)

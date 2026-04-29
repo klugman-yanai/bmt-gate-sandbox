@@ -1,0 +1,117 @@
+# Manual: dispatch build-and-test.yml or internal/bmt-image-build.yml on a branch/ref without dynamic `uses:`.
+# Replaces legacy internal/trigger-ci.yml + internal/trigger-image-build.yml (single Actions sidebar entry).
+name: Dispatch branch workflows (manual)
+
+run-name: "Dispatch · ${{ inputs.target }} · ref=${{ inputs.ref || github.ref_name }} @ ${{ github.sha }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which workflow to run on the requested ref.
+        required: true
+        type: choice
+        options:
+          - build-and-test
+          - image-build
+      ref:
+        description: >-
+          Branch or ref. Leave empty for defaults: CI → test/check-bmt-gate-big-bang;
+          image build → the ref you launched this workflow from (github.ref_name).
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dispatch_build_and_test:
+    name: Dispatch build-and-test.yml
+    runs-on: ubuntu-22.04
+    if: ${{ inputs.target == 'build-and-test' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch build-and-test on ref
+        id: dispatch
+        run: |
+          set -euo pipefail
+          ref="${{ inputs.ref }}"
+          if [[ -z "$ref" ]]; then
+            ref="test/check-bmt-gate-big-bang"
+          fi
+          workflow_file="build-and-test.yml"
+
+          gh workflow run "$workflow_file" --repo "${{ github.repository }}" --ref "$ref"
+
+          for _ in {1..10}; do
+            sleep 5
+            run_id="$(gh run list --workflow "$workflow_file" --repo "${{ github.repository }}" --branch "$ref" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+          done
+
+          if [[ -z "${run_id:-}" ]]; then
+            echo "::error::Triggered CI run not found for $workflow_file on $ref. Check Actions tab."
+            exit 1
+          fi
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Watch CI run
+        run: gh run watch "${{ steps.dispatch.outputs.run_id }}" --repo "${{ github.repository }}" --exit-status
+
+  dispatch_image_build:
+    name: Dispatch image build workflow
+    runs-on: ubuntu-22.04
+    if: ${{ inputs.target == 'image-build' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch image build on branch
+        id: dispatch
+        run: |
+          set -euo pipefail
+          REF_INPUT="${{ inputs.ref }}"
+          if [[ -z "$REF_INPUT" ]]; then
+            REF="${{ github.ref_name }}"
+          else
+            REF="$REF_INPUT"
+          fi
+          # Try internal/ (current layout), then legacy ops/ or root (older branches / core-main)
+          IMAGE_WF="internal/bmt-image-build.yml"
+          if ! gh workflow run "$IMAGE_WF" --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
+            IMAGE_WF="ops/bmt-image-build.yml"
+            if ! gh workflow run "$IMAGE_WF" --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
+              IMAGE_WF="bmt-image-build.yml"
+              if ! gh workflow run "$IMAGE_WF" --repo "${{ github.repository }}" --ref "$REF" 2>&1; then
+                DEFAULT_BRANCH=$(gh repo view "${{ github.repository }}" --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null) || true
+                [[ -z "$DEFAULT_BRANCH" ]] && DEFAULT_BRANCH=main
+                echo "::warning::Image build workflow not on $REF; triggering from default branch $DEFAULT_BRANCH."
+                if ! gh workflow run "$IMAGE_WF" --repo "${{ github.repository }}" --ref "$DEFAULT_BRANCH" 2>&1; then
+                  echo "::error::Failed to trigger image build on $REF or $DEFAULT_BRANCH."
+                  exit 1
+                fi
+                REF="$DEFAULT_BRANCH"
+              fi
+            fi
+          fi
+          for _ in {1..10}; do
+            sleep 5
+            RUN_ID=$(gh run list --workflow "$IMAGE_WF" --repo "${{ github.repository }}" --branch "$REF" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+            if [[ -n "$RUN_ID" ]]; then break; fi
+          done
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::error::Triggered run not found for $IMAGE_WF on $REF. Check Actions tab."
+            exit 1
+          fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+      - name: Watch image build
+        run: gh run watch ${{ steps.dispatch.outputs.run_id }} --repo "${{ github.repository }}" --exit-status

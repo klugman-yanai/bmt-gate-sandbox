@@ -1,5 +1,7 @@
 name: Release / auto-retry transient infra failures
 
+run-name: "Release auto-retry · source-${{ github.event.workflow_run.id }} · ${{ github.event.workflow_run.head_branch }} @ ${{ github.event.workflow_run.head_sha }}"
+
 # Listen for `Release` workflow completions and auto-rerun failed jobs ONCE
 # when the failure log matches a known transient GitHub Actions infrastructure
 # pattern — typically the random tarball-by-SHA 404 from api.github.com when

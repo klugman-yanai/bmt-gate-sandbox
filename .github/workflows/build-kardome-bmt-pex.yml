@@ -8,6 +8,8 @@
 # Local: `just build-pex` → `./dist/bmt.pex --help` (Python 3.12 on PATH).
 name: Build kardome-bmt PEX
 
+run-name: "Build kardome-bmt PEX · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
+
 on:
   push:
     tags:
