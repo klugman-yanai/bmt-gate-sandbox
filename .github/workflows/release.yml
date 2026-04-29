@@ -87,7 +87,7 @@ jobs:
       is_tag: ${{ steps.resolve.outputs.is_tag }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@v6
         with:
           # Full history so dorny/paths-filter can resolve `github.event.before`
           # for any-size push (single- or multi-commit). With a shallow checkout
@@ -97,7 +97,7 @@ jobs:
 
       - name: Path filter
         id: filter
-        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        uses: dorny/paths-filter@v4
         with:
           # Compare against the most recent commit on the same branch before the
           # push (i.e. `github.event.before`). Without this, the action defaults
@@ -166,9 +166,9 @@ jobs:
     needs: detect-changes
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@bd01e18f51369d5a26f1651c3cb451d3417e3bba # v6.3.1
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
       - name: Set up Python
@@ -199,7 +199,7 @@ jobs:
     outputs:
       image_digest: ${{ steps.push.outputs.image_digest }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -251,7 +251,7 @@ jobs:
     outputs:
       plugins_sha: ${{ steps.deploy.outputs.plugins_sha }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -311,7 +311,7 @@ jobs:
   #   outputs:
   #     pulumi_stack_sha: ${{ steps.apply.outputs.pulumi_stack_sha }}
   #   steps:
-  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+  #     - uses: actions/checkout@v6
   #       with:
   #         fetch-depth: 1
   #     - name: Setup GCP and uv
@@ -322,7 +322,7 @@ jobs:
   #         gcp_project: ${{ env.GCP_PROJECT }}
   #         install_uv: "true"
   #     - name: Install Pulumi CLI
-  #       uses: pulumi/actions@cc7494be991dba0978f7ffafaf995b0449a0998e # v6.5.0
+  #       uses: pulumi/actions@v6
   #     - name: Apply Pulumi stack
   #       id: apply
   #       env:
@@ -357,7 +357,7 @@ jobs:
     if: always() && !failure() && !cancelled() && needs.test.result == 'success'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 1
 

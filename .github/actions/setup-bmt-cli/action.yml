@@ -45,7 +45,7 @@ runs:
 
     - name: Install uv and sync workspace (uv mode)
       if: ${{ inputs.mode == 'uv' }}
-      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+      uses: astral-sh/setup-uv@v8.1.0
       with:
         version: "0.10.9"
         python-version: ${{ inputs.python_version }}
@@ -58,7 +58,7 @@ runs:
 
     - name: Setup Python for PEX
       if: ${{ inputs.mode == 'pex' }}
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python_version }}
 
@@ -72,7 +72,7 @@ runs:
 
     - name: Install uv for workspace tools (PEX mode)
       if: ${{ inputs.mode == 'pex' && inputs.install_workspace == 'true' }}
-      uses: astral-sh/setup-uv@65ef90775fa85bf7130e46f3f22dc79a206581c8 # v7
+      uses: astral-sh/setup-uv@v8.1.0
       with:
         version: "0.10.9"
         python-version: ${{ inputs.python_version }}
