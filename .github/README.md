@@ -71,8 +71,10 @@ The workflow is **PEX-only and caller-tree independent** — it loads `**[setup-
 ## Which workflow runs CI?
 
 - **bmt-gcloud (this repo):** `**build-and-test-dev.yml`** runs on `push` / `pull_request` / `workflow_dispatch` / `workflow_call` (branches `dev`, `ci/check-bmt-gate`, `test/*`). One workflow per event — no `**pull_request_target**`, no sibling PR trigger. **Use a PR into `ci/check-bmt-gate` as the default way to trigger and inspect the full BMT pipeline** (Checks tab, PR annotations); rely on `push` for post-merge continuity, not as the primary substitute for a PR when you are validating a change.
+- **Do not use `workflow_dispatch` for routine proof:** Admins aside, the API often returns 403; reproducible validation is **open or update a PR** into `ci/check-bmt-gate` (or push to an open PR branch). That runs the same `pull_request`/`push` graph—including **Handoff** when eligible—without ad-hoc triggers.
+- **After `just ship` (or `just image`):** Cloud Run job definitions in **`infra/pulumi/__main__.py`** reference **`bmt-orchestrator:latest`**. Pushing `:latest` to Artifact Registry is enough for **new executions** to resolve the current image; no separate `workflow_dispatch` is required. For digested pins, see **`IMAGE_DIGEST=`** on `just image` output and [docs/configuration.md](../docs/configuration.md).
 - **Production (core-main):** Copy **`scripts/release_templates/workflows/trigger-ci.yml`** to `**workflows/internal/trigger-ci.yml**` — it runs on `push` / `pull_request_target` to **`dev`** and **`workflow_call`s** `**build-and-test.yml**`. **`build-and-test.yml`** then calls `**bmt-handoff.yml**` when eligible. (That template is **not** the same path as **`bmt-gcloud`’s** `**dispatch-branch-workflows.yml**`, which replaces only this repo’s old manual wrappers.)
-- **Manual / sandbox (this repo):** `**internal/dispatch-branch-workflows.yml`** with `**target=build-and-test**` dispatches **`build-and-test.yml`** on an arbitrary ref; `**target=image-build**` dispatches the Packer/image workflow.
+- **Manual / sandbox (this repo, optional):** `**internal/dispatch-branch-workflows.yml`** dispatches **`build-and-test.yml`** or image-build for a ref when you explicitly need that path (e.g. cross-branch tooling). **Not** a substitute for PR-based self-CI on this repo.
 
 ## Workflow and job triggers (inventory)
 
