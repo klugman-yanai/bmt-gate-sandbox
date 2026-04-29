@@ -295,9 +295,7 @@ class RunnerManager:
                 try:
                     support_cache[project] = _project_has_bmt_bucket_layout(root, project)
                 except gcs.GcsError as exc:
-                    raise RuntimeError(
-                        f"Failed to probe BMT bucket support for project {project!r}: {exc}"
-                    ) from exc
+                    raise RuntimeError(f"Failed to probe BMT bucket support for project {project!r}: {exc}") from exc
             supported = support_cache[project]
 
             if not supported:
