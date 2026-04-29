@@ -1,4 +1,4 @@
-"""Classify CMake buildPresets the same way as Kardome-org/core-main extract-presets."""
+"""Classify core-main CMake buildPresets for BMT runner artifact publishing."""
 
 from __future__ import annotations
 
@@ -24,7 +24,11 @@ def load_presets_file(path: Path) -> dict[str, Any]:
 def classify_build_presets(
     doc: dict[str, Any], repo_root: Path
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Mirror core-main ``extract-presets``: release (BMT), release_no_bmt, nonrelease."""
+    """Classify host Release presets as runner-artifact candidates.
+
+    BMT support is owned by bmt-gcloud's plugin/runtime registry.  The consumer
+    repo only decides whether a preset can build a host runner artifact.
+    """
     configure_by_name = {
         preset["name"]: preset for preset in doc.get("configurePresets", []) if isinstance(preset.get("name"), str)
     }
@@ -59,9 +63,7 @@ def classify_build_presets(
             (base for base in base_names if configure_name.startswith(f"{base}_")),
             configure_name,
         )
-        has_bmt_script = (repo_root / "bmt" / str(bmt_key) / "run-bmt.sh").is_file()
         is_host_release = is_linux_host and build_type == "Release"
-        runnable = is_host_release and has_bmt_script
 
         entry: dict[str, Any] = {
             "build": build["name"],
@@ -71,12 +73,10 @@ def classify_build_presets(
             "arch": arch,
             "os": "linux" if is_linux_host else "other",
             "build_type": build_type,
-            "runnable_on_bmt_runner": runnable,
+            "runnable_on_bmt_runner": is_host_release,
         }
-        if runnable:
+        if is_host_release:
             release_bmt.append(entry)
-        elif is_host_release:
-            release_no_bmt.append(entry)
         else:
             hay = f"{configure_name} {build['name']}".lower()
             entry["soft_fail"] = any(m in hay for m in _NONRELEASE_SOFT_FAIL_NEEDLES)

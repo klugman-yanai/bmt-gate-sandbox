@@ -12,9 +12,6 @@ from tools.shared.core_main_ci_matrix import classify_build_presets, load_preset
 
 
 def test_reexport_alias_matches_canonical(tmp_path: Path) -> None:
-    (tmp_path / "bmt" / "T").mkdir(parents=True)
-    (tmp_path / "bmt" / "T" / "run-bmt.sh").write_text("#!/bin/sh\n", encoding="utf-8")
-
     doc = {
         "configurePresets": [
             {"name": "T_base", "hidden": True},

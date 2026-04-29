@@ -9,7 +9,7 @@ Production GitHub workflows typically use the release **`bmt.pex`** via [`.githu
 
 ## Matrix snapshot commands
 
-- **`matrix extract-core-main-presets`** — emits `presets_release` / `presets_nonrelease` (same rules as Kardome-org/core-main **extract-presets**; needs `CMakePresets.json`, `bmt/<key>/run-bmt.sh` checks).
+- **`matrix extract-core-main-presets`** — emits `presets_release` / `presets_nonrelease` from `CMakePresets.json`; host linux Release presets publish runner artifacts, while BMT support is determined later by bmt-gcloud plugins/runtime.
 - **`matrix ci-snapshot-bmt-gcloud`** — emits `release_presets` / `non_release_presets` (parity with this repo **`build-and-test.yml`** `repo_snapshot`, formerly `jq`).
 - **`runner filter-bmt-presets`** — scans `upstream-artifacts/*/metadata.json` (override with `FILTER_BMT_ARTIFACT_ROOT`); writes `matrix`, `count`, `has_presets`.
 
