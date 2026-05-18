@@ -2,24 +2,9 @@ name: Auto Format C/C++
 
 run-name: "Auto Format C/C++ · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
 
+# Push trigger removed: repo deprecated.
 on:
   workflow_dispatch:
-  push:
-    branches-ignore:
-      - dev
-      - main
-      - master
-    paths:
-      - "**/*.c"
-      - "**/*.cc"
-      - "**/*.cpp"
-      - "**/*.cxx"
-      - "**/*.h"
-      - "**/*.hh"
-      - "**/*.hpp"
-      - "**/*.hxx"
-      - "**/*.ipp"
-      - ".clang-format"
 
 permissions:
   contents: write

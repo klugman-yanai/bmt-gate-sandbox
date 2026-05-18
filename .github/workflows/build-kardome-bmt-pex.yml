@@ -1,8 +1,8 @@
 # Build dist/bmt.pex and attach to a GitHub Release.
 #
 # Triggers:
-#   - push tag bmt-v*  → release must exist for the tag (--verify-tag).
 #   - workflow_dispatch → pass release_tag; release is created at the workflow commit if missing.
+#   (Tag push automation removed: repo deprecated.)
 #
 # After publish: this workflow also updates the rolling git tag `bmt-handoff` (consumer `uses:` ref).
 # Local: `just build-pex` → `./dist/bmt.pex --help` (Python 3.12 on PATH).
@@ -11,9 +11,6 @@ name: Build kardome-bmt PEX
 run-name: "Build kardome-bmt PEX · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
 
 on:
-  push:
-    tags:
-      - "bmt-v*"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -23,6 +20,11 @@ on:
 
 permissions:
   contents: write
+
+defaults:
+  run:
+    shell: bash
+    working-directory: bmt-cloud
 
 jobs:
   pex:

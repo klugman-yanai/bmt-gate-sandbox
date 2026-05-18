@@ -1,8 +1,8 @@
 name: CI
 
-run-name: "CI (bmt-gcloud) · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
+run-name: "CI (bmt-cloud) · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
 
-# Self-CI for klugman-yanai/bmt-gcloud (this repo only).
+# Self-CI for Kardome-org/kardome-bmt-suite (this repo only).
 #
 # DAG mirrors Kardome-org/core-main `build-and-test.yml`: Snapshot → Release gate +
 # Non-Release (parallel) → Handoff → Google Workflows → Cloud Run.
@@ -19,23 +19,15 @@ run-name: "CI (bmt-gcloud) · ${{ github.event_name }} · ${{ github.ref_name }}
 # - workflow_dispatch from branches other than dev, ci/check-bmt-gate, or test/* runs Snapshot/build placeholders
 #   only; Handoff skips (avoid accidental GCP/BMT on random branches).
 #
+# Push/PR triggers removed: this suite repo is deprecated; use workflow_dispatch to run CI when needed.
 on:
-  push:
-    branches:
-      - dev
-      - ci/check-bmt-gate
-      - test/*
-  pull_request:
-    branches:
-      - dev
-      - ci/check-bmt-gate
-      - test/*
   workflow_dispatch:
   workflow_call: {}
 
 defaults:
   run:
     shell: bash
+    working-directory: bmt-cloud
 
 permissions:
   contents: read
@@ -52,6 +44,7 @@ jobs:
     outputs:
       release_presets: ${{ steps.parse.outputs.release_presets }}
       non_release_presets: ${{ steps.parse.outputs.non_release_presets }}
+      bmt_ref_exists: ${{ steps.bmt_ref.outputs.exists }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
@@ -98,6 +91,17 @@ jobs:
           echo "release_presets=$release_presets" >>"$GITHUB_OUTPUT"
           echo "non_release_presets=$non_release_presets" >>"$GITHUB_OUTPUT"
 
+      - name: Check frozen BMT bootstrap ref
+        id: bmt_ref
+        working-directory: .
+        run: |
+          if git ls-remote --exit-code --tags https://github.com/Kardome-org/kardome-bmt-suite.git bmt-v0.3.5 >/dev/null 2>&1; then
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Skipping handoff until bmt-v0.3.5 exists; this is expected for the first Cloud BMT import PR."
+          fi
+
   # Release builds: gate for BMT on core-main. Here: placeholders only (no cmake, no artifacts).
   build_release:
     name: Release
@@ -108,9 +112,10 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.repo_snapshot.outputs.release_presets) }}
     steps:
-      - name: Release build placeholder (bmt-gcloud)
+      - name: Release build placeholder (bmt-cloud)
+        working-directory: .
         run: |
-          echo "bmt-gcloud: no firmware build; runner binaries come from GCS. Representative preset matrix leg for ${{ matrix.configure }}."
+          echo "bmt-cloud: no firmware build; runner binaries come from GCS. Representative preset matrix leg for ${{ matrix.configure }}."
 
   # Non-release: parallel smoke legs on core-main; placeholders here (do not gate handoff).
   build_non_release:
@@ -123,19 +128,21 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.repo_snapshot.outputs.non_release_presets) }}
     steps:
-      - name: Non-release build placeholder (bmt-gcloud)
+      - name: Non-release build placeholder (bmt-cloud)
+        working-directory: .
         run: |
-          echo "bmt-gcloud: no firmware build; parallel non-release preset ${{ matrix.configure }} (does not gate BMT)."
+          echo "bmt-cloud: no firmware build; parallel non-release preset ${{ matrix.configure }} (does not gate BMT)."
 
   bmt_handoff:
     name: Handoff
-    needs: [build_release]
+    needs: [repo_snapshot, build_release]
     # Unlike build-and-test.yml handoff we do not use always(); upstream failures skip dependents by default.
     # The skipped arm on needs.build_release matches the template predicate for parity / future always(); runs
     # that matter today use success only.
     # Fork PRs excluded (no WIF secrets). Same-repo PRs only for secret-bearing handoff.
     if: >-
       (needs.build_release.result == 'success' || needs.build_release.result == 'skipped')
+      && needs.repo_snapshot.outputs.bmt_ref_exists == 'true'
       && (
         (github.event_name != 'pull_request' && github.event_name != 'pull_request_target')
         || github.event.pull_request.head.repo.full_name == github.repository
@@ -165,10 +172,10 @@ jobs:
       statuses: write
       pull-requests: read
     # `./` resolves this workflow + composites from the triggering ref — required to test handoff edits on PRs.
-    # Production / core-main pin: klugman-yanai/bmt-gcloud/.github/workflows/bmt-handoff.yml@bmt-handoff or @bmt-v*
+    # Production / core-main pin: Kardome-org/kardome-bmt-suite/.github/workflows/bmt-handoff.yml@bmt-handoff or @bmt-v*
     uses: ./.github/workflows/bmt-handoff.yml
     with:
       cloud_run_region: europe-west4
       bmt_status_context: BMT Gate
-      bmt_pex_repo: klugman-yanai/bmt-gcloud
+      bmt_pex_repo: Kardome-org/kardome-bmt-suite
       force_pass: true

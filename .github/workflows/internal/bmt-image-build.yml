@@ -1,5 +1,6 @@
 name: BMT Image Build
 
+# Push automation removed while this repo is deprecated; use workflow_dispatch or workflow_call.
 on:
   workflow_dispatch:
     inputs:
@@ -37,19 +38,15 @@ on:
         required: false
         default: "e2-standard-4"
         type: string
-  push:
-    # Rebuild VM image when Packer or any runtime code changes so the image stays up to date.
-    branches:
-      - main
-      - ci/check-bmt-gate
-      - dev
-    paths:
-      - 'infra/packer/**'
-      - 'runtime/**'
 
 permissions:
   contents: read
   id-token: write  # Required for GCP Workload Identity
+
+defaults:
+  run:
+    shell: bash
+    working-directory: bmt-cloud
 
 jobs:
   build-image:
@@ -69,13 +66,13 @@ jobs:
       PKR_VAR_base_image_project: ${{ inputs.base_image_project || 'ubuntu-os-cloud' }}
       PKR_VAR_machine_type: ${{ inputs.machine_type || 'e2-standard-4' }}
       # Code is baked from the repo checkout (runtime/), not from gs://bucket/code.
-      PKR_VAR_bmt_repo_source: ${{ github.workspace }}/runtime
+      PKR_VAR_bmt_repo_source: ${{ github.workspace }}/bmt-cloud/runtime
 
     steps:
       - uses: actions/checkout@v6
 
       - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./bmt-cloud/.github/actions/setup-gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}

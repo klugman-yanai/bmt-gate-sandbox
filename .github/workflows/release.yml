@@ -2,8 +2,9 @@ name: Release
 
 run-name: "Release · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
 
-# CI-driven release — the ONLY producer of BMT pipeline artifacts. Every push to
-# ci/check-bmt-gate (and every `bmt-v*` tag) lands here and atomically updates
+# CI-driven release workflow for BMT pipeline artifacts. With this repo deprecated,
+# runs are manual (`workflow_dispatch`) only; previously every push to
+# ci/check-bmt-gate (and every `bmt-v*` tag) landed here and atomically updated
 # the four surfaces that downstream BMT runs consume:
 #
 #   1. Cloud Run image (Artifact Registry)
@@ -23,12 +24,8 @@ run-name: "Release · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ g
 #
 # See docs/architecture.md and docs/configuration.md (release marker + consumer pinning).
 
+# Push/tag triggers removed: repo deprecated; run releases via workflow_dispatch when needed.
 on:
-  push:
-    branches:
-      - ci/check-bmt-gate
-    tags:
-      - "bmt-v*"
   workflow_dispatch:
     inputs:
       force_image:
@@ -62,6 +59,11 @@ permissions:
   contents: read
   id-token: write
 
+defaults:
+  run:
+    shell: bash
+    working-directory: bmt-cloud
+
 env:
   GCS_BUCKET: ${{ vars.GCS_BUCKET }}
   GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
@@ -73,7 +75,7 @@ env:
 jobs:
   # --------------------------------------------------------------------------
   # Which surfaces does this commit actually change? Each downstream job
-  # (image/plugins/pulumi) gates on one of these booleans. Tag pushes (bmt-v*)
+  # (image/stage/pulumi) gates on one of these booleans. Tag pushes (bmt-v*)
   # always force-build the image — the PEX tag path means a new release wants
   # a fresh runtime even if runtime/** is unchanged.
   # --------------------------------------------------------------------------
@@ -107,15 +109,15 @@ jobs:
           base: ${{ github.ref }}
           filters: |
             runtime:
-              - 'runtime/**'
+              - 'bmt-cloud/runtime/**'
               - 'pyproject.toml'
               - 'uv.lock'
-              - 'runtime/Dockerfile'
+              - 'bmt-cloud/runtime/Dockerfile'
             plugins:
-              - 'plugins/**'
-              - 'gcp/stage/**'
+              - 'sk-cloud-bmt/**'
+              - 'bmt-cloud/generated/stage/**'
             infra:
-              - 'infra/pulumi/**'
+              - 'bmt-cloud/infra/pulumi/**'
 
       - name: Resolve force flags and tag push
         id: resolve
@@ -204,7 +206,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./bmt-cloud/.github/actions/setup-gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
@@ -240,8 +242,8 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
 
   # --------------------------------------------------------------------------
-  # Sync gcp/stage → bucket. Emits the git tree SHA of plugins/projects so the
-  # marker records exactly which plugin state was deployed.
+  # Materialize root projects, then sync generated/stage to the bucket.
+  # The release marker records exactly which project state was deployed.
   # --------------------------------------------------------------------------
   plugins:
     name: GCS plugins
@@ -256,7 +258,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./bmt-cloud/.github/actions/setup-gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
@@ -315,7 +317,7 @@ jobs:
   #       with:
   #         fetch-depth: 1
   #     - name: Setup GCP and uv
-  #       uses: ./.github/actions/setup-gcp-uv
+  #       uses: ./bmt-cloud/.github/actions/setup-gcp-uv
   #       with:
   #         workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
   #         service_account: ${{ env.GCP_SA_EMAIL }}
@@ -346,7 +348,7 @@ jobs:
   # --------------------------------------------------------------------------
   # Write the single source-of-truth release marker. Runs even when upstream
   # build jobs were skipped (path filter) — `always()` gate + explicit
-  # !failure() so a genuinely failed image/plugins/pulumi step does block the
+  # !failure() so a genuinely failed image/stage/pulumi step does block the
   # marker. Skipped jobs contribute empty (null) fields to the marker, which
   # is semantically correct: "release.yml did not touch this surface for
   # this commit".
@@ -362,7 +364,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup GCP and uv
-        uses: ./.github/actions/setup-gcp-uv
+        uses: ./bmt-cloud/.github/actions/setup-gcp-uv
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SA_EMAIL }}
@@ -372,12 +374,19 @@ jobs:
       - name: Resolve PEX tag (tag pushes only)
         id: pex_tag
         env:
+          GH_TOKEN: ${{ github.token }}
           REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [[ "${REF}" == refs/tags/bmt-v* ]]; then
-            echo "pex_tag=${REF_NAME}" >>"$GITHUB_OUTPUT"
+            if gh release view "${REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+                --json assets --jq '.assets[].name' | grep -Fxq 'bmt.pex'; then
+              echo "pex_tag=${REF_NAME}" >>"$GITHUB_OUTPUT"
+            else
+              echo "::warning::Release ${REF_NAME} does not contain bmt.pex yet; omitting pex_tag from release marker."
+              echo "pex_tag=" >>"$GITHUB_OUTPUT"
+            fi
           else
             echo "pex_tag=" >>"$GITHUB_OUTPUT"
           fi

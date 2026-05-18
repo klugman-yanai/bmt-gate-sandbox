@@ -2,19 +2,14 @@ name: Build and Push Docker Image
 
 run-name: "Docker orchestrator · ${{ github.event_name }} · ${{ github.ref_name }} @ ${{ github.sha }}"
 
+# Push trigger removed: repo deprecated.
 on:
-  push:
-    branches:
-      - ci/check-bmt-gate
-      - dev
-    paths:
-      - 'runtime/**'
-      - 'runtime/__init__.py'
   workflow_dispatch:
 
 defaults:
   run:
     shell: bash
+    working-directory: bmt-cloud
 
 permissions:
   contents: read
